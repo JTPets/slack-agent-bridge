@@ -187,7 +187,15 @@ async function executeTask(channel, task) {
             throw new Error(`Claude Code CLI failed: ${claudeResult.stderr}`);
         }
 
-        await postToSlack(channel, `✅ Task completed:\n${claudeResult.stdout.substring(0, 3000)}`);
+        // LOGIC CHANGE 2026-03-26: Check for max turns limit in output
+        // If Claude Code hit max turns, treat as partial failure and warn ops
+        const output = claudeResult.stdout;
+        if (output.includes('Reached max turns')) {
+            await postToSlack(channel, `⚠️ Task hit max turns limit. May be partially complete. Consider increasing MAX_TURNS or breaking the task into smaller pieces.`);
+            await postToSlack(channel, `Partial output:\n${output.substring(0, 3000)}`);
+        } else {
+            await postToSlack(channel, `✅ Task completed:\n${output.substring(0, 3000)}`);
+        }
 
     } catch (error) {
         // ALWAYS report errors to Slack
