@@ -136,12 +136,15 @@ const POLL_INTERVAL = 5000;
 ### Optional
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `LLM_PROVIDER` | Which LLM backend to use | `claude` |
 | `GITHUB_ORG` | Default GitHub org | `jtpets` |
 | `CLAUDE_BIN` | Path to claude binary | `/home/jtpets/.local/bin/claude` |
 | `POLL_INTERVAL_MS` | Poll frequency in ms | `30000` |
 | `MAX_TURNS` | CC max turns per task | `50` |
 | `TASK_TIMEOUT_MS` | Hard kill timeout in ms | `600000` |
 | `WORK_DIR` | Base dir for temp clones | `/tmp/bridge-agent` |
+
+**LLM_PROVIDER options:** `claude` (default), `openai` (not yet implemented), `ollama` (not yet implemented)
 
 ### Auto-update vars
 | Variable | Description | Default |
@@ -215,11 +218,13 @@ slack-agent-bridge/
 ├── morning-digest.js     # Cron job script: sends daily task stats DM to owner
 ├── lib/
 │   ├── config.js         # Environment variable loading, validation, and defaults
+│   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, openai, ollama)
 │   └── task-parser.js    # Task message parsing and message type detection
 ├── memory/
 │   └── memory-manager.js # Task history storage and context retrieval (JSON file-based)
 ├── tests/
 │   ├── config.test.js           # Tests for lib/config.js
+│   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
 │   ├── message-detection.test.js # Tests for isTaskMessage/isConversationMessage
 │   └── task-parser.test.js      # Tests for task parsing logic
 ├── package.json          # Dependencies and npm scripts

@@ -31,10 +31,9 @@
  */
 
 const { WebClient } = require('@slack/web-api');
-const { spawn, execSync } = require('child_process');
+const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 
 // LOGIC CHANGE 2026-03-26: Added memory-manager integration to track task
 // execution history for analytics and debugging purposes.
@@ -52,6 +51,10 @@ const {
 // LOGIC CHANGE 2026-03-26: Extracted config loading and validation into
 // lib/config.js for centralized env var management.
 const { config, validate } = require('./lib/config');
+
+// LOGIC CHANGE 2026-03-26: Extracted LLM execution into lib/llm-runner.js
+// to support multiple LLM providers via LLM_PROVIDER env var.
+const { runLLM } = require('./lib/llm-runner');
 
 // ---- Config ----
 
@@ -174,53 +177,6 @@ function cleanupDir(dir) {
   }
 }
 
-// ---- Claude Code execution ----
-
-function runClaudeCode(taskText, cwd) {
-  return new Promise((resolve, reject) => {
-    const args = [
-      '-p', taskText,
-      '--output-format', 'text',
-      '--max-turns', String(MAX_TURNS),
-      '--dangerously-skip-permissions',
-    ];
-
-    console.log(`[bridge-agent] Spawning CC in ${cwd} (max-turns=${MAX_TURNS})`);
-
-    const child = spawn(CLAUDE_BIN, args, {
-      cwd,
-      env: { ...process.env, HOME: os.homedir() },
-      timeout: TASK_TIMEOUT,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString();
-    });
-
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve(stdout.trim());
-      } else {
-        reject(new Error(
-          `Exit code ${code}${stderr ? '\n' + stderr.slice(0, 2000) : ''}`
-        ));
-      }
-    });
-
-    child.on('error', (err) => {
-      reject(new Error(`Spawn failed: ${err.message}`));
-    });
-  });
-}
-
 // ---- Formatting ----
 
 function truncate(text, max = 3500) {
@@ -293,12 +249,16 @@ async function processTask(msg) {
       // Continue without context - never block task execution
     }
 
-    const output = await runClaudeCode(prompt, cwd);
+    // LOGIC CHANGE 2026-03-26: Use runLLM from lib/llm-runner.js instead of
+    // inline runClaudeCode. Supports multiple providers via LLM_PROVIDER env var.
+    const result = await runLLM(prompt, {
+      cwd,
+      maxTurns: MAX_TURNS,
+      timeout: TASK_TIMEOUT,
+      claudeBin: CLAUDE_BIN,
+    });
+    const { output, hitMaxTurns } = result;
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-
-    // LOGIC CHANGE 2026-03-26: Check if output indicates max turns was reached.
-    // If so, post a warning to ops before posting the partial output.
-    const hitMaxTurns = output.includes('Reached max turns');
     if (hitMaxTurns) {
       await postToOps(
         `:warning: *Task hit max turns limit. May be partially complete.*\n` +
@@ -393,47 +353,15 @@ async function processConversation(msg) {
       questionText,
     ].filter(Boolean).join('\n\n');
 
-    // Run Claude Code with -p flag, max-turns 10
-    const args = [
-      '-p', prompt,
-      '--output-format', 'text',
-      '--max-turns', '10',
-      '--dangerously-skip-permissions',
-    ];
-
-    const output = await new Promise((resolve, reject) => {
-      const child = spawn(CLAUDE_BIN, args, {
-        cwd: WORK_DIR,
-        env: { ...process.env, HOME: os.homedir() },
-        timeout: TASK_TIMEOUT,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      child.stdout.on('data', (chunk) => {
-        stdout += chunk.toString();
-      });
-
-      child.stderr.on('data', (chunk) => {
-        stderr += chunk.toString();
-      });
-
-      child.on('close', (code) => {
-        if (code === 0) {
-          resolve(stdout.trim());
-        } else {
-          reject(new Error(
-            `Exit code ${code}${stderr ? '\n' + stderr.slice(0, 2000) : ''}`
-          ));
-        }
-      });
-
-      child.on('error', (err) => {
-        reject(new Error(`Spawn failed: ${err.message}`));
-      });
+    // LOGIC CHANGE 2026-03-26: Use runLLM from lib/llm-runner.js for conversation
+    // handling. Uses max-turns 10 for quick Q&A responses.
+    const result = await runLLM(prompt, {
+      cwd: WORK_DIR,
+      maxTurns: 10,
+      timeout: TASK_TIMEOUT,
+      claudeBin: CLAUDE_BIN,
     });
+    const { output } = result;
 
     // Post response as a thread reply
     await slack.chat.postMessage({
