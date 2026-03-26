@@ -49,35 +49,29 @@ const {
   alreadyProcessed,
 } = require('./lib/task-parser');
 
+// LOGIC CHANGE 2026-03-26: Extracted config loading and validation into
+// lib/config.js for centralized env var management.
+const { config, validate } = require('./lib/config');
+
 // ---- Config ----
 
-const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
-const BRIDGE_CHANNEL = process.env.BRIDGE_CHANNEL_ID;
-const OPS_CHANNEL = process.env.OPS_CHANNEL_ID;
-const GITHUB_ORG = process.env.GITHUB_ORG || 'jtpets';
-const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '30000', 10);
-// LOGIC CHANGE 2026-03-26: Increased MAX_TURNS default from 15 to 30 to allow
-// more complex tasks to complete without hitting the turn limit.
-// LOGIC CHANGE 2026-03-26: Increased MAX_TURNS default from 30 to 50 to give
-// more headroom for complex multi-step tasks.
-const MAX_TURNS = parseInt(process.env.MAX_TURNS || '50', 10);
-const TASK_TIMEOUT = parseInt(process.env.TASK_TIMEOUT_MS || '600000', 10);
-const CLAUDE_BIN = process.env.CLAUDE_BIN || '/home/jtpets/.local/bin/claude';
-const WORK_DIR = process.env.WORK_DIR || '/tmp/bridge-agent';
-
-const EMOJI_RUNNING = 'hourglass_flowing_sand';
-const EMOJI_DONE = 'robot_face';
-const EMOJI_FAILED = 'x';
-
 // Validate required config
-const missing = [];
-if (!SLACK_BOT_TOKEN) missing.push('SLACK_BOT_TOKEN');
-if (!BRIDGE_CHANNEL) missing.push('BRIDGE_CHANNEL_ID');
-if (!OPS_CHANNEL) missing.push('OPS_CHANNEL_ID');
-if (missing.length) {
-  console.error(`[bridge-agent] Missing required env vars: ${missing.join(', ')}`);
-  process.exit(1);
-}
+validate(config);
+
+// Destructure config for convenience
+const {
+  SLACK_BOT_TOKEN,
+  BRIDGE_CHANNEL,
+  OPS_CHANNEL,
+  POLL_INTERVAL,
+  MAX_TURNS,
+  TASK_TIMEOUT,
+  CLAUDE_BIN,
+  WORK_DIR,
+  EMOJI_RUNNING,
+  EMOJI_DONE,
+  EMOJI_FAILED,
+} = config;
 
 const slack = new WebClient(SLACK_BOT_TOKEN);
 

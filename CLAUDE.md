@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Single-file Node.js Slack polling agent that monitors Slack channels for task messages and executes them via Claude Code CLI. Running on Raspberry Pi. No database, no frontend, no multi-tenant.
+Node.js Slack polling agent that monitors Slack channels for task messages and executes them via Claude Code CLI. Running on Raspberry Pi. No database, no frontend, no multi-tenant.
 
 ## Tech Stack
 
@@ -203,13 +203,17 @@ async function handleTask(channel, message) {
 
 ```
 slack-agent-bridge/
-├── bridge-agent.js      # Single-file agent (all logic here)
+├── bridge-agent.js      # Main entry point and core logic
+├── lib/
+│   ├── config.js        # Environment variable loading and validation
+│   └── task-parser.js   # Task parsing and message detection
+├── memory/
+│   └── memory-manager.js # Task history and context storage
+├── tests/               # Jest unit tests
 ├── package.json         # Dependencies
-├── CLAUDE.md           # This file
-└── README.md           # Project description
+├── CLAUDE.md            # This file
+└── README.md            # Project description
 ```
-
-This is intentionally a single-file architecture. Do not split into multiple files unless the file exceeds 500 lines.
 
 ---
 
