@@ -36,6 +36,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+// LOGIC CHANGE 2026-03-26: Added memory-manager integration to track task
+// execution history for analytics and debugging purposes.
+const memory = require('./memory/memory-manager');
+
 // ---- Config ----
 
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
@@ -280,6 +284,21 @@ async function processTask(msg) {
   const startTime = Date.now();
   let taskDir = null;
 
+  // LOGIC CHANGE 2026-03-26: Track task in memory for history/analytics.
+  // Memory errors are logged but never crash task execution.
+  let memoryTaskId = null;
+  try {
+    const memTask = memory.addTask({
+      description: task.description,
+      repo: task.repo,
+      branch: task.branch,
+      status: 'running',
+    });
+    memoryTaskId = memTask.id;
+  } catch (memErr) {
+    console.error('[bridge-agent] Memory addTask failed:', memErr.message);
+  }
+
   try {
     await react(BRIDGE_CHANNEL, msg.ts, EMOJI_RUNNING);
 
@@ -330,6 +349,19 @@ async function processTask(msg) {
     await react(BRIDGE_CHANNEL, msg.ts, EMOJI_DONE);
     console.log(`[bridge-agent] Task ${msg.ts} done (${elapsed}s)`);
 
+    // LOGIC CHANGE 2026-03-26: Record task completion in memory.
+    // Use different outcome message if max turns was hit.
+    if (memoryTaskId) {
+      try {
+        const outcome = hitMaxTurns
+          ? 'partial - hit max turns'
+          : truncate(output, 500);
+        memory.completeTask(memoryTaskId, outcome);
+      } catch (memErr) {
+        console.error('[bridge-agent] Memory completeTask failed:', memErr.message);
+      }
+    }
+
   } catch (err) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
 
@@ -342,6 +374,15 @@ async function processTask(msg) {
     await unreact(BRIDGE_CHANNEL, msg.ts, EMOJI_RUNNING);
     await react(BRIDGE_CHANNEL, msg.ts, EMOJI_FAILED);
     console.error(`[bridge-agent] Task ${msg.ts} failed (${elapsed}s):`, err.message);
+
+    // LOGIC CHANGE 2026-03-26: Record task failure in memory.
+    if (memoryTaskId) {
+      try {
+        memory.failTask(memoryTaskId, err.message);
+      } catch (memErr) {
+        console.error('[bridge-agent] Memory failTask failed:', memErr.message);
+      }
+    }
 
   } finally {
     if (taskDir && fs.existsSync(taskDir)) {
