@@ -105,6 +105,13 @@ const POLL_INTERVAL = 5000;
 | Dependencies | `npm install --save` only — never manually edit package.json |
 | Env vars | Document in README if adding new ones |
 
+### Anti-Duplication
+• BEFORE creating any file or function, check if it already exists (find/grep first)
+• BEFORE writing tests, check for existing test files covering those functions
+• If work is already done, report what exists and skip
+• Update CLAUDE.md architecture section when adding new files
+• CLAUDE.md is the source of truth. If it is wrong, fix it.
+
 ### Environment Variable Management
 • The .env file is LOCAL ONLY. It is gitignored and must never be committed.
 • When adding a new env var to code, you MUST:
@@ -203,16 +210,22 @@ async function handleTask(channel, message) {
 
 ```
 slack-agent-bridge/
-├── bridge-agent.js      # Main entry point and core logic
+├── bridge-agent.js       # Main entry point: Slack polling, task execution via Claude CLI
+├── auto-update.js        # Git polling daemon: pulls updates and restarts PM2 on changes
+├── morning-digest.js     # Cron job script: sends daily task stats DM to owner
 ├── lib/
-│   ├── config.js        # Environment variable loading and validation
-│   └── task-parser.js   # Task parsing and message detection
+│   ├── config.js         # Environment variable loading, validation, and defaults
+│   └── task-parser.js    # Task message parsing and message type detection
 ├── memory/
-│   └── memory-manager.js # Task history and context storage
-├── tests/               # Jest unit tests
-├── package.json         # Dependencies
-├── CLAUDE.md            # This file
-└── README.md            # Project description
+│   └── memory-manager.js # Task history storage and context retrieval (JSON file-based)
+├── tests/
+│   ├── config.test.js           # Tests for lib/config.js
+│   ├── message-detection.test.js # Tests for isTaskMessage/isConversationMessage
+│   └── task-parser.test.js      # Tests for task parsing logic
+├── package.json          # Dependencies and npm scripts
+├── CLAUDE.md             # Project rules and documentation (this file)
+├── README.md             # Project overview
+└── .gitignore            # Git ignore rules (node_modules, .env, etc.)
 ```
 
 ---
