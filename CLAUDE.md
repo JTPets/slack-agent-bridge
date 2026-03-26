@@ -104,6 +104,7 @@ const POLL_INTERVAL = 5000;
 | Bug fixes | Regression test required |
 | Dependencies | `npm install --save` only — never manually edit package.json |
 | Env vars | Document in README if adding new ones |
+| Refactor validation | Before committing any refactor that moves variables or changes imports, run: `node -e "require('./bridge-agent.js')"` to verify the process loads. This catches missing references that unit tests miss. |
 
 ### Anti-Duplication
 • BEFORE creating any file or function, check if it already exists (find/grep first)
@@ -219,7 +220,8 @@ slack-agent-bridge/
 ├── lib/
 │   ├── config.js         # Environment variable loading, validation, and defaults
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, openai, ollama)
-│   └── task-parser.js    # Task message parsing and message type detection
+│   ├── task-parser.js    # Task message parsing and message type detection
+│   └── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
 ├── memory/
 │   └── memory-manager.js # Task history storage and context retrieval (JSON file-based)
 ├── tests/
