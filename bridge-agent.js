@@ -41,10 +41,13 @@ const memory = require('./memory/memory-manager');
 
 // LOGIC CHANGE 2026-03-26: Extracted task parsing and message detection into
 // lib/task-parser.js for testability.
+// LOGIC CHANGE 2026-03-26: Added isStatusQuery import for built-in status
+// command handling without LLM calls.
 const {
   parseTask,
   isTaskMessage,
   isConversationMessage,
+  isStatusQuery,
   alreadyProcessed,
 } = require('./lib/task-parser');
 
@@ -417,6 +420,61 @@ async function processTask(msg) {
   }
 }
 
+// ---- Status query handling ----
+
+// LOGIC CHANGE 2026-03-26: Added formatStatusResponse() to build a human-readable
+// status message from memory data. Shows currently running task, queued tasks,
+// and last 5 completed tasks with elapsed time.
+function formatStatusResponse() {
+  const activeTasks = memory.getActiveTasks();
+  const history = memory.loadMemory(path.join(__dirname, 'memory', 'history.json'));
+  const last5 = history.slice(-5).reverse();
+
+  let response = '';
+
+  // Currently running task
+  if (activeTasks.length > 0) {
+    const running = activeTasks[0];
+    const startedAt = new Date(running.created);
+    const minutesAgo = Math.round((Date.now() - startedAt.getTime()) / 60000);
+    response += `*Currently running:* ${running.description || 'No description'} (started ${minutesAgo} min ago)\n`;
+
+    // Additional queued tasks
+    if (activeTasks.length > 1) {
+      response += `*Queued:* ${activeTasks.length - 1} task(s)\n`;
+      for (let i = 1; i < activeTasks.length; i++) {
+        response += `  • ${activeTasks[i].description || 'No description'}\n`;
+      }
+    } else {
+      response += `*Queued:* none\n`;
+    }
+  } else {
+    response += `*Currently running:* none\n`;
+    response += `*Queued:* none\n`;
+  }
+
+  // Last 5 completed
+  if (last5.length > 0) {
+    response += `\n*Last 5 completed:*\n`;
+    for (const task of last5) {
+      const timestamp = task.completedAt || task.failedAt || task.created;
+      const timeStr = new Date(timestamp).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'America/Toronto',
+      });
+      const emoji = task.status === 'completed' ? '✅' : '❌';
+      const elapsed = task.outcome?.elapsed ? `${task.outcome.elapsed}s` : 'N/A';
+      response += `• ${timeStr} ${emoji} ${task.description || 'No description'} (${elapsed})\n`;
+    }
+  } else {
+    response += `\n*Last 5 completed:* none\n`;
+  }
+
+  return response;
+}
+
 // ---- Process a conversational message ----
 
 // LOGIC CHANGE 2026-03-26: Added processConversation for handling ASK: messages.
@@ -428,6 +486,21 @@ async function processConversation(msg) {
     const questionText = msg.text.replace(/^ASK:\s*/i, '').trim();
     if (!questionText) {
       console.log(`[bridge-agent] Empty ASK: message, skipping`);
+      return;
+    }
+
+    // LOGIC CHANGE 2026-03-26: Check for built-in status query before calling LLM.
+    // This saves LLM tokens for simple status checks.
+    if (isStatusQuery(questionText)) {
+      console.log(`[bridge-agent] Status query detected: ${msg.ts}`);
+      const statusResponse = formatStatusResponse();
+      await slack.chat.postMessage({
+        channel: BRIDGE_CHANNEL,
+        thread_ts: msg.ts,
+        text: statusResponse,
+        unfurl_links: false,
+      });
+      console.log(`[bridge-agent] Status query ${msg.ts} answered`);
       return;
     }
 

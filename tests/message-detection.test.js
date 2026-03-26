@@ -1,13 +1,14 @@
 /**
  * tests/message-detection.test.js
  *
- * Unit tests for isTaskMessage, isConversationMessage, and alreadyProcessed
- * from lib/task-parser.js
+ * Unit tests for isTaskMessage, isConversationMessage, isStatusQuery,
+ * and alreadyProcessed from lib/task-parser.js
  */
 
 const {
   isTaskMessage,
   isConversationMessage,
+  isStatusQuery,
   alreadyProcessed,
   EMOJI_DONE,
   EMOJI_FAILED,
@@ -109,6 +110,72 @@ describe('isConversationMessage', () => {
   test('returns false when ASK: is not at the start', () => {
     const msg = { text: 'Please ASK: the team' };
     expect(isConversationMessage(msg)).toBe(false);
+  });
+});
+
+// LOGIC CHANGE 2026-03-26: Added tests for isStatusQuery() which detects
+// built-in status commands that bypass LLM for efficiency.
+describe('isStatusQuery', () => {
+  test('returns true for "what\'s queued"', () => {
+    expect(isStatusQuery("what's queued")).toBe(true);
+  });
+
+  test('returns true for "whats queued" (no apostrophe)', () => {
+    expect(isStatusQuery('whats queued')).toBe(true);
+  });
+
+  test('returns true for "queue status"', () => {
+    expect(isStatusQuery('queue status')).toBe(true);
+  });
+
+  test('returns true for "task status"', () => {
+    expect(isStatusQuery('task status')).toBe(true);
+  });
+
+  test('returns true for "what are you working on"', () => {
+    expect(isStatusQuery('what are you working on')).toBe(true);
+  });
+
+  test('is case insensitive', () => {
+    expect(isStatusQuery("WHAT'S QUEUED")).toBe(true);
+    expect(isStatusQuery('QUEUE STATUS')).toBe(true);
+    expect(isStatusQuery('TASK STATUS')).toBe(true);
+    expect(isStatusQuery('What Are You Working On')).toBe(true);
+  });
+
+  test('handles leading/trailing whitespace', () => {
+    expect(isStatusQuery('  queue status  ')).toBe(true);
+    expect(isStatusQuery('  what are you working on  ')).toBe(true);
+  });
+
+  test('returns false for empty string', () => {
+    expect(isStatusQuery('')).toBe(false);
+  });
+
+  test('returns false for null', () => {
+    expect(isStatusQuery(null)).toBe(false);
+  });
+
+  test('returns false for undefined', () => {
+    expect(isStatusQuery(undefined)).toBe(false);
+  });
+
+  test('returns false for unrelated questions', () => {
+    expect(isStatusQuery('What is the weather?')).toBe(false);
+    expect(isStatusQuery('How do I deploy?')).toBe(false);
+    expect(isStatusQuery('Tell me about tasks')).toBe(false);
+  });
+
+  test('returns false for partial matches', () => {
+    expect(isStatusQuery('queued')).toBe(false);
+    expect(isStatusQuery('status')).toBe(false);
+    expect(isStatusQuery('working')).toBe(false);
+  });
+
+  test('handles question marks at end', () => {
+    expect(isStatusQuery("what's queued?")).toBe(true);
+    expect(isStatusQuery('queue status?')).toBe(true);
+    expect(isStatusQuery('what are you working on?')).toBe(true);
   });
 });
 
