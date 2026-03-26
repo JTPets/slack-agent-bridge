@@ -5,3 +5,4 @@ node_modules
 # Memory data files (local only)
 memory/*.json
 package-lock.json
+package-lock.json
