@@ -1,6 +1,7 @@
 {
   "name": "slack-agent-bridge",
   "version": "1.0.0",
+  "license": "MIT",
   "main": "bridge-agent.js",
   "scripts": {
     "test": "jest"

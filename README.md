@@ -22,3 +22,7 @@ A Slack-to-Claude-Code automation agent that polls Slack channels for task messa
    ```
 
 See `CLAUDE.md` for full documentation on environment variables and project rules.
+
+## License
+
+MIT - see [LICENSE](LICENSE)
