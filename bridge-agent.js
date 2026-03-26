@@ -54,6 +54,12 @@ const TASK_TIMEOUT = parseInt(process.env.TASK_TIMEOUT_MS || '600000', 10);
 const CLAUDE_BIN = process.env.CLAUDE_BIN || '/home/jtpets/.local/bin/claude';
 const WORK_DIR = process.env.WORK_DIR || '/tmp/bridge-agent';
 
+// LOGIC CHANGE 2026-03-26: Added conversational mode support. Messages starting
+// with "ASK:" or mentioning the bot user ID trigger a threaded reply instead of
+// a full task execution.
+const BOT_USER_ID = 'U0AP5PLQB44';
+const CONVERSATION_MAX_TURNS = 10;
+
 const EMOJI_RUNNING = 'hourglass_flowing_sand';
 const EMOJI_DONE = 'robot_face';
 const EMOJI_FAILED = 'x';
@@ -78,21 +84,36 @@ if (!fs.existsSync(WORK_DIR)) {
 // ---- State persistence ----
 
 const STATE_FILE = path.join(__dirname, '.bridge-agent-state.json');
-let lastChecked = loadState();
+let state = loadState();
 let isRunning = false;
 
+// LOGIC CHANGE 2026-03-26: Extended state to track lastChecked per channel
+// for multi-channel conversation support.
 function loadState() {
   try {
     const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-    return data.lastChecked || '0';
+    // Migrate old format (just lastChecked string) to new format
+    if (typeof data.lastChecked === 'string') {
+      return {
+        taskLastChecked: data.lastChecked,
+        conversationLastChecked: {},
+      };
+    }
+    return {
+      taskLastChecked: data.taskLastChecked || '0',
+      conversationLastChecked: data.conversationLastChecked || {},
+    };
   } catch {
-    return '0';
+    return {
+      taskLastChecked: '0',
+      conversationLastChecked: {},
+    };
   }
 }
 
-function saveState(ts) {
+function saveState() {
   try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ lastChecked: ts }), 'utf8');
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state), 'utf8');
   } catch (err) {
     console.error('[bridge-agent] Failed to save state:', err.message);
   }
@@ -182,6 +203,39 @@ function alreadyProcessed(msg) {
   return msg.reactions.some(
     (r) => r.name === EMOJI_DONE || r.name === EMOJI_FAILED
   );
+}
+
+// LOGIC CHANGE 2026-03-26: Added conversational message detection.
+// Messages starting with "ASK:" or mentioning the bot trigger conversational mode.
+function isConversationalMessage(msg) {
+  if (msg.subtype === 'channel_join' || msg.subtype === 'channel_leave') return false;
+  if (!msg.text) return false;
+
+  const text = msg.text.trim();
+
+  // Check for ASK: prefix (case-insensitive)
+  if (text.toUpperCase().startsWith('ASK:')) return true;
+
+  // Check for bot mention (format: <@U0AP5PLQB44>)
+  if (text.includes(`<@${BOT_USER_ID}>`)) return true;
+
+  return false;
+}
+
+// LOGIC CHANGE 2026-03-26: Extract question text from conversational messages.
+// Strips "ASK:" prefix or bot mention, returns clean question text.
+function extractQuestion(text) {
+  let question = text.trim();
+
+  // Remove ASK: prefix (case-insensitive)
+  if (question.toUpperCase().startsWith('ASK:')) {
+    question = question.slice(4).trim();
+  }
+
+  // Remove bot mention
+  question = question.replace(new RegExp(`<@${BOT_USER_ID}>`, 'g'), '').trim();
+
+  return question;
 }
 
 // ---- Git helpers ----
@@ -407,37 +461,235 @@ async function processTask(msg) {
   }
 }
 
+// ---- Process a conversational message ----
+
+// LOGIC CHANGE 2026-03-26: Added conversational mode. Messages starting with
+// "ASK:" or mentioning the bot get a threaded reply in the same channel instead
+// of being treated as tasks. No emoji reactions, just a helpful response.
+async function processConversation(msg) {
+  const question = extractQuestion(msg.text);
+  const channel = msg.channel;
+
+  console.log(`[bridge-agent] Conversation in ${channel}: "${question.slice(0, 50)}..."`);
+
+  try {
+    // Build context prefix (same as tasks)
+    let prompt = '';
+    try {
+      const taskContext = memory.buildTaskContext();
+      if (taskContext) {
+        prompt = taskContext + '\n\n';
+      }
+    } catch (contextErr) {
+      console.error('[bridge-agent] buildTaskContext failed:', contextErr.message);
+    }
+
+    // Add system instruction for conversational mode
+    prompt += [
+      'SYSTEM INSTRUCTION:',
+      'You are a helpful assistant for John Alexander who runs JT Pets, a pet food store in Hamilton, Ontario.',
+      'Answer concisely. You have access to the task history context above.',
+      'Do not execute tasks or write code unless explicitly asked.',
+      '',
+      'USER QUESTION:',
+      question,
+    ].join('\n');
+
+    // Run Claude with lower max-turns for conversations
+    const args = [
+      '-p', prompt,
+      '--output-format', 'text',
+      '--max-turns', String(CONVERSATION_MAX_TURNS),
+      '--dangerously-skip-permissions',
+    ];
+
+    const output = await new Promise((resolve, reject) => {
+      const child = spawn(CLAUDE_BIN, args, {
+        cwd: WORK_DIR,
+        env: { ...process.env, HOME: os.homedir() },
+        timeout: TASK_TIMEOUT,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk.toString();
+      });
+
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      child.on('close', (code) => {
+        if (code === 0) {
+          resolve(stdout.trim());
+        } else {
+          reject(new Error(
+            `Exit code ${code}${stderr ? '\n' + stderr.slice(0, 2000) : ''}`
+          ));
+        }
+      });
+
+      child.on('error', (err) => {
+        reject(new Error(`Spawn failed: ${err.message}`));
+      });
+    });
+
+    // Post response as a thread reply to the original message
+    await slack.chat.postMessage({
+      channel: channel,
+      thread_ts: msg.ts,
+      text: truncate(output),
+      unfurl_links: false,
+    });
+
+    console.log(`[bridge-agent] Conversation ${msg.ts} replied`);
+
+  } catch (err) {
+    // Post error as thread reply
+    await slack.chat.postMessage({
+      channel: channel,
+      thread_ts: msg.ts,
+      text: `❌ Sorry, I encountered an error: ${err.message}`,
+      unfurl_links: false,
+    });
+
+    console.error(`[bridge-agent] Conversation ${msg.ts} failed:`, err.message);
+  }
+}
+
 // ---- Poll loop ----
+
+// LOGIC CHANGE 2026-03-26: Refactored poll loop to support both tasks (from
+// #claude-bridge only) and conversations (from any channel the bot is in).
+// Tasks take priority - we process all tasks first, then conversations.
+
+async function pollTasks() {
+  try {
+    const result = await slack.conversations.history({
+      channel: BRIDGE_CHANNEL,
+      oldest: state.taskLastChecked,
+      limit: 5,
+      inclusive: false,
+    });
+
+    if (!result.messages?.length) return [];
+
+    const messages = result.messages.reverse();
+    const tasks = [];
+
+    for (const msg of messages) {
+      if (msg.ts > state.taskLastChecked) {
+        state.taskLastChecked = msg.ts;
+        saveState();
+      }
+
+      if (isTaskMessage(msg) && !alreadyProcessed(msg)) {
+        tasks.push(msg);
+      }
+    }
+
+    return tasks;
+  } catch (err) {
+    console.error('[bridge-agent] Poll tasks error:', err.message);
+    return [];
+  }
+}
+
+async function pollConversations() {
+  try {
+    // Get list of channels the bot is in
+    const channelsResult = await slack.users.conversations({
+      types: 'public_channel,private_channel',
+      exclude_archived: true,
+      limit: 100,
+    });
+
+    if (!channelsResult.channels?.length) return [];
+
+    const conversations = [];
+
+    for (const channel of channelsResult.channels) {
+      const channelId = channel.id;
+      const lastChecked = state.conversationLastChecked[channelId] || '0';
+
+      try {
+        const history = await slack.conversations.history({
+          channel: channelId,
+          oldest: lastChecked,
+          limit: 10,
+          inclusive: false,
+        });
+
+        if (!history.messages?.length) continue;
+
+        const messages = history.messages.reverse();
+
+        for (const msg of messages) {
+          if (msg.ts > (state.conversationLastChecked[channelId] || '0')) {
+            state.conversationLastChecked[channelId] = msg.ts;
+          }
+
+          // Skip if it's a task message (will be handled by task processing)
+          if (isTaskMessage(msg)) continue;
+
+          // Check if it's a conversational message we haven't replied to
+          if (isConversationalMessage(msg) && !alreadyReplied(msg)) {
+            msg.channel = channelId; // Add channel to message for processConversation
+            conversations.push(msg);
+          }
+        }
+      } catch (channelErr) {
+        // Skip channels we can't read (permissions, etc.)
+        if (channelErr.data?.error !== 'channel_not_found') {
+          console.error(`[bridge-agent] Error reading channel ${channelId}:`, channelErr.message);
+        }
+      }
+    }
+
+    saveState();
+    return conversations;
+  } catch (err) {
+    console.error('[bridge-agent] Poll conversations error:', err.message);
+    return [];
+  }
+}
+
+// Check if we've already replied to a conversational message
+function alreadyReplied(msg) {
+  // If the message has replies from the bot, we've already responded
+  if (msg.reply_count && msg.reply_count > 0) {
+    // We could check reply_users but for simplicity, assume any reply means we handled it
+    return true;
+  }
+  return false;
+}
 
 async function poll() {
   if (isRunning) return;
 
   try {
-    const result = await slack.conversations.history({
-      channel: BRIDGE_CHANNEL,
-      oldest: lastChecked,
-      limit: 5,
-      inclusive: false,
-    });
+    // TASKS FIRST (priority)
+    const tasks = await pollTasks();
 
-    if (!result.messages?.length) return;
-
-    const messages = result.messages.reverse();
-
-    for (const msg of messages) {
-      if (msg.ts > lastChecked) {
-        lastChecked = msg.ts;
-        saveState(lastChecked);
-      }
-
-      if (!isTaskMessage(msg) || alreadyProcessed(msg)) continue;
-
+    for (const msg of tasks) {
       console.log(`[bridge-agent] Task found: ${msg.ts}`);
       isRunning = true;
-
       await processTask(msg);
-
       isRunning = false;
+    }
+
+    // CONVERSATIONS SECOND (only if no tasks running)
+    if (!isRunning) {
+      const conversations = await pollConversations();
+
+      for (const msg of conversations) {
+        console.log(`[bridge-agent] Conversation found: ${msg.ts} in ${msg.channel}`);
+        // Process conversations without blocking (don't set isRunning)
+        await processConversation(msg);
+      }
     }
   } catch (err) {
     console.error('[bridge-agent] Poll error:', err.message);

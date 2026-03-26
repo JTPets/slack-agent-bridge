@@ -179,6 +179,23 @@ This is intentionally a single-file architecture. Do not split into multiple fil
 
 ## Task Message Format
 
+### Conversational Mode
+
+Messages starting with `ASK:` or mentioning `@bridge-agent` (bot ID: U0AP5PLQB44) trigger conversational mode:
+- The bot responds with a **threaded reply** in the **same channel** (not #sqtools-ops)
+- Works in **any channel** the bot is a member of
+- No emoji reactions, just the reply
+- Uses max 10 turns (faster responses)
+- Has access to task history context
+
+Example triggers:
+```
+ASK: What tasks have you completed today?
+@bridge-agent how do I configure the dashboard?
+```
+
+Tasks (messages containing `TASK:`) always take priority over conversations.
+
 ### Branch Handling
 • BRANCH in a task message specifies which branch to CLONE from, not which branch to CREATE.
 • If a task needs to create a new branch, set BRANCH to main and include branch creation in the INSTRUCTIONS.
