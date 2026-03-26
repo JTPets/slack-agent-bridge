@@ -73,7 +73,15 @@ exec(`claude --print "${message}"`); // NEVER DO THIS
 const POLL_INTERVAL = 5000;
 ```
 
-### Testing Requirements
+### Testing
+- **NO new function ships without a unit test** — This is non-negotiable
+- **Tests use Jest** — Test files go in `tests/` mirroring the source structure
+- **Run `npm test` before every commit** — If tests fail, do not commit
+- **Mock external dependencies** — Slack API calls, child_process.spawn for CC, file system for memory
+- **Test the task parser independently** — Various REPO formats, missing fields, multiline INSTRUCTIONS
+- **Test memory-manager CRUD operations** — Use a temp directory for isolation
+- **Test isTaskMessage and isConversationMessage** — Include edge cases
+- **Coverage target** — Every exported function must have at least one test
 - **No fix without regression test** — Every bug fix must include a test that would have caught the bug
 - **Test error paths** — Ensure error handling is tested, not just happy paths
 

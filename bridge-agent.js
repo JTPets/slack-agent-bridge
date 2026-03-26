@@ -40,6 +40,15 @@ const os = require('os');
 // execution history for analytics and debugging purposes.
 const memory = require('./memory/memory-manager');
 
+// LOGIC CHANGE 2026-03-26: Extracted task parsing and message detection into
+// lib/task-parser.js for testability.
+const {
+  parseTask,
+  isTaskMessage,
+  isConversationMessage,
+  alreadyProcessed,
+} = require('./lib/task-parser');
+
 // ---- Config ----
 
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
@@ -131,67 +140,7 @@ async function postToOps(text) {
 }
 
 // ---- Task parsing ----
-
-function parseTask(text) {
-  const task = {
-    description: '',
-    repo: '',
-    branch: 'main',
-    instructions: '',
-    raw: text,
-  };
-
-  // Extract TASK:
-  const taskMatch = text.match(/TASK:\s*(.+?)(?:\n|$)/);
-  if (taskMatch) task.description = taskMatch[1].trim();
-
-  // Extract REPO: (handles "org/repo", "https://github.com/org/repo", or just "repo")
-  const repoMatch = text.match(/REPO:\s*(.+?)(?:\n|$)/);
-  if (repoMatch) {
-    let repo = repoMatch[1].trim();
-    repo = repo.replace(/https?:\/\/github\.com\//, '');
-    repo = repo.replace(/\.git$/, '');
-    if (!repo.includes('/')) {
-      repo = `${GITHUB_ORG}/${repo}`;
-    }
-    task.repo = repo;
-  }
-
-  // Extract BRANCH:
-  const branchMatch = text.match(/BRANCH:\s*(.+?)(?:\n|$)/);
-  if (branchMatch) {
-    const branch = branchMatch[1].trim();
-    if (branch && branch !== 'none') task.branch = branch;
-  }
-
-  // Extract INSTRUCTIONS: (everything after the label, can be multiline)
-  const instrMatch = text.match(/INSTRUCTIONS:\s*([\s\S]+)/);
-  if (instrMatch) task.instructions = instrMatch[1].trim();
-
-  return task;
-}
-
-function isTaskMessage(msg) {
-  if (msg.subtype === 'channel_join' || msg.subtype === 'channel_leave') return false;
-  if (!msg.text) return false;
-  return msg.text.includes('TASK:');
-}
-
-function alreadyProcessed(msg) {
-  if (!msg.reactions) return false;
-  return msg.reactions.some(
-    (r) => r.name === EMOJI_DONE || r.name === EMOJI_FAILED
-  );
-}
-
-// LOGIC CHANGE 2026-03-26: Added conversational mode support for quick Q&A.
-// Messages starting with "ASK:" are answered directly via Claude Code without
-// repo cloning. Response is posted as a thread reply to the original message.
-function isConversationMessage(msg) {
-  if (msg.subtype === 'channel_join' || msg.subtype === 'channel_leave') return false;
-  if (!msg.text) return false;
-  return msg.text.trim().toUpperCase().startsWith('ASK:');
-}
+// Functions moved to lib/task-parser.js: parseTask, isTaskMessage, isConversationMessage, alreadyProcessed
 
 // ---- Git helpers ----
 
