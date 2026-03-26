@@ -1,318 +1,383 @@
-// bridge-agent.js - Slack polling agent for Claude Code CLI tasks
-// Single-file Node.js agent that monitors Slack channels for task messages
+#!/usr/bin/env node
+
+/**
+ * bridge-agent.js v2
+ *
+ * Polls #claude-bridge for TASK messages posted by Claude Chat,
+ * executes them via Claude Code CLI (non-interactive) against
+ * GitHub repos (cloned fresh per task), posts results to #sqtools-ops.
+ *
+ * Task message format:
+ *   TASK: Short description
+ *   REPO: jtpets/SquareDashboardTool (or full URL)
+ *   BRANCH: main (optional, default: main)
+ *   INSTRUCTIONS: What to do
+ *
+ * Run with PM2:
+ *   pm2 start bridge-agent.js --name bridge-agent
+ *
+ * Required env vars:
+ *   SLACK_BOT_TOKEN     xoxb- token
+ *   BRIDGE_CHANNEL_ID   #claude-bridge channel ID
+ *   OPS_CHANNEL_ID      #sqtools-ops channel ID
+ *
+ * Optional env vars:
+ *   GITHUB_ORG          default GitHub org (default: jtpets)
+ *   POLL_INTERVAL_MS    poll frequency (default: 30000)
+ *   MAX_TURNS           Claude Code max turns per task (default: 15)
+ *   TASK_TIMEOUT_MS     hard kill timeout (default: 600000 = 10min)
+ *   CLAUDE_BIN          path to claude binary
+ *   WORK_DIR            base dir for temp clones (default: /tmp/bridge-agent)
+ */
 
 const { WebClient } = require('@slack/web-api');
-const { spawn } = require('child_process');
-const fs = require('fs').promises;
+const { spawn, execSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// Configuration from environment variables
-const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
-const SLACK_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
-const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS, 10) || 5000;
+// ---- Config ----
 
-// Initialize Slack client
+const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
+const BRIDGE_CHANNEL = process.env.BRIDGE_CHANNEL_ID;
+const OPS_CHANNEL = process.env.OPS_CHANNEL_ID;
+const GITHUB_ORG = process.env.GITHUB_ORG || 'jtpets';
+const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '30000', 10);
+const MAX_TURNS = parseInt(process.env.MAX_TURNS || '15', 10);
+const TASK_TIMEOUT = parseInt(process.env.TASK_TIMEOUT_MS || '600000', 10);
+const CLAUDE_BIN = process.env.CLAUDE_BIN || '/home/jtpets/.local/bin/claude';
+const WORK_DIR = process.env.WORK_DIR || '/tmp/bridge-agent';
+
+const EMOJI_RUNNING = 'hourglass_flowing_sand';
+const EMOJI_DONE = 'robot_face';
+const EMOJI_FAILED = 'x';
+
+// Validate required config
+const missing = [];
+if (!SLACK_BOT_TOKEN) missing.push('SLACK_BOT_TOKEN');
+if (!BRIDGE_CHANNEL) missing.push('BRIDGE_CHANNEL_ID');
+if (!OPS_CHANNEL) missing.push('OPS_CHANNEL_ID');
+if (missing.length) {
+  console.error(`[bridge-agent] Missing required env vars: ${missing.join(', ')}`);
+  process.exit(1);
+}
+
 const slack = new WebClient(SLACK_BOT_TOKEN);
 
-/**
- * Post a message to a Slack channel
- * @param {string} channel - Channel ID
- * @param {string} message - Message text
- */
-async function postToSlack(channel, message) {
-    try {
-        await slack.chat.postMessage({
-            channel: channel,
-            text: message
-        });
-    } catch (error) {
-        console.error('Failed to post to Slack:', error.message);
-    }
+// Ensure work dir exists
+if (!fs.existsSync(WORK_DIR)) {
+  fs.mkdirSync(WORK_DIR, { recursive: true });
 }
 
-/**
- * Run a command using spawn and return a promise
- * @param {string} command - Command to run
- * @param {string[]} args - Command arguments
- * @param {object} options - Spawn options
- * @returns {Promise<{code: number, stdout: string, stderr: string}>}
- */
-function runCommand(command, args, options = {}) {
-    return new Promise((resolve) => {
-        const child = spawn(command, args, {
-            ...options,
-            encoding: 'utf8'
-        });
+// ---- State persistence ----
 
-        let stdout = '';
-        let stderr = '';
+const STATE_FILE = path.join(__dirname, '.bridge-agent-state.json');
+let lastChecked = loadState();
+let isRunning = false;
 
-        if (child.stdout) {
-            child.stdout.on('data', (data) => {
-                stdout += data.toString();
-            });
-        }
+function loadState() {
+  try {
+    const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+    return data.lastChecked || '0';
+  } catch {
+    return '0';
+  }
+}
 
-        if (child.stderr) {
-            child.stderr.on('data', (data) => {
-                stderr += data.toString();
-            });
-        }
+function saveState(ts) {
+  try {
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ lastChecked: ts }), 'utf8');
+  } catch (err) {
+    console.error('[bridge-agent] Failed to save state:', err.message);
+  }
+}
 
-        child.on('close', (code) => {
-            resolve({ code: code || 0, stdout, stderr });
-        });
+// ---- Slack helpers ----
 
-        child.on('error', (error) => {
-            resolve({ code: 1, stdout, stderr: error.message });
-        });
+async function react(channel, timestamp, emoji) {
+  try {
+    await slack.reactions.add({ channel, timestamp, name: emoji });
+  } catch (err) {
+    if (err.data?.error !== 'already_reacted') {
+      console.error(`[bridge-agent] react(${emoji}) failed:`, err.message);
+    }
+  }
+}
+
+async function unreact(channel, timestamp, emoji) {
+  try {
+    await slack.reactions.remove({ channel, timestamp, name: emoji });
+  } catch {
+    // Reaction may not exist
+  }
+}
+
+async function postToOps(text) {
+  try {
+    await slack.chat.postMessage({
+      channel: OPS_CHANNEL,
+      text,
+      unfurl_links: false,
     });
+  } catch (err) {
+    console.error('[bridge-agent] Failed to post to #sqtools-ops:', err.message);
+  }
 }
 
-/**
- * Clone a repository to a temporary directory
- * LOGIC CHANGE 2026-03-26: Added fallback to main branch if specified branch does not exist
- * @param {string} repoUrl - Git repository URL
- * @param {string} branch - Branch to clone
- * @param {string} targetDir - Directory to clone into
- * @returns {Promise<{success: boolean, branch: string, error?: string}>}
- */
-async function cloneRepo(repoUrl, branch, targetDir) {
-    // First attempt: clone the specified branch
-    const result = await runCommand('git', ['clone', '--branch', branch, '--single-branch', repoUrl, targetDir]);
+// ---- Task parsing ----
 
-    if (result.code === 0) {
-        return { success: true, branch: branch };
+function parseTask(text) {
+  const task = {
+    description: '',
+    repo: '',
+    branch: 'main',
+    instructions: '',
+    raw: text,
+  };
+
+  // Extract TASK:
+  const taskMatch = text.match(/TASK:\s*(.+?)(?:\n|$)/);
+  if (taskMatch) task.description = taskMatch[1].trim();
+
+  // Extract REPO: (handles "org/repo", "https://github.com/org/repo", or just "repo")
+  const repoMatch = text.match(/REPO:\s*(.+?)(?:\n|$)/);
+  if (repoMatch) {
+    let repo = repoMatch[1].trim();
+    repo = repo.replace(/https?:\/\/github\.com\//, '');
+    repo = repo.replace(/\.git$/, '');
+    if (!repo.includes('/')) {
+      repo = `${GITHUB_ORG}/${repo}`;
     }
+    task.repo = repo;
+  }
 
-    // LOGIC CHANGE 2026-03-26: If specified branch fails, fallback to main
-    if (branch !== 'main') {
-        console.warn(`[bridge-agent] Branch ${branch} not found, falling back to main`);
+  // Extract BRANCH:
+  const branchMatch = text.match(/BRANCH:\s*(.+?)(?:\n|$)/);
+  if (branchMatch) {
+    const branch = branchMatch[1].trim();
+    if (branch && branch !== 'none') task.branch = branch;
+  }
 
-        // Clean up failed clone attempt if directory was created
-        await fs.rm(targetDir, { recursive: true, force: true }).catch(() => {});
+  // Extract INSTRUCTIONS: (everything after the label, can be multiline)
+  const instrMatch = text.match(/INSTRUCTIONS:\s*([\s\S]+)/);
+  if (instrMatch) task.instructions = instrMatch[1].trim();
 
-        const fallbackResult = await runCommand('git', ['clone', '--branch', 'main', '--single-branch', repoUrl, targetDir]);
-
-        if (fallbackResult.code === 0) {
-            return { success: true, branch: 'main' };
-        }
-
-        return {
-            success: false,
-            branch: 'main',
-            error: `Failed to clone both branch '${branch}' and 'main': ${fallbackResult.stderr}`
-        };
-    }
-
-    return {
-        success: false,
-        branch: branch,
-        error: `Failed to clone branch '${branch}': ${result.stderr}`
-    };
+  return task;
 }
 
-/**
- * Parse task message to extract BRANCH and other fields
- * @param {string} message - Task message text
- * @returns {object} Parsed task fields
- */
-function parseTaskMessage(message) {
-    const lines = message.split('\n');
-    const task = {
-        branch: 'main',
-        repo: null,
-        instructions: ''
-    };
-
-    let inInstructions = false;
-
-    for (const line of lines) {
-        const trimmed = line.trim();
-
-        if (trimmed.startsWith('BRANCH:')) {
-            task.branch = trimmed.substring(7).trim();
-        } else if (trimmed.startsWith('REPO:')) {
-            task.repo = trimmed.substring(5).trim();
-        } else if (trimmed.startsWith('INSTRUCTIONS:')) {
-            inInstructions = true;
-            const instructionStart = trimmed.substring(13).trim();
-            if (instructionStart) {
-                task.instructions = instructionStart;
-            }
-        } else if (inInstructions) {
-            task.instructions += (task.instructions ? '\n' : '') + line;
-        }
-    }
-
-    return task;
+function isTaskMessage(msg) {
+  if (msg.subtype === 'channel_join' || msg.subtype === 'channel_leave') return false;
+  if (!msg.text) return false;
+  return msg.text.includes('TASK:');
 }
 
-/**
- * Execute a task from a parsed task message
- * @param {string} channel - Slack channel ID
- * @param {object} task - Parsed task object
- */
-async function executeTask(channel, task) {
-    let tempDir;
-
-    try {
-        // Create temp directory
-        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'task-'));
-
-        if (!task.repo) {
-            throw new Error('No REPO specified in task message');
-        }
-
-        // Clone the repository
-        const cloneResult = await cloneRepo(task.repo, task.branch, tempDir);
-
-        if (!cloneResult.success) {
-            throw new Error(cloneResult.error);
-        }
-
-        // Notify if we fell back to main
-        if (cloneResult.branch !== task.branch) {
-            await postToSlack(channel, `⚠️ Branch '${task.branch}' not found, using 'main' instead`);
-        }
-
-        // Execute Claude Code CLI
-        const claudeResult = await runCommand('claude', ['--print', task.instructions], {
-            cwd: tempDir,
-            env: { ...process.env }
-        });
-
-        if (claudeResult.code !== 0) {
-            throw new Error(`Claude Code CLI failed: ${claudeResult.stderr}`);
-        }
-
-        // LOGIC CHANGE 2026-03-26: Check for max turns limit in output
-        // If Claude Code hit max turns, treat as partial failure and warn ops
-        const output = claudeResult.stdout;
-        if (output.includes('Reached max turns')) {
-            await postToSlack(channel, `⚠️ Task hit max turns limit. May be partially complete. Consider increasing MAX_TURNS or breaking the task into smaller pieces.`);
-            await postToSlack(channel, `Partial output:\n${output.substring(0, 3000)}`);
-        } else {
-            await postToSlack(channel, `✅ Task completed:\n${output.substring(0, 3000)}`);
-        }
-
-    } catch (error) {
-        // ALWAYS report errors to Slack
-        await postToSlack(channel, `❌ Error: ${error.message}`);
-
-        // Log error details (but NEVER tokens)
-        console.error('Task failed:', {
-            message: error.message,
-            stack: error.stack
-        });
-
-    } finally {
-        // ALWAYS cleanup temp dirs
-        if (tempDir) {
-            await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-        }
-    }
+function alreadyProcessed(msg) {
+  if (!msg.reactions) return false;
+  return msg.reactions.some(
+    (r) => r.name === EMOJI_DONE || r.name === EMOJI_FAILED
+  );
 }
 
-/**
- * Process a Slack message
- * @param {object} message - Slack message object
- */
-async function processMessage(message) {
-    const text = message.text || '';
+// ---- Git helpers ----
 
-    // Check if this is a task message
-    if (text.includes('REPO:') || text.includes('INSTRUCTIONS:')) {
-        const task = parseTaskMessage(text);
-        await executeTask(message.channel || SLACK_CHANNEL_ID, task);
-    }
+function cloneRepo(repo, branch, targetDir) {
+  const url = `https://github.com/${repo}.git`;
+  console.log(`[bridge-agent] Cloning ${url} (branch: ${branch}) -> ${targetDir}`);
+  execSync(`git clone --depth 1 --branch ${branch} ${url} ${targetDir}`, {
+    stdio: 'pipe',
+    timeout: 60000,
+  });
 }
 
-/**
- * Poll Slack channel for new messages
- */
-async function pollChannel() {
-    try {
-        const result = await slack.conversations.history({
-            channel: SLACK_CHANNEL_ID,
-            limit: 10
-        });
-
-        if (result.messages && result.messages.length > 0) {
-            for (const message of result.messages) {
-                // Process only new, unprocessed messages
-                // (In a real implementation, track processed message timestamps)
-                await processMessage(message);
-            }
-        }
-    } catch (error) {
-        console.error('Poll failed:', error.message);
-    }
+function cleanupDir(dir) {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+    console.log(`[bridge-agent] Cleaned up ${dir}`);
+  } catch (err) {
+    console.error(`[bridge-agent] Cleanup failed for ${dir}:`, err.message);
+  }
 }
 
-/**
- * Log startup configuration (without secrets)
- */
-function logStartupConfig() {
-    console.log('=== Bridge Agent Starting ===');
-    console.log('Configuration:');
-    console.log(`  SLACK_CHANNEL_ID: ${SLACK_CHANNEL_ID ? '(set)' : '(not set)'}`);
-    console.log(`  POLL_INTERVAL_MS: ${POLL_INTERVAL_MS}`);
-    console.log(`  SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN ? '(set)' : '(not set)'}`);
-    // NEVER log actual token values
-    console.log('==============================');
+// ---- Claude Code execution ----
+
+function runClaudeCode(taskText, cwd) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-p', taskText,
+      '--output-format', 'text',
+      '--max-turns', String(MAX_TURNS),
+      '--dangerously-skip-permissions',
+    ];
+
+    console.log(`[bridge-agent] Spawning CC in ${cwd} (max-turns=${MAX_TURNS})`);
+
+    const child = spawn(CLAUDE_BIN, args, {
+      cwd,
+      env: { ...process.env, HOME: os.homedir() },
+      timeout: TASK_TIMEOUT,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout.trim());
+      } else {
+        reject(new Error(
+          `Exit code ${code}${stderr ? '\n' + stderr.slice(0, 2000) : ''}`
+        ));
+      }
+    });
+
+    child.on('error', (err) => {
+      reject(new Error(`Spawn failed: ${err.message}`));
+    });
+  });
 }
 
-/**
- * Validate required configuration
- * @returns {boolean}
- */
-function validateConfig() {
-    const errors = [];
+// ---- Formatting ----
 
-    if (!SLACK_BOT_TOKEN) {
-        errors.push('SLACK_BOT_TOKEN is required');
-    }
-    if (!SLACK_CHANNEL_ID) {
-        errors.push('SLACK_CHANNEL_ID is required');
-    }
-
-    if (errors.length > 0) {
-        console.error('Configuration errors:');
-        errors.forEach(e => console.error(`  - ${e}`));
-        return false;
-    }
-
-    return true;
+function truncate(text, max = 3500) {
+  if (text.length <= max) return text;
+  const half = Math.floor(max / 2) - 30;
+  return text.slice(0, half) + '\n\n... [truncated] ...\n\n' + text.slice(-half);
 }
 
-/**
- * Main entry point
- */
-async function main() {
-    logStartupConfig();
-
-    if (!validateConfig()) {
-        process.exit(1);
-    }
-
-    console.log('Starting polling loop...');
-    setInterval(pollChannel, POLL_INTERVAL_MS);
-
-    // Run initial poll
-    await pollChannel();
+function msgLink(ts) {
+  return `https://jtpets.slack.com/archives/${BRIDGE_CHANNEL}/p${ts.replace('.', '')}`;
 }
 
-// Export for testing
-module.exports = {
-    cloneRepo,
-    parseTaskMessage,
-    runCommand
-};
+// ---- Process a single task ----
 
-// Start the agent
-main().catch(error => {
-    console.error('Fatal error:', error.message);
-    process.exit(1);
+async function processTask(msg) {
+  const task = parseTask(msg.text);
+  const startTime = Date.now();
+  let taskDir = null;
+
+  try {
+    await react(BRIDGE_CHANNEL, msg.ts, EMOJI_RUNNING);
+
+    let prompt = '';
+    let cwd = WORK_DIR;
+
+    if (task.repo) {
+      // Clone into a unique temp dir
+      const dirName = `task-${msg.ts.replace('.', '-')}`;
+      taskDir = path.join(WORK_DIR, dirName);
+      cloneRepo(task.repo, task.branch, taskDir);
+      cwd = taskDir;
+
+      prompt = [
+        `You are working in a cloned repo: ${task.repo} (branch: ${task.branch}).`,
+        `Your working directory is the repo root.`,
+        `When done, commit and push your changes if you made any code changes.`,
+        '',
+        task.instructions || task.description,
+      ].join('\n');
+    } else {
+      // No repo specified, run in work dir
+      prompt = task.instructions || task.description;
+    }
+
+    const output = await runClaudeCode(prompt, cwd);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+
+    const repoLabel = task.repo ? `\nRepo: \`${task.repo}\` (${task.branch})` : '';
+
+    await postToOps(
+      `:white_check_mark: *Task completed* (${elapsed}s)\n` +
+      `Source: <${msgLink(msg.ts)}|#claude-bridge>${repoLabel}\n\n` +
+      `\`\`\`\n${truncate(output)}\n\`\`\``
+    );
+
+    await unreact(BRIDGE_CHANNEL, msg.ts, EMOJI_RUNNING);
+    await react(BRIDGE_CHANNEL, msg.ts, EMOJI_DONE);
+    console.log(`[bridge-agent] Task ${msg.ts} done (${elapsed}s)`);
+
+  } catch (err) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+
+    await postToOps(
+      `:x: *Task failed* (${elapsed}s)\n` +
+      `Source: <${msgLink(msg.ts)}|#claude-bridge>\n\n` +
+      `\`\`\`\n${truncate(err.message)}\n\`\`\``
+    );
+
+    await unreact(BRIDGE_CHANNEL, msg.ts, EMOJI_RUNNING);
+    await react(BRIDGE_CHANNEL, msg.ts, EMOJI_FAILED);
+    console.error(`[bridge-agent] Task ${msg.ts} failed (${elapsed}s):`, err.message);
+
+  } finally {
+    if (taskDir && fs.existsSync(taskDir)) {
+      cleanupDir(taskDir);
+    }
+  }
+}
+
+// ---- Poll loop ----
+
+async function poll() {
+  if (isRunning) return;
+
+  try {
+    const result = await slack.conversations.history({
+      channel: BRIDGE_CHANNEL,
+      oldest: lastChecked,
+      limit: 5,
+      inclusive: false,
+    });
+
+    if (!result.messages?.length) return;
+
+    const messages = result.messages.reverse();
+
+    for (const msg of messages) {
+      if (msg.ts > lastChecked) {
+        lastChecked = msg.ts;
+        saveState(lastChecked);
+      }
+
+      if (!isTaskMessage(msg) || alreadyProcessed(msg)) continue;
+
+      console.log(`[bridge-agent] Task found: ${msg.ts}`);
+      isRunning = true;
+
+      await processTask(msg);
+
+      isRunning = false;
+    }
+  } catch (err) {
+    console.error('[bridge-agent] Poll error:', err.message);
+    isRunning = false;
+  }
+}
+
+// ---- Startup ----
+
+console.log('[bridge-agent] Starting v2');
+console.log(`  Claude:   ${CLAUDE_BIN}`);
+console.log(`  Bridge:   #claude-bridge (${BRIDGE_CHANNEL})`);
+console.log(`  Ops:      #sqtools-ops (${OPS_CHANNEL})`);
+console.log(`  GitHub:   ${GITHUB_ORG}`);
+console.log(`  WorkDir:  ${WORK_DIR}`);
+console.log(`  Interval: ${POLL_INTERVAL / 1000}s`);
+console.log(`  Timeout:  ${TASK_TIMEOUT / 1000}s`);
+console.log(`  Turns:    ${MAX_TURNS}`);
+
+poll();
+setInterval(poll, POLL_INTERVAL);
+
+process.on('SIGTERM', () => {
+  console.log('[bridge-agent] Shutting down');
+  process.exit(0);
 });
