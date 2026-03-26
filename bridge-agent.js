@@ -503,7 +503,7 @@ console.log('[bridge-agent] Starting v2');
 console.log(`  Claude:   ${CLAUDE_BIN}`);
 console.log(`  Bridge:   #claude-bridge (${BRIDGE_CHANNEL})`);
 console.log(`  Ops:      #sqtools-ops (${OPS_CHANNEL})`);
-console.log(`  GitHub:   ${GITHUB_ORG}`);
+console.log(`  GitHub:   ${config.GITHUB_ORG || "jtpets"}`);
 console.log(`  WorkDir:  ${WORK_DIR}`);
 console.log(`  Interval: ${POLL_INTERVAL / 1000}s`);
 console.log(`  Timeout:  ${TASK_TIMEOUT / 1000}s`);
