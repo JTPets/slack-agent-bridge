@@ -144,6 +144,7 @@ const POLL_INTERVAL = 5000;
 | `MAX_TURNS` | CC max turns per task | `50` |
 | `TASK_TIMEOUT_MS` | Hard kill timeout in ms | `600000` |
 | `WORK_DIR` | Base dir for temp clones | `/tmp/bridge-agent` |
+| `REPOS` | Comma-separated repos for security-review | `jtpets/slack-agent-bridge,jtpets/SquareDashboardTool` |
 
 **LLM_PROVIDER options:** `claude` (default), `openai` (not yet implemented), `ollama` (not yet implemented)
 
@@ -170,6 +171,9 @@ pm2 logs slack-bridge
 
 # Morning digest runs via cron, not PM2:
 # 0 8 * * * cd /home/jtpets/jt-agent && set -a && source .env && set +a && node morning-digest.js
+
+# Security review runs via cron at 1am daily:
+# 0 1 * * * cd /home/jtpets/jt-agent && set -a && source .env && set +a && node security-review.js
 
 # Testing
 npm test
@@ -217,6 +221,7 @@ slack-agent-bridge/
 ├── bridge-agent.js       # Main entry point: Slack polling, task execution via Claude CLI
 ├── auto-update.js        # Git polling daemon: pulls updates and restarts PM2 on changes
 ├── morning-digest.js     # Cron job script: sends daily task stats DM to owner
+├── security-review.js    # Cron job script: security audit of commits from last 24h
 ├── lib/
 │   ├── config.js         # Environment variable loading, validation, and defaults
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, openai, ollama)
@@ -233,8 +238,10 @@ slack-agent-bridge/
 │   │   └── SKILL.md      # Research topics with pros/cons/recommendations
 │   ├── deploy-check/
 │   │   └── SKILL.md      # Verify deployment health checks
-│   └── refactor/
-│       └── SKILL.md      # Safe refactoring with pre/post checks
+│   ├── refactor/
+│   │   └── SKILL.md      # Safe refactoring with pre/post checks
+│   └── security-review/
+│       └── SKILL.md      # Security audit of commits for vulnerabilities
 ├── tests/
 │   ├── config.test.js           # Tests for lib/config.js
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
