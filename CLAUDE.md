@@ -257,6 +257,17 @@ slack-agent-bridge/
 
 ---
 
+## Security
+
+• GitHub branch protection MUST be enabled on main for all repos: block force pushes, prevent deletion
+• Bot only processes messages from ALLOWED_USER_IDS
+• Never log or post tokens, API keys, or .env values
+• Tasks run with --dangerously-skip-permissions (required for non-interactive CC). Mitigated by: max turns cap, timeout, user allowlist, branch protection
+• NEVER run git push --force or git branch -D on main
+• NEVER delete or overwrite .env files on the Pi
+
+---
+
 ## Task Message Format
 
 ```
