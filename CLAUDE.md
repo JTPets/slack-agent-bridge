@@ -132,7 +132,7 @@ const POLL_INTERVAL = 5000;
 | `GITHUB_ORG` | Default GitHub org | `jtpets` |
 | `CLAUDE_BIN` | Path to claude binary | `/home/jtpets/.local/bin/claude` |
 | `POLL_INTERVAL_MS` | Poll frequency in ms | `30000` |
-| `MAX_TURNS` | CC max turns per task | `30` |
+| `MAX_TURNS` | CC max turns per task | `50` |
 | `TASK_TIMEOUT_MS` | Hard kill timeout in ms | `600000` |
 | `WORK_DIR` | Base dir for temp clones | `/tmp/bridge-agent` |
 

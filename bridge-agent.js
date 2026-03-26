@@ -24,7 +24,7 @@
  * Optional env vars:
  *   GITHUB_ORG          default GitHub org (default: jtpets)
  *   POLL_INTERVAL_MS    poll frequency (default: 30000)
- *   MAX_TURNS           Claude Code max turns per task (default: 30)
+ *   MAX_TURNS           Claude Code max turns per task (default: 50)
  *   TASK_TIMEOUT_MS     hard kill timeout (default: 600000 = 10min)
  *   CLAUDE_BIN          path to claude binary
  *   WORK_DIR            base dir for temp clones (default: /tmp/bridge-agent)
@@ -58,7 +58,9 @@ const GITHUB_ORG = process.env.GITHUB_ORG || 'jtpets';
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '30000', 10);
 // LOGIC CHANGE 2026-03-26: Increased MAX_TURNS default from 15 to 30 to allow
 // more complex tasks to complete without hitting the turn limit.
-const MAX_TURNS = parseInt(process.env.MAX_TURNS || '30', 10);
+// LOGIC CHANGE 2026-03-26: Increased MAX_TURNS default from 30 to 50 to give
+// more headroom for complex multi-step tasks.
+const MAX_TURNS = parseInt(process.env.MAX_TURNS || '50', 10);
 const TASK_TIMEOUT = parseInt(process.env.TASK_TIMEOUT_MS || '600000', 10);
 const CLAUDE_BIN = process.env.CLAUDE_BIN || '/home/jtpets/.local/bin/claude';
 const WORK_DIR = process.env.WORK_DIR || '/tmp/bridge-agent';
