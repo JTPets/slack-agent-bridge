@@ -265,6 +265,8 @@ slack-agent-bridge/
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
 │   └── task-parser.test.js      # Tests for task parsing logic
 ├── package.json          # Dependencies and npm scripts
+├── docs/
+│   └── INTEGRATION-SPEC.md  # SqTools API integration specification and security requirements
 ├── CLAUDE.md             # Project rules and documentation (this file)
 ├── README.md             # Project overview
 └── .gitignore            # Git ignore rules (node_modules, .env, etc.)
@@ -281,6 +283,14 @@ slack-agent-bridge/
 • Tasks run with --dangerously-skip-permissions (required for non-interactive CC). Mitigated by: max turns cap, timeout, user allowlist, branch protection
 • NEVER run git push --force or git branch -D on main
 • NEVER delete or overwrite .env files on the Pi
+
+### External API Integration Security
+See [docs/INTEGRATION-SPEC.md](docs/INTEGRATION-SPEC.md) for SqTools API security requirements including:
+• API key authentication (X-API-Key header)
+• Rate limiting (60 req/min per key)
+• IP allowlist (127.0.0.1 only by default)
+• Read-only access, no write operations without approval
+• Response sanitization (no stack traces, internal paths, or DB details)
 
 ---
 
