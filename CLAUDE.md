@@ -105,15 +105,43 @@ const POLL_INTERVAL = 5000;
 | Dependencies | `npm install --save` only — never manually edit package.json |
 | Env vars | Document in README if adding new ones |
 
+### Environment Variable Management
+• The .env file is LOCAL ONLY. It is gitignored and must never be committed.
+• When adding a new env var to code, you MUST:
+    a. Add a sensible default in the code (e.g., process.env.NEW_VAR || 'default')
+    b. Update the Environment Variables section in this CLAUDE.md with the var name, description, and default
+    c. Include in your task completion message: 'ACTION REQUIRED: Add to .env: NEW_VAR=recommended_value'
+• When removing an env var, note it in the completion message so the owner can clean up .env.
+• Never hardcode secrets. All tokens, keys, and credentials go in .env.
+• The bot cannot edit .env directly. All .env changes require manual action by the owner.
+
 ---
 
 ## Environment Variables
 
-```bash
-SLACK_BOT_TOKEN=xoxb-...     # Bot token (never log this)
-SLACK_CHANNEL_ID=C...        # Channel to poll
-POLL_INTERVAL_MS=5000        # Polling interval (optional, default 5000)
-```
+### Required
+| Variable | Description |
+|----------|-------------|
+| `SLACK_BOT_TOKEN` | Slack bot OAuth token (xoxb-). **Never log this.** |
+| `BRIDGE_CHANNEL_ID` | #claude-bridge channel ID |
+| `OPS_CHANNEL_ID` | #sqtools-ops channel ID |
+
+### Optional
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `GITHUB_ORG` | Default GitHub org | `jtpets` |
+| `CLAUDE_BIN` | Path to claude binary | `/home/jtpets/.local/bin/claude` |
+| `POLL_INTERVAL_MS` | Poll frequency in ms | `30000` |
+| `MAX_TURNS` | CC max turns per task | `30` |
+| `TASK_TIMEOUT_MS` | Hard kill timeout in ms | `600000` |
+| `WORK_DIR` | Base dir for temp clones | `/tmp/bridge-agent` |
+
+### Auto-update vars
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LOCAL_REPO_DIR` | Path to local repo | `/home/jtpets/jt-agent` |
+| `CHECK_INTERVAL_MS` | Git poll frequency | `300000` |
+| `PM2_PROCESS_NAME` | PM2 process to restart | `bridge-agent` |
 
 ---
 
