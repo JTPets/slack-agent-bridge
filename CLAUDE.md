@@ -260,6 +260,7 @@ slack-agent-bridge/
 ## Security
 
 • GitHub branch protection MUST be enabled on main for all repos: block force pushes, prevent deletion
+• Dependabot enabled: checks npm dependencies weekly on Mondays, opens PRs for security updates (max 5 open PRs)
 • Bot only processes messages from ALLOWED_USER_IDS
 • Never log or post tokens, API keys, or .env values
 • Tasks run with --dangerously-skip-permissions (required for non-interactive CC). Mitigated by: max turns cap, timeout, user allowlist, branch protection
