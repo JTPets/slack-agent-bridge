@@ -184,6 +184,15 @@ function alreadyProcessed(msg) {
   );
 }
 
+// LOGIC CHANGE 2026-03-26: Added conversational mode support for quick Q&A.
+// Messages starting with "ASK:" are answered directly via Claude Code without
+// repo cloning. Response is posted as a thread reply to the original message.
+function isConversationMessage(msg) {
+  if (msg.subtype === 'channel_join' || msg.subtype === 'channel_leave') return false;
+  if (!msg.text) return false;
+  return msg.text.trim().toUpperCase().startsWith('ASK:');
+}
+
 // ---- Git helpers ----
 
 // LOGIC CHANGE 2026-03-26: Added try/catch with fallback to main branch when
@@ -407,6 +416,96 @@ async function processTask(msg) {
   }
 }
 
+// ---- Process a conversational message ----
+
+// LOGIC CHANGE 2026-03-26: Added processConversation for handling ASK: messages.
+// Uses Claude Code with -p flag and max-turns 10 for quick Q&A responses.
+// Replies are posted as thread replies to the original message.
+async function processConversation(msg) {
+  try {
+    // Extract question text after "ASK:" prefix
+    const questionText = msg.text.replace(/^ASK:\s*/i, '').trim();
+    if (!questionText) {
+      console.log(`[bridge-agent] Empty ASK: message, skipping`);
+      return;
+    }
+
+    console.log(`[bridge-agent] Processing conversation: ${msg.ts}`);
+
+    // Build memory context
+    let memoryContext = '';
+    try {
+      memoryContext = memory.buildTaskContext() || '';
+    } catch (contextErr) {
+      console.error('[bridge-agent] buildTaskContext failed:', contextErr.message);
+    }
+
+    // Build prompt with system instruction
+    const systemInstruction = 'You are a helpful assistant for John Alexander who runs JT Pets. Answer concisely.';
+    const prompt = [
+      systemInstruction,
+      memoryContext,
+      questionText,
+    ].filter(Boolean).join('\n\n');
+
+    // Run Claude Code with -p flag, max-turns 10
+    const args = [
+      '-p', prompt,
+      '--output-format', 'text',
+      '--max-turns', '10',
+      '--dangerously-skip-permissions',
+    ];
+
+    const output = await new Promise((resolve, reject) => {
+      const child = spawn(CLAUDE_BIN, args, {
+        cwd: WORK_DIR,
+        env: { ...process.env, HOME: os.homedir() },
+        timeout: TASK_TIMEOUT,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk.toString();
+      });
+
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      child.on('close', (code) => {
+        if (code === 0) {
+          resolve(stdout.trim());
+        } else {
+          reject(new Error(
+            `Exit code ${code}${stderr ? '\n' + stderr.slice(0, 2000) : ''}`
+          ));
+        }
+      });
+
+      child.on('error', (err) => {
+        reject(new Error(`Spawn failed: ${err.message}`));
+      });
+    });
+
+    // Post response as a thread reply
+    await slack.chat.postMessage({
+      channel: BRIDGE_CHANNEL,
+      thread_ts: msg.ts,
+      text: truncate(output),
+      unfurl_links: false,
+    });
+
+    console.log(`[bridge-agent] Conversation ${msg.ts} answered`);
+
+  } catch (err) {
+    // Log errors but do not post to ops channel
+    console.error(`[bridge-agent] Conversation ${msg.ts} failed:`, err.message);
+  }
+}
+
 // ---- Poll loop ----
 
 async function poll() {
@@ -430,14 +529,22 @@ async function poll() {
         saveState(lastChecked);
       }
 
-      if (!isTaskMessage(msg) || alreadyProcessed(msg)) continue;
+      // Check for TASK: messages first
+      if (isTaskMessage(msg) && !alreadyProcessed(msg)) {
+        console.log(`[bridge-agent] Task found: ${msg.ts}`);
+        isRunning = true;
 
-      console.log(`[bridge-agent] Task found: ${msg.ts}`);
-      isRunning = true;
+        await processTask(msg);
 
-      await processTask(msg);
+        isRunning = false;
+        continue;
+      }
 
-      isRunning = false;
+      // LOGIC CHANGE 2026-03-26: Check for ASK: conversational messages.
+      // These are handled inline without blocking the task queue.
+      if (isConversationMessage(msg) && !alreadyProcessed(msg)) {
+        await processConversation(msg);
+      }
     }
   } catch (err) {
     console.error('[bridge-agent] Poll error:', err.message);
