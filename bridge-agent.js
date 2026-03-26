@@ -50,7 +50,9 @@ const {
 
 // LOGIC CHANGE 2026-03-26: Extracted config loading and validation into
 // lib/config.js for centralized env var management.
-const { config, validate } = require('./lib/config');
+// LOGIC CHANGE 2026-03-26: Import isUserAuthorized from config for user
+// authorization checks in the poll loop.
+const { config, validate, isUserAuthorized } = require('./lib/config');
 
 // LOGIC CHANGE 2026-03-26: Extracted LLM execution into lib/llm-runner.js
 // to support multiple LLM providers via LLM_PROVIDER env var.
@@ -74,6 +76,7 @@ const {
   EMOJI_RUNNING,
   EMOJI_DONE,
   EMOJI_FAILED,
+  ALLOWED_USER_IDS,
 } = config;
 
 const slack = new WebClient(SLACK_BOT_TOKEN);
@@ -476,6 +479,13 @@ async function poll() {
         saveState(lastChecked);
       }
 
+      // LOGIC CHANGE 2026-03-26: Check if message sender is authorized before
+      // processing TASK: or ASK: messages. Unauthorized users are logged and skipped.
+      if ((isTaskMessage(msg) || isConversationMessage(msg)) && !isUserAuthorized(msg.user)) {
+        console.log(`[bridge-agent] Ignoring message from unauthorized user: ${msg.user}`);
+        continue;
+      }
+
       // Check for TASK: messages first
       if (isTaskMessage(msg) && !alreadyProcessed(msg)) {
         console.log(`[bridge-agent] Task found: ${msg.ts}`);
@@ -510,6 +520,7 @@ console.log(`  WorkDir:  ${WORK_DIR}`);
 console.log(`  Interval: ${POLL_INTERVAL / 1000}s`);
 console.log(`  Timeout:  ${TASK_TIMEOUT / 1000}s`);
 console.log(`  Turns:    ${MAX_TURNS}`);
+console.log(`  Allowed:  ${ALLOWED_USER_IDS.join(', ')}`);
 
 poll();
 setInterval(poll, POLL_INTERVAL);

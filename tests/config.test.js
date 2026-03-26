@@ -226,6 +226,68 @@ describe('config module', () => {
     });
   });
 
+  describe('ALLOWED_USER_IDS', () => {
+    test('uses default value when not set', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      delete process.env.ALLOWED_USER_IDS;
+
+      const { loadConfig } = require('../lib/config');
+      const config = loadConfig();
+
+      expect(config.ALLOWED_USER_IDS).toEqual(['U02QKNHHU7J']);
+    });
+
+    test('parses single user ID', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      process.env.ALLOWED_USER_IDS = 'U12345678';
+
+      const { loadConfig } = require('../lib/config');
+      const config = loadConfig();
+
+      expect(config.ALLOWED_USER_IDS).toEqual(['U12345678']);
+    });
+
+    test('parses comma-separated user IDs', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      process.env.ALLOWED_USER_IDS = 'U12345678,U87654321,U11111111';
+
+      const { loadConfig } = require('../lib/config');
+      const config = loadConfig();
+
+      expect(config.ALLOWED_USER_IDS).toEqual(['U12345678', 'U87654321', 'U11111111']);
+    });
+
+    test('trims whitespace from user IDs', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      process.env.ALLOWED_USER_IDS = ' U12345678 , U87654321 ';
+
+      const { loadConfig } = require('../lib/config');
+      const config = loadConfig();
+
+      expect(config.ALLOWED_USER_IDS).toEqual(['U12345678', 'U87654321']);
+    });
+
+    test('filters out empty entries from comma-separated list', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      process.env.ALLOWED_USER_IDS = 'U12345678,,U87654321,';
+
+      const { loadConfig } = require('../lib/config');
+      const config = loadConfig();
+
+      expect(config.ALLOWED_USER_IDS).toEqual(['U12345678', 'U87654321']);
+    });
+  });
+
   describe('parseInt edge cases', () => {
     test('handles non-numeric POLL_INTERVAL_MS (defaults to NaN)', () => {
       process.env.SLACK_BOT_TOKEN = 'xoxb-test';
@@ -250,6 +312,80 @@ describe('config module', () => {
       const config = loadConfig();
 
       expect(config.MAX_TURNS).toBe(25);
+    });
+  });
+
+  describe('isUserAuthorized', () => {
+    test('returns true for user in allowed list', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      process.env.ALLOWED_USER_IDS = 'U12345678,U87654321';
+
+      const { loadConfig, isUserAuthorized } = require('../lib/config');
+      const config = loadConfig();
+
+      expect(isUserAuthorized('U12345678', config.ALLOWED_USER_IDS)).toBe(true);
+      expect(isUserAuthorized('U87654321', config.ALLOWED_USER_IDS)).toBe(true);
+    });
+
+    test('returns false for user not in allowed list', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      process.env.ALLOWED_USER_IDS = 'U12345678,U87654321';
+
+      const { loadConfig, isUserAuthorized } = require('../lib/config');
+      const config = loadConfig();
+
+      expect(isUserAuthorized('U99999999', config.ALLOWED_USER_IDS)).toBe(false);
+    });
+
+    test('returns true for default allowed user when env var not set', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      delete process.env.ALLOWED_USER_IDS;
+
+      const { isUserAuthorized } = require('../lib/config');
+
+      // Default allowed user is U02QKNHHU7J
+      expect(isUserAuthorized('U02QKNHHU7J')).toBe(true);
+    });
+
+    test('returns false for unauthorized user with default config', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      delete process.env.ALLOWED_USER_IDS;
+
+      const { isUserAuthorized } = require('../lib/config');
+
+      expect(isUserAuthorized('UUNKNOWN99')).toBe(false);
+    });
+
+    test('handles empty string user ID', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      process.env.ALLOWED_USER_IDS = 'U12345678';
+
+      const { loadConfig, isUserAuthorized } = require('../lib/config');
+      const config = loadConfig();
+
+      expect(isUserAuthorized('', config.ALLOWED_USER_IDS)).toBe(false);
+    });
+
+    test('handles undefined user ID', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      process.env.ALLOWED_USER_IDS = 'U12345678';
+
+      const { loadConfig, isUserAuthorized } = require('../lib/config');
+      const config = loadConfig();
+
+      expect(isUserAuthorized(undefined, config.ALLOWED_USER_IDS)).toBe(false);
     });
   });
 });
