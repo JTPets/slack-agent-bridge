@@ -239,6 +239,7 @@ slack-agent-bridge/
 │   ├── config.test.js           # Tests for lib/config.js
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
 │   ├── message-detection.test.js # Tests for isTaskMessage/isConversationMessage
+│   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
 │   └── task-parser.test.js      # Tests for task parsing logic
 ├── package.json          # Dependencies and npm scripts
 ├── CLAUDE.md             # Project rules and documentation (this file)
@@ -272,6 +273,14 @@ INSTRUCTIONS: What to do
 • Default: 50. Minimum: 5. Maximum: 100.
 • Non-numeric values are ignored (falls back to default).
 • Use higher values for complex multi-step tasks. Use lower values for quick fixes.
+
+### Auto-Retry on Max Turns
+When a task hits its max turns limit, the agent automatically retries ONCE with doubled turns:
+• First attempt runs with the specified TURNS value (or default 50)
+• If max turns is hit and original turns < 100, the agent posts a message to #sqtools-ops and retries with turns × 2 (capped at 100)
+• If the retry also hits max turns, the agent posts a warning and gives up
+• No retry occurs if original turns was already 100
+• Memory tracking records: `{ retried: true, originalTurns: N, retryTurns: N*2 }` when a retry occurred
 
 ### Branch Handling
 • BRANCH in a task message specifies which branch to CLONE from, not which branch to CREATE.

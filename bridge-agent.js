@@ -253,20 +253,60 @@ async function processTask(msg) {
     // inline runClaudeCode. Supports multiple providers via LLM_PROVIDER env var.
     // LOGIC CHANGE 2026-03-26: Use task.turns for per-task control of LLM max
     // turns instead of global MAX_TURNS. Defaults to 50, capped at 5-100 range.
-    const result = await runLLM(prompt, {
-      cwd,
-      maxTurns: task.turns,
-      timeout: TASK_TIMEOUT,
-      claudeBin: CLAUDE_BIN,
-    });
-    const { output, hitMaxTurns } = result;
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-    if (hitMaxTurns) {
+    // LOGIC CHANGE 2026-03-26: Auto-retry on max turns hit. If task hits max turns
+    // and original turns < 100, automatically retry once with doubled turns (capped
+    // at 100). Prevents infinite loops via retryCount tracking.
+    const originalTurns = task.turns;
+    let currentTurns = originalTurns;
+    let retryCount = 0;
+    let result;
+    let didRetry = false;
+
+    while (retryCount <= 1) {
+      try {
+        result = await runLLM(prompt, {
+          cwd,
+          maxTurns: currentTurns,
+          timeout: TASK_TIMEOUT,
+          claudeBin: CLAUDE_BIN,
+        });
+      } catch (llmErr) {
+        // Re-throw LLM errors - they will be caught by outer catch
+        throw llmErr;
+      }
+
+      const { hitMaxTurns } = result;
+
+      if (!hitMaxTurns) {
+        // Success - task completed without hitting max turns
+        break;
+      }
+
+      // Hit max turns - check if we can retry
+      if (retryCount === 0 && currentTurns < 100) {
+        // Calculate retry turns: double but cap at 100
+        const retryTurns = Math.min(currentTurns * 2, 100);
+        await postToOps(
+          `:hourglass_flowing_sand: *Task hit max turns (${currentTurns}). Retrying with ${retryTurns} turns...*\n` +
+          `Source: <${msgLink(msg.ts)}|#claude-bridge>`
+        );
+        currentTurns = retryTurns;
+        retryCount++;
+        didRetry = true;
+        continue;
+      }
+
+      // Either already retried once, or original turns was already 100
+      // Post warning and break out of loop
       await postToOps(
-        `:warning: *Task hit max turns limit. May be partially complete.*\n` +
+        `:warning: *Task hit max turns limit${didRetry ? ' on retry' : ''}. May be partially complete.*\n` +
         `Source: <${msgLink(msg.ts)}|#claude-bridge>`
       );
+      break;
     }
+
+    const { output, hitMaxTurns } = result;
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
 
     const repoLabel = task.repo ? `\nRepo: \`${task.repo}\` (${task.branch})` : '';
 
@@ -282,13 +322,27 @@ async function processTask(msg) {
 
     // LOGIC CHANGE 2026-03-26: Record task completion in memory.
     // Use different outcome format if max turns was hit.
+    // LOGIC CHANGE 2026-03-26: Added retry tracking fields to memory outcome.
+    // Tracks retried (bool), originalTurns (number), retryTurns (number if retried).
     if (memoryTaskId) {
       try {
-        if (hitMaxTurns) {
-          memory.completeTask(memoryTaskId, { output: 'max turns reached', partial: true });
-        } else {
-          memory.completeTask(memoryTaskId, { output: truncate(output, 500), elapsed: parseInt(elapsed, 10) });
+        const outcome = {
+          output: truncate(output, 500),
+          elapsed: parseInt(elapsed, 10),
+        };
+
+        if (didRetry) {
+          outcome.retried = true;
+          outcome.originalTurns = originalTurns;
+          outcome.retryTurns = currentTurns;
         }
+
+        if (hitMaxTurns) {
+          outcome.partial = true;
+          outcome.output = 'max turns reached';
+        }
+
+        memory.completeTask(memoryTaskId, outcome);
       } catch (memErr) {
         console.error('[bridge-agent] Memory completeTask failed:', memErr.message);
       }
