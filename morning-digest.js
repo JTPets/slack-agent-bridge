@@ -19,6 +19,7 @@ const { WebClient } = require('@slack/web-api');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const { getAllTodayEvents, getAllYesterdayEvents } = require('./lib/integrations/google-calendar');
 
 // ---- Config ----
 
@@ -94,6 +95,42 @@ function fetchWeather() {
             resolve(null);
         });
     });
+}
+
+// ---- Calendar helpers ----
+
+// LOGIC CHANGE 2026-03-26: Added calendar integration to morning digest.
+// Fetches today's and yesterday's events from Google Calendar.
+
+/**
+ * Format a calendar event time for display.
+ * @param {string} isoString - ISO date/time string
+ * @returns {string} - Formatted time (e.g., "9:00 AM" or "All day")
+ */
+function formatEventTime(isoString) {
+    if (!isoString) return '';
+    // All-day events come as date only (YYYY-MM-DD)
+    if (isoString.length === 10) {
+        return 'All day';
+    }
+    const date = new Date(isoString);
+    return date.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'America/Toronto',
+    });
+}
+
+/**
+ * Format a calendar event for display in the digest.
+ * @param {Object} event - Calendar event object
+ * @returns {string} - Formatted event string
+ */
+function formatEvent(event) {
+    const time = formatEventTime(event.start);
+    const timeStr = time ? `${time}: ` : '';
+    return `${timeStr}${event.title}`;
 }
 
 // ---- File helpers ----
@@ -179,6 +216,35 @@ async function buildDigest() {
         console.error('[morning-digest] Weather section skipped:', err.message);
     }
 
+    // Calendar section - today's events
+    try {
+        const todayEvents = await getAllTodayEvents();
+        if (todayEvents.length > 0) {
+            lines.push('*Today\'s calendar:*');
+            for (const event of todayEvents) {
+                lines.push(`  - ${formatEvent(event)}`);
+            }
+            lines.push('');
+        }
+    } catch (err) {
+        console.error('[morning-digest] Calendar section skipped:', err.message);
+    }
+
+    // Calendar section - yesterday's events
+    try {
+        const yesterdayEvents = await getAllYesterdayEvents();
+        if (yesterdayEvents.length > 0) {
+            lines.push('*Yesterday\'s events:*');
+            for (const event of yesterdayEvents) {
+                lines.push(`  - ${formatEvent(event)}`);
+            }
+            lines.push('');
+        }
+    } catch (err) {
+        console.error('[morning-digest] Yesterday calendar section skipped:', err.message);
+    }
+
+    lines.push('*Task summary:*');
     lines.push(`• ${completedLast24h.length} task${completedLast24h.length !== 1 ? 's' : ''} completed yesterday`);
     lines.push(`• ${failedLast24h.length} task${failedLast24h.length !== 1 ? 's' : ''} failed`);
     lines.push(`• ${activeTasks.length} task${activeTasks.length !== 1 ? 's' : ''} still active`);
@@ -214,7 +280,7 @@ async function main() {
     console.log('[morning-digest] Starting');
 
     try {
-        const digest = buildDigest();
+        const digest = await buildDigest();
         console.log('[morning-digest] Digest built, sending DM...');
 
         await sendDM(OWNER_USER_ID, digest);

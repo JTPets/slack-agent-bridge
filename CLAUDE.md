@@ -149,6 +149,17 @@ const POLL_INTERVAL = 5000;
 
 **LLM_PROVIDER options:** `claude` (default), `openai` (not yet implemented), `ollama` (not yet implemented)
 
+### Google Calendar integration
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `GOOGLE_SERVICE_ACCOUNT_KEY` | Path to Google service account JSON key file | - |
+| `GOOGLE_CALENDAR_REFRESH_TOKEN` | OAuth refresh token (alternative to service account) | - |
+| `GOOGLE_CLIENT_ID` | OAuth client ID (required with refresh token) | - |
+| `GOOGLE_CLIENT_SECRET` | OAuth client secret (required with refresh token) | - |
+| `GOOGLE_CALENDAR_IDS` | Comma-separated calendar IDs to fetch events from | `primary` |
+
+**Note:** Either `GOOGLE_SERVICE_ACCOUNT_KEY` OR the OAuth trio (`GOOGLE_CALENDAR_REFRESH_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) is required for calendar integration. If neither is set, calendar sections in the morning digest will be skipped.
+
 ### Auto-update vars
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -227,7 +238,9 @@ slack-agent-bridge/
 │   ├── config.js         # Environment variable loading, validation, and defaults
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, openai, ollama)
 │   ├── task-parser.js    # Task message parsing and message type detection
-│   └── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
+│   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
+│   └── integrations/
+│       └── google-calendar.js  # Google Calendar API integration for fetching events
 ├── memory/
 │   └── memory-manager.js # Task history storage and context retrieval (JSON file-based)
 ├── skills/               # Reusable skill templates for common tasks
@@ -241,8 +254,10 @@ slack-agent-bridge/
 │   │   └── SKILL.md      # Verify deployment health checks
 │   ├── refactor/
 │   │   └── SKILL.md      # Safe refactoring with pre/post checks
-│   └── security-review/
-│       └── SKILL.md      # Security audit of commits for vulnerabilities
+│   ├── security-review/
+│   │   └── SKILL.md      # Security audit of commits for vulnerabilities
+│   └── accountability-check/
+│       └── SKILL.md      # Review calendar events and verify task completion
 ├── tests/
 │   ├── config.test.js           # Tests for lib/config.js
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
