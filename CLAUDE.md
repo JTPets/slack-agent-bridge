@@ -237,6 +237,29 @@ slack-agent-bridge/
 
 ## Task Message Format
 
+```
+TASK: Short description
+REPO: jtpets/repo-name (or full GitHub URL)
+BRANCH: main (optional, default: main)
+TURNS: 50 (optional, default: 50, range: 5-100)
+INSTRUCTIONS: What to do
+```
+
+### Field Reference
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| TASK | Yes | - | Short description of the task |
+| REPO | No | - | GitHub repo (org/repo or full URL) |
+| BRANCH | No | main | Branch to clone from |
+| TURNS | No | 50 | Max LLM turns for this task (5-100) |
+| INSTRUCTIONS | Yes | - | Detailed instructions (can be multiline) |
+
+### TURNS Field
+• Controls how many LLM turns (API round-trips) the agent will execute for this task.
+• Default: 50. Minimum: 5. Maximum: 100.
+• Non-numeric values are ignored (falls back to default).
+• Use higher values for complex multi-step tasks. Use lower values for quick fixes.
+
 ### Branch Handling
 • BRANCH in a task message specifies which branch to CLONE from, not which branch to CREATE.
 • If a task needs to create a new branch, set BRANCH to main and include branch creation in the INSTRUCTIONS.

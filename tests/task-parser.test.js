@@ -4,7 +4,7 @@
  * Unit tests for parseTask function from lib/task-parser.js
  */
 
-const { parseTask } = require('../lib/task-parser');
+const { parseTask, DEFAULT_TURNS, MIN_TURNS, MAX_TURNS } = require('../lib/task-parser');
 
 describe('parseTask', () => {
   test('parses full TASK/REPO/BRANCH/INSTRUCTIONS message', () => {
@@ -161,6 +161,134 @@ INSTRUCTIONS: Fix it`;
     expect(result.repo).toBe('');
     expect(result.branch).toBe('main');
     expect(result.instructions).toBe('');
+    expect(result.turns).toBe(DEFAULT_TURNS);
     expect(result.raw).toBe('');
+  });
+
+  // TURNS parsing tests
+  describe('TURNS parsing', () => {
+    test('parses TURNS field as integer', () => {
+      const text = `TASK: Test task
+REPO: jtpets/test
+TURNS: 25
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.turns).toBe(25);
+    });
+
+    test('defaults to DEFAULT_TURNS (50) when TURNS not specified', () => {
+      const text = `TASK: Test task
+REPO: jtpets/test
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.turns).toBe(DEFAULT_TURNS);
+      expect(result.turns).toBe(50);
+    });
+
+    test('caps TURNS at MAX_TURNS (100)', () => {
+      const text = `TASK: Test task
+TURNS: 200
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.turns).toBe(MAX_TURNS);
+      expect(result.turns).toBe(100);
+    });
+
+    test('floors TURNS at MIN_TURNS (5)', () => {
+      const text = `TASK: Test task
+TURNS: 1
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.turns).toBe(MIN_TURNS);
+      expect(result.turns).toBe(5);
+    });
+
+    test('handles TURNS: 0 (floors to MIN_TURNS)', () => {
+      const text = `TASK: Test task
+TURNS: 0
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.turns).toBe(MIN_TURNS);
+    });
+
+    test('handles negative TURNS (floors to MIN_TURNS)', () => {
+      const text = `TASK: Test task
+TURNS: -10
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.turns).toBe(MIN_TURNS);
+    });
+
+    test('handles non-numeric TURNS gracefully (defaults to DEFAULT_TURNS)', () => {
+      const text = `TASK: Test task
+TURNS: abc
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.turns).toBe(DEFAULT_TURNS);
+    });
+
+    test('handles TURNS with whitespace', () => {
+      const text = `TASK: Test task
+TURNS:   75
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.turns).toBe(75);
+    });
+
+    test('handles TURNS with decimal (truncates to integer)', () => {
+      const text = `TASK: Test task
+TURNS: 30.7
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.turns).toBe(30);
+    });
+
+    test('handles TURNS exactly at MIN_TURNS boundary', () => {
+      const text = `TASK: Test task
+TURNS: 5
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.turns).toBe(5);
+    });
+
+    test('handles TURNS exactly at MAX_TURNS boundary', () => {
+      const text = `TASK: Test task
+TURNS: 100
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.turns).toBe(100);
+    });
+
+    test('handles TURNS with mixed content (parses leading number)', () => {
+      const text = `TASK: Test task
+TURNS: 50abc
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.turns).toBe(50);
+    });
   });
 });

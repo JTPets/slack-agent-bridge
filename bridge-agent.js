@@ -251,9 +251,11 @@ async function processTask(msg) {
 
     // LOGIC CHANGE 2026-03-26: Use runLLM from lib/llm-runner.js instead of
     // inline runClaudeCode. Supports multiple providers via LLM_PROVIDER env var.
+    // LOGIC CHANGE 2026-03-26: Use task.turns for per-task control of LLM max
+    // turns instead of global MAX_TURNS. Defaults to 50, capped at 5-100 range.
     const result = await runLLM(prompt, {
       cwd,
-      maxTurns: MAX_TURNS,
+      maxTurns: task.turns,
       timeout: TASK_TIMEOUT,
       claudeBin: CLAUDE_BIN,
     });
