@@ -16,6 +16,7 @@
 'use strict';
 
 const { WebClient } = require('@slack/web-api');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
@@ -36,6 +37,64 @@ if (!SLACK_BOT_TOKEN) {
 }
 
 const slack = new WebClient(SLACK_BOT_TOKEN);
+
+// ---- Weather helpers ----
+
+// LOGIC CHANGE 2026-03-26: Added weather section to morning digest using Open-Meteo API
+const WEATHER_API_URL = 'https://api.open-meteo.com/v1/forecast?latitude=43.2557&longitude=-79.8711&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America/Toronto&forecast_days=1';
+
+/**
+ * Decode WMO weather code to human-readable text
+ * @param {number} code - WMO weather code
+ * @returns {string} - Human-readable weather condition
+ */
+function decodeWeatherCode(code) {
+    if (code === 0) return 'Clear';
+    if (code >= 1 && code <= 3) return 'Partly cloudy';
+    if (code >= 45 && code <= 48) return 'Fog';
+    if (code >= 51 && code <= 55) return 'Drizzle';
+    if (code >= 61 && code <= 65) return 'Rain';
+    if (code >= 71 && code <= 75) return 'Snow';
+    if (code >= 80 && code <= 82) return 'Showers';
+    if (code === 95) return 'Thunderstorm';
+    return 'Unknown';
+}
+
+/**
+ * Fetch weather data from Open-Meteo API
+ * @returns {Promise<{high: number, low: number, precipChance: number, conditions: string}|null>}
+ */
+function fetchWeather() {
+    return new Promise((resolve) => {
+        https.get(WEATHER_API_URL, (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => {
+                try {
+                    const json = JSON.parse(data);
+                    const daily = json.daily;
+                    if (!daily) {
+                        console.error('[morning-digest] Weather API returned no daily data');
+                        resolve(null);
+                        return;
+                    }
+                    resolve({
+                        high: Math.round(daily.temperature_2m_max[0]),
+                        low: Math.round(daily.temperature_2m_min[0]),
+                        precipChance: daily.precipitation_probability_max[0],
+                        conditions: decodeWeatherCode(daily.weathercode[0]),
+                    });
+                } catch (err) {
+                    console.error('[morning-digest] Failed to parse weather data:', err.message);
+                    resolve(null);
+                }
+            });
+        }).on('error', (err) => {
+            console.error('[morning-digest] Weather fetch failed:', err.message);
+            resolve(null);
+        });
+    });
+}
 
 // ---- File helpers ----
 
@@ -82,7 +141,7 @@ function isWithinLast24Hours(isoTimestamp) {
     return timestamp >= twentyFourHoursAgo;
 }
 
-function buildDigest() {
+async function buildDigest() {
     const history = loadJsonFile(HISTORY_FILE, []);
     const tasks = loadJsonFile(TASKS_FILE, []);
     const context = loadJsonFile(CONTEXT_FILE, {});
@@ -105,6 +164,21 @@ function buildDigest() {
     const lines = [];
     lines.push(`Good morning ${ownerName}. Here is your daily digest:`);
     lines.push('');
+
+    // Fetch weather (skip section if fetch fails)
+    try {
+        const weather = await fetchWeather();
+        if (weather) {
+            lines.push('*Weather today in Hamilton:*');
+            lines.push(`High: ${weather.high}°C / Low: ${weather.low}°C`);
+            lines.push(`Precipitation chance: ${weather.precipChance}%`);
+            lines.push(`Conditions: ${weather.conditions}`);
+            lines.push('');
+        }
+    } catch (err) {
+        console.error('[morning-digest] Weather section skipped:', err.message);
+    }
+
     lines.push(`• ${completedLast24h.length} task${completedLast24h.length !== 1 ? 's' : ''} completed yesterday`);
     lines.push(`• ${failedLast24h.length} task${failedLast24h.length !== 1 ? 's' : ''} failed`);
     lines.push(`• ${activeTasks.length} task${activeTasks.length !== 1 ? 's' : ''} still active`);
