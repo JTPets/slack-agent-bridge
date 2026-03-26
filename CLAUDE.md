@@ -224,6 +224,17 @@ slack-agent-bridge/
 │   └── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
 ├── memory/
 │   └── memory-manager.js # Task history storage and context retrieval (JSON file-based)
+├── skills/               # Reusable skill templates for common tasks
+│   ├── run-tests/
+│   │   └── SKILL.md      # Run test suite and report results
+│   ├── code-review/
+│   │   └── SKILL.md      # Review commits for issues and violations
+│   ├── research/
+│   │   └── SKILL.md      # Research topics with pros/cons/recommendations
+│   ├── deploy-check/
+│   │   └── SKILL.md      # Verify deployment health checks
+│   └── refactor/
+│       └── SKILL.md      # Safe refactoring with pre/post checks
 ├── tests/
 │   ├── config.test.js           # Tests for lib/config.js
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
