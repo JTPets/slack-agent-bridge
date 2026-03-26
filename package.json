@@ -1,0 +1,8 @@
+{
+  "name": "slack-agent-bridge",
+  "version": "1.0.0",
+  "main": "bridge-agent.js",
+  "dependencies": {
+    "@slack/web-api": "^7.0.0"
+  }
+}
