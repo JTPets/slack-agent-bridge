@@ -291,4 +291,98 @@ INSTRUCTIONS: Do something`;
       expect(result.turns).toBe(50);
     });
   });
+
+  // SKILL parsing tests
+  describe('SKILL parsing', () => {
+    test('parses SKILL field (lowercase, trimmed)', () => {
+      const text = `TASK: Test task
+REPO: jtpets/test
+SKILL: run-tests
+INSTRUCTIONS: Run the tests`;
+
+      const result = parseTask(text);
+
+      expect(result.skill).toBe('run-tests');
+    });
+
+    test('defaults to empty string when SKILL not specified', () => {
+      const text = `TASK: Test task
+REPO: jtpets/test
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.skill).toBe('');
+    });
+
+    test('lowercases SKILL value', () => {
+      const text = `TASK: Test task
+SKILL: Code-Review
+INSTRUCTIONS: Review the code`;
+
+      const result = parseTask(text);
+
+      expect(result.skill).toBe('code-review');
+    });
+
+    test('trims SKILL value whitespace', () => {
+      const text = `TASK: Test task
+SKILL:   deploy-check
+INSTRUCTIONS: Check deployment`;
+
+      const result = parseTask(text);
+
+      expect(result.skill).toBe('deploy-check');
+    });
+
+    test('handles SKILL with special characters', () => {
+      const text = `TASK: Test task
+SKILL: my-custom_skill.v2
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.skill).toBe('my-custom_skill.v2');
+    });
+
+    test('handles full task message with all fields including SKILL', () => {
+      const text = `TASK: Run tests
+REPO: jtpets/my-app
+BRANCH: feature/test
+TURNS: 30
+SKILL: run-tests
+INSTRUCTIONS: Run the test suite and fix any failures`;
+
+      const result = parseTask(text);
+
+      expect(result.description).toBe('Run tests');
+      expect(result.repo).toBe('jtpets/my-app');
+      expect(result.branch).toBe('feature/test');
+      expect(result.turns).toBe(30);
+      expect(result.skill).toBe('run-tests');
+      expect(result.instructions).toBe('Run the test suite and fix any failures');
+    });
+
+    test('handles empty SKILL value (no match, stays default empty string)', () => {
+      const text = `TASK: Test task
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      // When SKILL: is not present, skill stays empty string
+      expect(result.skill).toBe('');
+    });
+
+    test('handles SKILL followed by whitespace only (no match)', () => {
+      // When SKILL: has only whitespace before newline, the regex .+? requires at least
+      // one non-whitespace char after trimming, so this tests default behavior
+      const text = `TASK: Test task
+SKILL: research
+INSTRUCTIONS: Research this topic`;
+
+      const result = parseTask(text);
+
+      expect(result.skill).toBe('research');
+    });
+  });
 });

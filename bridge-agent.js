@@ -224,13 +224,31 @@ async function processTask(msg) {
       cloneRepo(task.repo, task.branch, taskDir);
       cwd = taskDir;
 
+      // LOGIC CHANGE 2026-03-26: Load skill template from skills/<skill>/SKILL.md
+      // if SKILL field is specified. Prepends skill content to the prompt.
+      let skillContent = '';
+      if (task.skill) {
+        try {
+          const skillPath = path.join(taskDir, 'skills', task.skill, 'SKILL.md');
+          if (fs.existsSync(skillPath)) {
+            skillContent = fs.readFileSync(skillPath, 'utf8');
+            console.log(`[bridge-agent] Loaded skill template: ${task.skill}`);
+          } else {
+            console.warn(`[bridge-agent] Skill not found: ${skillPath}`);
+          }
+        } catch (skillErr) {
+          console.error(`[bridge-agent] Failed to load skill ${task.skill}:`, skillErr.message);
+        }
+      }
+
       prompt = [
+        skillContent,
         `You are working in a cloned repo: ${task.repo} (branch: ${task.branch}).`,
         `Your working directory is the repo root.`,
         `When done, commit and push your changes if you made any code changes.`,
         '',
         task.instructions || task.description,
-      ].join('\n');
+      ].filter(Boolean).join('\n');
     } else {
       // No repo specified, run in work dir
       prompt = task.instructions || task.description;
