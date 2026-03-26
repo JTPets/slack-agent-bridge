@@ -85,6 +85,70 @@ function updateContext(key, value) {
     return context;
 }
 
+// LOGIC CHANGE 2026-03-26: Added buildTaskContext() to provide CC with historical
+// context from previous tasks, enabling it to avoid duplicate work and build on
+// previous results. Returns a formatted string for prepending to task prompts.
+function buildTaskContext() {
+    try {
+        // Load context.json (owner info, preferences)
+        const context = loadMemory(CONTEXT_FILE);
+
+        // Load history.json and get last 10 entries (most recent first)
+        const history = loadMemory(HISTORY_FILE);
+        const recentHistory = history.slice(-10).reverse();
+
+        // Load all active tasks from tasks.json
+        const activeTasks = loadMemory(TASKS_FILE).filter(t => t.status === 'active');
+
+        // Check if we have any meaningful data
+        const hasContext = context && Object.keys(context).length > 0;
+        const hasHistory = recentHistory.length > 0;
+        const hasActiveTasks = activeTasks.length > 0;
+
+        if (!hasContext && !hasHistory && !hasActiveTasks) {
+            return 'AGENT CONTEXT:\nNo task history available.';
+        }
+
+        // Build context string
+        let result = 'AGENT CONTEXT:\n';
+
+        // Add owner info from context.json
+        if (hasContext) {
+            if (context.owner) result += `Owner: ${context.owner}\n`;
+            if (context.timezone) result += `Timezone: ${context.timezone}\n`;
+        }
+
+        // Add recent task history
+        if (hasHistory) {
+            result += '\nRECENT TASK HISTORY (last 10):\n';
+            for (const task of recentHistory) {
+                const timestamp = task.completedAt || task.failedAt || task.created;
+                const status = task.status || 'unknown';
+                const desc = task.description || 'No description';
+                const repo = task.repo ? ` (repo: ${task.repo})` : '';
+                result += `- [${timestamp}] [${status}] ${desc}${repo}\n`;
+            }
+        }
+
+        // Add currently active tasks
+        if (hasActiveTasks) {
+            result += '\nCURRENTLY ACTIVE TASKS:\n';
+            for (const task of activeTasks) {
+                const desc = task.description || 'No description';
+                const started = task.created || 'unknown';
+                result += `- ${desc} (started: ${started})\n`;
+            }
+        }
+
+        result += '\nUse this context to avoid duplicate work and build on previous results.';
+
+        return result;
+    } catch (err) {
+        // If anything fails, return minimal string - never block task execution
+        return 'AGENT CONTEXT:\nNo task history available.';
+    }
+}
+
 module.exports = {
     loadMemory,
     saveMemory,
@@ -93,5 +157,6 @@ module.exports = {
     failTask,
     getActiveTasks,
     getContext,
-    updateContext
+    updateContext,
+    buildTaskContext
 };

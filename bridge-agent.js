@@ -326,6 +326,19 @@ async function processTask(msg) {
       prompt = task.instructions || task.description;
     }
 
+    // LOGIC CHANGE 2026-03-26: Prepend task context from memory to help CC avoid
+    // duplicate work and build on previous results. Context failure never blocks
+    // task execution.
+    try {
+      const taskContext = memory.buildTaskContext();
+      if (taskContext) {
+        prompt = taskContext + '\n\n' + prompt;
+      }
+    } catch (contextErr) {
+      console.error('[bridge-agent] buildTaskContext failed:', contextErr.message);
+      // Continue without context - never block task execution
+    }
+
     const output = await runClaudeCode(prompt, cwd);
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
 
