@@ -378,6 +378,25 @@ async function processTask(msg) {
       `\`\`\`\n${truncate(err.message)}\n\`\`\``
     );
 
+    // LOGIC CHANGE 2026-03-26: DM owner on task failure to ensure visibility.
+    // Uses first user in ALLOWED_USER_IDS as owner. Wrapped in try/catch to
+    // ensure DM failure never affects error handling flow.
+    try {
+      const ownerId = ALLOWED_USER_IDS[0];
+      if (ownerId) {
+        const errorSummary = err.message.length > 200
+          ? err.message.slice(0, 200) + '...'
+          : err.message;
+        await slack.chat.postMessage({
+          channel: ownerId,
+          text: `Task failed: ${task.description} - ${errorSummary}. Check #sqtools-ops for details.`,
+          unfurl_links: false,
+        });
+      }
+    } catch (dmErr) {
+      console.error('[bridge-agent] Failed to DM owner on task failure:', dmErr.message);
+    }
+
     await unreact(BRIDGE_CHANNEL, msg.ts, EMOJI_RUNNING);
     await react(BRIDGE_CHANNEL, msg.ts, EMOJI_FAILED);
     console.error(`[bridge-agent] Task ${msg.ts} failed (${elapsed}s):`, err.message);
