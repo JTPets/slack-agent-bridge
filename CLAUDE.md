@@ -174,6 +174,16 @@ This is intentionally a single-file architecture. Do not split into multiple fil
 
 ---
 
+## Task Message Format
+
+### Branch Handling
+• BRANCH in a task message specifies which branch to CLONE from, not which branch to CREATE.
+• If a task needs to create a new branch, set BRANCH to main and include branch creation in the INSTRUCTIONS.
+• The agent always clones the specified branch. If the branch does not exist on the remote, the clone fails.
+• Example: To create feature/foo, use BRANCH: main and instruct CC to git checkout -b feature/foo
+
+---
+
 ## Checklist for Changes
 
 - [ ] No tokens or secrets in logs
