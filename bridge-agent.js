@@ -180,13 +180,29 @@ function alreadyProcessed(msg) {
 
 // ---- Git helpers ----
 
+// LOGIC CHANGE 2026-03-26: Added try/catch with fallback to main branch when
+// specified branch is not found. Cleans up partial clone before retrying.
 function cloneRepo(repo, branch, targetDir) {
   const url = `https://github.com/${repo}.git`;
   console.log(`[bridge-agent] Cloning ${url} (branch: ${branch}) -> ${targetDir}`);
-  execSync(`git clone --depth 1 --branch ${branch} ${url} ${targetDir}`, {
-    stdio: 'pipe',
-    timeout: 60000,
-  });
+  try {
+    execSync(`git clone --depth 1 --branch ${branch} ${url} ${targetDir}`, {
+      stdio: 'pipe',
+      timeout: 60000,
+    });
+  } catch (err) {
+    if (branch !== 'main') {
+      console.warn(`[bridge-agent] Branch ${branch} not found, falling back to main`);
+      // Clean up any partial clone before retrying
+      fs.rmSync(targetDir, { recursive: true, force: true });
+      execSync(`git clone --depth 1 --branch main ${url} ${targetDir}`, {
+        stdio: 'pipe',
+        timeout: 60000,
+      });
+    } else {
+      throw err;
+    }
+  }
 }
 
 function cleanupDir(dir) {
@@ -291,6 +307,16 @@ async function processTask(msg) {
 
     const output = await runClaudeCode(prompt, cwd);
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+
+    // LOGIC CHANGE 2026-03-26: Check if output indicates max turns was reached.
+    // If so, post a warning to ops before posting the partial output.
+    const hitMaxTurns = output.includes('Reached max turns');
+    if (hitMaxTurns) {
+      await postToOps(
+        `:warning: *Task hit max turns limit. May be partially complete.*\n` +
+        `Source: <${msgLink(msg.ts)}|#claude-bridge>`
+      );
+    }
 
     const repoLabel = task.repo ? `\nRepo: \`${task.repo}\` (${task.branch})` : '';
 
