@@ -350,13 +350,14 @@ async function processTask(msg) {
     console.log(`[bridge-agent] Task ${msg.ts} done (${elapsed}s)`);
 
     // LOGIC CHANGE 2026-03-26: Record task completion in memory.
-    // Use different outcome message if max turns was hit.
+    // Use different outcome format if max turns was hit.
     if (memoryTaskId) {
       try {
-        const outcome = hitMaxTurns
-          ? 'partial - hit max turns'
-          : truncate(output, 500);
-        memory.completeTask(memoryTaskId, outcome);
+        if (hitMaxTurns) {
+          memory.completeTask(memoryTaskId, { output: 'max turns reached', partial: true });
+        } else {
+          memory.completeTask(memoryTaskId, { output: truncate(output, 500), elapsed: parseInt(elapsed, 10) });
+        }
       } catch (memErr) {
         console.error('[bridge-agent] Memory completeTask failed:', memErr.message);
       }
