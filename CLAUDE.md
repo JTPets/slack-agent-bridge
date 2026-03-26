@@ -121,6 +121,9 @@ pm2 start bridge-agent.js --name slack-bridge
 pm2 restart slack-bridge
 pm2 logs slack-bridge
 
+# Morning digest runs via cron, not PM2:
+# 0 8 * * * cd /home/jtpets/jt-agent && set -a && source .env && set +a && node morning-digest.js
+
 # Testing
 npm test
 ```
