@@ -105,6 +105,59 @@ function gitPull() {
     };
 }
 
+// LOGIC CHANGE 2026-03-26: Added git reset --hard HEAD before pull to ensure any local
+// modifications (from npm install modifying package.json, or stray files) don't block the pull
+/**
+ * Reset local repo to HEAD (discard any local modifications)
+ * @returns {{ success: boolean, error?: string }}
+ */
+function gitResetHard() {
+    const result = runGit(['reset', '--hard', 'HEAD']);
+    return {
+        success: result.success,
+        error: result.success ? undefined : result.stderr
+    };
+}
+
+// LOGIC CHANGE 2026-03-26: Added package-lock.json removal before pull since it's gitignored
+// but npm install recreates it locally, which can cause merge conflicts
+/**
+ * Remove package-lock.json if it exists (it's gitignored but npm install creates it)
+ * @returns {{ success: boolean, error?: string }}
+ */
+function removePackageLock() {
+    const lockFile = path.join(LOCAL_REPO_DIR, 'package-lock.json');
+    try {
+        if (fs.existsSync(lockFile)) {
+            fs.unlinkSync(lockFile);
+            console.log('Removed package-lock.json');
+        }
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+}
+
+// LOGIC CHANGE 2026-03-26: Added npm install after git pull so new dependencies get installed
+// automatically when the repo is updated
+/**
+ * Run npm install in the repo directory
+ * @returns {{ success: boolean, error?: string }}
+ */
+function npmInstall() {
+    const result = spawnSync('npm', ['install'], {
+        cwd: LOCAL_REPO_DIR,
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: 120000 // 2 minute timeout for npm install
+    });
+
+    return {
+        success: result.status === 0,
+        error: result.status === 0 ? undefined : (result.stderr || result.stdout || 'Unknown npm error').trim()
+    };
+}
+
 /**
  * Restart PM2 process
  * @returns {{ success: boolean, error?: string }}
@@ -181,6 +234,24 @@ async function checkForUpdates() {
 
         console.log(`Update available: ${localHead.substring(0, 7)} -> ${remoteHead.substring(0, 7)}`);
 
+        // LOGIC CHANGE 2026-03-26: Added git reset --hard HEAD before pull to ensure any local
+        // modifications (from npm install modifying package.json, or stray files) don't block the pull
+        const resetResult = gitResetHard();
+        if (!resetResult.success) {
+            console.error('Git reset failed:', resetResult.error);
+            await postToOps(`❌ Auto-update: git reset --hard HEAD failed - ${resetResult.error}`);
+            return;
+        }
+        console.log('Reset local changes with git reset --hard HEAD');
+
+        // LOGIC CHANGE 2026-03-26: Remove package-lock.json before pull since it's gitignored
+        // but npm install recreates it locally, which can cause issues
+        const removeLockResult = removePackageLock();
+        if (!removeLockResult.success) {
+            console.error('Failed to remove package-lock.json:', removeLockResult.error);
+            // Non-fatal - continue with pull
+        }
+
         // Pull the changes
         const pullResult = gitPull();
         if (!pullResult.success) {
@@ -188,6 +259,17 @@ async function checkForUpdates() {
             await postToOps(`❌ Auto-update: git pull failed - ${pullResult.error}`);
             return;
         }
+
+        // LOGIC CHANGE 2026-03-26: Run npm install after pull so new dependencies get installed
+        // automatically when the repo is updated
+        console.log('Running npm install...');
+        const npmResult = npmInstall();
+        if (!npmResult.success) {
+            console.error('npm install failed:', npmResult.error);
+            await postToOps(`❌ Auto-update: npm install failed after pull - ${npmResult.error}`);
+            return;
+        }
+        console.log('npm install completed successfully');
 
         // Get the new commit info
         const newHead = getLocalHead();
@@ -206,7 +288,7 @@ async function checkForUpdates() {
         saveState(state);
 
         const shortHash = newHead.substring(0, 7);
-        await postToOps(`✅ Auto-update: bridge-agent updated to ${shortHash} - ${commitMessage}. PM2 restarted.`);
+        await postToOps(`✅ Auto-update: bridge-agent updated to ${shortHash} - ${commitMessage}. npm install + PM2 restarted.`);
         console.log(`Successfully updated to ${shortHash}`);
 
     } catch (error) {
