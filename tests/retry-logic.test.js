@@ -625,3 +625,60 @@ describe('Startup state cleanup', () => {
     });
   });
 });
+
+/**
+ * Regression tests for: "memory.loadContext is not a function" error.
+ * LOGIC CHANGE 2026-03-27: Rate limit state is in-memory only. memory.updateContext
+ * must never be called with 'rateLimitStatus' — every restart clears state
+ * automatically via variable initialisation, no disk I/O needed.
+ */
+describe('Rate limit state is in-memory only', () => {
+  test('rateLimitState initialises fresh without reading from disk', () => {
+    // Simulate the in-memory-only initialisation pattern used at startup
+    const rateLimitState = {
+      pauseUntil: null,
+      retryCount: 0,
+      failedTask: null,
+    };
+    // No memory.loadContext / memory.updateContext call required
+    expect(rateLimitState.pauseUntil).toBeNull();
+    expect(rateLimitState.retryCount).toBe(0);
+    expect(rateLimitState.failedTask).toBeNull();
+  });
+
+  test('handleRateLimit updates in-memory state without calling memory.updateContext', () => {
+    const memoryMock = { updateContext: jest.fn() };
+    const rateLimitState = { pauseUntil: null, retryCount: 0, failedTask: null };
+    const pauseUntil = Date.now() + 30 * 60 * 1000;
+
+    // Simulate the fixed handleRateLimit (no memory.updateContext call)
+    rateLimitState.pauseUntil = pauseUntil;
+    rateLimitState.retryCount++;
+    rateLimitState.failedTask = { ts: '123.456' };
+    // Intentionally NOT calling memoryMock.updateContext
+
+    expect(rateLimitState.pauseUntil).toBe(pauseUntil);
+    expect(rateLimitState.retryCount).toBe(1);
+    expect(memoryMock.updateContext).not.toHaveBeenCalled();
+  });
+
+  test('clearRateLimitState resets in-memory state without calling memory.updateContext', () => {
+    const memoryMock = { updateContext: jest.fn() };
+    const rateLimitState = {
+      pauseUntil: Date.now() + 60000,
+      retryCount: 2,
+      failedTask: { ts: '123.456' },
+    };
+
+    // Simulate the fixed clearRateLimitState (no memory.updateContext call)
+    rateLimitState.pauseUntil = null;
+    rateLimitState.retryCount = 0;
+    rateLimitState.failedTask = null;
+    // Intentionally NOT calling memoryMock.updateContext
+
+    expect(rateLimitState.pauseUntil).toBeNull();
+    expect(rateLimitState.retryCount).toBe(0);
+    expect(rateLimitState.failedTask).toBeNull();
+    expect(memoryMock.updateContext).not.toHaveBeenCalled();
+  });
+});

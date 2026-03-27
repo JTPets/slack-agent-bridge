@@ -242,17 +242,8 @@ async function handleRateLimit(failedTask) {
     retryCount: rateLimitState.retryCount,
   });
 
-  // Update memory with rate limit status
-  try {
-    memory.updateContext('rateLimitStatus', {
-      rateLimited: true,
-      pauseUntil: pauseUntil,
-      retryCount: rateLimitState.retryCount,
-      lastHit: new Date().toISOString(),
-    });
-  } catch (memErr) {
-    console.error('[bridge-agent] Failed to update rate limit memory:', memErr.message);
-  }
+  // LOGIC CHANGE 2026-03-27: Rate limit state is in-memory only. No persistence
+  // to disk — every restart automatically clears it (desired behavior).
 }
 
 // LOGIC CHANGE 2026-03-26: Clear rate limit state after successful task completion.
@@ -266,12 +257,8 @@ async function clearRateLimitState() {
   rateLimitState.retryCount = 0;
   rateLimitState.failedTask = null;
 
-  // Clear rate limit status from memory
-  try {
-    memory.updateContext('rateLimitStatus', null);
-  } catch (memErr) {
-    // Ignore memory errors
-  }
+  // LOGIC CHANGE 2026-03-27: Rate limit state is in-memory only. No disk
+  // cleanup needed — in-memory variable was already reset above.
 }
 
 // ---- Slack helpers ----
@@ -957,21 +944,11 @@ function runStartupMemoryMaintenance() {
 
 console.log('[bridge-agent] Starting v2');
 
-// LOGIC CHANGE 2026-03-27: Unconditionally clear rate limit state on startup.
-// This ensures a PM2 restart ALWAYS gives the bot a fresh start. The bot should
-// never stay paused across restarts. Clears both in-memory state and persisted
-// rate limit state from memory files.
-rateLimitState = {
-  pauseUntil: null,
-  retryCount: 0,
-  failedTask: null,
-};
-try {
-  memory.updateContext('rateLimitStatus', null);
-} catch (err) {
-  // Ignore errors clearing rate limit status
-}
-console.log('[bridge-agent] Startup: cleared rate limit state');
+// LOGIC CHANGE 2026-03-27: Rate limit state is in-memory only — never persisted
+// to disk. The variable is initialised at declaration so every PM2 restart
+// automatically gives the bot a fresh start with no stale pause state.
+// No memory.updateContext/loadContext calls needed here.
+console.log('[bridge-agent] Startup: rate limit state is in-memory only, cleared on every restart');
 
 console.log(`  Config:   ${agentConfig ? 'agent registry' : 'env vars'}`);
 console.log(`  Claude:   ${CLAUDE_BIN}`);
