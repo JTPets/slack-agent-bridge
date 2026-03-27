@@ -430,14 +430,20 @@ describe('memory-tiers', () => {
             expect(result['agent2'].expiredCount).toBe(1);
         });
 
-        it('handles errors for individual agents', () => {
+        // LOGIC CHANGE 2026-03-27: loadMemoryFile now recovers from corrupted JSON
+        // instead of throwing, so startupCleanup no longer errors on corrupted files.
+        it('recovers gracefully from corrupted files for individual agents', () => {
             // Create invalid JSON file
             const shortTermPath = path.join(testDir, 'agents', agentId, 'memory', 'short-term.json');
             fs.writeFileSync(shortTermPath, 'invalid json');
 
             const result = memoryTiers.startupCleanup(testDir, [agentId]);
 
-            expect(result[agentId].error).toBeDefined();
+            // Should not have an error - corrupted file is silently recovered
+            expect(result[agentId].error).toBeUndefined();
+            // File should have been reset to empty array
+            const recovered = JSON.parse(fs.readFileSync(shortTermPath, 'utf8'));
+            expect(Array.isArray(recovered)).toBe(true);
         });
     });
 
