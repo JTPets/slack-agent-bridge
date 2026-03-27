@@ -604,10 +604,10 @@ async function processTask(msg) {
   } catch (err) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
 
-    // LOGIC CHANGE 2026-03-27: Removed rate limit / bandwidth exhaustion call path.
-    // Rate limit detection caused false positives, pausing the queue on normal failures.
-    // All task errors are now reported as failures. Will re-add rate limit handling
-    // when detection is properly calibrated.
+    // LOGIC CHANGE 2026-03-27: Rate limit auto-pause disabled due to false positives killing tasks.
+    // Manual restart is safer than auto-pausing on misdetection. If a task fails, it just fails.
+    // No pausing the queue. handleRateLimit() is NOT called here anymore.
+    // Will re-add rate limit handling when detection is properly calibrated.
 
     // LOGIC CHANGE 2026-03-26: Use notify-owner module for task failure notification.
     // Posts to ops channel and sends critical DM to owner.
