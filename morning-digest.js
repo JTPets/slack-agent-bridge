@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// LOGIC CHANGE 2026-03-27: Load .env file on startup so PM2 restarts retain env vars
+require('dotenv').config();
 
 /**
  * morning-digest.js

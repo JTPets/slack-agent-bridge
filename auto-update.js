@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// LOGIC CHANGE 2026-03-27: Load .env file on startup so PM2 restarts retain env vars
+require('dotenv').config();
 // auto-update.js - Auto-update agent for bridge-agent
 // Polls git for changes and restarts PM2 process when updates are available
 

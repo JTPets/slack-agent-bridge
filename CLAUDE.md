@@ -105,6 +105,7 @@ const POLL_INTERVAL = 5000;
 | Dependencies | `npm install --save` only — never manually edit package.json |
 | Env vars | Document in README if adding new ones |
 | Refactor validation | Before committing any refactor that moves variables or changes imports, run: `node -e "require('./bridge-agent.js')"` to verify the process loads. This catches missing references that unit tests miss. |
+| dotenv required | Every executable JS file (bridge-agent.js, auto-update.js, cron scripts) MUST have `require('dotenv').config()` as its first line. PM2 does not inherit shell environment variables on restart. |
 
 ### Anti-Duplication
 • BEFORE creating any file or function, check if it already exists (find/grep first)
