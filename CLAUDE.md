@@ -182,6 +182,15 @@ const POLL_INTERVAL = 5000;
 
 **Note:** Twilio integration is planned. See [docs/TWILIO-INTEGRATION.md](docs/TWILIO-INTEGRATION.md) for full specification.
 
+### Storefront chat widget
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `STOREFRONT_PORT` | Port for storefront Express server | `3001` |
+| `STOREFRONT_ALLOWED_ORIGINS` | Comma-separated CORS origins | `http://localhost:3000,https://jtpets.ca` |
+| `STOREFRONT_SESSION_TTL_MS` | Session expiry time in ms | `3600000` |
+
+**Note:** `STORE_INBOX_CHANNEL_ID` (listed in Twilio section) is also used by the storefront widget for logging conversations.
+
 ---
 
 ## Commands
@@ -201,6 +210,10 @@ pm2 logs slack-bridge
 
 # Security review runs via cron at 1am daily:
 # 0 1 * * * cd /home/jtpets/jt-agent && set -a && source .env && set +a && node security-review.js
+
+# Storefront chat widget
+node bots/storefront.js              # Direct execution
+pm2 start bots/storefront.js --name storefront-chat
 
 # Testing
 npm test
@@ -249,6 +262,10 @@ slack-agent-bridge/
 ├── auto-update.js        # Git polling daemon: pulls updates and restarts PM2 on changes
 ├── morning-digest.js     # Cron job script: sends daily task stats DM to owner
 ├── security-review.js    # Cron job script: security audit of commits from last 24h
+├── bots/
+│   └── storefront.js     # Express server for storefront chat widget (POST /api/chat, GET /widget)
+├── public/
+│   └── widget.html       # Embeddable chat widget HTML (mobile-responsive, floating button)
 ├── agents/
 │   ├── agents.json               # Agent registry: defines all agents, permissions, and config
 │   ├── activation-checklists.json # Owner action items for activating each agent
@@ -300,12 +317,14 @@ slack-agent-bridge/
 │   ├── owner-tasks.test.js      # Tests for lib/owner-tasks.js (checklists, pending tasks)
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
 │   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management)
-│   └── task-parser.test.js      # Tests for task parsing logic (includes create channel command)
+│   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command)
+│   └── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
 ├── docs/
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
 │   ├── INTEGRATION-SPEC.md  # SqTools API integration specification and security requirements
 │   ├── TWILIO-INTEGRATION.md # Twilio SMS/Voice integration specification (Phase 1-3)
-│   └── SOCIAL-MEDIA-DESIGN.md # Social Media Manager agent design and content strategy
+│   ├── SOCIAL-MEDIA-DESIGN.md # Social Media Manager agent design and content strategy
+│   └── STOREFRONT-WIDGET.md  # Storefront chat widget documentation and embedding guide
 ├── package.json          # Dependencies and npm scripts
 ├── CLAUDE.md             # Project rules and documentation (this file)
 ├── README.md             # Project overview
