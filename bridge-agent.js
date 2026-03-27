@@ -63,11 +63,11 @@ const { config, validate, isUserAuthorized } = require('./lib/config');
 
 // LOGIC CHANGE 2026-03-26: Added owner-tasks module for tracking activation
 // checklists and owner action items across all agents.
+// LOGIC CHANGE 2026-03-26: Removed extractActionRequired and addTask imports -
+// now used via notify-owner module for centralized action tracking.
 const {
   isOwnerTasksQuery,
   formatPendingTasks,
-  extractActionRequired,
-  addTask: addOwnerTask,
 } = require('./lib/owner-tasks');
 
 // LOGIC CHANGE 2026-03-26: Added agent registry for multi-agent architecture.
@@ -85,6 +85,11 @@ const { runLLM, RateLimitError } = require('./lib/llm-runner');
 // LOGIC CHANGE 2026-03-26: Added slack-client module for channel management
 // functions (createChannel, ensureChannel, etc.).
 const { createSlackClient } = require('./lib/slack-client');
+
+// LOGIC CHANGE 2026-03-26: Added notify-owner module for centralized owner notifications.
+// All owner-facing notifications (DMs, task failures, action required) go through
+// this layer. When secretary agent is active, routes through its channel.
+const notifyOwner = require('./lib/notify-owner');
 
 // ---- Config ----
 
@@ -125,6 +130,14 @@ const slack = new WebClient(SLACK_BOT_TOKEN);
 // LOGIC CHANGE 2026-03-26: Create SlackClient wrapper for channel management.
 // Used for "create channel #name" command and agent activation helpers.
 const slackClient = createSlackClient(SLACK_BOT_TOKEN);
+
+// LOGIC CHANGE 2026-03-26: Initialize notify-owner module with dependencies.
+// Takes WebClient, owner ID, and ops channel for routing notifications.
+notifyOwner.init({
+  slack,
+  ownerId: ALLOWED_USER_IDS[0],
+  opsChannelId: OPS_CHANNEL,
+});
 
 // Ensure work dir exists
 if (!fs.existsSync(WORK_DIR)) {
@@ -190,6 +203,7 @@ function getRateLimitPauseDuration() {
 }
 
 // LOGIC CHANGE 2026-03-26: Handle rate limit error by setting pause and notifying.
+// LOGIC CHANGE 2026-03-26: Refactored to use notify-owner module for notifications.
 async function handleRateLimit(failedTask) {
   const pauseDuration = getRateLimitPauseDuration();
   const pauseUntil = Date.now() + pauseDuration;
@@ -207,25 +221,12 @@ async function handleRateLimit(failedTask) {
 
   console.log(`[bridge-agent] Rate limit hit. Pausing for ${pauseMinutes} minutes until ${resumeTime}`);
 
-  // Post to ops channel
-  await postToOps(
-    `:warning: *Rate limit hit.* Pausing task queue for ${pauseMinutes} minutes.\n` +
-    `Next retry at ${resumeTime}. (Attempt ${rateLimitState.retryCount})`
-  );
-
-  // DM the owner
-  try {
-    const ownerId = ALLOWED_USER_IDS[0];
-    if (ownerId) {
-      await slack.chat.postMessage({
-        channel: ownerId,
-        text: `Claude API rate limit reached. Queue paused. Tasks will resume at ${resumeTime}.`,
-        unfurl_links: false,
-      });
-    }
-  } catch (dmErr) {
-    console.error('[bridge-agent] Failed to DM owner on rate limit:', dmErr.message);
-  }
+  // Notify via notify-owner module (posts to ops and DMs owner)
+  await notifyOwner.rateLimitHit({
+    pauseMinutes,
+    resumeTime,
+    retryCount: rateLimitState.retryCount,
+  });
 
   // Update memory with rate limit status
   try {
@@ -241,10 +242,11 @@ async function handleRateLimit(failedTask) {
 }
 
 // LOGIC CHANGE 2026-03-26: Clear rate limit state after successful task completion.
+// LOGIC CHANGE 2026-03-26: Refactored to use notify-owner module for notifications.
 async function clearRateLimitState() {
   if (rateLimitState.retryCount > 0) {
     console.log('[bridge-agent] Rate limit pause cleared after successful task');
-    await postToOps(':white_check_mark: Rate limit resolved. Queue processing resumed.');
+    await notifyOwner.rateLimitCleared();
   }
   rateLimitState.pauseUntil = null;
   rateLimitState.retryCount = 0;
@@ -487,13 +489,11 @@ async function processTask(msg) {
     const { output, hitMaxTurns } = result;
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
 
-    const repoLabel = task.repo ? `\nRepo: \`${task.repo}\` (${task.branch})` : '';
-
-    await postToOps(
-      `:white_check_mark: *Task completed* (${elapsed}s)\n` +
-      `Source: <${msgLink(msg.ts)}|#claude-bridge>${repoLabel}\n\n` +
-      `\`\`\`\n${truncate(output)}\n\`\`\``
-    );
+    // LOGIC CHANGE 2026-03-26: Use notify-owner module for task completion notification.
+    await notifyOwner.taskCompleted(task, truncate(output), {
+      elapsed,
+      sourceLink: `<${msgLink(msg.ts)}|#claude-bridge>`,
+    });
 
     await unreact(BRIDGE_CHANNEL, msg.ts, EMOJI_RUNNING);
     await react(BRIDGE_CHANNEL, msg.ts, EMOJI_DONE);
@@ -504,18 +504,12 @@ async function processTask(msg) {
     await clearRateLimitState();
 
     // LOGIC CHANGE 2026-03-26: Auto-detect ACTION REQUIRED in task output and add
-    // to bridge agent's activation checklist. This ensures owner action items are
-    // tracked and visible via "my tasks" query.
+    // to bridge agent's activation checklist. Uses notify-owner module for
+    // centralized action tracking.
     try {
-      const actionItem = extractActionRequired(output);
-      if (actionItem) {
-        const added = addOwnerTask('bridge', actionItem, 'high');
-        if (added) {
-          console.log(`[bridge-agent] Added ACTION REQUIRED to checklist: ${actionItem}`);
-        }
-      }
+      await notifyOwner.processActionRequired(output, { agentId: 'bridge' });
     } catch (actionErr) {
-      console.error('[bridge-agent] Failed to extract ACTION REQUIRED:', actionErr.message);
+      console.error('[bridge-agent] Failed to process ACTION REQUIRED:', actionErr.message);
     }
 
     // LOGIC CHANGE 2026-03-26: Record task completion in memory.
@@ -573,30 +567,12 @@ async function processTask(msg) {
       return; // Exit without marking as failed - will retry after pause
     }
 
-    await postToOps(
-      `:x: *Task failed* (${elapsed}s)\n` +
-      `Source: <${msgLink(msg.ts)}|#claude-bridge>\n\n` +
-      `\`\`\`\n${truncate(err.message)}\n\`\`\``
-    );
-
-    // LOGIC CHANGE 2026-03-26: DM owner on task failure to ensure visibility.
-    // Uses first user in ALLOWED_USER_IDS as owner. Wrapped in try/catch to
-    // ensure DM failure never affects error handling flow.
-    try {
-      const ownerId = ALLOWED_USER_IDS[0];
-      if (ownerId) {
-        const errorSummary = err.message.length > 200
-          ? err.message.slice(0, 200) + '...'
-          : err.message;
-        await slack.chat.postMessage({
-          channel: ownerId,
-          text: `Task failed: ${task.description} - ${errorSummary}. Check #sqtools-ops for details.`,
-          unfurl_links: false,
-        });
-      }
-    } catch (dmErr) {
-      console.error('[bridge-agent] Failed to DM owner on task failure:', dmErr.message);
-    }
+    // LOGIC CHANGE 2026-03-26: Use notify-owner module for task failure notification.
+    // Posts to ops channel and sends critical DM to owner.
+    await notifyOwner.taskFailed(task, err, {
+      elapsed,
+      sourceLink: `<${msgLink(msg.ts)}|#claude-bridge>`,
+    });
 
     await unreact(BRIDGE_CHANNEL, msg.ts, EMOJI_RUNNING);
     await react(BRIDGE_CHANNEL, msg.ts, EMOJI_FAILED);
