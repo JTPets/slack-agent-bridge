@@ -264,4 +264,126 @@ describe('llm-runner module', () => {
       expect(DEFAULT_TIMEOUT).toBe(600000);
     });
   });
+
+  describe('isRateLimitError', () => {
+    test('detects "rate limit" in text', () => {
+      const { isRateLimitError } = require('../lib/llm-runner');
+      expect(isRateLimitError('Error: rate limit exceeded')).toBe(true);
+      expect(isRateLimitError('You hit the Rate Limit')).toBe(true);
+    });
+
+    test('detects "too many requests" in text', () => {
+      const { isRateLimitError } = require('../lib/llm-runner');
+      expect(isRateLimitError('429 Too Many Requests')).toBe(true);
+    });
+
+    test('detects "quota exceeded" in text', () => {
+      const { isRateLimitError } = require('../lib/llm-runner');
+      expect(isRateLimitError('API quota exceeded for this period')).toBe(true);
+    });
+
+    test('detects "usage limit" in text', () => {
+      const { isRateLimitError } = require('../lib/llm-runner');
+      expect(isRateLimitError('Usage limit reached')).toBe(true);
+    });
+
+    test('detects "rate_limit_error" in text', () => {
+      const { isRateLimitError } = require('../lib/llm-runner');
+      expect(isRateLimitError('{"error": {"type": "rate_limit_error"}}')).toBe(true);
+    });
+
+    test('detects "overloaded" in text', () => {
+      const { isRateLimitError } = require('../lib/llm-runner');
+      expect(isRateLimitError('The API is overloaded, please try again')).toBe(true);
+    });
+
+    test('detects "capacity" in text', () => {
+      const { isRateLimitError } = require('../lib/llm-runner');
+      expect(isRateLimitError('No capacity available')).toBe(true);
+    });
+
+    test('returns false for normal text', () => {
+      const { isRateLimitError } = require('../lib/llm-runner');
+      expect(isRateLimitError('Task completed successfully')).toBe(false);
+      expect(isRateLimitError('Normal error message')).toBe(false);
+    });
+
+    test('returns false for null or empty text', () => {
+      const { isRateLimitError } = require('../lib/llm-runner');
+      expect(isRateLimitError(null)).toBe(false);
+      expect(isRateLimitError('')).toBe(false);
+      expect(isRateLimitError(undefined)).toBe(false);
+    });
+  });
+
+  describe('RateLimitError', () => {
+    test('has isRateLimit property set to true', () => {
+      const { RateLimitError } = require('../lib/llm-runner');
+      const error = new RateLimitError('Rate limit hit');
+      expect(error.isRateLimit).toBe(true);
+    });
+
+    test('has name set to RateLimitError', () => {
+      const { RateLimitError } = require('../lib/llm-runner');
+      const error = new RateLimitError('test');
+      expect(error.name).toBe('RateLimitError');
+    });
+
+    test('is an instance of Error', () => {
+      const { RateLimitError } = require('../lib/llm-runner');
+      const error = new RateLimitError('test');
+      expect(error instanceof Error).toBe(true);
+    });
+
+    test('preserves error message', () => {
+      const { RateLimitError } = require('../lib/llm-runner');
+      const error = new RateLimitError('custom message');
+      expect(error.message).toBe('custom message');
+    });
+  });
+
+  describe('runClaudeAdapter rate limit detection', () => {
+    test('throws RateLimitError when rate limit detected in stdout', async () => {
+      setupMockSpawn({ stdout: 'Error: rate limit exceeded', exitCode: 0 });
+
+      const { runClaudeAdapter, RateLimitError } = require('../lib/llm-runner');
+
+      await expect(runClaudeAdapter('prompt')).rejects.toThrow(RateLimitError);
+    });
+
+    test('throws RateLimitError when rate limit detected in stderr', async () => {
+      setupMockSpawn({ stderr: 'Too many requests', exitCode: 1 });
+
+      const { runClaudeAdapter, RateLimitError } = require('../lib/llm-runner');
+
+      await expect(runClaudeAdapter('prompt')).rejects.toThrow(RateLimitError);
+    });
+
+    test('thrown RateLimitError has isRateLimit flag', async () => {
+      setupMockSpawn({ stdout: 'API quota exceeded', exitCode: 0 });
+
+      const { runClaudeAdapter } = require('../lib/llm-runner');
+
+      try {
+        await runClaudeAdapter('prompt');
+        fail('Should have thrown');
+      } catch (err) {
+        expect(err.isRateLimit).toBe(true);
+      }
+    });
+
+    test('normal errors are not rate limit errors', async () => {
+      setupMockSpawn({ stderr: 'Some other error', exitCode: 1 });
+
+      const { runClaudeAdapter } = require('../lib/llm-runner');
+
+      try {
+        await runClaudeAdapter('prompt');
+        fail('Should have thrown');
+      } catch (err) {
+        expect(err.isRateLimit).toBeUndefined();
+        expect(err.message).toContain('Exit code 1');
+      }
+    });
+  });
 });

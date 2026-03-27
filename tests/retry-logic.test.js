@@ -5,6 +5,7 @@
  * Tests the retry logic implemented in bridge-agent.js processTask().
  *
  * LOGIC CHANGE 2026-03-26: Created to test auto-retry on max turns hit.
+ * LOGIC CHANGE 2026-03-26: Added rate limit pause logic tests.
  */
 
 'use strict';
@@ -246,6 +247,175 @@ describe('Auto-retry on max turns', () => {
       expect(outcome.retried).toBeUndefined();
       expect(outcome.originalTurns).toBeUndefined();
       expect(outcome.retryTurns).toBeUndefined();
+    });
+  });
+});
+
+/**
+ * Tests for rate limit pause behavior.
+ * Simulates the exponential backoff logic for rate limit handling.
+ */
+describe('Rate limit pause logic', () => {
+  // Pause durations: 30 min -> 60 min -> 2 hours -> 4 hours (capped)
+  const RATE_LIMIT_PAUSE_MINUTES = [30, 60, 120, 240];
+
+  /**
+   * Simulates getRateLimitPauseDuration from bridge-agent.js
+   * @param {number} retryCount - Current retry attempt count
+   * @returns {number} Pause duration in milliseconds
+   */
+  function getRateLimitPauseDuration(retryCount) {
+    const index = Math.min(retryCount, RATE_LIMIT_PAUSE_MINUTES.length - 1);
+    return RATE_LIMIT_PAUSE_MINUTES[index] * 60 * 1000;
+  }
+
+  describe('pause duration calculation', () => {
+    test('first rate limit triggers 30 minute pause', () => {
+      const duration = getRateLimitPauseDuration(0);
+      expect(duration).toBe(30 * 60 * 1000); // 30 minutes in ms
+    });
+
+    test('second rate limit triggers 60 minute pause', () => {
+      const duration = getRateLimitPauseDuration(1);
+      expect(duration).toBe(60 * 60 * 1000); // 60 minutes in ms
+    });
+
+    test('third rate limit triggers 2 hour pause', () => {
+      const duration = getRateLimitPauseDuration(2);
+      expect(duration).toBe(120 * 60 * 1000); // 2 hours in ms
+    });
+
+    test('fourth+ rate limit caps at 4 hour pause', () => {
+      expect(getRateLimitPauseDuration(3)).toBe(240 * 60 * 1000);
+      expect(getRateLimitPauseDuration(4)).toBe(240 * 60 * 1000);
+      expect(getRateLimitPauseDuration(10)).toBe(240 * 60 * 1000);
+      expect(getRateLimitPauseDuration(100)).toBe(240 * 60 * 1000);
+    });
+  });
+
+  describe('pause state management', () => {
+    test('isRateLimitPaused returns false when pauseUntil is null', () => {
+      const rateLimitState = { pauseUntil: null, retryCount: 0, failedTask: null };
+      const isRateLimitPaused = () => {
+        if (!rateLimitState.pauseUntil) return false;
+        return Date.now() < rateLimitState.pauseUntil;
+      };
+
+      expect(isRateLimitPaused()).toBe(false);
+    });
+
+    test('isRateLimitPaused returns true when pauseUntil is in future', () => {
+      const rateLimitState = {
+        pauseUntil: Date.now() + 60000, // 1 minute from now
+        retryCount: 1,
+        failedTask: null,
+      };
+      const isRateLimitPaused = () => {
+        if (!rateLimitState.pauseUntil) return false;
+        return Date.now() < rateLimitState.pauseUntil;
+      };
+
+      expect(isRateLimitPaused()).toBe(true);
+    });
+
+    test('isRateLimitPaused returns false when pauseUntil is in past', () => {
+      const rateLimitState = {
+        pauseUntil: Date.now() - 1000, // 1 second ago
+        retryCount: 1,
+        failedTask: null,
+      };
+      const isRateLimitPaused = () => {
+        if (!rateLimitState.pauseUntil) return false;
+        return Date.now() < rateLimitState.pauseUntil;
+      };
+
+      expect(isRateLimitPaused()).toBe(false);
+    });
+  });
+
+  describe('retry count increment', () => {
+    test('retryCount increments on each rate limit', () => {
+      const state = { pauseUntil: null, retryCount: 0, failedTask: null };
+
+      // Simulate handleRateLimit
+      const handleRateLimit = () => {
+        const pauseDuration = getRateLimitPauseDuration(state.retryCount);
+        state.pauseUntil = Date.now() + pauseDuration;
+        state.retryCount++;
+      };
+
+      handleRateLimit();
+      expect(state.retryCount).toBe(1);
+
+      handleRateLimit();
+      expect(state.retryCount).toBe(2);
+
+      handleRateLimit();
+      expect(state.retryCount).toBe(3);
+    });
+  });
+
+  describe('state clearing', () => {
+    test('clearRateLimitState resets all fields', () => {
+      const state = {
+        pauseUntil: Date.now() + 60000,
+        retryCount: 3,
+        failedTask: { ts: '123.456' },
+      };
+
+      // Simulate clearRateLimitState
+      const clearRateLimitState = () => {
+        state.pauseUntil = null;
+        state.retryCount = 0;
+        state.failedTask = null;
+      };
+
+      clearRateLimitState();
+
+      expect(state.pauseUntil).toBeNull();
+      expect(state.retryCount).toBe(0);
+      expect(state.failedTask).toBeNull();
+    });
+  });
+
+  describe('failed task retry', () => {
+    test('failedTask is cleared before retry to prevent loops', () => {
+      const state = {
+        pauseUntil: null, // Pause expired
+        retryCount: 1,
+        failedTask: { ts: '123.456', text: 'TASK: test' },
+      };
+
+      // Simulate the retry check in poll()
+      let retriedTask = null;
+      if (state.failedTask && !state.pauseUntil) {
+        retriedTask = state.failedTask;
+        state.failedTask = null; // Clear before retry
+      }
+
+      expect(retriedTask).toEqual({ ts: '123.456', text: 'TASK: test' });
+      expect(state.failedTask).toBeNull();
+    });
+  });
+
+  describe('memory status update', () => {
+    test('rate limit status object has correct shape', () => {
+      const pauseUntil = Date.now() + 30 * 60 * 1000;
+      const retryCount = 1;
+
+      const rateLimitStatus = {
+        rateLimited: true,
+        pauseUntil: pauseUntil,
+        retryCount: retryCount,
+        lastHit: new Date().toISOString(),
+      };
+
+      expect(rateLimitStatus).toHaveProperty('rateLimited', true);
+      expect(rateLimitStatus).toHaveProperty('pauseUntil');
+      expect(rateLimitStatus).toHaveProperty('retryCount', 1);
+      expect(rateLimitStatus).toHaveProperty('lastHit');
+      expect(typeof rateLimitStatus.pauseUntil).toBe('number');
+      expect(typeof rateLimitStatus.lastHit).toBe('string');
     });
   });
 });

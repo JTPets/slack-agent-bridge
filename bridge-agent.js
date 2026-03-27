@@ -74,7 +74,9 @@ const { getAgent, loadAgents, registryExists, isProductionRepo } = require('./li
 
 // LOGIC CHANGE 2026-03-26: Extracted LLM execution into lib/llm-runner.js
 // to support multiple LLM providers via LLM_PROVIDER env var.
-const { runLLM } = require('./lib/llm-runner');
+// LOGIC CHANGE 2026-03-26: Import RateLimitError for detecting rate limit
+// errors and implementing pause/retry behavior.
+const { runLLM, RateLimitError } = require('./lib/llm-runner');
 
 // ---- Config ----
 
@@ -123,6 +125,17 @@ const STATE_FILE = path.join(__dirname, '.bridge-agent-state.json');
 let lastChecked = loadState();
 let isRunning = false;
 
+// LOGIC CHANGE 2026-03-26: Rate limit state tracking with exponential backoff.
+// pauseUntil: timestamp when pause expires, retryCount: number of consecutive rate limits,
+// failedTask: the task message to retry after pause expires.
+// Pause durations: 30 min -> 60 min -> 2 hours -> 4 hours (capped)
+const RATE_LIMIT_PAUSE_MINUTES = [30, 60, 120, 240]; // 30min, 1h, 2h, 4h
+let rateLimitState = {
+  pauseUntil: null,
+  retryCount: 0,
+  failedTask: null,
+};
+
 function loadState() {
   try {
     const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
@@ -137,6 +150,99 @@ function saveState(ts) {
     fs.writeFileSync(STATE_FILE, JSON.stringify({ lastChecked: ts }), 'utf8');
   } catch (err) {
     console.error('[bridge-agent] Failed to save state:', err.message);
+  }
+}
+
+// LOGIC CHANGE 2026-03-26: Check if currently paused due to rate limit.
+function isRateLimitPaused() {
+  if (!rateLimitState.pauseUntil) return false;
+  return Date.now() < rateLimitState.pauseUntil;
+}
+
+// LOGIC CHANGE 2026-03-26: Get formatted time when pause expires.
+function getPauseResumeTime() {
+  if (!rateLimitState.pauseUntil) return null;
+  return new Date(rateLimitState.pauseUntil).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'America/Toronto',
+  });
+}
+
+// LOGIC CHANGE 2026-03-26: Calculate pause duration based on retry count with exponential backoff.
+// 30 min -> 60 min -> 2 hours -> 4 hours (capped at 4 hours)
+function getRateLimitPauseDuration() {
+  const index = Math.min(rateLimitState.retryCount, RATE_LIMIT_PAUSE_MINUTES.length - 1);
+  return RATE_LIMIT_PAUSE_MINUTES[index] * 60 * 1000;
+}
+
+// LOGIC CHANGE 2026-03-26: Handle rate limit error by setting pause and notifying.
+async function handleRateLimit(failedTask) {
+  const pauseDuration = getRateLimitPauseDuration();
+  const pauseUntil = Date.now() + pauseDuration;
+  const resumeTime = new Date(pauseUntil).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'America/Toronto',
+  });
+  const pauseMinutes = Math.round(pauseDuration / 60000);
+
+  rateLimitState.pauseUntil = pauseUntil;
+  rateLimitState.retryCount++;
+  rateLimitState.failedTask = failedTask;
+
+  console.log(`[bridge-agent] Rate limit hit. Pausing for ${pauseMinutes} minutes until ${resumeTime}`);
+
+  // Post to ops channel
+  await postToOps(
+    `:warning: *Rate limit hit.* Pausing task queue for ${pauseMinutes} minutes.\n` +
+    `Next retry at ${resumeTime}. (Attempt ${rateLimitState.retryCount})`
+  );
+
+  // DM the owner
+  try {
+    const ownerId = ALLOWED_USER_IDS[0];
+    if (ownerId) {
+      await slack.chat.postMessage({
+        channel: ownerId,
+        text: `Claude API rate limit reached. Queue paused. Tasks will resume at ${resumeTime}.`,
+        unfurl_links: false,
+      });
+    }
+  } catch (dmErr) {
+    console.error('[bridge-agent] Failed to DM owner on rate limit:', dmErr.message);
+  }
+
+  // Update memory with rate limit status
+  try {
+    memory.updateContext('rateLimitStatus', {
+      rateLimited: true,
+      pauseUntil: pauseUntil,
+      retryCount: rateLimitState.retryCount,
+      lastHit: new Date().toISOString(),
+    });
+  } catch (memErr) {
+    console.error('[bridge-agent] Failed to update rate limit memory:', memErr.message);
+  }
+}
+
+// LOGIC CHANGE 2026-03-26: Clear rate limit state after successful task completion.
+async function clearRateLimitState() {
+  if (rateLimitState.retryCount > 0) {
+    console.log('[bridge-agent] Rate limit pause cleared after successful task');
+    await postToOps(':white_check_mark: Rate limit resolved. Queue processing resumed.');
+  }
+  rateLimitState.pauseUntil = null;
+  rateLimitState.retryCount = 0;
+  rateLimitState.failedTask = null;
+
+  // Clear rate limit status from memory
+  try {
+    memory.updateContext('rateLimitStatus', null);
+  } catch (memErr) {
+    // Ignore memory errors
   }
 }
 
@@ -381,6 +487,10 @@ async function processTask(msg) {
     await react(BRIDGE_CHANNEL, msg.ts, EMOJI_DONE);
     console.log(`[bridge-agent] Task ${msg.ts} done (${elapsed}s)`);
 
+    // LOGIC CHANGE 2026-03-26: Clear rate limit state on successful task completion.
+    // This resets the exponential backoff counter.
+    await clearRateLimitState();
+
     // LOGIC CHANGE 2026-03-26: Auto-detect ACTION REQUIRED in task output and add
     // to bridge agent's activation checklist. This ensures owner action items are
     // tracked and visible via "my tasks" query.
@@ -426,6 +536,30 @@ async function processTask(msg) {
 
   } catch (err) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+
+    // LOGIC CHANGE 2026-03-26: Check for rate limit errors and handle with pause/retry.
+    // Rate limit errors are not marked as failures - they trigger a pause and will be
+    // retried automatically when the pause expires.
+    if (err.isRateLimit || (err instanceof RateLimitError)) {
+      console.error(`[bridge-agent] Rate limit detected for task ${msg.ts}`);
+
+      // Remove running reaction but don't add failed - task will be retried
+      await unreact(BRIDGE_CHANNEL, msg.ts, EMOJI_RUNNING);
+
+      // Handle rate limit (posts to ops, DMs owner, sets pause)
+      await handleRateLimit(msg);
+
+      // Update memory to show task is paused, not failed
+      if (memoryTaskId) {
+        try {
+          memory.failTask(memoryTaskId, 'rate_limit_paused');
+        } catch (memErr) {
+          console.error('[bridge-agent] Memory failTask failed:', memErr.message);
+        }
+      }
+
+      return; // Exit without marking as failed - will retry after pause
+    }
 
     await postToOps(
       `:x: *Task failed* (${elapsed}s)\n` +
@@ -477,12 +611,22 @@ async function processTask(msg) {
 // LOGIC CHANGE 2026-03-26: Added formatStatusResponse() to build a human-readable
 // status message from memory data. Shows currently running task, queued tasks,
 // and last 5 completed tasks with elapsed time.
+// LOGIC CHANGE 2026-03-26: Added rate limit status display when queue is paused.
 function formatStatusResponse() {
   const activeTasks = memory.getActiveTasks();
   const history = memory.loadMemory(path.join(__dirname, 'memory', 'history.json'));
   const last5 = history.slice(-5).reverse();
 
   let response = '';
+
+  // LOGIC CHANGE 2026-03-26: Show rate limit status at the top if active.
+  if (isRateLimitPaused()) {
+    const resumeTime = getPauseResumeTime();
+    const waitingCount = activeTasks.length + (rateLimitState.failedTask ? 1 : 0);
+    response += `:warning: *Queue paused due to rate limit.*\n`;
+    response += `Resumes at ${resumeTime}. ${waitingCount} task(s) waiting.\n`;
+    response += `Retry attempt: ${rateLimitState.retryCount}\n\n`;
+  }
 
   // Currently running task
   if (activeTasks.length > 0) {
@@ -620,6 +764,31 @@ async function processConversation(msg) {
 async function poll() {
   if (isRunning) return;
 
+  // LOGIC CHANGE 2026-03-26: Check if paused due to rate limit.
+  // When paused, skip new task processing but still update lastChecked.
+  // When pause expires, retry the failed task first.
+  if (isRateLimitPaused()) {
+    console.log(`[bridge-agent] Rate limit pause active. Resumes at ${getPauseResumeTime()}`);
+    return;
+  }
+
+  // LOGIC CHANGE 2026-03-26: Check if there's a failed task to retry after pause expires.
+  if (rateLimitState.failedTask && !isRateLimitPaused()) {
+    const failedMsg = rateLimitState.failedTask;
+    console.log(`[bridge-agent] Retrying rate-limited task: ${failedMsg.ts}`);
+
+    // Clear the failed task before retrying to prevent infinite retry loop
+    rateLimitState.failedTask = null;
+
+    isRunning = true;
+    await processTask(failedMsg);
+    isRunning = false;
+
+    // If we successfully completed, continue to normal polling
+    // If rate limited again, handleRateLimit will set new pause and failedTask
+    return;
+  }
+
   try {
     const result = await slack.conversations.history({
       channel: BRIDGE_CHANNEL,
@@ -653,6 +822,14 @@ async function poll() {
         await processTask(msg);
 
         isRunning = false;
+
+        // LOGIC CHANGE 2026-03-26: After processing a task, check if we got rate limited.
+        // If so, exit the loop to pause processing.
+        if (isRateLimitPaused()) {
+          console.log('[bridge-agent] Rate limit triggered. Pausing task processing.');
+          return;
+        }
+
         continue;
       }
 
