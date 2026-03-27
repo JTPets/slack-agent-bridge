@@ -1,0 +1,49 @@
+[
+  {
+    "id": "bridge",
+    "name": "Bridge Agent",
+    "role": "Code execution, GitHub operations, task automation",
+    "channel": "C0ANZUEJXEJ",
+    "permissions": ["github", "file-system", "claude-code"],
+    "denied": [],
+    "priority": 1,
+    "max_turns": 50,
+    "memory_dir": "agents/bridge/memory"
+  },
+  {
+    "id": "secretary",
+    "name": "Secretary",
+    "role": "Calendar accountability, email monitoring, daily briefings, reminders",
+    "channel": null,
+    "permissions": ["google-calendar", "gmail-read"],
+    "denied": ["github-write", "file-system-write"],
+    "priority": 2,
+    "max_turns": 20,
+    "memory_dir": "agents/secretary/memory",
+    "status": "planned"
+  },
+  {
+    "id": "security",
+    "name": "Security Auditor",
+    "role": "Daily code review, vulnerability scanning, dependency monitoring",
+    "channel": null,
+    "permissions": ["github-read"],
+    "denied": ["github-write", "file-system-write"],
+    "priority": 3,
+    "max_turns": 30,
+    "memory_dir": "agents/security/memory",
+    "status": "planned"
+  },
+  {
+    "id": "storefront",
+    "name": "Storefront Agent",
+    "role": "Customer-facing AI for product inquiries, nutrition consults, order creation",
+    "channel": null,
+    "permissions": ["square-catalog-read", "square-orders-write"],
+    "denied": ["github", "file-system"],
+    "priority": 2,
+    "max_turns": 15,
+    "memory_dir": "agents/storefront/memory",
+    "status": "planned"
+  }
+]

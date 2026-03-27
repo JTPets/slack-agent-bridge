@@ -234,7 +234,12 @@ slack-agent-bridge/
 ├── auto-update.js        # Git polling daemon: pulls updates and restarts PM2 on changes
 ├── morning-digest.js     # Cron job script: sends daily task stats DM to owner
 ├── security-review.js    # Cron job script: security audit of commits from last 24h
+├── agents/
+│   ├── agents.json       # Agent registry: defines all agents, permissions, and config
+│   └── bridge/
+│       └── memory/       # Bridge agent's memory directory (tasks.json, history.json, context.json)
 ├── lib/
+│   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel
 │   ├── config.js         # Environment variable loading, validation, and defaults
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, openai, ollama)
 │   ├── task-parser.js    # Task message parsing and message type detection
@@ -259,14 +264,16 @@ slack-agent-bridge/
 │   └── accountability-check/
 │       └── SKILL.md      # Review calendar events and verify task completion
 ├── tests/
+│   ├── agent-registry.test.js   # Tests for lib/agent-registry.js
 │   ├── config.test.js           # Tests for lib/config.js
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
 │   ├── message-detection.test.js # Tests for isTaskMessage/isConversationMessage
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
 │   └── task-parser.test.js      # Tests for task parsing logic
-├── package.json          # Dependencies and npm scripts
 ├── docs/
+│   ├── AGENTS.md            # Agent registry documentation: how agents work, permissions model
 │   └── INTEGRATION-SPEC.md  # SqTools API integration specification and security requirements
+├── package.json          # Dependencies and npm scripts
 ├── CLAUDE.md             # Project rules and documentation (this file)
 ├── README.md             # Project overview
 └── .gitignore            # Git ignore rules (node_modules, .env, etc.)

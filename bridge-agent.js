@@ -57,6 +57,11 @@ const {
 // authorization checks in the poll loop.
 const { config, validate, isUserAuthorized } = require('./lib/config');
 
+// LOGIC CHANGE 2026-03-26: Added agent registry for multi-agent architecture.
+// Loads agent config from agents/agents.json with fallback to env vars if registry
+// doesn't exist or agent not found.
+const { getAgent, registryExists } = require('./lib/agent-registry');
+
 // LOGIC CHANGE 2026-03-26: Extracted LLM execution into lib/llm-runner.js
 // to support multiple LLM providers via LLM_PROVIDER env var.
 const { runLLM } = require('./lib/llm-runner');
@@ -66,13 +71,22 @@ const { runLLM } = require('./lib/llm-runner');
 // Validate required config
 validate(config);
 
-// Destructure config for convenience
+// LOGIC CHANGE 2026-03-26: Load bridge agent config from registry if available.
+// Falls back to env vars if agents.json doesn't exist or bridge agent not found.
+let agentConfig = null;
+if (registryExists()) {
+  agentConfig = getAgent('bridge');
+  if (agentConfig) {
+    console.log('[bridge-agent] Loaded config from agent registry');
+  }
+}
+
+// Destructure config for convenience, with registry overrides where applicable
 const {
   SLACK_BOT_TOKEN,
   BRIDGE_CHANNEL,
   OPS_CHANNEL,
   POLL_INTERVAL,
-  MAX_TURNS,
   TASK_TIMEOUT,
   CLAUDE_BIN,
   WORK_DIR,
@@ -81,6 +95,10 @@ const {
   EMOJI_FAILED,
   ALLOWED_USER_IDS,
 } = config;
+
+// LOGIC CHANGE 2026-03-26: MAX_TURNS can be overridden by agent registry.
+// Agent config takes precedence over env var.
+const MAX_TURNS = agentConfig?.max_turns || config.MAX_TURNS;
 
 const slack = new WebClient(SLACK_BOT_TOKEN);
 
@@ -604,6 +622,7 @@ async function poll() {
 // ---- Startup ----
 
 console.log('[bridge-agent] Starting v2');
+console.log(`  Config:   ${agentConfig ? 'agent registry' : 'env vars'}`);
 console.log(`  Claude:   ${CLAUDE_BIN}`);
 console.log(`  Bridge:   #claude-bridge (${BRIDGE_CHANNEL})`);
 console.log(`  Ops:      #sqtools-ops (${OPS_CHANNEL})`);
