@@ -26,15 +26,39 @@ function getBaseDir() {
     return path.join(__dirname, '..');
 }
 
+// LOGIC CHANGE 2026-03-27: loadMemory now catches JSON.parse errors (corruption,
+// empty files, wrong format). Resets to default value and logs a warning instead
+// of crashing. This fixes "tasks.push is not a function" and similar corruption bugs.
 function loadMemory(file) {
+    const defaultValue = file.includes('tasks') || file.includes('history') ? [] : {};
     try {
         const data = fs.readFileSync(file, 'utf8');
-        return JSON.parse(data);
+        if (!data || !data.trim()) {
+            console.warn(`[memory-manager] Empty file detected: ${file}, resetting to default`);
+            saveMemory(file, defaultValue);
+            return defaultValue;
+        }
+        const parsed = JSON.parse(data);
+        // LOGIC CHANGE 2026-03-27: Validate that array files actually contain arrays.
+        // Fixes "tasks.push is not a function" when tasks.json is corrupted to an object.
+        if (Array.isArray(defaultValue) && !Array.isArray(parsed)) {
+            console.warn(`[memory-manager] Expected array in ${file}, got ${typeof parsed}. Resetting to default.`);
+            saveMemory(file, defaultValue);
+            return defaultValue;
+        }
+        return parsed;
     } catch (err) {
         if (err.code === 'ENOENT') {
-            return file.includes('tasks') || file.includes('history') ? [] : {};
+            return defaultValue;
         }
-        throw err;
+        // JSON parse error or other corruption
+        console.warn(`[memory-manager] Corrupted file ${file}: ${err.message}. Resetting to default.`);
+        try {
+            saveMemory(file, defaultValue);
+        } catch (saveErr) {
+            console.error(`[memory-manager] Failed to reset ${file}:`, saveErr.message);
+        }
+        return defaultValue;
     }
 }
 

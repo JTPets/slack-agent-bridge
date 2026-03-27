@@ -362,7 +362,6 @@ async function processTask(msg) {
   const startTime = Date.now();
   let taskDir = null;
   let taskSuccess = false;
-  let isRateLimitError = false;
 
   // LOGIC CHANGE 2026-03-27: Create heartbeat for visual progress feedback.
   // Cycles through emojis while task runs. Wrapped in try/catch so heartbeat
@@ -532,8 +531,24 @@ async function processTask(msg) {
       break;
     }
 
-    const { output, hitMaxTurns } = result;
+    const { output, hitMaxTurns, interrupted } = result;
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+
+    // LOGIC CHANGE 2026-03-27: Handle interrupted tasks (exit code null, e.g., PM2 restart).
+    // Do not count as failure, do not trigger rate limit. Just log and return.
+    if (interrupted) {
+      console.log(`[bridge-agent] Task interrupted (exit code null) - likely PM2 restart`);
+      await postToOps(`:warning: Task interrupted (likely PM2 restart) after ${elapsed}s.\nSource: <${msgLink(msg.ts)}|#claude-bridge>`);
+      taskSuccess = true; // Don't mark as failure
+      if (memoryTaskId) {
+        try {
+          memory.completeTask(memoryTaskId, { output: 'interrupted', elapsed: parseInt(elapsed, 10), interrupted: true });
+        } catch (memErr) {
+          console.error('[bridge-agent] Memory completeTask failed:', memErr.message);
+        }
+      }
+      return;
+    }
 
     // LOGIC CHANGE 2026-03-26: Use notify-owner module for task completion notification.
     await notifyOwner.taskCompleted(task, truncate(output), {
@@ -589,32 +604,10 @@ async function processTask(msg) {
   } catch (err) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
 
-    // LOGIC CHANGE 2026-03-26: Check for rate limit errors and handle with pause/retry.
-    // Rate limit errors are not marked as failures - they trigger a pause and will be
-    // retried automatically when the pause expires.
-    // LOGIC CHANGE 2026-03-27: Also handle BandwidthExhaustedError (exit code 1 + short output).
-    if (err.isRateLimit || (err instanceof RateLimitError) || (err instanceof BandwidthExhaustedError)) {
-      const isBandwidth = err.isBandwidthExhausted || (err instanceof BandwidthExhaustedError);
-      console.error(`[bridge-agent] ${isBandwidth ? 'Bandwidth exhaustion' : 'Rate limit'} detected for task ${msg.ts}`);
-
-      // LOGIC CHANGE 2026-03-27: Mark as rate limit error so heartbeat cleanup
-      // doesn't add success/failure emoji (task will be retried).
-      isRateLimitError = true;
-
-      // Handle rate limit (posts to ops, DMs owner, sets pause)
-      await handleRateLimit(msg);
-
-      // Update memory to show task is paused, not failed
-      if (memoryTaskId) {
-        try {
-          memory.failTask(memoryTaskId, 'rate_limit_paused');
-        } catch (memErr) {
-          console.error('[bridge-agent] Memory failTask failed:', memErr.message);
-        }
-      }
-
-      return; // Exit without marking as failed - will retry after pause
-    }
+    // LOGIC CHANGE 2026-03-27: Removed rate limit / bandwidth exhaustion call path.
+    // Rate limit detection caused false positives, pausing the queue on normal failures.
+    // All task errors are now reported as failures. Will re-add rate limit handling
+    // when detection is properly calibrated.
 
     // LOGIC CHANGE 2026-03-26: Use notify-owner module for task failure notification.
     // Posts to ops channel and sends critical DM to owner.
@@ -638,17 +631,23 @@ async function processTask(msg) {
 
   } finally {
     // LOGIC CHANGE 2026-03-27: Stop heartbeat and add final status emoji.
-    // For rate limit errors, pass null to skip final emoji (task will be retried).
     // Wrapped in try/catch - heartbeat failure must never affect task execution.
     try {
-      const finalStatus = isRateLimitError ? null : taskSuccess;
-      await heartbeat.stop(finalStatus);
+      await heartbeat.stop(taskSuccess);
     } catch (heartbeatErr) {
       console.error('[bridge-agent] Heartbeat cleanup failed:', heartbeatErr.message);
     }
 
     if (taskDir && fs.existsSync(taskDir)) {
       cleanupDir(taskDir);
+    }
+
+    // LOGIC CHANGE 2026-03-27: Clear working memory at end of each task to prevent
+    // accumulation of stale "running" entries that never get cleared.
+    try {
+      memory.clearAgentWorkingMemory('bridge');
+    } catch (memErr) {
+      console.error('[bridge-agent] Failed to clear working memory:', memErr.message);
     }
 
     // LOGIC CHANGE 2026-03-27: Remove task lock file to signal task completion.
@@ -972,6 +971,39 @@ function runStartupMemoryMaintenance() {
     if (agentIds.length === 0) {
       console.log('[bridge-agent] No agents in registry, skipping memory maintenance');
       return;
+    }
+
+    // LOGIC CHANGE 2026-03-27: Clear stale "running" tasks in working.json on startup.
+    // Any task with status "running" was interrupted by a restart and should be marked "interrupted".
+    try {
+      const workingPath = path.join(__dirname, 'agents', 'bridge', 'memory', 'working.json');
+      if (fs.existsSync(workingPath)) {
+        const raw = fs.readFileSync(workingPath, 'utf8');
+        if (raw && raw.trim()) {
+          let working;
+          try {
+            working = JSON.parse(raw);
+          } catch (parseErr) {
+            console.warn('[bridge-agent] working.json corrupted, resetting to empty array');
+            working = [];
+          }
+          if (Array.isArray(working)) {
+            let cleared = 0;
+            for (const entry of working) {
+              if (entry && entry.content && entry.content.status === 'running') {
+                entry.content.status = 'interrupted';
+                cleared++;
+              }
+            }
+            if (cleared > 0) {
+              fs.writeFileSync(workingPath, JSON.stringify(working, null, 2), 'utf8');
+              console.log(`[bridge-agent] Cleared ${cleared} stale running task(s) in working.json`);
+            }
+          }
+        }
+      }
+    } catch (wErr) {
+      console.error('[bridge-agent] Failed to clear stale working memory:', wErr.message);
     }
 
     // Run migration for legacy memory files (bridge agent only for now)
