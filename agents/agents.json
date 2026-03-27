@@ -34,14 +34,19 @@
   {
     "id": "secretary",
     "name": "Secretary",
-    "role": "Calendar accountability, email monitoring, daily briefings, reminders",
+    "role": "Calendar accountability, email monitoring, daily briefings, reminders, phone reception, delivery notifications",
     "channel": null,
-    "permissions": ["google-calendar", "gmail-read"],
+    "permissions": ["google-calendar", "gmail-read", "twilio-inbound", "twilio-outbound"],
     "denied": ["github-write", "file-system-write"],
     "priority": 2,
     "max_turns": 20,
     "memory_dir": "agents/secretary/memory",
-    "status": "planned"
+    "status": "planned",
+    "phone_capabilities": {
+      "inbound": "Answer calls, route to staff or voicemail based on calendar/schedule, take messages, log to Slack",
+      "outbound": "Delivery confirmations, appointment reminders, vendor follow-ups, customer callbacks",
+      "sms": "Send/receive SMS, delivery ETAs, order confirmations"
+    }
   },
   {
     "id": "security",

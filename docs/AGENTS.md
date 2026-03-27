@@ -41,10 +41,30 @@ The agent registry (`agents/agents.json`) defines multiple specialized agents th
 
 ### Secretary (Planned)
 - **ID**: `secretary`
-- **Role**: Calendar accountability, email monitoring, daily briefings, reminders
+- **Role**: Calendar accountability, email monitoring, daily briefings, reminders, phone reception, delivery notifications
 - **Max Turns**: 20
-- **Permissions**: google-calendar, gmail-read
+- **Permissions**: google-calendar, gmail-read, twilio-inbound, twilio-outbound
 - **Denied**: github-write, file-system-write
+
+#### Phone Capabilities
+
+The Secretary agent acts as the receptionist for JT Pets with full phone and SMS capabilities. See [SECRETARY-PHONE-DESIGN.md](./SECRETARY-PHONE-DESIGN.md) for complete specification.
+
+**Inbound Calls:**
+- IVR menu: store hours, place orders, check delivery, speak with staff
+- After-hours routing: voicemail, urgent callback option
+- All calls logged to #store-inbox with caller ID, duration, outcome
+
+**Outbound Calls/SMS:**
+- Delivery confirmations: "Your order is out for delivery! ETA ~30 min"
+- Appointment reminders: 24h and 2h before scheduled appointments
+- Vendor follow-ups: Alerts owner when vendor orders are missed
+- Customer callbacks: Returns calls for voicemail requests
+
+**Cross-Agent Coordination:**
+- Reads delivery tasks from store-ops via bulletin board
+- Posts customer confirmations back to bulletin board
+- Coordinates delivery timing between store-ops and drivers
 
 ### Security Auditor (Planned)
 - **ID**: `security`
