@@ -13,10 +13,10 @@
   },
   "secretary": {
     "name": "Secretary",
-    "status": "planned",
+    "status": "active",
     "tasks": [
-      { "description": "Create #secretary-inbox Slack channel", "completed": false, "priority": "high" },
-      { "description": "Invite @bridge-agent to #secretary-inbox channel", "completed": false, "priority": "high" },
+      { "description": "Create #secretary-inbox Slack channel", "completed": true, "priority": "high" },
+      { "description": "Invite @bridge-agent to #secretary-inbox channel", "completed": true, "priority": "high" },
       { "description": "Create Google Cloud service account for Calendar API", "completed": false, "priority": "high" },
       { "description": "Share calendars with service account email", "completed": false, "priority": "high" },
       { "description": "Add GOOGLE_SERVICE_ACCOUNT_KEY path to .env", "completed": false, "priority": "high" },
