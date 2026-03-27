@@ -956,6 +956,23 @@ function runStartupMemoryMaintenance() {
 }
 
 console.log('[bridge-agent] Starting v2');
+
+// LOGIC CHANGE 2026-03-27: Unconditionally clear rate limit state on startup.
+// This ensures a PM2 restart ALWAYS gives the bot a fresh start. The bot should
+// never stay paused across restarts. Clears both in-memory state and persisted
+// rate limit state from memory files.
+rateLimitState = {
+  pauseUntil: null,
+  retryCount: 0,
+  failedTask: null,
+};
+try {
+  memory.updateContext('rateLimitStatus', null);
+} catch (err) {
+  // Ignore errors clearing rate limit status
+}
+console.log('[bridge-agent] Startup: cleared rate limit state');
+
 console.log(`  Config:   ${agentConfig ? 'agent registry' : 'env vars'}`);
 console.log(`  Claude:   ${CLAUDE_BIN}`);
 console.log(`  Bridge:   #claude-bridge (${BRIDGE_CHANNEL})`);
@@ -969,41 +986,6 @@ console.log(`  Allowed:  ${ALLOWED_USER_IDS.join(', ')}`);
 
 // Run memory maintenance before starting poll loop
 runStartupMemoryMaintenance();
-
-// LOGIC CHANGE 2026-03-27: Clear stale rate limit state on startup.
-// If pauseUntil is in the past (from a previous crash), clear it to prevent
-// blocking the new instance. Also clears any stale rate limit status from memory.
-function clearStaleRateLimitState() {
-  try {
-    const context = memory.loadContext();
-    if (context && context.rateLimitStatus && context.rateLimitStatus.pauseUntil) {
-      const pauseUntil = context.rateLimitStatus.pauseUntil;
-      if (Date.now() >= pauseUntil) {
-        console.log('[bridge-agent] Clearing stale rate limit state from previous run');
-        memory.updateContext('rateLimitStatus', null);
-        // Also reset in-memory state (should be fresh on startup, but be safe)
-        rateLimitState = {
-          pauseUntil: null,
-          retryCount: 0,
-          failedTask: null,
-        };
-      } else {
-        // Pause is still valid, restore state from memory
-        const remainingMs = pauseUntil - Date.now();
-        const remainingMin = Math.ceil(remainingMs / 60000);
-        console.log(`[bridge-agent] Restoring rate limit pause from memory (${remainingMin} min remaining)`);
-        rateLimitState.pauseUntil = pauseUntil;
-        rateLimitState.retryCount = context.rateLimitStatus.retryCount || 1;
-        // failedTask cannot be restored (was in memory), so it will be null
-      }
-    }
-  } catch (err) {
-    console.error('[bridge-agent] Failed to check stale rate limit state:', err.message);
-    // On error, assume no stale state - don't block startup
-  }
-}
-
-clearStaleRateLimitState();
 
 poll();
 setInterval(poll, POLL_INTERVAL);
