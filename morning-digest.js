@@ -173,6 +173,69 @@ async function sendDM(userId, text) {
 
 // ---- Digest logic ----
 
+// LOGIC CHANGE 2026-03-27: Added categorizeFailures() to intelligently classify
+// failures into actionable categories instead of just listing them.
+/**
+ * Categorize failed tasks into actionable groups
+ * @param {Array} failedTasks - Array of failed task objects from history
+ * @returns {{rateLimit: Array, tempDir: Array, maxTurns: Array, codeFailures: Array}}
+ */
+function categorizeFailures(failedTasks) {
+    const categories = {
+        rateLimit: [],
+        tempDir: [],
+        maxTurns: [],
+        codeFailures: [],
+    };
+
+    for (const task of failedTasks) {
+        const error = (task.error || '').toLowerCase();
+
+        // Rate limit / bandwidth exhaustion - these auto-retry when capacity returns
+        if (
+            error.includes('rate_limit') ||
+            error.includes('rate limit') ||
+            error.includes('bandwidth') ||
+            error.includes('429') ||
+            error.includes('too many requests')
+        ) {
+            categories.rateLimit.push(task);
+            continue;
+        }
+
+        // Clone / temp directory issues - infrastructure failures
+        if (
+            error.includes('clone') ||
+            error.includes('temp') ||
+            error.includes('enoent') ||
+            error.includes('eacces') ||
+            error.includes('permission denied') ||
+            error.includes('no space') ||
+            error.includes('disk full') ||
+            error.includes('mkdir')
+        ) {
+            categories.tempDir.push(task);
+            continue;
+        }
+
+        // Max turns exceeded - check outcome field for retry info
+        // Note: if task.outcome.retried exists, it was already auto-retried
+        if (
+            error.includes('max turns') ||
+            error.includes('max_turns') ||
+            (task.outcome && task.outcome.partial)
+        ) {
+            categories.maxTurns.push(task);
+            continue;
+        }
+
+        // All other failures are real code/logic failures that need review
+        categories.codeFailures.push(task);
+    }
+
+    return categories;
+}
+
 function isWithinLast24Hours(isoTimestamp) {
     if (!isoTimestamp) return false;
     const timestamp = new Date(isoTimestamp).getTime();
@@ -251,15 +314,44 @@ async function buildDigest() {
     lines.push(`• ${failedLast24h.length} task${failedLast24h.length !== 1 ? 's' : ''} failed`);
     lines.push(`• ${activeTasks.length} task${activeTasks.length !== 1 ? 's' : ''} still active`);
 
-    // List failed tasks if any
-    if (failedLast24h.length > 0) {
+    // LOGIC CHANGE 2026-03-27: Categorize failures intelligently instead of just listing them.
+    // Categories: rate limit/bandwidth (auto-retry), temp dir issues (auto-requeue),
+    // max turns exceeded (already auto-retried), real code failures (need review).
+    const categorizedFailures = categorizeFailures(failedLast24h);
+    let actionNeededCount = 0;
+    let autoHandlingCount = 0;
+
+    // Rate limit / bandwidth failures - auto-retry when capacity returns
+    if (categorizedFailures.rateLimit.length > 0) {
         lines.push('');
-        lines.push('*Failed tasks:*');
-        for (const task of failedLast24h) {
+        lines.push(`*Rate limit / bandwidth:* ${categorizedFailures.rateLimit.length} task${categorizedFailures.rateLimit.length !== 1 ? 's' : ''} paused due to rate limits. They will auto-retry.`);
+        autoHandlingCount += categorizedFailures.rateLimit.length;
+    }
+
+    // Clone/temp dir failures - auto-requeue
+    if (categorizedFailures.tempDir.length > 0) {
+        lines.push('');
+        lines.push(`*Temp directory issues:* ${categorizedFailures.tempDir.length} task${categorizedFailures.tempDir.length !== 1 ? 's' : ''} failed due to temp directory issues. Auto-requeued.`);
+        autoHandlingCount += categorizedFailures.tempDir.length;
+    }
+
+    // Max turns exceeded - already auto-retried
+    if (categorizedFailures.maxTurns.length > 0) {
+        lines.push('');
+        lines.push(`*Max turns exceeded:* ${categorizedFailures.maxTurns.length} task${categorizedFailures.maxTurns.length !== 1 ? 's' : ''} hit max turns and ${categorizedFailures.maxTurns.length !== 1 ? 'were' : 'was'} auto-retried.`);
+        autoHandlingCount += categorizedFailures.maxTurns.length;
+    }
+
+    // Real code failures - need review
+    if (categorizedFailures.codeFailures.length > 0) {
+        lines.push('');
+        lines.push(`*Failed with errors - review needed:*`);
+        for (const task of categorizedFailures.codeFailures) {
             const desc = task.description || 'No description';
             const error = task.error ? ` - ${task.error.slice(0, 100)}` : '';
             lines.push(`  - ${desc}${error}`);
         }
+        actionNeededCount += categorizedFailures.codeFailures.length;
     }
 
     // List active tasks if any
@@ -271,6 +363,17 @@ async function buildDigest() {
             const repo = task.repo ? ` (${task.repo})` : '';
             lines.push(`  - ${desc}${repo}`);
         }
+    }
+
+    // LOGIC CHANGE 2026-03-27: Add action summary at the end of digest.
+    // Shows count of items needing owner attention vs auto-handled items.
+    lines.push('');
+    lines.push('---');
+    if (actionNeededCount > 0 || autoHandlingCount > 0) {
+        lines.push(`*Action needed from you:* ${actionNeededCount} item${actionNeededCount !== 1 ? 's' : ''}`);
+        lines.push(`*Auto-handling:* ${autoHandlingCount} item${autoHandlingCount !== 1 ? 's' : ''} (no action needed)`);
+    } else if (failedLast24h.length === 0) {
+        lines.push('*All clear!* No failures requiring attention.');
     }
 
     return lines.join('\n');
