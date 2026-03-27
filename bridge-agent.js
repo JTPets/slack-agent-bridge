@@ -95,6 +95,10 @@ const { createSlackClient } = require('./lib/slack-client');
 // this layer. When secretary agent is active, routes through its channel.
 const notifyOwner = require('./lib/notify-owner');
 
+// LOGIC CHANGE 2026-03-27: Added heartbeat module for visual task progress feedback.
+// Cycles through reactions while task runs: :eyes: -> :hourglass_flowing_sand: -> :gear:
+const { createHeartbeat } = require('./lib/heartbeat');
+
 // ---- Config ----
 
 // Validate required config
@@ -357,6 +361,13 @@ async function processTask(msg) {
   const task = parseTask(msg.text);
   const startTime = Date.now();
   let taskDir = null;
+  let taskSuccess = false;
+  let isRateLimitError = false;
+
+  // LOGIC CHANGE 2026-03-27: Create heartbeat for visual progress feedback.
+  // Cycles through emojis while task runs. Wrapped in try/catch so heartbeat
+  // failures never affect task execution.
+  const heartbeat = createHeartbeat(slack, BRIDGE_CHANNEL, msg.ts);
 
   // LOGIC CHANGE 2026-03-27: Create task lock file to signal to auto-update.js
   // that a task is running. Auto-update will wait for this file to be removed
@@ -385,7 +396,8 @@ async function processTask(msg) {
   }
 
   try {
-    await react(BRIDGE_CHANNEL, msg.ts, EMOJI_RUNNING);
+    // LOGIC CHANGE 2026-03-27: Start heartbeat reactions (eyes -> cycling emojis).
+    await heartbeat.start();
 
     let prompt = '';
     let cwd = WORK_DIR;
@@ -524,8 +536,8 @@ async function processTask(msg) {
       sourceLink: `<${msgLink(msg.ts)}|#claude-bridge>`,
     });
 
-    await unreact(BRIDGE_CHANNEL, msg.ts, EMOJI_RUNNING);
-    await react(BRIDGE_CHANNEL, msg.ts, EMOJI_DONE);
+    // LOGIC CHANGE 2026-03-27: Mark task as successful for heartbeat cleanup.
+    taskSuccess = true;
     console.log(`[bridge-agent] Task ${msg.ts} done (${elapsed}s)`);
 
     // LOGIC CHANGE 2026-03-26: Clear rate limit state on successful task completion.
@@ -580,8 +592,9 @@ async function processTask(msg) {
       const isBandwidth = err.isBandwidthExhausted || (err instanceof BandwidthExhaustedError);
       console.error(`[bridge-agent] ${isBandwidth ? 'Bandwidth exhaustion' : 'Rate limit'} detected for task ${msg.ts}`);
 
-      // Remove running reaction but don't add failed - task will be retried
-      await unreact(BRIDGE_CHANNEL, msg.ts, EMOJI_RUNNING);
+      // LOGIC CHANGE 2026-03-27: Mark as rate limit error so heartbeat cleanup
+      // doesn't add success/failure emoji (task will be retried).
+      isRateLimitError = true;
 
       // Handle rate limit (posts to ops, DMs owner, sets pause)
       await handleRateLimit(msg);
@@ -605,8 +618,8 @@ async function processTask(msg) {
       sourceLink: `<${msgLink(msg.ts)}|#claude-bridge>`,
     });
 
-    await unreact(BRIDGE_CHANNEL, msg.ts, EMOJI_RUNNING);
-    await react(BRIDGE_CHANNEL, msg.ts, EMOJI_FAILED);
+    // LOGIC CHANGE 2026-03-27: taskSuccess remains false, heartbeat.stop(false)
+    // will add :x: emoji in finally block.
     console.error(`[bridge-agent] Task ${msg.ts} failed (${elapsed}s):`, err.message);
 
     // LOGIC CHANGE 2026-03-26: Record task failure in memory.
@@ -619,6 +632,16 @@ async function processTask(msg) {
     }
 
   } finally {
+    // LOGIC CHANGE 2026-03-27: Stop heartbeat and add final status emoji.
+    // For rate limit errors, pass null to skip final emoji (task will be retried).
+    // Wrapped in try/catch - heartbeat failure must never affect task execution.
+    try {
+      const finalStatus = isRateLimitError ? null : taskSuccess;
+      await heartbeat.stop(finalStatus);
+    } catch (heartbeatErr) {
+      console.error('[bridge-agent] Heartbeat cleanup failed:', heartbeatErr.message);
+    }
+
     if (taskDir && fs.existsSync(taskDir)) {
       cleanupDir(taskDir);
     }
