@@ -99,7 +99,7 @@ describe('llm-runner module', () => {
       const { runLLM } = require('../lib/llm-runner');
 
       await expect(runLLM('test prompt', { provider: 'unknown' })).rejects.toThrow(
-        'Unknown LLM provider: unknown. Supported providers: claude, openai, ollama'
+        'Unknown LLM provider: unknown. Supported providers: claude, openai, ollama, gemini'
       );
     });
 
@@ -243,6 +243,254 @@ describe('llm-runner module', () => {
       const { runOllamaAdapter } = require('../lib/llm-runner');
 
       await expect(runOllamaAdapter('prompt')).rejects.toThrow('Ollama adapter not yet implemented');
+    });
+  });
+
+  // LOGIC CHANGE 2026-03-27: Tests for Gemini adapter.
+  // Gemini adapter uses HTTP POST to Google's Generative Language API.
+  describe('runGeminiAdapter', () => {
+    let originalFetch;
+
+    beforeEach(() => {
+      originalFetch = global.fetch;
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+      delete process.env.GEMINI_API_KEY;
+    });
+
+    test('throws error when GEMINI_API_KEY is not set', async () => {
+      delete process.env.GEMINI_API_KEY;
+
+      const { runGeminiAdapter } = require('../lib/llm-runner');
+
+      await expect(runGeminiAdapter('prompt')).rejects.toThrow(
+        'GEMINI_API_KEY environment variable is required for Gemini provider'
+      );
+    });
+
+    test('calls Gemini API with correct URL and body', async () => {
+      process.env.GEMINI_API_KEY = 'test-api-key';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ content: { parts: [{ text: 'Generated response' }] } }],
+        }),
+      });
+
+      const { runGeminiAdapter } = require('../lib/llm-runner');
+      await runGeminiAdapter('test prompt');
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: expect.stringContaining('test prompt'),
+        })
+      );
+    });
+
+    test('includes API key in URL query parameter', async () => {
+      process.env.GEMINI_API_KEY = 'my-secret-key';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ content: { parts: [{ text: 'response' }] } }],
+        }),
+      });
+
+      const { runGeminiAdapter } = require('../lib/llm-runner');
+      await runGeminiAdapter('prompt');
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('key=my-secret-key'),
+        expect.any(Object)
+      );
+    });
+
+    test('returns output from Gemini response', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ content: { parts: [{ text: 'Hello from Gemini!' }] } }],
+        }),
+      });
+
+      const { runGeminiAdapter } = require('../lib/llm-runner');
+      const result = await runGeminiAdapter('prompt');
+
+      expect(result.output).toBe('Hello from Gemini!');
+      expect(result.hitMaxTurns).toBe(false);
+    });
+
+    test('concatenates multiple parts in response', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ content: { parts: [{ text: 'Part 1. ' }, { text: 'Part 2.' }] } }],
+        }),
+      });
+
+      const { runGeminiAdapter } = require('../lib/llm-runner');
+      const result = await runGeminiAdapter('prompt');
+
+      expect(result.output).toBe('Part 1. Part 2.');
+    });
+
+    test('uses custom model when provided in options', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ content: { parts: [{ text: 'response' }] } }],
+        }),
+      });
+
+      const { runGeminiAdapter } = require('../lib/llm-runner');
+      await runGeminiAdapter('prompt', { model: 'gemini-1.5-pro' });
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('models/gemini-1.5-pro:generateContent'),
+        expect.any(Object)
+      );
+    });
+
+    test('passes maxOutputTokens and temperature to request', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ content: { parts: [{ text: 'response' }] } }],
+        }),
+      });
+
+      const { runGeminiAdapter } = require('../lib/llm-runner');
+      await runGeminiAdapter('prompt', { maxOutputTokens: 4096, temperature: 0.5 });
+
+      const callBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(callBody.generationConfig.maxOutputTokens).toBe(4096);
+      expect(callBody.generationConfig.temperature).toBe(0.5);
+    });
+
+    test('throws RateLimitError on 429 response', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        text: () => Promise.resolve('Rate limit exceeded'),
+      });
+
+      const { runGeminiAdapter, RateLimitError } = require('../lib/llm-runner');
+
+      await expect(runGeminiAdapter('prompt')).rejects.toThrow(RateLimitError);
+    });
+
+    test('throws RateLimitError when response contains RESOURCE_EXHAUSTED', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve('{"error": {"code": "RESOURCE_EXHAUSTED"}}'),
+      });
+
+      const { runGeminiAdapter, RateLimitError } = require('../lib/llm-runner');
+
+      await expect(runGeminiAdapter('prompt')).rejects.toThrow(RateLimitError);
+    });
+
+    test('throws RateLimitError when response contains quota', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve('API quota exceeded for today'),
+      });
+
+      const { runGeminiAdapter, RateLimitError } = require('../lib/llm-runner');
+
+      await expect(runGeminiAdapter('prompt')).rejects.toThrow(RateLimitError);
+    });
+
+    test('throws error on non-rate-limit API error', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('Internal server error'),
+      });
+
+      const { runGeminiAdapter } = require('../lib/llm-runner');
+
+      await expect(runGeminiAdapter('prompt')).rejects.toThrow('Gemini API error (500)');
+    });
+
+    test('throws error when response has no candidates', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ candidates: [] }),
+      });
+
+      const { runGeminiAdapter } = require('../lib/llm-runner');
+
+      await expect(runGeminiAdapter('prompt')).rejects.toThrow('Gemini returned no candidates');
+    });
+
+    test('throws error when response text is empty', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ content: { parts: [{ text: '' }] } }],
+        }),
+      });
+
+      const { runGeminiAdapter } = require('../lib/llm-runner');
+
+      await expect(runGeminiAdapter('prompt')).rejects.toThrow('Gemini returned empty response');
+    });
+
+    test('handles network error', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      const fetchError = new TypeError('fetch failed: network error');
+      global.fetch = jest.fn().mockRejectedValue(fetchError);
+
+      const { runGeminiAdapter } = require('../lib/llm-runner');
+
+      await expect(runGeminiAdapter('prompt')).rejects.toThrow('Gemini network error');
+    });
+
+    test('hitMaxTurns is always false (Gemini has no turn concept)', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ content: { parts: [{ text: 'response' }] } }],
+        }),
+      });
+
+      const { runGeminiAdapter } = require('../lib/llm-runner');
+      const result = await runGeminiAdapter('prompt');
+
+      expect(result.hitMaxTurns).toBe(false);
     });
   });
 

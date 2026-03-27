@@ -484,6 +484,10 @@ async function processTask(msg) {
     let result;
     let didRetry = false;
 
+    // LOGIC CHANGE 2026-03-27: Pass agent's llm_provider to runLLM. Code agents
+    // use claude, others use gemini. Falls back to env LLM_PROVIDER or 'claude'.
+    const llmProvider = agentConfig?.llm_provider;
+
     while (retryCount <= 1) {
       try {
         result = await runLLM(prompt, {
@@ -491,6 +495,7 @@ async function processTask(msg) {
           maxTurns: currentTurns,
           timeout: TASK_TIMEOUT,
           claudeBin: CLAUDE_BIN,
+          provider: llmProvider,
         });
       } catch (llmErr) {
         // Re-throw LLM errors - they will be caught by outer catch
@@ -827,11 +832,13 @@ async function processConversation(msg) {
 
     // LOGIC CHANGE 2026-03-26: Use runLLM from lib/llm-runner.js for conversation
     // handling. Uses max-turns 10 for quick Q&A responses.
+    // LOGIC CHANGE 2026-03-27: Pass agent's llm_provider for conversation handling.
     const result = await runLLM(prompt, {
       cwd: WORK_DIR,
       maxTurns: 10,
       timeout: TASK_TIMEOUT,
       claudeBin: CLAUDE_BIN,
+      provider: agentConfig?.llm_provider,
     });
     const { output } = result;
 
