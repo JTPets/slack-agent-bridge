@@ -406,7 +406,13 @@ async function processTask(msg) {
         console.log(`[bridge-agent] Production repo detected: ${task.repo}`);
       }
 
+      // LOGIC CHANGE 2026-03-27: Prepend agent system_prompt to task prompt for
+      // consistent agent personality and behavior. Falls back to empty string if
+      // no system_prompt is defined.
+      const agentSystemPrompt = agentConfig?.system_prompt || '';
+
       prompt = [
+        agentSystemPrompt,
         productionWarning,
         skillContent,
         `You are working in a cloned repo: ${task.repo} (branch: ${task.branch}).`,
@@ -417,7 +423,11 @@ async function processTask(msg) {
       ].filter(Boolean).join('\n');
     } else {
       // No repo specified, run in work dir
-      prompt = task.instructions || task.description;
+      // LOGIC CHANGE 2026-03-27: Also prepend system_prompt for non-repo tasks.
+      const agentSystemPrompt = agentConfig?.system_prompt || '';
+      prompt = agentSystemPrompt
+        ? `${agentSystemPrompt}\n\n${task.instructions || task.description}`
+        : (task.instructions || task.description);
     }
 
     // LOGIC CHANGE 2026-03-26: Prepend task context from memory to help CC avoid

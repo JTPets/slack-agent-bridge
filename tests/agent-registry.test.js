@@ -37,7 +37,9 @@ describe('agent-registry', () => {
             workflow: 'direct-to-main',
             merge_policy: 'auto',
             deploy_policy: 'auto-update',
-            production: false
+            production: false,
+            personality: 'Professional and efficient technical executor.',
+            system_prompt: 'You are the Bridge Agent for JT Pets, a code execution specialist.'
         },
         {
             id: 'code-sqtools',
@@ -466,6 +468,86 @@ describe('agent-registry', () => {
             const agents = getAgentsNeedingActivation();
 
             expect(agents).toHaveLength(0);
+        });
+    });
+
+    // LOGIC CHANGE 2026-03-27: Tests for personality and system_prompt fields
+    describe('personality and system_prompt', () => {
+        const agentsWithPrompts = [
+            {
+                id: 'bridge',
+                name: 'Bridge Agent',
+                personality: 'Professional and efficient.',
+                system_prompt: 'You are the Bridge Agent.'
+            },
+            {
+                id: 'secretary',
+                name: 'Secretary',
+                personality: 'Warm and organized.',
+                system_prompt: 'You are the Secretary for JT Pets.'
+            },
+            {
+                id: 'jester',
+                name: 'The Jester',
+                personality: 'Witty court jester.',
+                system_prompt: 'You are The Jester, the comedic personality.'
+            }
+        ];
+
+        beforeEach(() => {
+            fs.readFileSync.mockReturnValue(JSON.stringify(agentsWithPrompts));
+        });
+
+        it('should load system_prompt for agent', () => {
+            const agent = getAgent('bridge');
+
+            expect(agent.system_prompt).toBeDefined();
+            expect(agent.system_prompt).toBe('You are the Bridge Agent.');
+        });
+
+        it('should load personality for agent', () => {
+            const agent = getAgent('bridge');
+
+            expect(agent.personality).toBeDefined();
+            expect(agent.personality).toBe('Professional and efficient.');
+        });
+
+        it('should load system_prompt for all agents', () => {
+            const agents = loadAgents();
+
+            for (const agent of agents) {
+                expect(agent.system_prompt).toBeDefined();
+                expect(typeof agent.system_prompt).toBe('string');
+                expect(agent.system_prompt.length).toBeGreaterThan(0);
+            }
+        });
+
+        it('should load personality for all agents', () => {
+            const agents = loadAgents();
+
+            for (const agent of agents) {
+                expect(agent.personality).toBeDefined();
+                expect(typeof agent.personality).toBe('string');
+                expect(agent.personality.length).toBeGreaterThan(0);
+            }
+        });
+
+        it('should return undefined system_prompt if not defined', () => {
+            const agentsWithoutPrompt = [{ id: 'test', name: 'Test Agent' }];
+            fs.readFileSync.mockReturnValue(JSON.stringify(agentsWithoutPrompt));
+
+            const agent = getAgent('test');
+
+            expect(agent.system_prompt).toBeUndefined();
+        });
+
+        it('should return undefined personality if not defined', () => {
+            const agentsWithoutPersonality = [{ id: 'test', name: 'Test Agent' }];
+            fs.readFileSync.mockReturnValue(JSON.stringify(agentsWithoutPersonality));
+
+            const agent = getAgent('test');
+
+            expect(agent.personality).toBeUndefined();
         });
     });
 
