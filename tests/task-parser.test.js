@@ -4,7 +4,15 @@
  * Unit tests for parseTask function from lib/task-parser.js
  */
 
-const { parseTask, DEFAULT_TURNS, MIN_TURNS, MAX_TURNS } = require('../lib/task-parser');
+const {
+  parseTask,
+  isStatusQuery,
+  isCreateChannelCommand,
+  parseCreateChannelCommand,
+  DEFAULT_TURNS,
+  MIN_TURNS,
+  MAX_TURNS
+} = require('../lib/task-parser');
 
 describe('parseTask', () => {
   test('parses full TASK/REPO/BRANCH/INSTRUCTIONS message', () => {
@@ -384,5 +392,135 @@ INSTRUCTIONS: Research this topic`;
 
       expect(result.skill).toBe('research');
     });
+  });
+});
+
+// LOGIC CHANGE 2026-03-26: Tests for isCreateChannelCommand and parseCreateChannelCommand
+describe('isCreateChannelCommand', () => {
+  test('detects "create channel #name" command', () => {
+    expect(isCreateChannelCommand('create channel #my-channel')).toBe(true);
+    expect(isCreateChannelCommand('create channel #test')).toBe(true);
+    expect(isCreateChannelCommand('create channel #123')).toBe(true);
+  });
+
+  test('detects "create channel name" without hash', () => {
+    expect(isCreateChannelCommand('create channel my-channel')).toBe(true);
+    expect(isCreateChannelCommand('create channel test')).toBe(true);
+  });
+
+  test('is case insensitive', () => {
+    expect(isCreateChannelCommand('Create Channel #test')).toBe(true);
+    expect(isCreateChannelCommand('CREATE CHANNEL #TEST')).toBe(true);
+    expect(isCreateChannelCommand('CREATE channel #test')).toBe(true);
+  });
+
+  // LOGIC CHANGE 2026-03-26: Fixed test - regex \s+ matches one or more spaces,
+  // so multiple spaces between words is still valid.
+  test('handles extra whitespace', () => {
+    expect(isCreateChannelCommand('  create channel #test  ')).toBe(true);
+    expect(isCreateChannelCommand('create  channel  #test')).toBe(true); // regex \s+ allows multiple spaces
+  });
+
+  test('returns false for non-matching commands', () => {
+    expect(isCreateChannelCommand('delete channel #test')).toBe(false);
+    expect(isCreateChannelCommand('create #test')).toBe(false);
+    expect(isCreateChannelCommand('channel #test')).toBe(false);
+    expect(isCreateChannelCommand('create something else')).toBe(false);
+    expect(isCreateChannelCommand('what is queued')).toBe(false);
+  });
+
+  test('returns false for empty input', () => {
+    expect(isCreateChannelCommand('')).toBe(false);
+    expect(isCreateChannelCommand(null)).toBe(false);
+    expect(isCreateChannelCommand(undefined)).toBe(false);
+  });
+
+  test('requires channel name', () => {
+    expect(isCreateChannelCommand('create channel')).toBe(false);
+    expect(isCreateChannelCommand('create channel ')).toBe(false);
+  });
+});
+
+describe('parseCreateChannelCommand', () => {
+  test('extracts channel name from "create channel #name"', () => {
+    expect(parseCreateChannelCommand('create channel #my-channel')).toBe('my-channel');
+    expect(parseCreateChannelCommand('create channel #test')).toBe('test');
+    expect(parseCreateChannelCommand('create channel #123-channel')).toBe('123-channel');
+  });
+
+  test('extracts channel name without hash', () => {
+    expect(parseCreateChannelCommand('create channel my-channel')).toBe('my-channel');
+    expect(parseCreateChannelCommand('create channel test')).toBe('test');
+  });
+
+  test('lowercases channel name', () => {
+    expect(parseCreateChannelCommand('create channel #MyChannel')).toBe('mychannel');
+    expect(parseCreateChannelCommand('create channel #TEST-CHANNEL')).toBe('test-channel');
+  });
+
+  test('handles case insensitive command', () => {
+    expect(parseCreateChannelCommand('CREATE CHANNEL #test')).toBe('test');
+    expect(parseCreateChannelCommand('Create Channel #test')).toBe('test');
+  });
+
+  test('handles extra whitespace', () => {
+    expect(parseCreateChannelCommand('  create channel #test  ')).toBe('test');
+  });
+
+  test('returns null for non-matching commands', () => {
+    expect(parseCreateChannelCommand('delete channel #test')).toBeNull();
+    expect(parseCreateChannelCommand('create #test')).toBeNull();
+    expect(parseCreateChannelCommand('what is queued')).toBeNull();
+  });
+
+  test('returns null for empty input', () => {
+    expect(parseCreateChannelCommand('')).toBeNull();
+    expect(parseCreateChannelCommand(null)).toBeNull();
+    expect(parseCreateChannelCommand(undefined)).toBeNull();
+  });
+
+  test('returns null for missing channel name', () => {
+    expect(parseCreateChannelCommand('create channel')).toBeNull();
+    expect(parseCreateChannelCommand('create channel ')).toBeNull();
+  });
+
+  test('handles channel names with underscores and hyphens', () => {
+    expect(parseCreateChannelCommand('create channel #my_channel-test')).toBe('my_channel-test');
+    expect(parseCreateChannelCommand('create channel test_123')).toBe('test_123');
+  });
+});
+
+describe('isStatusQuery', () => {
+  test('detects "what\'s queued" patterns', () => {
+    expect(isStatusQuery("what's queued")).toBe(true);
+    expect(isStatusQuery('whats queued')).toBe(true);
+    expect(isStatusQuery("What's Queued")).toBe(true);
+  });
+
+  test('detects "queue status" pattern', () => {
+    expect(isStatusQuery('queue status')).toBe(true);
+    expect(isStatusQuery('Queue Status')).toBe(true);
+  });
+
+  test('detects "task status" pattern', () => {
+    expect(isStatusQuery('task status')).toBe(true);
+    expect(isStatusQuery('Task Status')).toBe(true);
+  });
+
+  test('detects "what are you working on" pattern', () => {
+    expect(isStatusQuery('what are you working on')).toBe(true);
+    expect(isStatusQuery('What Are You Working On')).toBe(true);
+  });
+
+  test('returns false for non-status queries', () => {
+    expect(isStatusQuery('create channel #test')).toBe(false);
+    expect(isStatusQuery('hello')).toBe(false);
+    expect(isStatusQuery('what time is it')).toBe(false);
+  });
+
+  test('returns false for empty input', () => {
+    expect(isStatusQuery('')).toBe(false);
+    expect(isStatusQuery(null)).toBe(false);
+    expect(isStatusQuery(undefined)).toBe(false);
   });
 });

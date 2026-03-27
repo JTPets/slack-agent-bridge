@@ -262,11 +262,12 @@ slack-agent-bridge/
 │           ├── backlog.json      # Activation backlog and feature roadmap
 │           └── .gitkeep          # Placeholder for memory files
 ├── lib/
-│   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel
+│   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel, activateAgent
 │   ├── config.js         # Environment variable loading, validation, and defaults
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, openai, ollama)
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
 │   ├── owner-tasks.js    # Owner task management: activation checklists, pending tasks, ACTION REQUIRED detection
+│   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, etc.)
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
 │   └── integrations/
@@ -289,14 +290,15 @@ slack-agent-bridge/
 │   └── accountability-check/
 │       └── SKILL.md      # Review calendar events and verify task completion
 ├── tests/
-│   ├── agent-registry.test.js   # Tests for lib/agent-registry.js
+│   ├── agent-registry.test.js   # Tests for lib/agent-registry.js (includes activation helpers)
 │   ├── config.test.js           # Tests for lib/config.js
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
 │   ├── memory-tiers.test.js     # Tests for lib/memory-tiers.js (TTL, auto-promote, cleanup)
 │   ├── message-detection.test.js # Tests for isTaskMessage/isConversationMessage
 │   ├── owner-tasks.test.js      # Tests for lib/owner-tasks.js (checklists, pending tasks)
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
-│   └── task-parser.test.js      # Tests for task parsing logic
+│   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management)
+│   └── task-parser.test.js      # Tests for task parsing logic (includes create channel command)
 ├── docs/
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
 │   ├── INTEGRATION-SPEC.md  # SqTools API integration specification and security requirements
@@ -327,6 +329,21 @@ See [docs/INTEGRATION-SPEC.md](docs/INTEGRATION-SPEC.md) for SqTools API securit
 • IP allowlist (127.0.0.1 only by default)
 • Read-only access, no write operations without approval
 • Response sanitization (no stack traces, internal paths, or DB details)
+
+### Required Slack Scopes
+The bot requires these OAuth scopes at [api.slack.com/apps](https://api.slack.com/apps):
+| Scope | Purpose |
+|-------|---------|
+| `channels:history` | Read messages from public channels |
+| `channels:read` | List and find channels by name |
+| `channels:manage` | Create channels and set topics |
+| `channels:join` | Join the bot to channels |
+| `chat:write` | Post messages to channels |
+| `reactions:write` | Add emoji reactions to messages |
+| `reactions:read` | Check if messages have been processed |
+| `users:read` | Resolve user IDs |
+
+If the API returns `missing_scope` error, the log will show: `Missing Slack scope: <scope>. Add it at api.slack.com/apps`
 
 ---
 
@@ -368,6 +385,58 @@ When a task hits its max turns limit, the agent automatically retries ONCE with 
 • If a task needs to create a new branch, set BRANCH to main and include branch creation in the INSTRUCTIONS.
 • The agent always clones the specified branch. If the branch does not exist on the remote, the clone fails.
 • Example: To create feature/foo, use BRANCH: main and instruct CC to git checkout -b feature/foo
+
+---
+
+## Built-in Commands
+
+The agent responds to these built-in commands without calling the LLM. Use them via `ASK: <command>`.
+
+### Status Query
+Check the task queue and recent history:
+```
+ASK: what's queued
+ASK: queue status
+ASK: task status
+ASK: what are you working on
+```
+Returns: currently running task, queued tasks, and last 5 completed tasks.
+
+### Create Channel
+Create a Slack channel and invite the bot:
+```
+ASK: create channel #channel-name
+ASK: create channel channel-name
+```
+- Channel names are auto-normalized (lowercase, spaces to hyphens, max 80 chars)
+- Returns channel ID if successful
+- If channel exists, joins it instead of failing
+- Requires `channels:manage` scope
+
+### Owner Tasks
+Check pending owner action items:
+```
+ASK: what do I need to do
+ASK: my tasks
+ASK: pending tasks
+```
+Returns: activation checklists and ACTION REQUIRED items from recent tasks.
+
+---
+
+## Agent Activation
+
+When activating an agent from "planned" to "active" status:
+1. Use `ASK: create channel #agent-name` to create the channel
+2. Update `agents/agents.json` with the channel ID
+3. Remove the `status: "planned"` field
+4. Complete any activation checklist items
+
+The agent registry helper `activateAgent(id, slackClient)` automates this:
+- Creates channel named `<id>-agent` if none assigned
+- Sets topic from agent's name and role
+- Updates the registry JSON
+- Returns `{ agent, channelCreated, channelId }`
 
 ---
 

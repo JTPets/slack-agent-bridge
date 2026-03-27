@@ -43,11 +43,15 @@ const memory = require('./memory/memory-manager');
 // lib/task-parser.js for testability.
 // LOGIC CHANGE 2026-03-26: Added isStatusQuery import for built-in status
 // command handling without LLM calls.
+// LOGIC CHANGE 2026-03-26: Added isCreateChannelCommand and parseCreateChannelCommand
+// for built-in "create channel #name" command handling.
 const {
   parseTask,
   isTaskMessage,
   isConversationMessage,
   isStatusQuery,
+  isCreateChannelCommand,
+  parseCreateChannelCommand,
   alreadyProcessed,
 } = require('./lib/task-parser');
 
@@ -77,6 +81,10 @@ const { getAgent, loadAgents, registryExists, isProductionRepo } = require('./li
 // LOGIC CHANGE 2026-03-26: Import RateLimitError for detecting rate limit
 // errors and implementing pause/retry behavior.
 const { runLLM, RateLimitError } = require('./lib/llm-runner');
+
+// LOGIC CHANGE 2026-03-26: Added slack-client module for channel management
+// functions (createChannel, ensureChannel, etc.).
+const { createSlackClient } = require('./lib/slack-client');
 
 // ---- Config ----
 
@@ -113,6 +121,10 @@ const {
 const MAX_TURNS = agentConfig?.max_turns || config.MAX_TURNS;
 
 const slack = new WebClient(SLACK_BOT_TOKEN);
+
+// LOGIC CHANGE 2026-03-26: Create SlackClient wrapper for channel management.
+// Used for "create channel #name" command and agent activation helpers.
+const slackClient = createSlackClient(SLACK_BOT_TOKEN);
 
 // Ensure work dir exists
 if (!fs.existsSync(WORK_DIR)) {
@@ -712,6 +724,45 @@ async function processConversation(msg) {
         unfurl_links: false,
       });
       console.log(`[bridge-agent] Owner tasks query ${msg.ts} answered`);
+      return;
+    }
+
+    // LOGIC CHANGE 2026-03-26: Check for "create channel #name" command.
+    // Creates the channel, invites the bot, and returns the channel ID.
+    if (isCreateChannelCommand(questionText)) {
+      console.log(`[bridge-agent] Create channel command detected: ${msg.ts}`);
+      const channelName = parseCreateChannelCommand(questionText);
+
+      if (!channelName) {
+        await slack.chat.postMessage({
+          channel: BRIDGE_CHANNEL,
+          thread_ts: msg.ts,
+          text: ':x: Invalid channel name. Use: `create channel #channel-name`',
+          unfurl_links: false,
+        });
+        return;
+      }
+
+      try {
+        const result = await slackClient.ensureChannel(channelName);
+        const action = result.created ? 'Created' : 'Found existing';
+        await slack.chat.postMessage({
+          channel: BRIDGE_CHANNEL,
+          thread_ts: msg.ts,
+          text: `:white_check_mark: ${action} channel <#${result.channelId}|${result.name}>\nChannel ID: \`${result.channelId}\``,
+          unfurl_links: false,
+        });
+        console.log(`[bridge-agent] Channel ${action.toLowerCase()}: ${result.name} (${result.channelId})`);
+      } catch (channelErr) {
+        // Post error to thread
+        await slack.chat.postMessage({
+          channel: BRIDGE_CHANNEL,
+          thread_ts: msg.ts,
+          text: `:x: Failed to create channel: ${channelErr.message}`,
+          unfurl_links: false,
+        });
+        console.error(`[bridge-agent] Create channel failed:`, channelErr.message);
+      }
       return;
     }
 
