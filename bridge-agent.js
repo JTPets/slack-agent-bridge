@@ -348,10 +348,26 @@ function msgLink(ts) {
 
 // ---- Process a single task ----
 
+// LOGIC CHANGE 2026-03-27: Task lock file path for coordination with auto-update.js.
+// Created at task start, deleted in finally block. Auto-update waits for this file
+// to be removed before restarting PM2 to avoid interrupting running tasks.
+const TASK_LOCK_FILE = path.join(WORK_DIR, '.task-running');
+
 async function processTask(msg) {
   const task = parseTask(msg.text);
   const startTime = Date.now();
   let taskDir = null;
+
+  // LOGIC CHANGE 2026-03-27: Create task lock file to signal to auto-update.js
+  // that a task is running. Auto-update will wait for this file to be removed
+  // before restarting PM2 to avoid interrupting running tasks.
+  try {
+    fs.writeFileSync(TASK_LOCK_FILE, `${msg.ts}\n${Date.now()}\n${task.description || 'no description'}`, 'utf8');
+    console.log(`[bridge-agent] Created task lock file: ${TASK_LOCK_FILE}`);
+  } catch (lockErr) {
+    console.error('[bridge-agent] Failed to create task lock file:', lockErr.message);
+    // Continue anyway - lock file is best effort coordination
+  }
 
   // LOGIC CHANGE 2026-03-26: Track task in memory for history/analytics.
   // Memory errors are logged but never crash task execution.
@@ -605,6 +621,17 @@ async function processTask(msg) {
   } finally {
     if (taskDir && fs.existsSync(taskDir)) {
       cleanupDir(taskDir);
+    }
+
+    // LOGIC CHANGE 2026-03-27: Remove task lock file to signal task completion.
+    // Auto-update.js waits for this file to be removed before restarting PM2.
+    try {
+      if (fs.existsSync(TASK_LOCK_FILE)) {
+        fs.unlinkSync(TASK_LOCK_FILE);
+        console.log(`[bridge-agent] Removed task lock file: ${TASK_LOCK_FILE}`);
+      }
+    } catch (unlinkErr) {
+      console.error('[bridge-agent] Failed to remove task lock file:', unlinkErr.message);
     }
   }
 }

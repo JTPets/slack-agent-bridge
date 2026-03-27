@@ -17,6 +17,13 @@ const CHECK_INTERVAL_MS = parseInt(process.env.CHECK_INTERVAL_MS, 10) || 5 * 60 
 const STATE_FILE = process.env.STATE_FILE || path.join(LOCAL_REPO_DIR, '.auto-update-state.json');
 const PM2_PROCESS_NAME = process.env.PM2_PROCESS_NAME || 'bridge-agent';
 
+// LOGIC CHANGE 2026-03-27: Task lock file path for coordination with bridge-agent.js.
+// Auto-update waits for this file to be removed before restarting PM2.
+const WORK_DIR = process.env.WORK_DIR || '/tmp/bridge-agent';
+const TASK_LOCK_FILE = path.join(WORK_DIR, '.task-running');
+const TASK_WAIT_INTERVAL_MS = 30000; // 30 seconds between checks
+const TASK_WAIT_MAX_ATTEMPTS = 10;   // Max 10 attempts = 5 minutes max wait
+
 // Initialize Slack client
 const slack = new WebClient(SLACK_BOT_TOKEN);
 
@@ -160,6 +167,48 @@ function npmInstall() {
     };
 }
 
+// LOGIC CHANGE 2026-03-27: Wait for bridge-agent task to complete before restarting PM2.
+// Checks for task lock file every 30 seconds, up to 10 times (5 min max).
+// This prevents interrupting a running task during auto-update.
+/**
+ * Wait for any running task to complete
+ * @returns {Promise<{ waited: boolean, attempts: number }>}
+ */
+async function waitForTaskCompletion() {
+    let attempts = 0;
+
+    while (attempts < TASK_WAIT_MAX_ATTEMPTS) {
+        if (!fs.existsSync(TASK_LOCK_FILE)) {
+            // No task running, proceed
+            return { waited: attempts > 0, attempts };
+        }
+
+        // Task is running, wait and retry
+        attempts++;
+        let taskInfo = '';
+        try {
+            taskInfo = fs.readFileSync(TASK_LOCK_FILE, 'utf8').split('\n')[2] || '';
+        } catch {
+            // Ignore read errors
+        }
+
+        console.log(`Task lock file exists (attempt ${attempts}/${TASK_WAIT_MAX_ATTEMPTS}). Task: ${taskInfo || 'unknown'}`);
+
+        if (attempts === 1) {
+            // Notify on first wait
+            await postToOps(`:hourglass_flowing_sand: Auto-update: waiting for running task to complete before restart...`);
+        }
+
+        // Wait before checking again
+        await new Promise(resolve => setTimeout(resolve, TASK_WAIT_INTERVAL_MS));
+    }
+
+    // Max attempts reached, task still running
+    console.log(`Max wait attempts (${TASK_WAIT_MAX_ATTEMPTS}) reached. Proceeding with restart.`);
+    await postToOps(`:warning: Auto-update: max wait time reached. Restarting despite possible running task.`);
+    return { waited: true, attempts };
+}
+
 /**
  * Restart PM2 process
  * @returns {{ success: boolean, error?: string }}
@@ -276,6 +325,13 @@ async function checkForUpdates() {
         // Get the new commit info
         const newHead = getLocalHead();
         const commitMessage = getCommitMessage(newHead);
+
+        // LOGIC CHANGE 2026-03-27: Wait for any running task to complete before restarting PM2.
+        // Checks for task lock file every 30 seconds, up to 10 times (5 min max).
+        const waitResult = await waitForTaskCompletion();
+        if (waitResult.waited) {
+            console.log(`Waited ${waitResult.attempts} attempts for task completion`);
+        }
 
         // Restart PM2 process
         const restartResult = restartPM2();
