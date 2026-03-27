@@ -102,5 +102,18 @@
       "daily_post": "Generate and queue one post daily",
       "weekly_review": "Weekly engagement summary and content strategy"
     }
+  },
+  {
+    "id": "email-monitor",
+    "name": "Email Monitor",
+    "role": "Monitors Gmail for important emails, categorizes by urgency, summarizes for daily digest, and handles unsubscribe requests for newsletters/spam",
+    "channel": null,
+    "permissions": ["gmail-read", "gmail-unsubscribe"],
+    "denied": ["gmail-send", "gmail-delete", "gmail-archive"],
+    "priority": 2,
+    "max_turns": 20,
+    "memory_dir": "agents/email-monitor/memory",
+    "status": "planned",
+    "note": "Can click unsubscribe links in emails marked as ignore/newsletter. Cannot compose, send, delete, or archive."
   }
 ]

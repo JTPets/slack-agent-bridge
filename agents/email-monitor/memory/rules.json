@@ -1,0 +1,27 @@
+{
+  "categories": {
+    "urgent": {
+      "action": "notify_immediately",
+      "description": "Time-sensitive emails requiring immediate attention",
+      "keywords": ["urgent", "asap", "emergency", "deadline today"],
+      "senders": []
+    },
+    "important": {
+      "action": "include_in_digest",
+      "description": "Important but not urgent emails for daily digest",
+      "keywords": ["invoice", "payment", "order confirmation"],
+      "senders": []
+    },
+    "newsletter": {
+      "action": "ignore",
+      "auto_unsubscribe": false,
+      "description": "Marketing emails and newsletters to skip unless auto_unsubscribe enabled"
+    },
+    "spam": {
+      "action": "ignore",
+      "description": "Spam and unwanted emails"
+    }
+  },
+  "auto_unsubscribe_list": [],
+  "unsubscribe_log": []
+}

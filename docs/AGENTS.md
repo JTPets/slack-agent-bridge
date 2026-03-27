@@ -113,6 +113,35 @@ See [SOCIAL-MEDIA-DESIGN.md](./SOCIAL-MEDIA-DESIGN.md) for complete specificatio
 - **Permissions**: twilio-sms, twilio-voice
 - **Denied**: github, file-system, square-write
 
+### Email Monitor (Planned)
+- **ID**: `email-monitor`
+- **Role**: Monitors Gmail for important emails, categorizes by urgency, summarizes for daily digest, handles unsubscribe requests
+- **Max Turns**: 20
+- **Permissions**: gmail-read, gmail-unsubscribe
+- **Denied**: gmail-send, gmail-delete, gmail-archive
+
+#### Email Categories
+The Email Monitor categorizes incoming emails:
+- **Urgent**: Time-sensitive emails requiring immediate Slack notification
+- **Important**: Emails summarized in the daily digest
+- **Newsletter**: Marketing emails that can be auto-unsubscribed
+- **Spam**: Unwanted emails (ignored)
+
+#### Unsubscribe Capability
+The Email Monitor can automatically unsubscribe from newsletters on behalf of the owner:
+
+1. **Manual request**: Owner says "unsubscribe from X" → sender added to `auto_unsubscribe_list`
+2. **Category-wide**: Owner says "auto-unsubscribe all newsletters" → enables `newsletter.auto_unsubscribe`
+3. **On next email**: Monitor checks `List-Unsubscribe` header or scans body for unsubscribe link
+4. **Logging**: Every unsubscribe action is logged to bulletin board for Secretary to report
+
+**Safety Controls:**
+- Explicit opt-in only (no bulk unsubscribe without approval)
+- Every action logged with timestamp, sender, and method
+- Cannot send, delete, or archive emails
+
+See [EMAIL-MONITOR-DESIGN.md](./EMAIL-MONITOR-DESIGN.md) for complete specification.
+
 ## Adding a New Agent
 
 1. **Define the agent** in `agents/agents.json`:
@@ -155,6 +184,10 @@ Permissions are declarative and enforced at the agent level:
 - `claude-code` - Can execute Claude Code CLI
 - `google-calendar` - Google Calendar API access
 - `gmail-read` - Read-only Gmail access
+- `gmail-send` - Send emails via Gmail
+- `gmail-delete` - Delete emails from Gmail
+- `gmail-archive` - Archive emails in Gmail
+- `gmail-unsubscribe` - Click unsubscribe links in emails
 - `square-catalog-read` - Read Square catalog data
 - `square-orders-write` - Create Square orders
 - `meta-graph-api` - Meta Graph API for Facebook/Instagram posting
