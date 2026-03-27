@@ -60,7 +60,7 @@ const { config, validate, isUserAuthorized } = require('./lib/config');
 // LOGIC CHANGE 2026-03-26: Added agent registry for multi-agent architecture.
 // Loads agent config from agents/agents.json with fallback to env vars if registry
 // doesn't exist or agent not found.
-const { getAgent, registryExists } = require('./lib/agent-registry');
+const { getAgent, loadAgents, registryExists } = require('./lib/agent-registry');
 
 // LOGIC CHANGE 2026-03-26: Extracted LLM execution into lib/llm-runner.js
 // to support multiple LLM providers via LLM_PROVIDER env var.
@@ -621,6 +621,57 @@ async function poll() {
 
 // ---- Startup ----
 
+// LOGIC CHANGE 2026-03-26: Run memory cleanup and migration on startup.
+// Cleans up expired short-term entries, archives decayed long-term entries,
+// auto-promotes frequently accessed items, and migrates legacy memory files.
+function runStartupMemoryMaintenance() {
+  try {
+    // Get all agent IDs from registry
+    const agents = loadAgents();
+    const agentIds = agents.map(a => a.id);
+
+    if (agentIds.length === 0) {
+      console.log('[bridge-agent] No agents in registry, skipping memory maintenance');
+      return;
+    }
+
+    // Run migration for legacy memory files (bridge agent only for now)
+    try {
+      const migrationResult = memory.migrateAgentMemory('bridge');
+      if (migrationResult.alreadyMigrated) {
+        console.log('[bridge-agent] Memory already migrated');
+      } else if (migrationResult.migratedTasks > 0 || migrationResult.migratedHistory > 0 || migrationResult.migratedContext) {
+        console.log(`[bridge-agent] Migrated legacy memory: tasks=${migrationResult.migratedTasks}, history=${migrationResult.migratedHistory}, context=${migrationResult.migratedContext}`);
+      }
+    } catch (migErr) {
+      console.error('[bridge-agent] Memory migration failed:', migErr.message);
+    }
+
+    // Run cleanup for all agents
+    const cleanupResult = memory.startupMemoryCleanup(agentIds);
+    let totalExpired = 0;
+    let totalArchived = 0;
+    let totalPromoted = 0;
+
+    for (const [agentId, result] of Object.entries(cleanupResult)) {
+      if (result.error) {
+        console.error(`[bridge-agent] Cleanup error for ${agentId}:`, result.error);
+      } else {
+        totalExpired += result.expiredCount || 0;
+        totalArchived += result.archivedCount || 0;
+        totalPromoted += result.promotedCount || 0;
+      }
+    }
+
+    if (totalExpired > 0 || totalArchived > 0 || totalPromoted > 0) {
+      console.log(`[bridge-agent] Memory cleanup: expired=${totalExpired}, archived=${totalArchived}, promoted=${totalPromoted}`);
+    }
+  } catch (err) {
+    console.error('[bridge-agent] Startup memory maintenance failed:', err.message);
+    // Never block startup - memory maintenance is optional
+  }
+}
+
 console.log('[bridge-agent] Starting v2');
 console.log(`  Config:   ${agentConfig ? 'agent registry' : 'env vars'}`);
 console.log(`  Claude:   ${CLAUDE_BIN}`);
@@ -632,6 +683,9 @@ console.log(`  Interval: ${POLL_INTERVAL / 1000}s`);
 console.log(`  Timeout:  ${TASK_TIMEOUT / 1000}s`);
 console.log(`  Turns:    ${MAX_TURNS}`);
 console.log(`  Allowed:  ${ALLOWED_USER_IDS.join(', ')}`);
+
+// Run memory maintenance before starting poll loop
+runStartupMemoryMaintenance();
 
 poll();
 setInterval(poll, POLL_INTERVAL);

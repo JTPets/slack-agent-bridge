@@ -237,17 +237,23 @@ slack-agent-bridge/
 ├── agents/
 │   ├── agents.json       # Agent registry: defines all agents, permissions, and config
 │   └── bridge/
-│       └── memory/       # Bridge agent's memory directory (tasks.json, history.json, context.json)
+│       └── memory/       # Bridge agent's tiered memory directory
+│           ├── context.json      # Permanent: owner info, preferences
+│           ├── working.json      # Session: current task state
+│           ├── short-term.json   # 24-72h TTL: recent events, reminders
+│           ├── long-term.json    # Weeks/months: patterns, preferences
+│           └── archive.json      # Decayed long-term (reference only)
 ├── lib/
 │   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel
 │   ├── config.js         # Environment variable loading, validation, and defaults
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, openai, ollama)
+│   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
 │   └── integrations/
 │       └── google-calendar.js  # Google Calendar API integration for fetching events
 ├── memory/
-│   └── memory-manager.js # Task history storage and context retrieval (JSON file-based)
+│   └── memory-manager.js # Task history storage and context retrieval (legacy + tiered API)
 ├── skills/               # Reusable skill templates for common tasks
 │   ├── run-tests/
 │   │   └── SKILL.md      # Run test suite and report results
@@ -267,11 +273,12 @@ slack-agent-bridge/
 │   ├── agent-registry.test.js   # Tests for lib/agent-registry.js
 │   ├── config.test.js           # Tests for lib/config.js
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
+│   ├── memory-tiers.test.js     # Tests for lib/memory-tiers.js (TTL, auto-promote, cleanup)
 │   ├── message-detection.test.js # Tests for isTaskMessage/isConversationMessage
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
 │   └── task-parser.test.js      # Tests for task parsing logic
 ├── docs/
-│   ├── AGENTS.md            # Agent registry documentation: how agents work, permissions model
+│   ├── AGENTS.md            # Agent registry and memory tier documentation
 │   └── INTEGRATION-SPEC.md  # SqTools API integration specification and security requirements
 ├── package.json          # Dependencies and npm scripts
 ├── CLAUDE.md             # Project rules and documentation (this file)

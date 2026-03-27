@@ -111,24 +111,92 @@ The `denied` array explicitly blocks permissions. This is useful for:
 - Creating read-only agents
 - Limiting blast radius of automated agents
 
-## Memory Isolation
+## Memory Tiers
 
-Each agent maintains its own memory directory:
+Each agent maintains a tiered memory system with different retention policies:
 
 ```
 agents/
 ├── bridge/
 │   └── memory/
-│       ├── tasks.json    # Active tasks
-│       ├── history.json  # Completed tasks
-│       └── context.json  # Agent context
+│       ├── context.json      # Permanent: owner info, preferences
+│       ├── working.json      # Session: current task state (cleared after each task)
+│       ├── short-term.json   # 24-72 hour TTL: today's events, reminders, recent conversations
+│       ├── long-term.json    # Weeks/months: learned patterns, recurring events, discovered preferences
+│       └── archive.json      # Decayed long-term items (kept for reference, not injected into prompts)
 ├── secretary/
 │   └── memory/
 └── security/
     └── memory/
 ```
 
-Memory files are JSON-based and managed by `memory/memory-manager.js`.
+### Memory Entry Structure
+
+Each memory entry contains:
+
+```json
+{
+  "id": "unique-identifier",
+  "content": "string or object",
+  "created": "2026-03-26T12:00:00.000Z",
+  "lastAccessed": "2026-03-26T12:00:00.000Z",
+  "ttl": 172800000,
+  "accessCount": 1,
+  "source": "task|calendar|user|system"
+}
+```
+
+### Tier Descriptions
+
+| Tier | File | TTL | Description |
+|------|------|-----|-------------|
+| Permanent | context.json | Never expires | Owner info, timezone, user preferences |
+| Working | working.json | Cleared after task | Current task state, intermediate results |
+| Short-term | short-term.json | 24-72 hours (default 48h) | Today's events, active reminders, recent conversations |
+| Long-term | long-term.json | 30-day decay | Learned patterns, recurring events, discovered preferences |
+| Archive | archive.json | Never deleted | Decayed long-term items preserved for reference |
+
+### Automatic Behaviors
+
+#### TTL Expiry
+Short-term entries expire based on their TTL. Expired entries are purged during cleanup.
+
+#### Auto-Promotion
+When a short-term entry is re-added 3 or more times, it's automatically promoted to long-term memory. This captures patterns like recurring tasks or frequently accessed information.
+
+#### Decay and Archival
+Long-term entries that haven't been accessed in 30 days are moved to the archive. Archived items are preserved for reference but not injected into prompts.
+
+#### Startup Cleanup
+On bridge-agent startup:
+1. Run cleanup for all agents (purge expired, archive decayed)
+2. Run auto-promotion (promote frequently accessed items)
+3. Log cleanup summary
+
+### Memory API
+
+Functions in `memory/memory-manager.js`:
+
+| Function | Description |
+|----------|-------------|
+| `buildAgentContext(agentId)` | Returns combined context string for prompts |
+| `addAgentWorkingMemory(agentId, entry)` | Add to working memory |
+| `clearAgentWorkingMemory(agentId)` | Clear working memory after task |
+| `addAgentShortTerm(agentId, entry, ttlHours)` | Add to short-term with TTL |
+| `promoteAgentMemory(agentId, entryId)` | Promote from short-term to long-term |
+| `setAgentPermanent(agentId, key, value)` | Set permanent context |
+| `cleanupAgentMemory(agentId)` | Run cleanup for agent |
+| `autoPromoteAgentMemory(agentId)` | Run auto-promotion for agent |
+| `startupMemoryCleanup(agentIds)` | Run cleanup for all agents |
+| `migrateAgentMemory(agentId)` | Migrate legacy memory files |
+
+### Legacy Compatibility
+
+The tiered memory system maintains backward compatibility:
+- Legacy `memory/tasks.json`, `history.json`, `context.json` continue to work
+- On first run, legacy files are migrated to the new structure
+- Legacy functions (`addTask`, `completeTask`, etc.) remain available
+- Migration only runs once per agent (tracked by `.migrated` marker)
 
 ## Channel Routing
 
