@@ -47,9 +47,67 @@
       { "description": "Create product catalog skill with nutrition data", "completed": false, "priority": "medium" }
     ]
   },
+  "twilio": {
+    "name": "Twilio Integration",
+    "status": "planned",
+    "doc": "docs/TWILIO-INTEGRATION.md",
+    "phases": {
+      "phase_1_sms": {
+        "name": "Phase 1: SMS Bot",
+        "tasks": [
+          { "description": "Create Twilio account and verify phone number ownership", "completed": false, "priority": "high" },
+          { "description": "Purchase Twilio phone number (~$1.15 USD/month)", "completed": false, "priority": "high" },
+          { "description": "Set up Cloudflare Tunnel for webhook endpoint", "completed": false, "priority": "high" },
+          { "description": "Add TWILIO_ACCOUNT_SID to .env", "completed": false, "priority": "high" },
+          { "description": "Add TWILIO_AUTH_TOKEN to .env", "completed": false, "priority": "high" },
+          { "description": "Add TWILIO_PHONE_NUMBER to .env", "completed": false, "priority": "high" },
+          { "description": "Add TWILIO_WEBHOOK_URL to .env (Cloudflare Tunnel URL)", "completed": false, "priority": "high" },
+          { "description": "Create #store-inbox Slack channel (shared with Storefront)", "completed": false, "priority": "high" },
+          { "description": "Add STORE_INBOX_CHANNEL_ID to .env", "completed": false, "priority": "high" },
+          { "description": "Create integrations/twilio.js Express webhook handler", "completed": false, "priority": "high" },
+          { "description": "Configure Twilio SMS webhook URL in Twilio console", "completed": false, "priority": "high" },
+          { "description": "Test SMS send/receive flow end-to-end", "completed": false, "priority": "high" }
+        ]
+      },
+      "phase_2_ivr": {
+        "name": "Phase 2: Voice IVR",
+        "tasks": [
+          { "description": "Configure Twilio voice webhook URL in Twilio console", "completed": false, "priority": "high" },
+          { "description": "Implement TwiML IVR menu in twilio.js", "completed": false, "priority": "high" },
+          { "description": "Set up voicemail recording endpoint", "completed": false, "priority": "medium" },
+          { "description": "Enable Twilio transcription and configure callback URL", "completed": false, "priority": "medium" },
+          { "description": "Add staff phone numbers to agents/bridge/memory/context.json", "completed": false, "priority": "medium" },
+          { "description": "Connect staff routing to Google Calendar availability", "completed": false, "priority": "medium" },
+          { "description": "Test IVR menu flow end-to-end", "completed": false, "priority": "high" }
+        ]
+      },
+      "phase_3_voice": {
+        "name": "Phase 3: Voice Conversations",
+        "tasks": [
+          { "description": "Set up Twilio Media Streams for WebSocket audio", "completed": false, "priority": "high" },
+          { "description": "Implement speech-to-text streaming handler", "completed": false, "priority": "high" },
+          { "description": "Implement text-to-speech response output", "completed": false, "priority": "high" },
+          { "description": "Connect voice stream to agent via llm-runner", "completed": false, "priority": "high" },
+          { "description": "Add time limits for Jester calls (2 min)", "completed": false, "priority": "medium" },
+          { "description": "Load test voice handling capacity", "completed": false, "priority": "low" }
+        ]
+      }
+    }
+  },
+  "jester": {
+    "name": "The Jester",
+    "status": "planned",
+    "tasks": [
+      { "description": "Complete Twilio Phase 1 (SMS) activation", "completed": false, "priority": "high", "depends_on": "twilio.phase_1_sms" },
+      { "description": "Create agents/jester/memory directory", "completed": false, "priority": "medium" },
+      { "description": "Write Jester personality prompt/system message", "completed": false, "priority": "medium" },
+      { "description": "Test JESTER: prefix routing via SMS", "completed": false, "priority": "medium" },
+      { "description": "Complete Twilio Phase 3 (Voice) for voice Jester", "completed": false, "priority": "low", "depends_on": "twilio.phase_3_voice" }
+    ]
+  },
   "_meta": {
-    "version": 1,
-    "lastUpdated": null,
-    "description": "Activation checklists for multi-agent system. Tasks marked completed:true are done. Priority: high, medium, low."
+    "version": 2,
+    "lastUpdated": "2026-03-26",
+    "description": "Activation checklists for multi-agent system. Tasks marked completed:true are done. Priority: high, medium, low. The twilio integration has phased sub-checklists."
   }
 }

@@ -1,0 +1,97 @@
+{
+  "owner": {
+    "name": "John Alexander",
+    "timezone": "America/Toronto",
+    "slack_user_id": "U02QKNHHU7J"
+  },
+  "business": {
+    "name": "JT Pets",
+    "type": "Pet store",
+    "location": "Ontario, Canada"
+  },
+  "preferences": {
+    "communication_style": "direct",
+    "morning_digest_time": "08:00",
+    "security_review_time": "01:00"
+  },
+  "roadmap": {
+    "phase_1_complete": [
+      "Bridge agent core functionality",
+      "Task parsing and execution",
+      "Auto-update daemon",
+      "Morning digest",
+      "Security review cron",
+      "Tiered memory system",
+      "Multi-agent registry",
+      "Google Calendar integration"
+    ],
+    "phase_2_in_progress": [
+      {
+        "name": "Twilio SMS Bot",
+        "status": "design-complete",
+        "doc": "docs/TWILIO-INTEGRATION.md",
+        "description": "SMS messaging to/from JT Pets via Twilio",
+        "priority": "high"
+      },
+      {
+        "name": "Storefront Agent",
+        "status": "planned",
+        "description": "Customer-facing agent for product inquiries and orders",
+        "depends_on": ["Square API credentials", "#store-inbox channel"]
+      },
+      {
+        "name": "Secretary Agent",
+        "status": "planned",
+        "description": "Calendar accountability, email monitoring, daily briefings",
+        "depends_on": ["Google Calendar service account", "Gmail OAuth"]
+      }
+    ],
+    "phase_3_future": [
+      {
+        "name": "Twilio Voice IVR",
+        "status": "design-complete",
+        "doc": "docs/TWILIO-INTEGRATION.md",
+        "description": "Phone menu system for JT Pets: hours, orders, staff routing"
+      },
+      {
+        "name": "Twilio Voice Conversations",
+        "status": "design-complete",
+        "doc": "docs/TWILIO-INTEGRATION.md",
+        "description": "Real-time voice AI conversations with agents"
+      },
+      {
+        "name": "Jester Agent",
+        "status": "design-complete",
+        "description": "Easter egg comedic agent for SMS/voice",
+        "personality": "Witty court jester who knows the pet store and offers unsolicited opinions"
+      },
+      {
+        "name": "SqTools Integration",
+        "status": "spec-complete",
+        "doc": "docs/INTEGRATION-SPEC.md",
+        "description": "Bridge agent queries SqTools for business metrics"
+      },
+      {
+        "name": "Security Auditor Agent",
+        "status": "planned",
+        "description": "Daily code review and vulnerability scanning"
+      }
+    ],
+    "estimated_costs": {
+      "twilio_monthly_cad": "33-55",
+      "notes": "Phone number + SMS + voice + transcription"
+    }
+  },
+  "staff_contacts": {
+    "_note": "Staff phone numbers for voice routing - fill in when ready"
+  },
+  "blocklist": {
+    "phone_numbers": [],
+    "notes": "Add abusive phone numbers here"
+  },
+  "_meta": {
+    "version": 1,
+    "created": "2026-03-26",
+    "description": "Permanent context for bridge agent - owner info, preferences, and project roadmap"
+  }
+}

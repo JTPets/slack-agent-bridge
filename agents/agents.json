@@ -60,11 +60,25 @@
     "name": "Storefront Agent",
     "role": "Customer-facing AI for product inquiries, nutrition consults, order creation",
     "channel": null,
-    "permissions": ["square-catalog-read", "square-orders-write"],
+    "permissions": ["square-catalog-read", "square-orders-write", "twilio-sms"],
     "denied": ["github", "file-system"],
     "priority": 2,
     "max_turns": 15,
     "memory_dir": "agents/storefront/memory",
     "status": "planned"
+  },
+  {
+    "id": "jester",
+    "name": "The Jester",
+    "role": "Comedic relief, witty commentary, playful business roasts via SMS/voice",
+    "channel": null,
+    "permissions": ["twilio-sms", "twilio-voice"],
+    "denied": ["github", "file-system", "square-write"],
+    "priority": 5,
+    "max_turns": 10,
+    "memory_dir": "agents/jester/memory",
+    "status": "planned",
+    "personality": "Witty court jester who knows everything about the pet store and offers unsolicited opinions",
+    "activation_prefix": "JESTER:"
   }
 ]

@@ -167,6 +167,19 @@ const POLL_INTERVAL = 5000;
 | `CHECK_INTERVAL_MS` | Git poll frequency | `300000` |
 | `PM2_PROCESS_NAME` | PM2 process to restart | `bridge-agent` |
 
+### Twilio integration (SMS/Voice)
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `TWILIO_ACCOUNT_SID` | Twilio account SID (AC...). **Never log this.** | - |
+| `TWILIO_AUTH_TOKEN` | Twilio auth token. **Never log this.** | - |
+| `TWILIO_PHONE_NUMBER` | JT Pets Twilio phone number (+1...) | - |
+| `TWILIO_WEBHOOK_URL` | Public webhook URL via Cloudflare Tunnel | - |
+| `STORE_INBOX_CHANNEL_ID` | Slack channel for SMS/call logs | - |
+| `SMS_SESSION_TTL_MS` | SMS session expiry | `86400000` |
+| `VOICE_MAX_DURATION_SEC` | Max voice call duration | `300` |
+
+**Note:** Twilio integration is planned. See [docs/TWILIO-INTEGRATION.md](docs/TWILIO-INTEGRATION.md) for full specification.
+
 ---
 
 ## Commands
@@ -282,7 +295,8 @@ slack-agent-bridge/
 │   └── task-parser.test.js      # Tests for task parsing logic
 ├── docs/
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
-│   └── INTEGRATION-SPEC.md  # SqTools API integration specification and security requirements
+│   ├── INTEGRATION-SPEC.md  # SqTools API integration specification and security requirements
+│   └── TWILIO-INTEGRATION.md # Twilio SMS/Voice integration specification (Phase 1-3)
 ├── package.json          # Dependencies and npm scripts
 ├── CLAUDE.md             # Project rules and documentation (this file)
 ├── README.md             # Project overview
