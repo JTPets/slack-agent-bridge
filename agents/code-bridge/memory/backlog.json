@@ -1,0 +1,6 @@
+[
+  {"id": "cb-1", "description": "Add conversation threading to ASK mode", "priority": "high", "status": "pending"},
+  {"id": "cb-2", "description": "Add Gemini adapter to LLM runner", "priority": "high", "status": "pending"},
+  {"id": "cb-3", "description": "Add visual heartbeat progress indicator", "priority": "medium", "status": "pending"},
+  {"id": "cb-4", "description": "Add owner availability/DND system", "priority": "medium", "status": "pending"}
+]

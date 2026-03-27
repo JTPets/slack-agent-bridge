@@ -1,0 +1,5 @@
+[
+  {"id": "j-1", "description": "Review the entire agent architecture - what is over-engineered?", "priority": "high", "status": "pending"},
+  {"id": "j-2", "description": "Critique the $1M valuation plan - what is realistic?", "priority": "high", "status": "pending"},
+  {"id": "j-3", "description": "Review token spending - are we wasting money on low-value tasks?", "priority": "medium", "status": "pending"}
+]

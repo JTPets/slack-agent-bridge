@@ -1,0 +1,6 @@
+[
+  {"id": "sqt-1", "description": "Fix reorder page cheaper-elsewhere bug (< vs <=)", "priority": "high", "status": "pending"},
+  {"id": "sqt-2", "description": "Square orphan audit tool (BACKLOG-67)", "priority": "high", "status": "pending"},
+  {"id": "sqt-3", "description": "Square discount cleanup on redemption (BACKLOG-68)", "priority": "high", "status": "pending"},
+  {"id": "sqt-4", "description": "Vendor dashboard header order total fix", "priority": "medium", "status": "pending"}
+]

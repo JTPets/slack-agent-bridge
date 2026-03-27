@@ -1,0 +1,5 @@
+[
+  {"id": "sec-1", "description": "Full security audit of SquareDashboardTool", "priority": "high", "status": "pending"},
+  {"id": "sec-2", "description": "Audit all .env files for leaked secrets in git history", "priority": "high", "status": "pending"},
+  {"id": "sec-3", "description": "Review npm dependencies for known vulnerabilities", "priority": "medium", "status": "pending"}
+]

@@ -27,12 +27,33 @@
   },
   "security": {
     "name": "Security Auditor",
-    "status": "planned",
+    "status": "active",
     "tasks": [
       { "description": "Create #sqtools-alerts Slack channel", "completed": true },
-      { "description": "Invite @bridge-agent to #sqtools-alerts channel", "completed": false, "priority": "high" },
+      { "description": "Invite @bridge-agent to #sqtools-alerts channel", "completed": true, "priority": "high" },
+      { "description": "Assign channel C0ANZUQQRGW in agents.json", "completed": true, "priority": "high" },
       { "description": "Verify REPOS env var lists all repos to scan", "completed": false, "priority": "medium" },
       { "description": "Test security review: node security-review.js (manual run)", "completed": false, "priority": "low" }
+    ]
+  },
+  "code-bridge": {
+    "name": "Code Bridge Agent",
+    "status": "active",
+    "tasks": [
+      { "description": "Create #code-review Slack channel", "completed": true, "priority": "high" },
+      { "description": "Invite @bridge-agent to #code-review channel", "completed": true, "priority": "high" },
+      { "description": "Assign channel C0AP42BT4MR in agents.json", "completed": true, "priority": "high" },
+      { "description": "Create agents/code-bridge/memory directory", "completed": true, "priority": "medium" }
+    ]
+  },
+  "code-sqtools": {
+    "name": "SqTools Code Agent",
+    "status": "active",
+    "note": "Shares #code-review channel with code-bridge. Uses branch-and-pr workflow for production safety.",
+    "tasks": [
+      { "description": "Assign channel C0AP42BT4MR in agents.json (shared with code-bridge)", "completed": true, "priority": "high" },
+      { "description": "Create agents/code-sqtools/memory directory", "completed": true, "priority": "medium" },
+      { "description": "Verify branch protection on SquareDashboardTool main branch", "completed": false, "priority": "high" }
     ]
   },
   "storefront": {
@@ -96,11 +117,12 @@
   },
   "jester": {
     "name": "The Jester",
-    "status": "planned",
+    "status": "active",
+    "note": "Responds via ASK in any channel, no dedicated channel needed",
     "tasks": [
+      { "description": "Create agents/jester/memory directory", "completed": true, "priority": "medium" },
+      { "description": "Write Jester personality prompt/system message", "completed": true, "priority": "medium" },
       { "description": "Complete Twilio Phase 1 (SMS) activation", "completed": false, "priority": "high", "depends_on": "twilio.phase_1_sms" },
-      { "description": "Create agents/jester/memory directory", "completed": false, "priority": "medium" },
-      { "description": "Write Jester personality prompt/system message", "completed": false, "priority": "medium" },
       { "description": "Test JESTER: prefix routing via SMS", "completed": false, "priority": "medium" },
       { "description": "Complete Twilio Phase 3 (Voice) for voice Jester", "completed": false, "priority": "low", "depends_on": "twilio.phase_3_voice" }
     ]
@@ -123,8 +145,8 @@
     ]
   },
   "_meta": {
-    "version": 2,
-    "lastUpdated": "2026-03-26",
+    "version": 3,
+    "lastUpdated": "2026-03-27",
     "description": "Activation checklists for multi-agent system. Tasks marked completed:true are done. Priority: high, medium, low. The twilio integration has phased sub-checklists."
   }
 }
