@@ -226,3 +226,71 @@ The registry system maintains backward compatibility:
 - If `agents/agents.json` doesn't exist, env vars are used
 - The bridge agent config overlays (not replaces) env var settings
 - All existing task message formats continue to work
+
+## Activation Checklists
+
+The `agents/activation-checklists.json` file tracks owner action items required to activate each agent. This provides visibility into what setup tasks remain before an agent can be deployed.
+
+### Checklist Structure
+
+```json
+{
+  "bridge": {
+    "name": "Bridge Agent",
+    "status": "active",
+    "tasks": [
+      { "description": "Create Slack app and bot token", "completed": true },
+      { "description": "Add ALLOWED_USER_IDS to .env", "completed": false, "priority": "high" }
+    ]
+  }
+}
+```
+
+### Task Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `description` | string | What needs to be done |
+| `completed` | boolean | Whether the task is done |
+| `priority` | string | `high`, `medium`, or `low` (default: `medium`) |
+| `completedAt` | string | ISO timestamp when completed |
+| `addedAt` | string | ISO timestamp when added (for auto-added items) |
+| `source` | string | `action_required` if auto-added from task output |
+
+### Querying Owner Tasks
+
+Use the ASK: command to check your pending tasks:
+
+```
+ASK: what do I need to do
+ASK: my tasks
+ASK: pending tasks
+ASK: action items
+```
+
+The response shows tasks grouped by priority and includes agent readiness percentages.
+
+### Auto-Adding Tasks
+
+When a task completes with "ACTION REQUIRED:" in its output, the action item is automatically added to the bridge agent's checklist with high priority. This ensures owner follow-up items are tracked.
+
+Example output that triggers auto-add:
+```
+Task completed successfully.
+ACTION REQUIRED: Add NEW_API_KEY to .env
+```
+
+### Owner Tasks API
+
+The `lib/owner-tasks.js` module exports:
+
+| Function | Description |
+|----------|-------------|
+| `getPendingTasks()` | Get all uncompleted tasks sorted by priority |
+| `completeTask(agentId, taskIndex)` | Mark a task as completed |
+| `getAgentReadiness(agentId)` | Get completion percentage for an agent |
+| `getAllAgentReadiness()` | Get readiness summary for all agents |
+| `addTask(agentId, description, priority)` | Add a new task to an agent's checklist |
+| `extractActionRequired(text)` | Extract ACTION REQUIRED item from text |
+| `formatPendingTasks()` | Format tasks for Slack display |
+| `isOwnerTasksQuery(text)` | Check if text is an owner tasks query |

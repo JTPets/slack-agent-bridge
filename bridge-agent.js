@@ -57,6 +57,15 @@ const {
 // authorization checks in the poll loop.
 const { config, validate, isUserAuthorized } = require('./lib/config');
 
+// LOGIC CHANGE 2026-03-26: Added owner-tasks module for tracking activation
+// checklists and owner action items across all agents.
+const {
+  isOwnerTasksQuery,
+  formatPendingTasks,
+  extractActionRequired,
+  addTask: addOwnerTask,
+} = require('./lib/owner-tasks');
+
 // LOGIC CHANGE 2026-03-26: Added agent registry for multi-agent architecture.
 // Loads agent config from agents/agents.json with fallback to env vars if registry
 // doesn't exist or agent not found.
@@ -362,6 +371,21 @@ async function processTask(msg) {
     await react(BRIDGE_CHANNEL, msg.ts, EMOJI_DONE);
     console.log(`[bridge-agent] Task ${msg.ts} done (${elapsed}s)`);
 
+    // LOGIC CHANGE 2026-03-26: Auto-detect ACTION REQUIRED in task output and add
+    // to bridge agent's activation checklist. This ensures owner action items are
+    // tracked and visible via "my tasks" query.
+    try {
+      const actionItem = extractActionRequired(output);
+      if (actionItem) {
+        const added = addOwnerTask('bridge', actionItem, 'high');
+        if (added) {
+          console.log(`[bridge-agent] Added ACTION REQUIRED to checklist: ${actionItem}`);
+        }
+      }
+    } catch (actionErr) {
+      console.error('[bridge-agent] Failed to extract ACTION REQUIRED:', actionErr.message);
+    }
+
     // LOGIC CHANGE 2026-03-26: Record task completion in memory.
     // Use different outcome format if max turns was hit.
     // LOGIC CHANGE 2026-03-26: Added retry tracking fields to memory outcome.
@@ -519,6 +543,21 @@ async function processConversation(msg) {
         unfurl_links: false,
       });
       console.log(`[bridge-agent] Status query ${msg.ts} answered`);
+      return;
+    }
+
+    // LOGIC CHANGE 2026-03-26: Check for owner tasks query ("what do I need to do",
+    // "my tasks", etc.) to return pending activation checklist items.
+    if (isOwnerTasksQuery(questionText)) {
+      console.log(`[bridge-agent] Owner tasks query detected: ${msg.ts}`);
+      const tasksResponse = formatPendingTasks();
+      await slack.chat.postMessage({
+        channel: BRIDGE_CHANNEL,
+        thread_ts: msg.ts,
+        text: tasksResponse,
+        unfurl_links: false,
+      });
+      console.log(`[bridge-agent] Owner tasks query ${msg.ts} answered`);
       return;
     }
 

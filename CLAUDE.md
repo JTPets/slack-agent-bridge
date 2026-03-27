@@ -235,7 +235,8 @@ slack-agent-bridge/
 ├── morning-digest.js     # Cron job script: sends daily task stats DM to owner
 ├── security-review.js    # Cron job script: security audit of commits from last 24h
 ├── agents/
-│   ├── agents.json       # Agent registry: defines all agents, permissions, and config
+│   ├── agents.json               # Agent registry: defines all agents, permissions, and config
+│   ├── activation-checklists.json # Owner action items for activating each agent
 │   └── bridge/
 │       └── memory/       # Bridge agent's tiered memory directory
 │           ├── context.json      # Permanent: owner info, preferences
@@ -248,6 +249,7 @@ slack-agent-bridge/
 │   ├── config.js         # Environment variable loading, validation, and defaults
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, openai, ollama)
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
+│   ├── owner-tasks.js    # Owner task management: activation checklists, pending tasks, ACTION REQUIRED detection
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
 │   └── integrations/
@@ -275,6 +277,7 @@ slack-agent-bridge/
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
 │   ├── memory-tiers.test.js     # Tests for lib/memory-tiers.js (TTL, auto-promote, cleanup)
 │   ├── message-detection.test.js # Tests for isTaskMessage/isConversationMessage
+│   ├── owner-tasks.test.js      # Tests for lib/owner-tasks.js (checklists, pending tasks)
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
 │   └── task-parser.test.js      # Tests for task parsing logic
 ├── docs/

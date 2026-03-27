@@ -1,0 +1,55 @@
+{
+  "bridge": {
+    "name": "Bridge Agent",
+    "status": "active",
+    "tasks": [
+      { "description": "Create Slack app and bot token", "completed": true },
+      { "description": "Create #claude-bridge and #sqtools-ops channels", "completed": true },
+      { "description": "Install Node.js and Claude Code CLI", "completed": true },
+      { "description": "Add ALLOWED_USER_IDS to .env", "completed": false, "priority": "high" },
+      { "description": "Create #bot-memory channel and add MEMORY_CHANNEL_ID to .env", "completed": false, "priority": "medium" },
+      { "description": "Pull latest code: cd ~/jt-agent && git pull origin main && npm install && pm2 restart bridge-agent", "completed": false, "priority": "high" }
+    ]
+  },
+  "secretary": {
+    "name": "Secretary",
+    "status": "planned",
+    "tasks": [
+      { "description": "Create #secretary-inbox Slack channel", "completed": false, "priority": "high" },
+      { "description": "Invite @bridge-agent to #secretary-inbox channel", "completed": false, "priority": "high" },
+      { "description": "Create Google Cloud service account for Calendar API", "completed": false, "priority": "high" },
+      { "description": "Share calendars with service account email", "completed": false, "priority": "high" },
+      { "description": "Add GOOGLE_SERVICE_ACCOUNT_KEY path to .env", "completed": false, "priority": "high" },
+      { "description": "Add GOOGLE_CALENDAR_IDS to .env", "completed": false, "priority": "medium" },
+      { "description": "Create Gmail API OAuth credentials (for email monitoring)", "completed": false, "priority": "medium" },
+      { "description": "Add Gmail credentials to .env (GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN)", "completed": false, "priority": "medium" }
+    ]
+  },
+  "security": {
+    "name": "Security Auditor",
+    "status": "planned",
+    "tasks": [
+      { "description": "Create #sqtools-alerts Slack channel", "completed": true },
+      { "description": "Invite @bridge-agent to #sqtools-alerts channel", "completed": false, "priority": "high" },
+      { "description": "Verify REPOS env var lists all repos to scan", "completed": false, "priority": "medium" },
+      { "description": "Test security review: node security-review.js (manual run)", "completed": false, "priority": "low" }
+    ]
+  },
+  "storefront": {
+    "name": "Storefront Agent",
+    "status": "planned",
+    "tasks": [
+      { "description": "Create #store-inbox Slack channel", "completed": false, "priority": "high" },
+      { "description": "Invite @bridge-agent to #store-inbox channel", "completed": false, "priority": "high" },
+      { "description": "Create Square API credentials (read-only app)", "completed": false, "priority": "high" },
+      { "description": "Add SQUARE_ACCESS_TOKEN to .env", "completed": false, "priority": "high" },
+      { "description": "Design chat widget for JTPets.ca website", "completed": false, "priority": "medium" },
+      { "description": "Create product catalog skill with nutrition data", "completed": false, "priority": "medium" }
+    ]
+  },
+  "_meta": {
+    "version": 1,
+    "lastUpdated": null,
+    "description": "Activation checklists for multi-agent system. Tasks marked completed:true are done. Priority: high, medium, low."
+  }
+}
