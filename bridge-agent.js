@@ -80,7 +80,9 @@ const { getAgent, loadAgents, registryExists, isProductionRepo } = require('./li
 // to support multiple LLM providers via LLM_PROVIDER env var.
 // LOGIC CHANGE 2026-03-26: Import RateLimitError for detecting rate limit
 // errors and implementing pause/retry behavior.
-const { runLLM, RateLimitError } = require('./lib/llm-runner');
+// LOGIC CHANGE 2026-03-27: Import BandwidthExhaustedError for bandwidth-specific
+// handling when Claude CLI exits with code 1 and empty/short output.
+const { runLLM, RateLimitError, BandwidthExhaustedError } = require('./lib/llm-runner');
 
 // LOGIC CHANGE 2026-03-26: Added slack-client module for channel management
 // functions (createChannel, ensureChannel, etc.).
@@ -159,8 +161,10 @@ let currentTaskPromise = null;
 // LOGIC CHANGE 2026-03-26: Rate limit state tracking with exponential backoff.
 // pauseUntil: timestamp when pause expires, retryCount: number of consecutive rate limits,
 // failedTask: the task message to retry after pause expires.
-// Pause durations: 30 min -> 60 min -> 2 hours -> 4 hours (capped)
-const RATE_LIMIT_PAUSE_MINUTES = [30, 60, 120, 240]; // 30min, 1h, 2h, 4h
+// LOGIC CHANGE 2026-03-27: Initial pause duration now configurable via CLAUDE_RATE_LIMIT_PAUSE
+// env var. Subsequent pauses use exponential backoff with 2x multiplier, capped at 4 hours.
+const INITIAL_PAUSE_MS = config.RATE_LIMIT_PAUSE_MS || 1800000; // Default 30 min
+const MAX_PAUSE_MS = 4 * 60 * 60 * 1000; // 4 hours cap
 let rateLimitState = {
   pauseUntil: null,
   retryCount: 0,
@@ -202,10 +206,14 @@ function getPauseResumeTime() {
 }
 
 // LOGIC CHANGE 2026-03-26: Calculate pause duration based on retry count with exponential backoff.
-// 30 min -> 60 min -> 2 hours -> 4 hours (capped at 4 hours)
+// LOGIC CHANGE 2026-03-27: Now uses INITIAL_PAUSE_MS from config (CLAUDE_RATE_LIMIT_PAUSE env var)
+// with 2x multiplier for each retry, capped at MAX_PAUSE_MS (4 hours).
+// E.g., with default 30min: 30min -> 60min -> 2h -> 4h (capped)
 function getRateLimitPauseDuration() {
-  const index = Math.min(rateLimitState.retryCount, RATE_LIMIT_PAUSE_MINUTES.length - 1);
-  return RATE_LIMIT_PAUSE_MINUTES[index] * 60 * 1000;
+  // First attempt uses initial pause, subsequent attempts double (with cap)
+  const multiplier = Math.pow(2, rateLimitState.retryCount);
+  const duration = INITIAL_PAUSE_MS * multiplier;
+  return Math.min(duration, MAX_PAUSE_MS);
 }
 
 // LOGIC CHANGE 2026-03-26: Handle rate limit error by setting pause and notifying.
@@ -552,8 +560,10 @@ async function processTask(msg) {
     // LOGIC CHANGE 2026-03-26: Check for rate limit errors and handle with pause/retry.
     // Rate limit errors are not marked as failures - they trigger a pause and will be
     // retried automatically when the pause expires.
-    if (err.isRateLimit || (err instanceof RateLimitError)) {
-      console.error(`[bridge-agent] Rate limit detected for task ${msg.ts}`);
+    // LOGIC CHANGE 2026-03-27: Also handle BandwidthExhaustedError (exit code 1 + short output).
+    if (err.isRateLimit || (err instanceof RateLimitError) || (err instanceof BandwidthExhaustedError)) {
+      const isBandwidth = err.isBandwidthExhausted || (err instanceof BandwidthExhaustedError);
+      console.error(`[bridge-agent] ${isBandwidth ? 'Bandwidth exhaustion' : 'Rate limit'} detected for task ${msg.ts}`);
 
       // Remove running reaction but don't add failed - task will be retried
       await unreact(BRIDGE_CHANNEL, msg.ts, EMOJI_RUNNING);

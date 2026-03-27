@@ -463,4 +463,190 @@ describe('llm-runner module', () => {
       expect(result.output).toContain('capacity');
     });
   });
+
+  // LOGIC CHANGE 2026-03-27: Tests for bandwidth exhaustion detection.
+  // Bandwidth exhaustion is detected when: exit code 1 + short/empty output + stderr contains
+  // bandwidth-related keywords. This is distinct from rate limit errors in stdout.
+  describe('isBandwidthExhausted', () => {
+    test('returns true for exit code 1 + empty stdout + bandwidth keyword in stderr', () => {
+      const { isBandwidthExhausted } = require('../lib/llm-runner');
+      expect(isBandwidthExhausted(1, '', 'usage limit reached')).toBe(true);
+      expect(isBandwidthExhausted(1, '', 'rate limit exceeded')).toBe(true);
+      expect(isBandwidthExhausted(1, '', 'bandwidth quota exceeded')).toBe(true);
+    });
+
+    test('returns true for exit code 1 + short stdout (under 50 chars) + bandwidth keyword', () => {
+      const { isBandwidthExhausted } = require('../lib/llm-runner');
+      // Short output (under 50 chars) should still trigger
+      expect(isBandwidthExhausted(1, 'Error', 'quota exceeded')).toBe(true);
+      expect(isBandwidthExhausted(1, 'Failed', '429 too many requests')).toBe(true);
+      expect(isBandwidthExhausted(1, '   ', 'try again later')).toBe(true);
+    });
+
+    test('returns false for exit code 0 (success)', () => {
+      const { isBandwidthExhausted } = require('../lib/llm-runner');
+      expect(isBandwidthExhausted(0, '', 'usage limit reached')).toBe(false);
+      expect(isBandwidthExhausted(0, 'output', 'rate limit exceeded')).toBe(false);
+    });
+
+    test('returns false for long stdout (real task output)', () => {
+      const { isBandwidthExhausted, MIN_REAL_OUTPUT_LENGTH } = require('../lib/llm-runner');
+      // Output longer than MIN_REAL_OUTPUT_LENGTH (50 chars) is considered real output
+      const longOutput = 'This is a real task output that is longer than 50 characters and should not trigger bandwidth detection';
+      expect(longOutput.length).toBeGreaterThanOrEqual(MIN_REAL_OUTPUT_LENGTH);
+      expect(isBandwidthExhausted(1, longOutput, 'usage limit')).toBe(false);
+    });
+
+    test('returns false when stderr does not contain bandwidth keywords', () => {
+      const { isBandwidthExhausted } = require('../lib/llm-runner');
+      expect(isBandwidthExhausted(1, '', 'some other error')).toBe(false);
+      expect(isBandwidthExhausted(1, '', 'syntax error in file.js')).toBe(false);
+      expect(isBandwidthExhausted(1, '', '')).toBe(false);
+    });
+
+    test('returns false when stderr is null/undefined', () => {
+      const { isBandwidthExhausted } = require('../lib/llm-runner');
+      expect(isBandwidthExhausted(1, '', null)).toBe(false);
+      expect(isBandwidthExhausted(1, '', undefined)).toBe(false);
+    });
+
+    test('detects all bandwidth-related keywords', () => {
+      const { isBandwidthExhausted } = require('../lib/llm-runner');
+      // Test each pattern in BANDWIDTH_EXHAUSTION_PATTERNS
+      expect(isBandwidthExhausted(1, '', 'usage limit')).toBe(true);
+      expect(isBandwidthExhausted(1, '', 'rate limit')).toBe(true);
+      expect(isBandwidthExhausted(1, '', 'bandwidth')).toBe(true);
+      expect(isBandwidthExhausted(1, '', 'quota')).toBe(true);
+      expect(isBandwidthExhausted(1, '', '429')).toBe(true);
+      expect(isBandwidthExhausted(1, '', 'too many')).toBe(true);
+      expect(isBandwidthExhausted(1, '', 'try again later')).toBe(true);
+    });
+
+    test('handles exit codes other than 1', () => {
+      const { isBandwidthExhausted } = require('../lib/llm-runner');
+      // Only exit code 1 should match
+      expect(isBandwidthExhausted(2, '', 'rate limit')).toBe(false);
+      expect(isBandwidthExhausted(127, '', 'quota')).toBe(false);
+      expect(isBandwidthExhausted(-1, '', 'bandwidth')).toBe(false);
+    });
+  });
+
+  describe('BandwidthExhaustedError', () => {
+    test('has isBandwidthExhausted property set to true', () => {
+      const { BandwidthExhaustedError } = require('../lib/llm-runner');
+      const error = new BandwidthExhaustedError('Bandwidth exhausted');
+      expect(error.isBandwidthExhausted).toBe(true);
+    });
+
+    test('has isRateLimit property set to true for backward compatibility', () => {
+      const { BandwidthExhaustedError } = require('../lib/llm-runner');
+      const error = new BandwidthExhaustedError('Bandwidth exhausted');
+      expect(error.isRateLimit).toBe(true);
+    });
+
+    test('has name set to BandwidthExhaustedError', () => {
+      const { BandwidthExhaustedError } = require('../lib/llm-runner');
+      const error = new BandwidthExhaustedError('test');
+      expect(error.name).toBe('BandwidthExhaustedError');
+    });
+
+    test('is an instance of Error', () => {
+      const { BandwidthExhaustedError } = require('../lib/llm-runner');
+      const error = new BandwidthExhaustedError('test');
+      expect(error instanceof Error).toBe(true);
+    });
+
+    test('preserves error message', () => {
+      const { BandwidthExhaustedError } = require('../lib/llm-runner');
+      const error = new BandwidthExhaustedError('custom message');
+      expect(error.message).toBe('custom message');
+    });
+  });
+
+  describe('runClaudeAdapter bandwidth exhaustion detection', () => {
+    test('throws BandwidthExhaustedError when exit code 1 + empty stdout + bandwidth keyword in stderr', async () => {
+      setupMockSpawn({ exitCode: 1, stdout: '', stderr: 'Error: usage limit exceeded' });
+
+      const { runClaudeAdapter, BandwidthExhaustedError } = require('../lib/llm-runner');
+
+      await expect(runClaudeAdapter('prompt')).rejects.toThrow(BandwidthExhaustedError);
+    });
+
+    test('throws BandwidthExhaustedError when exit code 1 + short stdout + bandwidth keyword in stderr (not matching rate limit patterns)', async () => {
+      // Use "bandwidth" which matches BANDWIDTH_EXHAUSTION_PATTERNS but not RATE_LIMIT_PATTERNS
+      setupMockSpawn({ exitCode: 1, stdout: 'Error', stderr: 'bandwidth exhausted for session' });
+
+      const { runClaudeAdapter, BandwidthExhaustedError } = require('../lib/llm-runner');
+
+      await expect(runClaudeAdapter('prompt')).rejects.toThrow(BandwidthExhaustedError);
+    });
+
+    test('thrown BandwidthExhaustedError has both isBandwidthExhausted and isRateLimit flags', async () => {
+      // Use "try again later" which matches BANDWIDTH_EXHAUSTION_PATTERNS but not RATE_LIMIT_PATTERNS
+      setupMockSpawn({ exitCode: 1, stdout: '', stderr: 'Please try again later' });
+
+      const { runClaudeAdapter } = require('../lib/llm-runner');
+
+      try {
+        await runClaudeAdapter('prompt');
+        fail('Should have thrown');
+      } catch (err) {
+        expect(err.isBandwidthExhausted).toBe(true);
+        expect(err.isRateLimit).toBe(true);
+      }
+    });
+
+    test('does NOT throw BandwidthExhaustedError when stdout is long (real task failure)', async () => {
+      const longOutput = 'This is a real task output that is longer than 50 characters and indicates a real failure occurred';
+      setupMockSpawn({ exitCode: 1, stdout: longOutput, stderr: 'rate limit' });
+
+      const { runClaudeAdapter, BandwidthExhaustedError } = require('../lib/llm-runner');
+
+      try {
+        await runClaudeAdapter('prompt');
+        fail('Should have thrown');
+      } catch (err) {
+        // Should be a regular error, not BandwidthExhaustedError
+        expect(err.isBandwidthExhausted).toBeUndefined();
+        expect(err.message).toContain('Exit code 1');
+      }
+    });
+
+    test('does NOT throw BandwidthExhaustedError when stderr has no bandwidth keywords', async () => {
+      setupMockSpawn({ exitCode: 1, stdout: '', stderr: 'command not found' });
+
+      const { runClaudeAdapter } = require('../lib/llm-runner');
+
+      try {
+        await runClaudeAdapter('prompt');
+        fail('Should have thrown');
+      } catch (err) {
+        expect(err.isBandwidthExhausted).toBeUndefined();
+        expect(err.message).toContain('Exit code 1');
+      }
+    });
+
+    test('BandwidthExhaustedError message indicates queue paused', async () => {
+      setupMockSpawn({ exitCode: 1, stdout: '', stderr: 'bandwidth exhausted' });
+
+      const { runClaudeAdapter } = require('../lib/llm-runner');
+
+      try {
+        await runClaudeAdapter('prompt');
+        fail('Should have thrown');
+      } catch (err) {
+        expect(err.message).toContain('Claude CLI bandwidth exhausted');
+        expect(err.message).toContain('Queue paused');
+      }
+    });
+
+    test('RateLimitError in stdout takes precedence over bandwidth exhaustion', async () => {
+      // When there's a rate limit error in stdout (exit 0 case), that should be detected first
+      setupMockSpawn({ exitCode: 0, stdout: 'rate limit exceeded', stderr: '' });
+
+      const { runClaudeAdapter, RateLimitError } = require('../lib/llm-runner');
+
+      await expect(runClaudeAdapter('prompt')).rejects.toThrow(RateLimitError);
+    });
+  });
 });
