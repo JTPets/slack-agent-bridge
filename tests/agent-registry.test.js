@@ -13,7 +13,9 @@ const {
     getAgentByChannel,
     getActiveAgents,
     registryExists,
-    getAgentMemoryDir
+    getAgentMemoryDir,
+    getProductionAgentForRepo,
+    isProductionRepo
 } = require('../lib/agent-registry');
 
 describe('agent-registry', () => {
@@ -27,7 +29,28 @@ describe('agent-registry', () => {
             denied: [],
             priority: 1,
             max_turns: 50,
-            memory_dir: 'agents/bridge/memory'
+            memory_dir: 'agents/bridge/memory',
+            workflow: 'direct-to-main',
+            merge_policy: 'auto',
+            deploy_policy: 'auto-update',
+            production: false
+        },
+        {
+            id: 'code-sqtools',
+            name: 'SqTools Code Agent',
+            role: 'Code modifications for production repo',
+            channel: null,
+            permissions: ['github', 'file-system'],
+            denied: [],
+            priority: 1,
+            max_turns: 50,
+            memory_dir: 'agents/code-sqtools/memory',
+            workflow: 'branch-and-pr',
+            merge_policy: 'owner-approval-required',
+            deploy_policy: 'manual',
+            branch_prefix: 'agent/',
+            production: true,
+            target_repo: 'jtpets/SquareDashboardTool'
         },
         {
             id: 'secretary',
@@ -66,7 +89,7 @@ describe('agent-registry', () => {
             const agents = loadAgents();
 
             expect(agents).toEqual(mockAgents);
-            expect(agents).toHaveLength(3);
+            expect(agents).toHaveLength(4);
         });
 
         it('should return empty array when file does not exist', () => {
@@ -182,8 +205,9 @@ describe('agent-registry', () => {
         it('should return only non-planned agents', () => {
             const activeAgents = getActiveAgents();
 
-            expect(activeAgents).toHaveLength(1);
-            expect(activeAgents[0].id).toBe('bridge');
+            expect(activeAgents).toHaveLength(2);
+            expect(activeAgents.map(a => a.id)).toContain('bridge');
+            expect(activeAgents.map(a => a.id)).toContain('code-sqtools');
         });
 
         it('should return empty array when all agents are planned', () => {
@@ -204,7 +228,7 @@ describe('agent-registry', () => {
 
             const activeAgents = getActiveAgents();
 
-            expect(activeAgents).toHaveLength(3);
+            expect(activeAgents).toHaveLength(4);
         });
     });
 
@@ -270,6 +294,97 @@ describe('agent-registry', () => {
             expect(getAgent('any')).toBeNull();
             expect(getAgentByChannel('any')).toBeNull();
             expect(getActiveAgents()).toEqual([]);
+        });
+    });
+
+    describe('getProductionAgentForRepo', () => {
+        beforeEach(() => {
+            fs.readFileSync.mockReturnValue(JSON.stringify(mockAgents));
+        });
+
+        it('should return agent for production repo', () => {
+            const agent = getProductionAgentForRepo('jtpets/SquareDashboardTool');
+
+            expect(agent).toBeDefined();
+            expect(agent.id).toBe('code-sqtools');
+            expect(agent.production).toBe(true);
+            expect(agent.workflow).toBe('branch-and-pr');
+        });
+
+        it('should return null for non-production repo', () => {
+            const agent = getProductionAgentForRepo('jtpets/slack-agent-bridge');
+
+            expect(agent).toBeNull();
+        });
+
+        it('should return null for unknown repo', () => {
+            const agent = getProductionAgentForRepo('unknown/repo');
+
+            expect(agent).toBeNull();
+        });
+
+        it('should return null for null repo', () => {
+            const agent = getProductionAgentForRepo(null);
+
+            expect(agent).toBeNull();
+        });
+
+        it('should return null for undefined repo', () => {
+            const agent = getProductionAgentForRepo(undefined);
+
+            expect(agent).toBeNull();
+        });
+
+        it('should normalize GitHub URL format', () => {
+            const agent = getProductionAgentForRepo('https://github.com/jtpets/SquareDashboardTool');
+
+            expect(agent).toBeDefined();
+            expect(agent.id).toBe('code-sqtools');
+        });
+
+        it('should normalize .git suffix', () => {
+            const agent = getProductionAgentForRepo('jtpets/SquareDashboardTool.git');
+
+            expect(agent).toBeDefined();
+            expect(agent.id).toBe('code-sqtools');
+        });
+
+        it('should not match agent with production: false', () => {
+            // bridge agent has production: false
+            const agent = getProductionAgentForRepo('jtpets/slack-agent-bridge');
+
+            expect(agent).toBeNull();
+        });
+    });
+
+    describe('isProductionRepo', () => {
+        beforeEach(() => {
+            fs.readFileSync.mockReturnValue(JSON.stringify(mockAgents));
+        });
+
+        it('should return true for production repo', () => {
+            expect(isProductionRepo('jtpets/SquareDashboardTool')).toBe(true);
+        });
+
+        it('should return false for non-production repo', () => {
+            expect(isProductionRepo('jtpets/slack-agent-bridge')).toBe(false);
+        });
+
+        it('should return false for unknown repo', () => {
+            expect(isProductionRepo('unknown/repo')).toBe(false);
+        });
+
+        it('should return false for null', () => {
+            expect(isProductionRepo(null)).toBe(false);
+        });
+
+        it('should return false for undefined', () => {
+            expect(isProductionRepo(undefined)).toBe(false);
+        });
+
+        it('should handle GitHub URL format', () => {
+            expect(isProductionRepo('https://github.com/jtpets/SquareDashboardTool')).toBe(true);
+            expect(isProductionRepo('https://github.com/jtpets/slack-agent-bridge')).toBe(false);
         });
     });
 });

@@ -69,7 +69,8 @@ const {
 // LOGIC CHANGE 2026-03-26: Added agent registry for multi-agent architecture.
 // Loads agent config from agents/agents.json with fallback to env vars if registry
 // doesn't exist or agent not found.
-const { getAgent, loadAgents, registryExists } = require('./lib/agent-registry');
+// LOGIC CHANGE 2026-03-26: Added isProductionRepo for production workflow detection.
+const { getAgent, loadAgents, registryExists, isProductionRepo } = require('./lib/agent-registry');
 
 // LOGIC CHANGE 2026-03-26: Extracted LLM execution into lib/llm-runner.js
 // to support multiple LLM providers via LLM_PROVIDER env var.
@@ -274,11 +275,20 @@ async function processTask(msg) {
         }
       }
 
+      // LOGIC CHANGE 2026-03-26: Check if repo is production and prepend warning.
+      // Production repos MUST use feature branches and PRs, never push to main.
+      let productionWarning = '';
+      if (isProductionRepo(task.repo)) {
+        productionWarning = 'This is a PRODUCTION repo. You MUST create a feature branch, commit there, push the branch, and create a pull request using `gh pr create`. Do NOT push to main. Do NOT merge.\n\n';
+        console.log(`[bridge-agent] Production repo detected: ${task.repo}`);
+      }
+
       prompt = [
+        productionWarning,
         skillContent,
         `You are working in a cloned repo: ${task.repo} (branch: ${task.branch}).`,
         `Your working directory is the repo root.`,
-        `When done, commit and push your changes if you made any code changes.`,
+        productionWarning ? '' : `When done, commit and push your changes if you made any code changes.`,
         '',
         task.instructions || task.description,
       ].filter(Boolean).join('\n');

@@ -227,6 +227,52 @@ The registry system maintains backward compatibility:
 - The bridge agent config overlays (not replaces) env var settings
 - All existing task message formats continue to work
 
+## Production Safety
+
+Agents can be configured with different workflow modes based on their production status.
+
+### Workflow Configuration Fields
+
+| Field | Values | Description |
+|-------|--------|-------------|
+| `workflow` | `direct-to-main`, `branch-and-pr` | How changes are committed |
+| `merge_policy` | `auto`, `owner-approval-required` | Who can merge PRs |
+| `deploy_policy` | `auto-update`, `manual` | How deploys happen |
+| `branch_prefix` | `agent/` | Prefix for feature branches |
+| `production` | `true`, `false` | Whether repo is production |
+| `target_repo` | `org/repo` | Target repo for agent |
+
+### Production Repo Rules
+
+Agents with `production: true` MUST use feature branches and never push to main:
+
+1. **Branch Creation**: Agent creates a feature branch using `branch_prefix` (e.g., `agent/fix-reorder-bug`)
+2. **Commit and Push**: Agent commits changes and pushes the feature branch
+3. **PR Creation**: Agent creates a pull request using `gh pr create`
+4. **Notification**: Agent posts PR link to #sqtools-ops and DMs owner
+5. **Review**: Owner reviews the PR manually
+6. **Merge**: Owner merges after approval
+7. **Deploy**: Owner runs deploy on Pi:
+   ```bash
+   git pull origin main && npm test && pm2 restart server
+   ```
+
+### Non-Production Repo Rules
+
+Agents with `production: false` can push directly to main:
+
+1. **Direct Commit**: Agent commits changes to main
+2. **Push**: Agent pushes to main
+3. **Auto-Deploy**: Auto-updater detects changes and restarts PM2 process
+
+### Prompt Override for Production Repos
+
+When a task targets a repo matching an agent with `production: true`, the bridge-agent automatically prepends the following instruction to the prompt:
+
+> This is a PRODUCTION repo. You MUST create a feature branch, commit there, push the branch, and create a pull request using `gh pr create`. Do NOT push to main. Do NOT merge.
+
+This ensures Claude Code follows the safe workflow even if the task instructions don't explicitly mention it
+
 ## Activation Checklists
 
 The `agents/activation-checklists.json` file tracks owner action items required to activate each agent. This provides visibility into what setup tasks remain before an agent can be deployed.

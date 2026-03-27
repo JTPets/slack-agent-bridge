@@ -8,7 +8,28 @@
     "denied": [],
     "priority": 1,
     "max_turns": 50,
-    "memory_dir": "agents/bridge/memory"
+    "memory_dir": "agents/bridge/memory",
+    "workflow": "direct-to-main",
+    "merge_policy": "auto",
+    "deploy_policy": "auto-update",
+    "production": false
+  },
+  {
+    "id": "code-sqtools",
+    "name": "SqTools Code Agent",
+    "role": "Code modifications for SquareDashboardTool production repo",
+    "channel": null,
+    "permissions": ["github", "file-system", "claude-code"],
+    "denied": [],
+    "priority": 1,
+    "max_turns": 50,
+    "memory_dir": "agents/code-sqtools/memory",
+    "workflow": "branch-and-pr",
+    "merge_policy": "owner-approval-required",
+    "deploy_policy": "manual",
+    "branch_prefix": "agent/",
+    "production": true,
+    "target_repo": "jtpets/SquareDashboardTool"
   },
   {
     "id": "secretary",
