@@ -14,13 +14,16 @@ jest.mock('../lib/agent-registry', () => ({
 }));
 
 // Mock owner-tasks
+// LOGIC CHANGE 2026-03-27: Changed mock from addTask to addOwnerTask to match
+// the updated implementation that saves to owner-tasks.json instead of
+// activation-checklists.json.
 jest.mock('../lib/owner-tasks', () => ({
-    addTask: jest.fn(),
+    addOwnerTask: jest.fn(),
     extractActionRequired: jest.fn(),
 }));
 
 const { getAgent } = require('../lib/agent-registry');
-const { addTask, extractActionRequired } = require('../lib/owner-tasks');
+const { addOwnerTask, extractActionRequired } = require('../lib/owner-tasks');
 
 describe('notify-owner', () => {
     let mockSlack;
@@ -310,8 +313,11 @@ describe('notify-owner', () => {
     });
 
     describe('actionRequired', () => {
-        it('should add task to checklist', async () => {
-            addTask.mockReturnValue(true);
+        // LOGIC CHANGE 2026-03-27: Updated tests to use addOwnerTask instead of addTask.
+        // addOwnerTask takes (description, category, priority) where category is derived
+        // from agentId ('bridge' -> 'general', other agents -> agent name).
+        it('should add task to owner-tasks.json', async () => {
+            addOwnerTask.mockReturnValue({ id: 'task-123', description: 'Add env var' });
 
             const result = await notifyOwner.actionRequired({}, 'Add env var', {
                 agentId: 'bridge',
@@ -319,27 +325,29 @@ describe('notify-owner', () => {
             });
 
             expect(result.added).toBe(true);
-            expect(addTask).toHaveBeenCalledWith('bridge', 'Add env var', 'high');
+            // agentId 'bridge' maps to category 'general'
+            expect(addOwnerTask).toHaveBeenCalledWith('Add env var', 'general', 'high');
         });
 
         it('should use default agentId and priority', async () => {
-            addTask.mockReturnValue(true);
+            addOwnerTask.mockReturnValue({ id: 'task-123', description: 'Add env var' });
 
             await notifyOwner.actionRequired({}, 'Add env var');
 
-            expect(addTask).toHaveBeenCalledWith('bridge', 'Add env var', 'high');
+            // Default agentId is 'bridge' which maps to 'general'
+            expect(addOwnerTask).toHaveBeenCalledWith('Add env var', 'general', 'high');
         });
 
-        it('should return added=false when addTask fails', async () => {
-            addTask.mockReturnValue(false);
+        it('should return added=false when addOwnerTask returns null (duplicate)', async () => {
+            addOwnerTask.mockReturnValue(null);
 
             const result = await notifyOwner.actionRequired({}, 'Duplicate task');
 
             expect(result.added).toBe(false);
         });
 
-        it('should handle addTask throwing error', async () => {
-            addTask.mockImplementation(() => {
+        it('should handle addOwnerTask throwing error', async () => {
+            addOwnerTask.mockImplementation(() => {
                 throw new Error('Write error');
             });
 
@@ -347,12 +355,25 @@ describe('notify-owner', () => {
 
             expect(result.added).toBe(false);
         });
+
+        it('should use agentId as category for non-bridge agents', async () => {
+            addOwnerTask.mockReturnValue({ id: 'task-456', description: 'Task' });
+
+            await notifyOwner.actionRequired({}, 'Task', {
+                agentId: 'secretary',
+                priority: 'medium',
+            });
+
+            // agentId 'secretary' maps to category 'secretary'
+            expect(addOwnerTask).toHaveBeenCalledWith('Task', 'secretary', 'medium');
+        });
     });
 
     describe('processActionRequired', () => {
+        // LOGIC CHANGE 2026-03-27: Updated tests to use addOwnerTask instead of addTask.
         it('should extract and add action from output', async () => {
             extractActionRequired.mockReturnValue('Add NEW_VAR to .env');
-            addTask.mockReturnValue(true);
+            addOwnerTask.mockReturnValue({ id: 'task-789', description: 'Add NEW_VAR to .env' });
 
             const result = await notifyOwner.processActionRequired(
                 'Task done.\nACTION REQUIRED: Add NEW_VAR to .env\nEnd.',
@@ -374,13 +395,14 @@ describe('notify-owner', () => {
             expect(result.added).toBe(false);
         });
 
-        it('should use default agentId', async () => {
+        it('should use default agentId mapped to category general', async () => {
             extractActionRequired.mockReturnValue('Some action');
-            addTask.mockReturnValue(true);
+            addOwnerTask.mockReturnValue({ id: 'task-abc', description: 'Some action' });
 
             await notifyOwner.processActionRequired('ACTION REQUIRED: Some action');
 
-            expect(addTask).toHaveBeenCalledWith('bridge', 'Some action', 'high');
+            // Default agentId 'bridge' maps to category 'general'
+            expect(addOwnerTask).toHaveBeenCalledWith('Some action', 'general', 'high');
         });
     });
 
