@@ -202,6 +202,8 @@ npm start                    # Run the agent
 node bridge-agent.js         # Direct execution
 
 # Production (PM2)
+# PM2 runs 3 processes: sqtools (PRODUCTION DO NOT TOUCH), bridge-agent, auto-update
+# Cloudflare tunnel: sudo systemctl restart cloudflared-sqtools
 pm2 start bridge-agent.js --name slack-bridge
 pm2 restart slack-bridge
 pm2 logs slack-bridge
