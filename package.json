@@ -5,6 +5,7 @@
   "main": "bridge-agent.js",
   "scripts": {
     "test": "jest",
+    "test:smoke": "jest tests/smoke.test.js",
     "validate": "node lib/validate.js"
   },
   "dependencies": {

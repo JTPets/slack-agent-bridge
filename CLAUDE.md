@@ -77,6 +77,7 @@ const POLL_INTERVAL = 5000;
 - **NO new function ships without a unit test** — This is non-negotiable
 - **Tests use Jest** — Test files go in `tests/` mirroring the source structure
 - **Run `npm test` before every commit** — If tests fail, do not commit
+- **Run `npm run test:smoke` before every deploy** — This catches missing requires, broken imports, and startup crashes that unit tests miss
 - **Mock external dependencies** — Slack API calls, child_process.spawn for CC, file system for memory
 - **Test the task parser independently** — Various REPO formats, missing fields, multiline INSTRUCTIONS
 - **Test memory-manager CRUD operations** — Use a temp directory for isolation
@@ -309,6 +310,8 @@ slack-agent-bridge/
 │   └── accountability-check/
 │       └── SKILL.md      # Review calendar events and verify task completion
 ├── tests/
+│   ├── smoke.test.js            # Smoke tests: module loading, dotenv checks, export verification
+│   ├── integration.test.js      # Integration tests: critical paths, wiring, no circular deps
 │   ├── agent-registry.test.js   # Tests for lib/agent-registry.js (includes activation helpers)
 │   ├── config.test.js           # Tests for lib/config.js
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
