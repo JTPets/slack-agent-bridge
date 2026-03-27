@@ -150,6 +150,12 @@ const STATE_FILE = path.join(__dirname, '.bridge-agent-state.json');
 let lastChecked = loadState();
 let isRunning = false;
 
+// LOGIC CHANGE 2026-03-27: Added graceful shutdown support.
+// shuttingDown: flag to stop processing new tasks on SIGTERM/SIGINT
+// currentTaskPromise: tracks the currently running task for graceful completion
+let shuttingDown = false;
+let currentTaskPromise = null;
+
 // LOGIC CHANGE 2026-03-26: Rate limit state tracking with exponential backoff.
 // pauseUntil: timestamp when pause expires, retryCount: number of consecutive rate limits,
 // failedTask: the task message to retry after pause expires.
@@ -791,6 +797,13 @@ async function processConversation(msg) {
 async function poll() {
   if (isRunning) return;
 
+  // LOGIC CHANGE 2026-03-27: Check if shutting down before processing new tasks.
+  // Allows current task to complete but prevents new task processing.
+  if (shuttingDown) {
+    console.log('[bridge-agent] Shutting down, not processing new tasks');
+    return;
+  }
+
   // LOGIC CHANGE 2026-03-26: Check if paused due to rate limit.
   // When paused, skip new task processing but still update lastChecked.
   // When pause expires, retry the failed task first.
@@ -808,7 +821,10 @@ async function poll() {
     rateLimitState.failedTask = null;
 
     isRunning = true;
-    await processTask(failedMsg);
+    // LOGIC CHANGE 2026-03-27: Track current task promise for graceful shutdown.
+    currentTaskPromise = processTask(failedMsg);
+    await currentTaskPromise;
+    currentTaskPromise = null;
     isRunning = false;
 
     // If we successfully completed, continue to normal polling
@@ -846,7 +862,11 @@ async function poll() {
         console.log(`[bridge-agent] Task found: ${msg.ts}`);
         isRunning = true;
 
-        await processTask(msg);
+        // LOGIC CHANGE 2026-03-27: Track current task promise for graceful shutdown.
+        // Allows shutdown handler to wait for task completion.
+        currentTaskPromise = processTask(msg);
+        await currentTaskPromise;
+        currentTaskPromise = null;
 
         isRunning = false;
 
@@ -940,10 +960,86 @@ console.log(`  Allowed:  ${ALLOWED_USER_IDS.join(', ')}`);
 // Run memory maintenance before starting poll loop
 runStartupMemoryMaintenance();
 
+// LOGIC CHANGE 2026-03-27: Clear stale rate limit state on startup.
+// If pauseUntil is in the past (from a previous crash), clear it to prevent
+// blocking the new instance. Also clears any stale rate limit status from memory.
+function clearStaleRateLimitState() {
+  try {
+    const context = memory.loadContext();
+    if (context && context.rateLimitStatus && context.rateLimitStatus.pauseUntil) {
+      const pauseUntil = context.rateLimitStatus.pauseUntil;
+      if (Date.now() >= pauseUntil) {
+        console.log('[bridge-agent] Clearing stale rate limit state from previous run');
+        memory.updateContext('rateLimitStatus', null);
+        // Also reset in-memory state (should be fresh on startup, but be safe)
+        rateLimitState = {
+          pauseUntil: null,
+          retryCount: 0,
+          failedTask: null,
+        };
+      } else {
+        // Pause is still valid, restore state from memory
+        const remainingMs = pauseUntil - Date.now();
+        const remainingMin = Math.ceil(remainingMs / 60000);
+        console.log(`[bridge-agent] Restoring rate limit pause from memory (${remainingMin} min remaining)`);
+        rateLimitState.pauseUntil = pauseUntil;
+        rateLimitState.retryCount = context.rateLimitStatus.retryCount || 1;
+        // failedTask cannot be restored (was in memory), so it will be null
+      }
+    }
+  } catch (err) {
+    console.error('[bridge-agent] Failed to check stale rate limit state:', err.message);
+    // On error, assume no stale state - don't block startup
+  }
+}
+
+clearStaleRateLimitState();
+
 poll();
 setInterval(poll, POLL_INTERVAL);
 
-process.on('SIGTERM', () => {
-  console.log('[bridge-agent] Shutting down');
+// LOGIC CHANGE 2026-03-27: Graceful shutdown handler for SIGTERM and SIGINT.
+// Sets shuttingDown flag to stop new task processing, waits for current task
+// to complete (up to 60 second timeout), then exits cleanly.
+async function gracefulShutdown(signal) {
+  if (shuttingDown) {
+    console.log(`[bridge-agent] Already shutting down, ignoring ${signal}`);
+    return;
+  }
+
+  shuttingDown = true;
+  console.log(`[bridge-agent] Received ${signal}, initiating graceful shutdown`);
+
+  // Notify ops channel about shutdown
+  try {
+    await postToOps(`:wave: Bridge agent shutting down gracefully. ${isRunning ? 'Current task will complete.' : 'No task running.'}`);
+  } catch (err) {
+    console.error('[bridge-agent] Failed to post shutdown message:', err.message);
+  }
+
+  // If a task is running, wait for it to complete (with timeout)
+  if (isRunning && currentTaskPromise) {
+    console.log('[bridge-agent] Waiting for current task to complete...');
+
+    const SHUTDOWN_TIMEOUT = 60000; // 60 seconds
+    const timeoutPromise = new Promise((resolve) => {
+      setTimeout(() => {
+        console.log('[bridge-agent] Shutdown timeout reached, exiting');
+        resolve('timeout');
+      }, SHUTDOWN_TIMEOUT);
+    });
+
+    const result = await Promise.race([currentTaskPromise, timeoutPromise]);
+    if (result === 'timeout') {
+      console.log('[bridge-agent] Task did not complete within timeout');
+    } else {
+      console.log('[bridge-agent] Current task completed');
+    }
+  }
+
+  console.log('[bridge-agent] Shutdown complete');
   process.exit(0);
-});
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

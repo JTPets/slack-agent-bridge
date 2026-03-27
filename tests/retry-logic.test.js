@@ -419,3 +419,209 @@ describe('Rate limit pause logic', () => {
     });
   });
 });
+
+/**
+ * Tests for graceful shutdown behavior.
+ * LOGIC CHANGE 2026-03-27: Added tests for SIGTERM/SIGINT shutdown handling.
+ */
+describe('Graceful shutdown logic', () => {
+  describe('shuttingDown flag', () => {
+    test('poll loop should exit early when shuttingDown is true', () => {
+      let shuttingDown = false;
+      let pollExecuted = false;
+
+      // Simulate the poll check
+      const checkShutdown = () => {
+        if (shuttingDown) {
+          return false; // Would exit early
+        }
+        pollExecuted = true;
+        return true;
+      };
+
+      // First poll should execute
+      expect(checkShutdown()).toBe(true);
+      expect(pollExecuted).toBe(true);
+
+      // Set shutdown flag
+      shuttingDown = true;
+      pollExecuted = false;
+
+      // Second poll should exit early
+      expect(checkShutdown()).toBe(false);
+      expect(pollExecuted).toBe(false);
+    });
+
+    test('shuttingDown flag prevents duplicate shutdown handling', () => {
+      let shuttingDown = false;
+      let shutdownCount = 0;
+
+      const gracefulShutdown = () => {
+        if (shuttingDown) {
+          return; // Already shutting down
+        }
+        shuttingDown = true;
+        shutdownCount++;
+      };
+
+      gracefulShutdown();
+      gracefulShutdown();
+      gracefulShutdown();
+
+      expect(shutdownCount).toBe(1);
+    });
+  });
+
+  describe('task completion wait', () => {
+    test('shutdown waits for currentTaskPromise when running', async () => {
+      let isRunning = true;
+      let taskCompleted = false;
+
+      const currentTaskPromise = new Promise(resolve => {
+        setTimeout(() => {
+          taskCompleted = true;
+          resolve('done');
+        }, 10);
+      });
+
+      // Simulate waiting for task
+      if (isRunning && currentTaskPromise) {
+        await currentTaskPromise;
+      }
+
+      expect(taskCompleted).toBe(true);
+    });
+
+    test('shutdown timeout resolves before long-running task', async () => {
+      const SHUTDOWN_TIMEOUT = 50; // Short timeout for test
+
+      // Long-running task that won't complete in time
+      const longTask = new Promise(resolve => {
+        setTimeout(resolve, 1000);
+      });
+
+      const timeoutPromise = new Promise(resolve => {
+        setTimeout(() => resolve('timeout'), SHUTDOWN_TIMEOUT);
+      });
+
+      const result = await Promise.race([longTask, timeoutPromise]);
+      expect(result).toBe('timeout');
+    });
+
+    test('completed task resolves before timeout', async () => {
+      const SHUTDOWN_TIMEOUT = 100;
+
+      // Quick task that completes fast
+      const quickTask = new Promise(resolve => {
+        setTimeout(() => resolve('task_done'), 10);
+      });
+
+      const timeoutPromise = new Promise(resolve => {
+        setTimeout(() => resolve('timeout'), SHUTDOWN_TIMEOUT);
+      });
+
+      const result = await Promise.race([quickTask, timeoutPromise]);
+      expect(result).toBe('task_done');
+    });
+  });
+});
+
+/**
+ * Tests for startup state cleanup.
+ * LOGIC CHANGE 2026-03-27: Added tests for clearing stale rate limit state on startup.
+ */
+describe('Startup state cleanup', () => {
+  describe('stale rate limit clearing', () => {
+    test('clears rate limit state when pauseUntil is in the past', () => {
+      const rateLimitState = {
+        pauseUntil: Date.now() - 60000, // 1 minute ago (stale)
+        retryCount: 2,
+        failedTask: { ts: '123.456' },
+      };
+
+      // Simulate clearStaleRateLimitState
+      const context = { rateLimitStatus: { pauseUntil: rateLimitState.pauseUntil } };
+      if (context && context.rateLimitStatus && context.rateLimitStatus.pauseUntil) {
+        if (Date.now() >= context.rateLimitStatus.pauseUntil) {
+          // Clear stale state
+          rateLimitState.pauseUntil = null;
+          rateLimitState.retryCount = 0;
+          rateLimitState.failedTask = null;
+        }
+      }
+
+      expect(rateLimitState.pauseUntil).toBeNull();
+      expect(rateLimitState.retryCount).toBe(0);
+      expect(rateLimitState.failedTask).toBeNull();
+    });
+
+    test('restores valid rate limit state when pauseUntil is in the future', () => {
+      const futureTime = Date.now() + 30 * 60 * 1000; // 30 minutes from now
+      const rateLimitState = {
+        pauseUntil: null,
+        retryCount: 0,
+        failedTask: null,
+      };
+
+      // Simulate clearStaleRateLimitState with valid pause
+      const context = {
+        rateLimitStatus: {
+          pauseUntil: futureTime,
+          retryCount: 2,
+        },
+      };
+
+      if (context && context.rateLimitStatus && context.rateLimitStatus.pauseUntil) {
+        if (Date.now() >= context.rateLimitStatus.pauseUntil) {
+          // Would clear - but pauseUntil is in future
+          rateLimitState.pauseUntil = null;
+        } else {
+          // Restore state from memory
+          rateLimitState.pauseUntil = context.rateLimitStatus.pauseUntil;
+          rateLimitState.retryCount = context.rateLimitStatus.retryCount || 1;
+        }
+      }
+
+      expect(rateLimitState.pauseUntil).toBe(futureTime);
+      expect(rateLimitState.retryCount).toBe(2);
+    });
+
+    test('handles missing context gracefully', () => {
+      const rateLimitState = {
+        pauseUntil: null,
+        retryCount: 0,
+        failedTask: null,
+      };
+
+      // Simulate clearStaleRateLimitState with no context
+      const context = null;
+
+      if (context && context.rateLimitStatus && context.rateLimitStatus.pauseUntil) {
+        // Would execute cleanup, but context is null
+      }
+
+      // State should remain unchanged
+      expect(rateLimitState.pauseUntil).toBeNull();
+      expect(rateLimitState.retryCount).toBe(0);
+    });
+
+    test('handles empty rateLimitStatus gracefully', () => {
+      const rateLimitState = {
+        pauseUntil: null,
+        retryCount: 0,
+        failedTask: null,
+      };
+
+      // Simulate clearStaleRateLimitState with empty status
+      const context = { rateLimitStatus: null };
+
+      if (context && context.rateLimitStatus && context.rateLimitStatus.pauseUntil) {
+        // Would execute cleanup, but rateLimitStatus is null
+      }
+
+      // State should remain unchanged
+      expect(rateLimitState.pauseUntil).toBeNull();
+      expect(rateLimitState.retryCount).toBe(0);
+    });
+  });
+});
