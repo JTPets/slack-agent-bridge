@@ -80,6 +80,39 @@ The Secretary agent acts as the receptionist for JT Pets with full phone and SMS
 - **Permissions**: square-catalog-read, square-orders-write
 - **Denied**: github, file-system
 
+### Social Media Manager (Planned)
+- **ID**: `social-media`
+- **Role**: Creates, schedules, and manages social media content for JT Pets across Instagram, Facebook, and Meta Business Suite
+- **Max Turns**: 30
+- **Permissions**: meta-graph-api, instagram-api, image-generation, square-catalog-read
+- **Denied**: github-write, file-system-write, payment-processing
+- **Integrations**: meta-business-suite, instagram-graph-api, facebook-pages-api, canva-api
+
+#### Content Generation
+The Social Media Manager generates various content types:
+- **Product Spotlights**: Auto-generate "Product of the Day" from Square catalog
+- **Nutrition Tips**: Leverage owner's expertise with 200+ pet food brands
+- **Delivery Promotions**: "Free local delivery in Hamilton!" messaging
+- **Seasonal Content**: Flea/tick season, winter coat care, holiday pet safety
+- **Community Engagement**: Polls, Q&A sessions, customer pet features
+
+#### Platform Strategy
+- **Instagram**: Visual product shots, Reels for nutrition tips, Stories for daily specials
+- **Facebook**: Community engagement, longer nutrition articles, event promotion
+- **Meta Business Suite**: Unified scheduling and cross-platform analytics
+
+#### Approval Workflow
+All posts require owner approval before scheduling. The agent posts drafts to #social-media Slack channel. Owner reacts to approve, edit, or reject. Approved posts are scheduled via Meta Graph API.
+
+See [SOCIAL-MEDIA-DESIGN.md](./SOCIAL-MEDIA-DESIGN.md) for complete specification.
+
+### The Jester (Planned)
+- **ID**: `jester`
+- **Role**: Comedic relief, witty commentary, playful business roasts via SMS/voice
+- **Max Turns**: 10
+- **Permissions**: twilio-sms, twilio-voice
+- **Denied**: github, file-system, square-write
+
 ## Adding a New Agent
 
 1. **Define the agent** in `agents/agents.json`:
@@ -124,6 +157,10 @@ Permissions are declarative and enforced at the agent level:
 - `gmail-read` - Read-only Gmail access
 - `square-catalog-read` - Read Square catalog data
 - `square-orders-write` - Create Square orders
+- `meta-graph-api` - Meta Graph API for Facebook/Instagram posting
+- `instagram-api` - Instagram Graph API access
+- `image-generation` - Generate images via AI (Claude, DALL-E, etc.)
+- `payment-processing` - Process payments (highly restricted)
 
 ### Denied Permissions
 The `denied` array explicitly blocks permissions. This is useful for:

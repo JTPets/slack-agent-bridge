@@ -250,13 +250,17 @@ slack-agent-bridge/
 ├── agents/
 │   ├── agents.json               # Agent registry: defines all agents, permissions, and config
 │   ├── activation-checklists.json # Owner action items for activating each agent
-│   └── bridge/
-│       └── memory/       # Bridge agent's tiered memory directory
-│           ├── context.json      # Permanent: owner info, preferences
-│           ├── working.json      # Session: current task state
-│           ├── short-term.json   # 24-72h TTL: recent events, reminders
-│           ├── long-term.json    # Weeks/months: patterns, preferences
-│           └── archive.json      # Decayed long-term (reference only)
+│   ├── bridge/
+│   │   └── memory/       # Bridge agent's tiered memory directory
+│   │       ├── context.json      # Permanent: owner info, preferences
+│   │       ├── working.json      # Session: current task state
+│   │       ├── short-term.json   # 24-72h TTL: recent events, reminders
+│   │       ├── long-term.json    # Weeks/months: patterns, preferences
+│   │       └── archive.json      # Decayed long-term (reference only)
+│   └── social-media/
+│       └── memory/       # Social Media Manager's memory directory
+│           ├── backlog.json      # Activation backlog and feature roadmap
+│           └── .gitkeep          # Placeholder for memory files
 ├── lib/
 │   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel
 │   ├── config.js         # Environment variable loading, validation, and defaults
@@ -296,7 +300,8 @@ slack-agent-bridge/
 ├── docs/
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
 │   ├── INTEGRATION-SPEC.md  # SqTools API integration specification and security requirements
-│   └── TWILIO-INTEGRATION.md # Twilio SMS/Voice integration specification (Phase 1-3)
+│   ├── TWILIO-INTEGRATION.md # Twilio SMS/Voice integration specification (Phase 1-3)
+│   └── SOCIAL-MEDIA-DESIGN.md # Social Media Manager agent design and content strategy
 ├── package.json          # Dependencies and npm scripts
 ├── CLAUDE.md             # Project rules and documentation (this file)
 ├── README.md             # Project overview

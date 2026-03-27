@@ -105,6 +105,23 @@
       { "description": "Complete Twilio Phase 3 (Voice) for voice Jester", "completed": false, "priority": "low", "depends_on": "twilio.phase_3_voice" }
     ]
   },
+  "social-media": {
+    "name": "Social Media Manager",
+    "status": "planned",
+    "doc": "docs/SOCIAL-MEDIA-DESIGN.md",
+    "tasks": [
+      { "description": "Set up Meta Business Suite app and get access tokens", "completed": false, "priority": "high" },
+      { "description": "Add META_ACCESS_TOKEN to .env", "completed": false, "priority": "high" },
+      { "description": "Add META_PAGE_ID to .env", "completed": false, "priority": "high" },
+      { "description": "Add INSTAGRAM_BUSINESS_ID to .env", "completed": false, "priority": "high" },
+      { "description": "Create #social-media Slack channel for draft approvals", "completed": false, "priority": "high" },
+      { "description": "Invite @bridge-agent to #social-media channel", "completed": false, "priority": "high" },
+      { "description": "Create content calendar template skill", "completed": false, "priority": "medium" },
+      { "description": "Build product spotlight generator from Square catalog", "completed": false, "priority": "medium" },
+      { "description": "Create nutrition tip library from owner knowledge", "completed": false, "priority": "medium" },
+      { "description": "Design Instagram post templates (optional Canva integration)", "completed": false, "priority": "low" }
+    ]
+  },
   "_meta": {
     "version": 2,
     "lastUpdated": "2026-03-26",

@@ -1,0 +1,54 @@
+{
+  "backlog": [
+    {
+      "id": "sm-001",
+      "title": "Set up Meta Business Suite app and get access tokens",
+      "priority": "high",
+      "status": "pending",
+      "description": "Create Facebook App in Meta Developer Portal, configure Instagram Graph API, generate page access token with required permissions (pages_show_list, pages_read_engagement, pages_manage_posts, instagram_basic, instagram_content_publish)",
+      "owner_action": true,
+      "created": "2026-03-27T00:00:00.000Z"
+    },
+    {
+      "id": "sm-002",
+      "title": "Create content calendar template skill",
+      "priority": "high",
+      "status": "pending",
+      "description": "Build a skill template for generating weekly/monthly content calendars with themes, posting schedule, and content mix (product spotlights, nutrition tips, engagement posts)",
+      "owner_action": false,
+      "created": "2026-03-27T00:00:00.000Z"
+    },
+    {
+      "id": "sm-003",
+      "title": "Build product spotlight generator from Square catalog",
+      "priority": "medium",
+      "status": "pending",
+      "description": "Implement integration with Square Catalog API to fetch product data (name, description, price, images) and generate compelling product spotlight posts",
+      "owner_action": false,
+      "created": "2026-03-27T00:00:00.000Z"
+    },
+    {
+      "id": "sm-004",
+      "title": "Create nutrition tip library from owner knowledge",
+      "priority": "medium",
+      "status": "pending",
+      "description": "Build a curated library of pet nutrition tips based on John's expertise with 200+ brands. Organize by category (protein, allergies, weight management, coat health, senior pets, puppies/kittens)",
+      "owner_action": false,
+      "created": "2026-03-27T00:00:00.000Z"
+    },
+    {
+      "id": "sm-005",
+      "title": "Design Instagram post templates",
+      "priority": "low",
+      "status": "pending",
+      "description": "Create visual templates for consistent branding: product spotlight, nutrition tip, promotion, engagement post. Include JT Pets colors, fonts, and logo placement guidelines",
+      "owner_action": false,
+      "created": "2026-03-27T00:00:00.000Z"
+    }
+  ],
+  "metadata": {
+    "agent": "social-media",
+    "created": "2026-03-27T00:00:00.000Z",
+    "lastUpdated": "2026-03-27T00:00:00.000Z"
+  }
+}
