@@ -49,6 +49,16 @@ afterAll(() => {
 const staffTasks = require('../lib/staff-tasks');
 
 describe('staff-tasks', () => {
+  // LOGIC CHANGE 2026-03-28: Suppress expected console.warn output from error-path tests.
+  beforeEach(() => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   describe('loadStaff', () => {
     it('should load staff from file', () => {
       const staff = staffTasks.loadStaff();

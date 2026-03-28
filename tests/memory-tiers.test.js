@@ -17,6 +17,7 @@ describe('memory-tiers', () => {
     let testDir;
     let agentId;
 
+    // LOGIC CHANGE 2026-03-28: Suppress expected console.warn output from corruption tests.
     beforeEach(() => {
         // Create isolated temp directory for each test
         testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-tiers-test-'));
@@ -25,9 +26,13 @@ describe('memory-tiers', () => {
         // Create agent memory directory structure
         const agentMemoryDir = path.join(testDir, 'agents', agentId, 'memory');
         fs.mkdirSync(agentMemoryDir, { recursive: true });
+
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
     });
 
     afterEach(() => {
+        jest.restoreAllMocks();
         // Cleanup temp directory
         if (testDir && fs.existsSync(testDir)) {
             fs.rmSync(testDir, { recursive: true, force: true });

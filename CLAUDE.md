@@ -288,8 +288,10 @@ slack-agent-bridge/
 │   ├── agents.json               # Agent registry: defines all agents, permissions, and config
 │   ├── activation-checklists.json # Owner action items for activating each agent
 │   ├── shared/
-│   │   ├── bulletin.json         # Inter-agent bulletin board (created at runtime)
-│   │   ├── watercooler-state.json # Tracks last standup timestamp (created at runtime)
+│   │   ├── bulletin.json         # Inter-agent bulletin board (created at runtime, gitignored)
+│   │   ├── watercooler-state.json # Tracks last standup timestamp (created at runtime, gitignored)
+│   │   ├── processed-tasks.json  # Task deduplication: Slack msg timestamps (created at runtime, gitignored)
+│   │   ├── channel-map.json      # Resolved channel ID cache (created at runtime, gitignored)
 │   │   ├── staff.json            # Staff member definitions (name, slackId, role)
 │   │   └── daily-tasks-template.json  # Recurring daily store tasks template
 │   ├── bridge/
@@ -310,7 +312,8 @@ slack-agent-bridge/
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, openai, ollama)
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
 │   ├── owner-tasks.js    # Owner task management: activation checklists, pending tasks, ACTION REQUIRED detection
-│   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, etc.)
+│   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
+│   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
@@ -346,7 +349,8 @@ slack-agent-bridge/
 │   ├── message-detection.test.js # Tests for isTaskMessage/isConversationMessage
 │   ├── owner-tasks.test.js      # Tests for lib/owner-tasks.js (checklists, pending tasks)
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
-│   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management)
+│   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
+│   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management, joinAgentChannels)
 │   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command)
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
 │   ├── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
@@ -400,6 +404,65 @@ The bot requires these OAuth scopes at [api.slack.com/apps](https://api.slack.co
 | `users:read` | Resolve user IDs |
 
 If the API returns `missing_scope` error, the log will show: `Missing Slack scope: <scope>. Add it at api.slack.com/apps`
+
+---
+
+## Code Review Pipeline
+
+When a task has a REPO field, `bridge-agent.js` runs a 3-phase pipeline via `lib/code-review-pipeline.js`:
+
+**Phase 1 — Review (before executing)**
+- Reads `CLAUDE.md` and `COMMANDMENTS.md` from the cloned repo
+- Reads `package.json` for test scripts and dependencies
+- Lists all JS files in the repo (excluding node_modules)
+- Checks `git log --oneline -20` for recent changes
+- Searches for relevant existing code by keyword to surface patterns
+- Returns context object with all codebase information
+
+**Phase 2 — Execute (enriched prompt)**
+- `buildPrompt()` assembles the full prompt in this order:
+  1. COMMANDMENTS.md content
+  2. Agent system_prompt (personality)
+  3. Production warning (if applicable)
+  4. CLAUDE.md rules from cloned repo
+  5. Memory context (task history)
+  6. Bulletin context (recent agent bulletins)
+  7. Repo structure (JS file list)
+  8. Recent git history
+  9. Relevant existing code snippets
+  10. Skill template content (if SKILL: specified)
+  11. Execution plan metadata
+  12. Original task instructions
+  13. Quality checklist (LOGIC CHANGE, npm test, no console.log, env var docs)
+- Claude gets the FULL context, not just raw task instructions
+- Falls back to basic prompt if pipeline throws
+
+**Phase 3 — Validate (after executing)**
+- Runs `npm test` in the cloned repo
+- Checks changed files for LOGIC CHANGE comments
+- Warns about `console.log` in non-test files
+- Reports test results to `#sqtools-ops`
+- If tests fail: posts report as "tests failed after completion"
+- If tests pass: posts `:white_check_mark: Code review passed — N tests passing`
+
+### Task Deduplication
+
+`agents/shared/processed-tasks.json` (gitignored) stores processed Slack message timestamps.
+- Loaded on every startup
+- Checked before processing any TASK: or ASK: message
+- Written after processing (success or fail)
+- Entries older than 7 days cleaned up on startup
+- Prevents re-processing old messages after PM2 restarts
+
+### Channel Auto-Join
+
+On every startup, `slackClient.joinAgentChannels(channelsToPoll)` is called to join all
+agent channels before the poll loop starts. This ensures the bot is in all channels even
+if channels were recreated while the bot was offline. Results are logged:
+`[bridge-agent] Joined 5/5 agent channels` or `Joined 3/5 agent channels (2 failed - check scopes)`
+
+Resolved channel IDs are cached in `agents/shared/channel-map.json` (gitignored) to reduce
+API calls on subsequent startups.
 
 ---
 

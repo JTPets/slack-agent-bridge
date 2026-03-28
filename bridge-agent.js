@@ -120,6 +120,11 @@ const bulletinWatcher = require('./lib/bulletin-watcher');
 // Orchestrates multi-agent conversation where each agent shares updates in their voice.
 const watercooler = require('./lib/watercooler');
 
+// LOGIC CHANGE 2026-03-28: Added code-review-pipeline module for Phase 1/2/3 task execution.
+// Phase 1: reviewTask reads codebase before executing. Phase 2: buildPrompt assembles enriched
+// prompt with COMMANDMENTS + CLAUDE.md + structure + context. Phase 3: validateOutput runs tests.
+const { reviewTask, createExecutionPlan, buildPrompt, validateOutput } = require('./lib/code-review-pipeline');
+
 // ---- Config ----
 
 // Validate required config
@@ -206,6 +211,60 @@ let rateLimitState = {
   retryCount: 0,
   failedTask: null,
 };
+
+// LOGIC CHANGE 2026-03-28: Task deduplication via processed-tasks.json.
+// Prevents re-processing old messages after bot restarts. Stores message timestamps
+// (not IDs) to survive PM2 restarts. Gitignored, local-only file.
+const PROCESSED_TASKS_FILE = path.join(__dirname, 'agents', 'shared', 'processed-tasks.json');
+let processedTaskTimestamps = loadProcessedTasks();
+
+function loadProcessedTasks() {
+  try {
+    const data = fs.readFileSync(PROCESSED_TASKS_FILE, 'utf8');
+    if (!data || !data.trim()) return {};
+    const parsed = JSON.parse(data);
+    if (typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed;
+  } catch (err) {
+    if (err.code === 'ENOENT') return {};
+    console.warn('[bridge-agent] processed-tasks.json corrupted, resetting');
+    return {};
+  }
+}
+
+function saveProcessedTasks() {
+  try {
+    const dir = path.dirname(PROCESSED_TASKS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(PROCESSED_TASKS_FILE, JSON.stringify(processedTaskTimestamps, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[bridge-agent] Failed to save processed-tasks.json:', err.message);
+  }
+}
+
+function isTaskProcessed(ts) {
+  return Object.prototype.hasOwnProperty.call(processedTaskTimestamps, ts);
+}
+
+function markTaskProcessed(ts) {
+  processedTaskTimestamps[ts] = Date.now();
+  saveProcessedTasks();
+}
+
+function cleanupProcessedTasks() {
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  let removed = 0;
+  for (const [ts, processedAt] of Object.entries(processedTaskTimestamps)) {
+    if (processedAt < sevenDaysAgo) {
+      delete processedTaskTimestamps[ts];
+      removed++;
+    }
+  }
+  if (removed > 0) {
+    saveProcessedTasks();
+    console.log(`[bridge-agent] Cleaned up ${removed} old processed task entries`);
+  }
+}
 
 // LOGIC CHANGE 2026-03-27: Updated loadState to support per-channel timestamps.
 // Returns an object mapping channelId -> lastChecked timestamp.
@@ -499,16 +558,80 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
       // no system_prompt is defined.
       const agentSystemPrompt = agentConfig?.system_prompt || '';
 
-      prompt = [
-        agentSystemPrompt,
-        productionWarning,
-        skillContent,
-        `You are working in a cloned repo: ${task.repo} (branch: ${task.branch}).`,
-        `Your working directory is the repo root.`,
-        productionWarning ? '' : `When done, commit and push your changes if you made any code changes.`,
-        '',
-        task.instructions || task.description,
-      ].filter(Boolean).join('\n');
+      // LOGIC CHANGE 2026-03-28: Phase 1 of code review pipeline.
+      // reviewTask reads CLAUDE.md, repo structure, git history, and relevant files
+      // to give Claude rich context before it executes. buildPrompt assembles everything
+      // in the correct order so Claude follows project rules and avoids duplicate work.
+      let usingPipelinePrompt = false;
+      try {
+        const pipelineContext = reviewTask(task, taskDir);
+        const pipelinePlan = createExecutionPlan(task, pipelineContext);
+
+        if (pipelinePlan.skip) {
+          // Task already done - report and exit without running LLM
+          await postToOps(
+            `:white_check_mark: *Already implemented:* ${pipelinePlan.reason}\n` +
+            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
+          );
+          await react(sourceChannel, msg.ts, EMOJI_DONE);
+          taskSuccess = true;
+          return;
+        }
+
+        // Build memory and bulletin context for the prompt
+        let memoryContext = '';
+        try {
+          memoryContext = memory.buildTaskContext() || '';
+        } catch (ctxErr) {
+          console.error('[bridge-agent] buildTaskContext failed:', ctxErr.message);
+        }
+
+        let bulletinContextStr = '';
+        try {
+          bulletinContextStr = bulletinBoard.formatBulletinsForContext('bridge', 5);
+        } catch (bErr) {
+          console.error('[bridge-agent] formatBulletinsForContext failed:', bErr.message);
+        }
+
+        // Load COMMANDMENTS.md from project root (host, not cloned repo)
+        let commandmentsContent = '';
+        try {
+          const commandmentsPath = path.join(__dirname, 'COMMANDMENTS.md');
+          if (fs.existsSync(commandmentsPath)) {
+            commandmentsContent = fs.readFileSync(commandmentsPath, 'utf8');
+          }
+        } catch (cmdErr) {
+          console.warn('[bridge-agent] Could not read COMMANDMENTS.md:', cmdErr.message);
+        }
+
+        prompt = buildPrompt(task, pipelineContext, pipelinePlan, {
+          commandmentsContent,
+          agentSystemPrompt,
+          productionWarning,
+          skillContent,
+          memoryContext,
+          bulletinContext: bulletinContextStr,
+          repoRef: `${task.repo} (branch: ${task.branch})`,
+        });
+        usingPipelinePrompt = true;
+        console.log('[bridge-agent] Using pipeline-enriched prompt for task:', task.description);
+      } catch (pipelineErr) {
+        console.error('[bridge-agent] Code review pipeline failed, falling back to basic prompt:', pipelineErr.message);
+      }
+
+      if (!usingPipelinePrompt) {
+        // Fallback: basic prompt assembly (original behavior)
+        prompt = [
+          agentSystemPrompt,
+          productionWarning,
+          skillContent,
+          `You are working in a cloned repo: ${task.repo} (branch: ${task.branch}).`,
+          `Your working directory is the repo root.`,
+          productionWarning ? '' : `When done, commit and push your changes if you made any code changes.`,
+          '',
+          task.instructions || task.description,
+        ].filter(Boolean).join('\n');
+      }
     } else {
       // No repo specified, run in work dir
       // LOGIC CHANGE 2026-03-27: Also prepend system_prompt for non-repo tasks.
@@ -520,15 +643,18 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
 
     // LOGIC CHANGE 2026-03-26: Prepend task context from memory to help CC avoid
     // duplicate work and build on previous results. Context failure never blocks
-    // task execution.
-    try {
-      const taskContext = memory.buildTaskContext();
-      if (taskContext) {
-        prompt = taskContext + '\n\n' + prompt;
+    // task execution. Skip when using pipeline prompt (already included).
+    // LOGIC CHANGE 2026-03-28: usingPipelinePrompt flag prevents double-adding context.
+    if (!task.repo) {
+      try {
+        const taskContext = memory.buildTaskContext();
+        if (taskContext) {
+          prompt = taskContext + '\n\n' + prompt;
+        }
+      } catch (contextErr) {
+        console.error('[bridge-agent] buildTaskContext failed:', contextErr.message);
+        // Continue without context - never block task execution
       }
-    } catch (contextErr) {
-      console.error('[bridge-agent] buildTaskContext failed:', contextErr.message);
-      // Continue without context - never block task execution
     }
 
     // LOGIC CHANGE 2026-03-26: Use runLLM from lib/llm-runner.js instead of
@@ -624,6 +750,38 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
     // LOGIC CHANGE 2026-03-26: Clear rate limit state on successful task completion.
     // This resets the exponential backoff counter.
     await clearRateLimitState();
+
+    // LOGIC CHANGE 2026-03-28: Phase 3 of code review pipeline.
+    // Run tests and quality checks after execution. Post results to ops channel.
+    // Tests failing here means Claude didn't run them properly — report as "needs-fix".
+    if (task.repo && taskDir && fs.existsSync(taskDir)) {
+      try {
+        const validation = validateOutput(taskDir, { testScript: 'npm test' });
+        if (!validation.passed) {
+          await postToOps(
+            `:warning: *Code review: tests failed after task completion.*\n` +
+            `Task: ${task.description}\n` +
+            `Failed: ${validation.testsFailed}, Passed: ${validation.testsPassed}\n` +
+            `\`\`\`\n${validation.testOutput.slice(-1500)}\n\`\`\`\n` +
+            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
+          );
+        } else if (validation.testsPassed > 0) {
+          await postToOps(
+            `:white_check_mark: *Code review passed* — ${validation.testsPassed} tests passing.\n` +
+            `Task: ${task.description}\n` +
+            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
+          );
+        }
+        if (validation.warnings.length > 0) {
+          await postToOps(
+            `:mag: *Code review warnings:*\n${validation.warnings.map(w => `• ${w}`).join('\n')}\n` +
+            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
+          );
+        }
+      } catch (validErr) {
+        console.error('[bridge-agent] Phase 3 validation error:', validErr.message);
+      }
+    }
 
     // LOGIC CHANGE 2026-03-28: Post task completion bulletin for inter-agent awareness.
     // Other agents can see what tasks have been completed without watching ops channel.
@@ -1158,7 +1316,10 @@ async function poll() {
 
         // LOGIC CHANGE 2026-03-27: TASK: messages always go to bridge agent regardless of channel.
         // This allows tasks to be submitted from any agent channel but always use bridge for execution.
-        if (isTaskMessage(msg) && !alreadyProcessed(msg)) {
+        // LOGIC CHANGE 2026-03-28: Added isTaskProcessed() deduplication check to prevent
+        // re-processing old messages after bot restarts. alreadyProcessed() checks reactions;
+        // isTaskProcessed() checks our local processed-tasks.json file.
+        if (isTaskMessage(msg) && !alreadyProcessed(msg) && !isTaskProcessed(msg.ts)) {
           console.log(`[bridge-agent] Task found in ${agentId} channel: ${msg.ts}`);
           isRunning = true;
 
@@ -1170,6 +1331,10 @@ async function poll() {
           currentTaskPromise = null;
 
           isRunning = false;
+
+          // LOGIC CHANGE 2026-03-28: Mark message as processed after completion (success or fail).
+          // Prevents re-processing on next startup even if reaction emoji was not added.
+          markTaskProcessed(msg.ts);
 
           // LOGIC CHANGE 2026-03-26: After processing a task, check if we got rate limited.
           // If so, exit the loop to pause processing.
@@ -1183,8 +1348,10 @@ async function poll() {
 
         // LOGIC CHANGE 2026-03-27: ASK: messages are routed to the agent that owns the channel.
         // Each agent processes conversations with its own personality and system_prompt.
-        if (isConversationMessage(msg) && !alreadyProcessed(msg)) {
+        // LOGIC CHANGE 2026-03-28: Added isTaskProcessed() to prevent re-answering old ASK: messages.
+        if (isConversationMessage(msg) && !alreadyProcessed(msg) && !isTaskProcessed(msg.ts)) {
           await processConversation(msg, channelId, channelAgentConfig);
+          markTaskProcessed(msg.ts);
         }
       }
     } catch (err) {
@@ -1352,13 +1519,26 @@ console.log(`  Channels: ${channelsToPoll.length} (${channelsToPoll.map(c => c.a
 // Run memory maintenance before starting poll loop
 runStartupMemoryMaintenance();
 
+// LOGIC CHANGE 2026-03-28: Clean up processed-tasks entries older than 7 days on startup.
+cleanupProcessedTasks();
+
 // LOGIC CHANGE 2026-03-28: Start the agent scheduler for cron-based proactive tasks.
 // Each agent with a schedule field gets a cron job that posts TASK messages to their channel.
 const schedulerResult = startScheduler(slack);
 console.log(`  Scheduler: ${schedulerResult.jobCount} jobs (${schedulerResult.agents.join(', ') || 'none'})`);
 
-poll();
-setInterval(poll, POLL_INTERVAL);
+// LOGIC CHANGE 2026-03-28: Join all agent channels before starting the poll loop.
+// Runs async so the bot is guaranteed to be in all channels before first poll.
+// This must happen on EVERY startup — channels might be recreated while offline.
+(async () => {
+  try {
+    await slackClient.joinAgentChannels(channelsToPoll);
+  } catch (joinErr) {
+    console.error('[bridge-agent] Failed to join agent channels on startup:', joinErr.message);
+  }
+  poll();
+  setInterval(poll, POLL_INTERVAL);
+})();
 
 // LOGIC CHANGE 2026-03-27: Graceful shutdown handler for SIGTERM and SIGINT.
 // Sets shuttingDown flag to stop new task processing, waits for current task
