@@ -2,6 +2,11 @@ node_modules
 .env
 .bridge-agent-state.json
 
+# Agent state files (local only)
+agents/shared/watercooler-state.json
+agents/shared/bulletin.json
+data/delivery-quotes.json
+
 # Memory data files (local only)
 memory/*.json
 package-lock.json
