@@ -386,6 +386,62 @@ describe('owner-tasks', () => {
       expect(new Date(updated._meta.lastUpdated)).toBeInstanceOf(Date);
     });
   });
+
+  // LOGIC CHANGE 2026-03-28: Added tests for completeChecklistItem() function
+  describe('completeChecklistItem', () => {
+    test('marks task as completed by exact description match', () => {
+      const result = ownerTasks.completeChecklistItem('bridge', 'Task 2 high priority');
+      expect(result.success).toBe(true);
+      expect(result.matched).toBe('Task 2 high priority');
+
+      const checklists = ownerTasks.loadChecklists();
+      expect(checklists.bridge.tasks[1].completed).toBe(true);
+      expect(checklists.bridge.tasks[1].completedAt).toBeDefined();
+    });
+
+    test('marks task as completed by partial description match', () => {
+      const result = ownerTasks.completeChecklistItem('bridge', 'high priority');
+      expect(result.success).toBe(true);
+      expect(result.matched).toBe('Task 2 high priority');
+    });
+
+    test('is case-insensitive', () => {
+      const result = ownerTasks.completeChecklistItem('bridge', 'TASK 2 HIGH PRIORITY');
+      expect(result.success).toBe(true);
+      expect(result.matched).toBe('Task 2 high priority');
+    });
+
+    test('returns error for missing agentId', () => {
+      const result = ownerTasks.completeChecklistItem('', 'Some task');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('required');
+    });
+
+    test('returns error for missing itemDescription', () => {
+      const result = ownerTasks.completeChecklistItem('bridge', '');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('required');
+    });
+
+    test('returns error for non-existent agent', () => {
+      const result = ownerTasks.completeChecklistItem('nonexistent', 'Some task');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('not found');
+    });
+
+    test('returns error for non-matching description', () => {
+      const result = ownerTasks.completeChecklistItem('bridge', 'This task does not exist');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('No task matching');
+    });
+
+    test('succeeds with note when task already completed', () => {
+      // Task 1 is already completed in mockChecklists
+      const result = ownerTasks.completeChecklistItem('bridge', 'Task 1 completed');
+      expect(result.success).toBe(true);
+      expect(result.note).toContain('already completed');
+    });
+  });
 });
 
 // NOTE: Tests for owner-tasks.json CRUD functions (loadOwnerTasks, addOwnerTask,

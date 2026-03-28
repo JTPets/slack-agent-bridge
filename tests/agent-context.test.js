@@ -77,7 +77,7 @@ describe('agent-context', () => {
                 { title: 'Client Call', start: '2026-03-29T14:00:00-04:00' },
             ]);
             ownerTasks.getPendingTasks.mockReturnValue([
-                { description: 'Set up email forwarding', priority: 'high' },
+                { description: 'Set up email forwarding', priority: 'high', agentName: 'Secretary' },
             ]);
 
             const context = await agentContext.buildSecretaryContext();
@@ -100,7 +100,7 @@ describe('agent-context', () => {
 
             expect(context).toContain("TODAY'S CALENDAR");
             expect(context).toContain('No events scheduled.');
-            expect(context).toContain('PENDING OWNER TASKS: None');
+            expect(context).toContain('PENDING OWNER TASKS: All complete!');
         });
 
         it('should handle calendar API errors gracefully', async () => {
@@ -113,6 +113,47 @@ describe('agent-context', () => {
             // Should not throw, should include empty calendar data
             expect(context).toContain("TODAY'S CALENDAR");
             expect(context).toContain('No events scheduled.');
+        });
+
+        // LOGIC CHANGE 2026-03-28: Added tests for priority grouping and limit of 5
+        it('should group tasks by priority and limit to 5', async () => {
+            googleCalendar.getAllTodayEvents.mockResolvedValue([]);
+            googleCalendar.getAllTomorrowEvents.mockResolvedValue([]);
+            ownerTasks.getPendingTasks.mockReturnValue([
+                { description: 'High 1', priority: 'high', agentName: 'A' },
+                { description: 'High 2', priority: 'high', agentName: 'B' },
+                { description: 'Medium 1', priority: 'medium', agentName: 'C' },
+                { description: 'Low 1', priority: 'low', agentName: 'D' },
+                { description: 'Medium 2', priority: 'medium', agentName: 'E' },
+                { description: 'Low 2', priority: 'low', agentName: 'F' },
+                { description: 'High 3', priority: 'high', agentName: 'G' },
+            ]);
+
+            const context = await agentContext.buildSecretaryContext();
+
+            // Should include top 5 by priority (high first)
+            expect(context).toContain('High 1');
+            expect(context).toContain('High 2');
+            expect(context).toContain('High 3');
+            expect(context).toContain('Medium 1');
+            expect(context).toContain('Medium 2');
+            // Low priority should be cut off (only 5 shown)
+            expect(context).not.toContain('Low 1');
+            expect(context).not.toContain('Low 2');
+            // Should show count of remaining
+            expect(context).toContain('2 more tasks not shown');
+        });
+
+        it('should include agent name in task output', async () => {
+            googleCalendar.getAllTodayEvents.mockResolvedValue([]);
+            googleCalendar.getAllTomorrowEvents.mockResolvedValue([]);
+            ownerTasks.getPendingTasks.mockReturnValue([
+                { description: 'Test task', priority: 'high', agentName: 'Secretary' },
+            ]);
+
+            const context = await agentContext.buildSecretaryContext();
+
+            expect(context).toContain('[Secretary]');
         });
     });
 

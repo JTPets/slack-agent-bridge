@@ -6,9 +6,9 @@
       { "description": "Create Slack app and bot token", "completed": true },
       { "description": "Create #claude-bridge and #sqtools-ops channels", "completed": true },
       { "description": "Install Node.js and Claude Code CLI", "completed": true },
-      { "description": "Add ALLOWED_USER_IDS to .env", "completed": false, "priority": "high" },
-      { "description": "Create #bot-memory channel and add MEMORY_CHANNEL_ID to .env", "completed": false, "priority": "medium" },
-      { "description": "Pull latest code: cd ~/jt-agent && git pull origin main && npm install && pm2 restart bridge-agent", "completed": false, "priority": "high" }
+      { "description": "Add ALLOWED_USER_IDS to .env", "completed": true, "priority": "high", "completedAt": "2026-03-26" },
+      { "description": "Create #bot-memory channel and add MEMORY_CHANNEL_ID to .env", "completed": true, "priority": "medium", "completedAt": "2026-03-26" },
+      { "description": "Verify branch protection enabled on main", "completed": true, "priority": "high", "completedAt": "2026-03-26" }
     ]
   },
   "secretary": {
@@ -16,13 +16,11 @@
     "status": "active",
     "tasks": [
       { "description": "Create #secretary-inbox Slack channel", "completed": true, "priority": "high" },
-      { "description": "Invite @bridge-agent to #secretary-inbox channel", "completed": true, "priority": "high" },
-      { "description": "Create Google Cloud service account for Calendar API", "completed": false, "priority": "high" },
-      { "description": "Share calendars with service account email", "completed": false, "priority": "high" },
-      { "description": "Add GOOGLE_SERVICE_ACCOUNT_KEY path to .env", "completed": false, "priority": "high" },
-      { "description": "Add GOOGLE_CALENDAR_IDS to .env", "completed": false, "priority": "medium" },
-      { "description": "Create Gmail API OAuth credentials (for email monitoring)", "completed": false, "priority": "medium" },
-      { "description": "Add Gmail credentials to .env (GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN)", "completed": false, "priority": "medium" }
+      { "description": "Invite @bridge-agent to #secretary-inbox channel", "completed": true, "priority": "high", "note": "Auto-join handles this now" },
+      { "description": "Set up Google Calendar OAuth refresh token", "completed": true, "priority": "high", "completedAt": "2026-03-27", "note": "Using OAuth instead of service account" },
+      { "description": "Add GOOGLE_CALENDAR_IDS to .env", "completed": true, "priority": "medium", "completedAt": "2026-03-27" },
+      { "description": "Set up Gmail API OAuth credentials", "completed": true, "priority": "medium", "completedAt": "2026-03-28", "note": "Shared refresh token with Calendar" },
+      { "description": "Test Gmail API read access in morning digest", "completed": false, "priority": "medium" }
     ]
   },
   "security": {
@@ -30,10 +28,10 @@
     "status": "active",
     "tasks": [
       { "description": "Create #sqtools-alerts Slack channel", "completed": true },
-      { "description": "Invite @bridge-agent to #sqtools-alerts channel", "completed": true, "priority": "high" },
+      { "description": "Invite @bridge-agent to #sqtools-alerts channel", "completed": true, "priority": "high", "note": "Auto-join handles this now" },
       { "description": "Assign channel C0ANZUQQRGW in agents.json", "completed": true, "priority": "high" },
-      { "description": "Verify REPOS env var lists all repos to scan", "completed": false, "priority": "medium" },
-      { "description": "Test security review: node security-review.js (manual run)", "completed": false, "priority": "low" }
+      { "description": "Verify REPOS env var lists all repos to scan", "completed": true, "priority": "medium", "completedAt": "2026-03-27" },
+      { "description": "Add Gemini API key for LLM analysis", "completed": true, "priority": "high", "completedAt": "2026-03-27" }
     ]
   },
   "code-bridge": {
@@ -41,7 +39,7 @@
     "status": "active",
     "tasks": [
       { "description": "Create #code-review Slack channel", "completed": true, "priority": "high" },
-      { "description": "Invite @bridge-agent to #code-review channel", "completed": true, "priority": "high" },
+      { "description": "Invite @bridge-agent to #code-review channel", "completed": true, "priority": "high", "note": "Auto-join handles this now" },
       { "description": "Assign channel C0AP42BT4MR in agents.json", "completed": true, "priority": "high" },
       { "description": "Create agents/code-bridge/memory directory", "completed": true, "priority": "medium" }
     ]
@@ -53,18 +51,18 @@
     "tasks": [
       { "description": "Assign channel C0AP42BT4MR in agents.json (shared with code-bridge)", "completed": true, "priority": "high" },
       { "description": "Create agents/code-sqtools/memory directory", "completed": true, "priority": "medium" },
-      { "description": "Verify branch protection on SquareDashboardTool main branch", "completed": false, "priority": "high" }
+      { "description": "Verify branch protection on SquareDashboardTool main branch", "completed": true, "priority": "high", "completedAt": "2026-03-26" }
     ]
   },
   "storefront": {
     "name": "Storefront Agent",
     "status": "planned",
     "tasks": [
-      { "description": "Create #store-inbox Slack channel", "completed": false, "priority": "high" },
-      { "description": "Invite @bridge-agent to #store-inbox channel", "completed": false, "priority": "high" },
+      { "description": "Create #store-inbox Slack channel", "completed": true, "priority": "high", "completedAt": "2026-03-26" },
+      { "description": "Invite @bridge-agent to #store-inbox channel", "completed": true, "priority": "high", "note": "Auto-join handles this now" },
       { "description": "Create Square API credentials (read-only app)", "completed": false, "priority": "high" },
       { "description": "Add SQUARE_ACCESS_TOKEN to .env", "completed": false, "priority": "high" },
-      { "description": "Design chat widget for JTPets.ca website", "completed": false, "priority": "medium" },
+      { "description": "Design chat widget for JTPets.ca website", "completed": true, "priority": "medium", "completedAt": "2026-03-27" },
       { "description": "Create product catalog skill with nutrition data", "completed": false, "priority": "medium" }
     ]
   },
@@ -75,19 +73,13 @@
     "phases": {
       "phase_1_sms": {
         "name": "Phase 1: SMS Bot",
+        "note": "Replaced by httpSMS integration - uses owner's Android phone for free SMS",
         "tasks": [
-          { "description": "Create Twilio account and verify phone number ownership", "completed": false, "priority": "high" },
-          { "description": "Purchase Twilio phone number (~$1.15 USD/month)", "completed": false, "priority": "high" },
-          { "description": "Set up Cloudflare Tunnel for webhook endpoint", "completed": false, "priority": "high" },
-          { "description": "Add TWILIO_ACCOUNT_SID to .env", "completed": false, "priority": "high" },
-          { "description": "Add TWILIO_AUTH_TOKEN to .env", "completed": false, "priority": "high" },
-          { "description": "Add TWILIO_PHONE_NUMBER to .env", "completed": false, "priority": "high" },
-          { "description": "Add TWILIO_WEBHOOK_URL to .env (Cloudflare Tunnel URL)", "completed": false, "priority": "high" },
-          { "description": "Create #store-inbox Slack channel (shared with Storefront)", "completed": false, "priority": "high" },
-          { "description": "Add STORE_INBOX_CHANNEL_ID to .env", "completed": false, "priority": "high" },
-          { "description": "Create integrations/twilio.js Express webhook handler", "completed": false, "priority": "high" },
-          { "description": "Configure Twilio SMS webhook URL in Twilio console", "completed": false, "priority": "high" },
-          { "description": "Test SMS send/receive flow end-to-end", "completed": false, "priority": "high" }
+          { "description": "Set up httpSMS integration instead of Twilio for SMS", "completed": true, "priority": "high", "completedAt": "2026-03-27" },
+          { "description": "Add HTTPSMS_API_KEY to .env", "completed": true, "priority": "high", "completedAt": "2026-03-27" },
+          { "description": "Add HTTPSMS_PHONE_NUMBER to .env", "completed": true, "priority": "high", "completedAt": "2026-03-27" },
+          { "description": "Create #store-inbox Slack channel (shared with Storefront)", "completed": true, "priority": "high", "completedAt": "2026-03-26" },
+          { "description": "Add STORE_INBOX_CHANNEL_ID to .env", "completed": true, "priority": "high", "completedAt": "2026-03-26" }
         ]
       },
       "phase_2_ivr": {
@@ -122,7 +114,7 @@
     "tasks": [
       { "description": "Create agents/jester/memory directory", "completed": true, "priority": "medium" },
       { "description": "Write Jester personality prompt/system message", "completed": true, "priority": "medium" },
-      { "description": "Complete Twilio Phase 1 (SMS) activation", "completed": false, "priority": "high", "depends_on": "twilio.phase_1_sms" },
+      { "description": "Complete httpSMS activation for SMS Jester", "completed": true, "priority": "high", "completedAt": "2026-03-27" },
       { "description": "Test JESTER: prefix routing via SMS", "completed": false, "priority": "medium" },
       { "description": "Complete Twilio Phase 3 (Voice) for voice Jester", "completed": false, "priority": "low", "depends_on": "twilio.phase_3_voice" }
     ]
@@ -136,8 +128,8 @@
       { "description": "Add META_ACCESS_TOKEN to .env", "completed": false, "priority": "high" },
       { "description": "Add META_PAGE_ID to .env", "completed": false, "priority": "high" },
       { "description": "Add INSTAGRAM_BUSINESS_ID to .env", "completed": false, "priority": "high" },
-      { "description": "Create #social-media Slack channel for draft approvals", "completed": false, "priority": "high" },
-      { "description": "Invite @bridge-agent to #social-media channel", "completed": false, "priority": "high" },
+      { "description": "Create #social-media Slack channel for draft approvals", "completed": true, "priority": "high", "completedAt": "2026-03-27" },
+      { "description": "Invite @bridge-agent to #social-media channel", "completed": true, "priority": "high", "note": "Auto-join handles this now" },
       { "description": "Create content calendar template skill", "completed": false, "priority": "medium" },
       { "description": "Build product spotlight generator from Square catalog", "completed": false, "priority": "medium" },
       { "description": "Create nutrition tip library from owner knowledge", "completed": false, "priority": "medium" },
@@ -157,9 +149,8 @@
       { "description": "Add GA_PROPERTY_ID to .env", "completed": false, "priority": "high" },
       { "description": "Create Yelp Fusion API app at yelp.com/developers", "completed": false, "priority": "medium" },
       { "description": "Add YELP_API_KEY to .env", "completed": false, "priority": "medium" },
-      { "description": "Create #marketing Slack channel", "completed": false, "priority": "high" },
-      { "description": "Invite @bridge-agent to #marketing channel", "completed": false, "priority": "high" },
-      { "description": "Grant service account access to GBP and Merchant Center", "completed": false, "priority": "high" },
+      { "description": "Create #marketing Slack channel", "completed": true, "priority": "high", "completedAt": "2026-03-27" },
+      { "description": "Invite @bridge-agent to #marketing channel", "completed": true, "priority": "high", "note": "Auto-join handles this now" },
       { "description": "Test GBP post creation with a test post", "completed": false, "priority": "medium" },
       { "description": "Run initial Merchant Center product sync", "completed": false, "priority": "medium" },
       { "description": "Verify Analytics data access with test report", "completed": false, "priority": "medium" }
@@ -180,16 +171,16 @@
       { "description": "Add LINKEDIN_ORG_URN to .env (SqTools page URN)", "completed": false, "priority": "high" },
       { "description": "Add LINKEDIN_CLIENT_ID to .env", "completed": false, "priority": "high" },
       { "description": "Add LINKEDIN_CLIENT_SECRET to .env", "completed": false, "priority": "high" },
-      { "description": "Verify #social-media channel exists (C0AP8CHCV1U)", "completed": false, "priority": "high" },
-      { "description": "Invite @bridge-agent to #social-media channel if not already", "completed": false, "priority": "high" },
+      { "description": "Verify #social-media channel exists (C0AP8CHCV1U)", "completed": true, "priority": "high", "completedAt": "2026-03-27" },
+      { "description": "Invite @bridge-agent to #social-media channel if not already", "completed": true, "priority": "high", "note": "Auto-join handles this now" },
       { "description": "Create agents/story-bot/memory directory", "completed": true, "priority": "medium" },
       { "description": "Test LinkedIn API with a draft post (don't publish)", "completed": false, "priority": "medium" },
       { "description": "Write first 3 content pieces for approval", "completed": false, "priority": "medium" }
     ]
   },
   "_meta": {
-    "version": 3,
-    "lastUpdated": "2026-03-27",
-    "description": "Activation checklists for multi-agent system. Tasks marked completed:true are done. Priority: high, medium, low. The twilio integration has phased sub-checklists."
+    "version": 4,
+    "lastUpdated": "2026-03-28",
+    "description": "Activation checklists for multi-agent system. Tasks marked completed:true are done. Priority: high, medium, low. The twilio integration has phased sub-checklists. LOGIC CHANGE 2026-03-28: Cleaned up obsolete service account tasks (using OAuth), marked completed channel/invite tasks (auto-join), marked branch protection as done."
   }
 }
