@@ -7,15 +7,26 @@ This document specifies the phone capabilities for the Secretary agent, enabling
 ## Overview
 
 The Secretary agent acts as the receptionist for JT Pets, handling:
-- **Inbound calls**: IVR menu, call routing, voicemail, message logging
-- **Outbound calls**: Delivery confirmations, appointment reminders, vendor follow-ups
-- **SMS**: Delivery ETAs, order confirmations, two-way customer communication
+- **Inbound calls**: IVR menu, call routing, voicemail, message logging (via Twilio)
+- **Outbound calls**: Delivery confirmations, appointment reminders, vendor follow-ups (via Twilio)
+- **SMS**: Delivery ETAs, order confirmations, two-way customer communication (via httpSMS)
 
 The Secretary integrates with Google Calendar to determine store hours and staff availability, and coordinates with other agents (especially store-ops) via the bulletin board pattern.
 
+### SMS Provider: httpSMS (Primary)
+
+Delivery confirmations and customer text messages are routed through **httpSMS** (`lib/integrations/httpsms.js`). This uses the owner's Android phone with the httpSMS app installed, meaning:
+- **Free**: No monthly costs for SMS
+- **Local number**: Customers see a real local phone number they recognize
+- **Simple**: No Twilio account needed for basic SMS
+
+Voice features (IVR, voicemail, call forwarding) require Twilio. See [docs/SMS-INTEGRATION.md](SMS-INTEGRATION.md) for provider comparison.
+
 ---
 
-## Inbound Call Flow
+## Inbound Call Flow (Twilio Required)
+
+Voice calls require Twilio. For SMS-only operation, skip to the SMS Capabilities section.
 
 ### Architecture
 
@@ -92,11 +103,11 @@ Status: Resolved
 
 ---
 
-## Outbound Call Flow
+## Outbound Notifications
 
-### Delivery Confirmations
+### Delivery Confirmations (via httpSMS)
 
-The Secretary monitors the bulletin board for delivery tasks posted by store-ops:
+The Secretary monitors the bulletin board for delivery tasks posted by store-ops and sends SMS notifications via httpSMS.
 
 **Bulletin Board Entry (from store-ops):**
 ```json
@@ -110,24 +121,22 @@ The Secretary monitors the bulletin board for delivery tasks posted by store-ops
 }
 ```
 
-**Secretary Response (30 minutes before delivery):**
+**Secretary Response (30 minutes before delivery) - SMS via httpSMS:**
+```
+📱 SMS to +1 (416) 555-1234 (via httpSMS):
+"Your JT Pets order is out for delivery! 🐾
+ETA ~30 minutes
+Items: 2x Acana Adult Dog 25lb
+Reply YES to confirm, or call us to reschedule."
+```
 
-Option A - Auto-call:
+**Optional: Auto-call via Twilio** (if Twilio configured):
 ```
 Secretary calls customer:
 "Hi, this is JT Pets! Your delivery is on the way.
 Expected arrival is around 3pm.
 Press 1 to confirm someone will be there.
 Press 2 if you need to reschedule."
-```
-
-Option B - SMS:
-```
-📱 SMS to +1 (416) 555-1234:
-"Your JT Pets order is out for delivery! 🐾
-ETA ~30 minutes
-Items: 2x Acana Adult Dog 25lb
-Reply YES to confirm, or call us to reschedule."
 ```
 
 **Bulletin Board Update (from Secretary):**
@@ -141,32 +150,32 @@ Reply YES to confirm, or call us to reschedule."
 }
 ```
 
-### Appointment Reminders
+### Appointment Reminders (via httpSMS)
 
-For appointments on the calendar (grooming, pickup times, etc.):
+For appointments on the calendar (grooming, pickup times, etc.), Secretary sends SMS reminders via httpSMS.
 
 **24 hours before:**
 ```
-SMS: "Hi! Reminder: Your JT Pets appointment is tomorrow at 10am.
+SMS via httpSMS: "Hi! Reminder: Your JT Pets appointment is tomorrow at 10am.
 Reply YES to confirm or call us to reschedule."
 ```
 
 **2 hours before:**
 ```
-SMS: "Your JT Pets appointment is in 2 hours at 10am. See you soon! 🐾"
+SMS via httpSMS: "Your JT Pets appointment is in 2 hours at 10am. See you soon! 🐾"
 ```
 
-### Vendor Follow-ups
+### Vendor Follow-ups (via httpSMS)
 
-Secretary monitors the calendar for missed vendor orders:
+Secretary monitors the calendar for missed vendor orders and sends reminders via httpSMS.
 
 **Example Scenario:**
 - Calendar shows "Hagen Order Due" at 6pm
 - Owner doesn't mark it complete by 6:30pm
-- Secretary calls/texts owner:
+- Secretary texts owner via httpSMS:
 
 ```
-SMS to owner:
+SMS to owner (via httpSMS):
 "Hey boss, looks like the Hagen order was due at 6pm but I don't see it marked complete.
 Want me to draft it now? Reply YES and I'll have it ready for you to review."
 ```
@@ -189,7 +198,9 @@ You asked about [transcribed voicemail summary].
 
 ---
 
-## SMS Capabilities
+## SMS Capabilities (via httpSMS)
+
+All SMS is routed through httpSMS (`lib/integrations/httpsms.js`). This provides free SMS using the owner's Android phone number.
 
 ### Inbound SMS
 
@@ -201,7 +212,7 @@ Customer texts are handled by the Storefront agent by default, but Secretary mon
 | "HOURS" or "OPEN" | Respond with store hours |
 | "CALLBACK" or "CALL ME" | Add to callback queue, confirm with customer |
 
-### Outbound SMS
+### Outbound SMS (all via httpSMS)
 
 | Type | Trigger | Content |
 |------|---------|---------|
@@ -209,6 +220,8 @@ Customer texts are handled by the Storefront agent by default, but Secretary mon
 | Delivery Confirmed | Driver confirms | "Your order has been delivered! Thanks for shopping with JT Pets 🐾" |
 | Order Confirmation | Storefront order created | "Order confirmed! Total: $X. Pickup ready in ~30 min" |
 | Appointment Reminder | Calendar event | "Reminder: Your appointment is tomorrow at X" |
+
+All outbound SMS uses `lib/integrations/httpsms.js` - no Twilio costs for SMS.
 
 ---
 
@@ -359,14 +372,28 @@ Secretary uses the existing `lib/integrations/google-calendar.js` for:
 
 ## Environment Variables
 
-Uses the same Twilio variables from CLAUDE.md:
+### httpSMS (Required for SMS)
+
+| Variable | Description |
+|----------|-------------|
+| `HTTPSMS_API_KEY` | API key from httpsms.com. **Never log this.** |
+| `HTTPSMS_PHONE_NUMBER` | Owner's phone number with httpSMS app (+1...) |
+
+### Twilio (Optional - for voice features)
 
 | Variable | Description |
 |----------|-------------|
 | `TWILIO_ACCOUNT_SID` | Twilio account SID |
 | `TWILIO_AUTH_TOKEN` | Twilio auth token (never log) |
 | `TWILIO_PHONE_NUMBER` | JT Pets Twilio phone number |
+
+### Shared
+
+| Variable | Description |
+|----------|-------------|
 | `STORE_INBOX_CHANNEL_ID` | Slack channel for call/SMS logs |
+
+See [docs/SMS-INTEGRATION.md](SMS-INTEGRATION.md) for full provider details.
 
 Additional Secretary-specific settings in `context.json`:
 
@@ -389,3 +416,4 @@ Additional Secretary-specific settings in `context.json`:
 | Date | Change |
 |------|--------|
 | 2026-03-26 | Initial secretary phone design specification |
+| 2026-03-27 | Updated to use httpSMS for delivery confirmations and customer texts. Twilio now optional (for voice only). |
