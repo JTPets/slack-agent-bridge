@@ -144,6 +144,27 @@
       { "description": "Design Instagram post templates (optional Canva integration)", "completed": false, "priority": "low" }
     ]
   },
+  "marketing": {
+    "name": "Marketing Manager",
+    "status": "planned",
+    "doc": "docs/MARKETING-AGENT-DESIGN.md",
+    "tasks": [
+      { "description": "Enable Google Business Profile API in Google Cloud Console", "completed": false, "priority": "high" },
+      { "description": "Add GOOGLE_BUSINESS_PROFILE_ACCOUNT_ID to .env", "completed": false, "priority": "high" },
+      { "description": "Create Google Merchant Center account and link to Square", "completed": false, "priority": "high" },
+      { "description": "Add GOOGLE_MERCHANT_CENTER_ID to .env", "completed": false, "priority": "high" },
+      { "description": "Enable Google Analytics Data API", "completed": false, "priority": "high" },
+      { "description": "Add GA_PROPERTY_ID to .env", "completed": false, "priority": "high" },
+      { "description": "Create Yelp Fusion API app at yelp.com/developers", "completed": false, "priority": "medium" },
+      { "description": "Add YELP_API_KEY to .env", "completed": false, "priority": "medium" },
+      { "description": "Create #marketing Slack channel", "completed": false, "priority": "high" },
+      { "description": "Invite @bridge-agent to #marketing channel", "completed": false, "priority": "high" },
+      { "description": "Grant service account access to GBP and Merchant Center", "completed": false, "priority": "high" },
+      { "description": "Test GBP post creation with a test post", "completed": false, "priority": "medium" },
+      { "description": "Run initial Merchant Center product sync", "completed": false, "priority": "medium" },
+      { "description": "Verify Analytics data access with test report", "completed": false, "priority": "medium" }
+    ]
+  },
   "_meta": {
     "version": 3,
     "lastUpdated": "2026-03-27",
