@@ -149,6 +149,7 @@ const POLL_INTERVAL = 5000;
 | `WORK_DIR` | Base dir for temp clones | `/tmp/bridge-agent` |
 | `REPOS` | Comma-separated repos for security-review | `jtpets/slack-agent-bridge,jtpets/SquareDashboardTool` |
 | `CLAUDE_RATE_LIMIT_PAUSE` | Initial pause duration (ms) when rate limit/bandwidth exhausted | `1800000` |
+| `STORE_TASKS_CHANNEL_ID` | #store-tasks channel ID for staff task management | - |
 
 **LLM_PROVIDER options:** `claude` (default), `openai` (not yet implemented), `ollama` (not yet implemented)
 
@@ -284,6 +285,9 @@ slack-agent-bridge/
 ├── agents/
 │   ├── agents.json               # Agent registry: defines all agents, permissions, and config
 │   ├── activation-checklists.json # Owner action items for activating each agent
+│   ├── shared/
+│   │   ├── staff.json            # Staff member definitions (name, slackId, role)
+│   │   └── daily-tasks-template.json  # Recurring daily store tasks template
 │   ├── bridge/
 │   │   └── memory/       # Bridge agent's tiered memory directory
 │   │       ├── context.json      # Permanent: owner info, preferences
@@ -302,6 +306,7 @@ slack-agent-bridge/
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
 │   ├── owner-tasks.js    # Owner task management: activation checklists, pending tasks, ACTION REQUIRED detection
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, etc.)
+│   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
 │   └── integrations/
@@ -338,7 +343,8 @@ slack-agent-bridge/
 │   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management)
 │   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command)
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
-│   └── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
+│   ├── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
+│   └── staff-tasks.test.js      # Tests for lib/staff-tasks.js (assignments, escalations, daily tasks)
 ├── docs/
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
 │   ├── COURIER-INTAKE.md    # Courier intake page and delivery quote API documentation
@@ -463,6 +469,19 @@ ASK: my tasks
 ASK: pending tasks
 ```
 Returns: activation checklists and ACTION REQUIRED items from recent tasks.
+
+### Staff Tasks
+Manage daily store operations tasks (requires `STORE_TASKS_CHANNEL_ID`):
+```
+ASK: assign [task] to [name] by [time]
+ASK: what tasks are overdue
+ASK: store tasks today
+```
+- Tasks are posted to #store-tasks with priority emoji, assignee, and due time
+- Staff members defined in `agents/shared/staff.json`
+- Daily recurring tasks from `agents/shared/daily-tasks-template.json`
+- Critical overdue tasks (high priority, 1+ hour late) escalate to owner via DM
+- Morning digest includes staff task summary
 
 ---
 

@@ -100,6 +100,10 @@ const notifyOwner = require('./lib/notify-owner');
 // Cycles through reactions while task runs: :eyes: -> :hourglass_flowing_sand: -> :gear:
 const { createHeartbeat } = require('./lib/heartbeat');
 
+// LOGIC CHANGE 2026-03-27: Added staff-tasks module for store operations task management.
+// Handles "assign [task] to [name] by [time]", "what tasks are overdue", and "store tasks today".
+const staffTasks = require('./lib/staff-tasks');
+
 // ---- Config ----
 
 // Validate required config
@@ -859,6 +863,64 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
           unfurl_links: false,
         });
         console.error(`[${agentId}] Create channel failed:`, channelErr.message);
+      }
+      return;
+    }
+
+    // LOGIC CHANGE 2026-03-27: Check for staff task commands.
+    // Handles "assign [task] to [name] by [time]", "what tasks are overdue", "store tasks today".
+    if (staffTasks.isStaffTaskCommand(questionText)) {
+      const commandType = staffTasks.parseStaffTaskCommandType(questionText);
+      console.log(`[${agentId}] Staff task command detected: ${commandType} (${msg.ts})`);
+
+      try {
+        let response;
+
+        if (commandType === 'assign') {
+          const parsed = staffTasks.parseAssignCommand(questionText);
+          if (!parsed) {
+            response = ':x: Invalid format. Use: `assign [task] to [name] by [time]`';
+          } else {
+            // Look up staff member
+            const staffMember = staffTasks.getStaffByName(parsed.assignee);
+            const assigneeId = staffMember ? staffMember.slackId : parsed.assignee;
+
+            // Check if STORE_TASKS_CHANNEL is configured
+            if (!config.STORE_TASKS_CHANNEL) {
+              response = ':x: STORE_TASKS_CHANNEL_ID not configured. Add it to .env first.';
+            } else {
+              const result = await staffTasks.createTask(slack, config.STORE_TASKS_CHANNEL, {
+                description: parsed.task,
+                assignee: assigneeId,
+                dueTime: parsed.dueTime,
+                priority: 'medium',
+              });
+              response = `:white_check_mark: Task created and posted to <#${config.STORE_TASKS_CHANNEL}>`;
+            }
+          }
+        } else if (commandType === 'overdue') {
+          response = staffTasks.formatOverdueList();
+        } else if (commandType === 'today') {
+          response = staffTasks.formatTodayList();
+        } else {
+          response = ':x: Unknown staff task command.';
+        }
+
+        await slack.chat.postMessage({
+          channel: sourceChannel,
+          thread_ts: msg.ts,
+          text: response,
+          unfurl_links: false,
+        });
+        console.log(`[${agentId}] Staff task command ${msg.ts} answered`);
+      } catch (staffErr) {
+        await slack.chat.postMessage({
+          channel: sourceChannel,
+          thread_ts: msg.ts,
+          text: `:x: Staff task error: ${staffErr.message}`,
+          unfurl_links: false,
+        });
+        console.error(`[${agentId}] Staff task command failed:`, staffErr.message);
       }
       return;
     }

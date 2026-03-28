@@ -1,0 +1,8 @@
+[
+  {
+    "name": "John",
+    "slackId": "U02QKNHHU7J",
+    "role": "owner",
+    "canReceiveEscalations": true
+  }
+]

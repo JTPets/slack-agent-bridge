@@ -23,6 +23,8 @@ const fs = require('fs');
 const path = require('path');
 const { getAllTodayEvents, getAllYesterdayEvents } = require('./lib/integrations/google-calendar');
 const { getTodaySpecialDates } = require('./lib/integrations/holidays');
+// LOGIC CHANGE 2026-03-27: Added staff-tasks integration for morning digest summary
+const staffTasks = require('./lib/staff-tasks');
 
 // ---- Config ----
 
@@ -337,7 +339,18 @@ async function buildDigest() {
         console.error('[morning-digest] Yesterday calendar section skipped:', err.message);
     }
 
-    lines.push('*Task summary:*');
+    // LOGIC CHANGE 2026-03-27: Added staff task summary section
+    try {
+        const staffSummary = staffTasks.formatDigestSummary();
+        if (staffSummary) {
+            lines.push(staffSummary);
+            lines.push('');
+        }
+    } catch (err) {
+        console.error('[morning-digest] Staff tasks section skipped:', err.message);
+    }
+
+    lines.push('*Agent task summary:*');
     lines.push(`• ${completedLast24h.length} task${completedLast24h.length !== 1 ? 's' : ''} completed yesterday`);
     lines.push(`• ${failedLast24h.length} task${failedLast24h.length !== 1 ? 's' : ''} failed`);
     lines.push(`• ${activeTasks.length} task${activeTasks.length !== 1 ? 's' : ''} still active`);

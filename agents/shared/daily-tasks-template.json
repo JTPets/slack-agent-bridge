@@ -1,0 +1,43 @@
+{
+  "_meta": {
+    "description": "Recurring daily tasks for store operations. Times are in America/Toronto timezone.",
+    "lastUpdated": "2026-03-27"
+  },
+  "tasks": [
+    {
+      "time": "09:00",
+      "description": "Open store checklist: lights, POS, check deliveries",
+      "priority": "high",
+      "assignee": null,
+      "category": "opening"
+    },
+    {
+      "time": "09:30",
+      "description": "Check and restock low shelves",
+      "priority": "medium",
+      "assignee": null,
+      "category": "inventory"
+    },
+    {
+      "time": "12:00",
+      "description": "Midday inventory check - freezer temps",
+      "priority": "high",
+      "assignee": null,
+      "category": "inventory"
+    },
+    {
+      "time": "16:00",
+      "description": "Prep delivery orders for driver",
+      "priority": "medium",
+      "assignee": null,
+      "category": "delivery"
+    },
+    {
+      "time": "20:30",
+      "description": "Close store checklist: POS reconcile, lock up, set alarm",
+      "priority": "high",
+      "assignee": null,
+      "category": "closing"
+    }
+  ]
+}
