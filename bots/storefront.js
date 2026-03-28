@@ -17,6 +17,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs').promises;
 const crypto = require('crypto');
 const { WebClient } = require('@slack/web-api');
 const { runLLM } = require('../lib/llm-runner');
@@ -25,6 +26,9 @@ const { runLLM } = require('../lib/llm-runner');
 const PORT = parseInt(process.env.STOREFRONT_PORT || '3001', 10);
 const STORE_INBOX_CHANNEL_ID = process.env.STORE_INBOX_CHANNEL_ID || 'C0APPBSAP4H';
 const ALLOWED_ORIGINS = (process.env.STOREFRONT_ALLOWED_ORIGINS || 'http://localhost:3000,https://jtpets.ca').split(',');
+
+// LOGIC CHANGE 2026-03-27: Delivery quotes storage file path
+const DELIVERY_QUOTES_FILE = process.env.DELIVERY_QUOTES_FILE || path.join(__dirname, '..', 'data', 'delivery-quotes.json');
 
 // LOGIC CHANGE 2026-03-27: Session storage for conversation context.
 // Maps session IDs to conversation history. Sessions expire after 1 hour.
@@ -167,6 +171,69 @@ function sanitizeInput(input) {
         .slice(0, 2000);
 }
 
+/**
+ * LOGIC CHANGE 2026-03-27: Load delivery quotes from JSON file.
+ * @returns {Promise<Array>} Array of quote objects
+ */
+async function loadDeliveryQuotes() {
+    try {
+        const data = await fs.readFile(DELIVERY_QUOTES_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (err) {
+        if (err.code === 'ENOENT') {
+            return [];
+        }
+        throw err;
+    }
+}
+
+/**
+ * LOGIC CHANGE 2026-03-27: Save delivery quotes to JSON file.
+ * @param {Array} quotes - Array of quote objects
+ */
+async function saveDeliveryQuotes(quotes) {
+    // Ensure data directory exists
+    const dataDir = path.dirname(DELIVERY_QUOTES_FILE);
+    await fs.mkdir(dataDir, { recursive: true });
+    await fs.writeFile(DELIVERY_QUOTES_FILE, JSON.stringify(quotes, null, 2));
+}
+
+/**
+ * LOGIC CHANGE 2026-03-27: Log delivery quote request to Slack.
+ * @param {Object} quoteData - The quote request data
+ */
+async function logDeliveryQuoteToSlack(quoteData) {
+    if (!slackClient) {
+        console.log('[storefront] No Slack client configured, skipping delivery quote log');
+        return;
+    }
+
+    try {
+        const priceText = quoteData.quote.contactRequired
+            ? 'Contact required (20km+)'
+            : `$${quoteData.quote.price}`;
+
+        const message = `*New Delivery Quote Request*\n` +
+            `> *Business:* ${quoteData.businessName}\n` +
+            `> *Contact:* ${quoteData.contactName}\n` +
+            `> *Phone:* ${quoteData.phone}\n` +
+            `> *Email:* ${quoteData.email}\n` +
+            `> *Pickup:* ${quoteData.pickupAddress}\n` +
+            `> *Delivery:* ${quoteData.deliveryAddress}\n` +
+            `> *Distance:* ${quoteData.quote.distance.toFixed(1)} km\n` +
+            `> *Quote:* ${priceText}`;
+
+        await slackClient.chat.postMessage({
+            channel: STORE_INBOX_CHANNEL_ID,
+            text: message,
+            unfurl_links: false,
+            unfurl_media: false,
+        });
+    } catch (err) {
+        console.error('[storefront] Failed to log delivery quote to Slack:', err.message);
+    }
+}
+
 // Create Express app
 const app = express();
 
@@ -198,6 +265,97 @@ app.get('/health', (req, res) => {
 // GET /widget - Serve the embeddable chat widget
 app.get('/widget', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'widget.html'));
+});
+
+// GET /delivery - Serve the delivery quote page
+app.get('/delivery', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'delivery.html'));
+});
+
+// POST /api/delivery-quote - Handle delivery quote submissions
+// LOGIC CHANGE 2026-03-27: Added delivery quote intake endpoint for courier service.
+app.post('/api/delivery-quote', async (req, res) => {
+    try {
+        const {
+            businessName,
+            contactName,
+            phone,
+            email,
+            pickupAddress,
+            deliveryAddress,
+            pickupCoords,
+            deliveryCoords,
+            quote
+        } = req.body;
+
+        // Validate required fields
+        if (!businessName || !contactName || !phone || !email || !pickupAddress || !deliveryAddress) {
+            return res.status(400).json({
+                error: 'All fields are required',
+                code: 'MISSING_FIELDS'
+            });
+        }
+
+        // Validate email format
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({
+                error: 'Invalid email format',
+                code: 'INVALID_EMAIL'
+            });
+        }
+
+        // Validate quote data
+        if (!quote || typeof quote.distance !== 'number') {
+            return res.status(400).json({
+                error: 'Invalid quote data',
+                code: 'INVALID_QUOTE'
+            });
+        }
+
+        // Build quote record
+        const quoteRecord = {
+            id: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+            businessName: sanitizeInput(businessName),
+            contactName: sanitizeInput(contactName),
+            phone: sanitizeInput(phone),
+            email: sanitizeInput(email),
+            pickupAddress: sanitizeInput(pickupAddress),
+            deliveryAddress: sanitizeInput(deliveryAddress),
+            pickupCoords,
+            deliveryCoords,
+            quote: {
+                distance: quote.distance,
+                price: quote.price,
+                contactRequired: quote.contactRequired
+            },
+            status: 'pending'
+        };
+
+        // Save to JSON file
+        const quotes = await loadDeliveryQuotes();
+        quotes.push(quoteRecord);
+        await saveDeliveryQuotes(quotes);
+
+        console.log(`[storefront] Delivery quote saved: ${quoteRecord.id} - ${businessName}`);
+
+        // Post to Slack (async, don't block response)
+        logDeliveryQuoteToSlack(quoteRecord).catch(() => {});
+
+        res.json({
+            success: true,
+            quoteId: quoteRecord.id,
+            message: 'Quote request received. We will follow up shortly.'
+        });
+
+    } catch (err) {
+        console.error('[storefront] Delivery quote error:', err.message);
+        res.status(500).json({
+            error: 'Failed to process quote request',
+            code: 'INTERNAL_ERROR'
+        });
+    }
 });
 
 // POST /api/chat - Handle chat messages
@@ -289,4 +447,8 @@ module.exports = {
     cleanExpiredSessions,
     sessions,
     STOREFRONT_AGENT_CONFIG,
+    loadDeliveryQuotes,
+    saveDeliveryQuotes,
+    logDeliveryQuoteToSlack,
+    DELIVERY_QUOTES_FILE,
 };

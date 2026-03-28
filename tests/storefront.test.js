@@ -22,7 +22,18 @@ jest.mock('../lib/llm-runner', () => ({
 // Set required env vars before requiring module
 process.env.SLACK_BOT_TOKEN = 'xoxb-test-token';
 
+// Mock fs.promises for delivery quote tests
+jest.mock('fs', () => ({
+    ...jest.requireActual('fs'),
+    promises: {
+        readFile: jest.fn(),
+        writeFile: jest.fn().mockResolvedValue(undefined),
+        mkdir: jest.fn().mockResolvedValue(undefined),
+    },
+}));
+
 const request = require('supertest');
+const fs = require('fs');
 const {
     app,
     getOrCreateSession,
@@ -31,6 +42,8 @@ const {
     cleanExpiredSessions,
     sessions,
     STOREFRONT_AGENT_CONFIG,
+    loadDeliveryQuotes,
+    saveDeliveryQuotes,
 } = require('../bots/storefront');
 const { runLLM } = require('../lib/llm-runner');
 
@@ -306,6 +319,160 @@ describe('storefront', () => {
         it('should include store information in system prompt', () => {
             expect(STOREFRONT_AGENT_CONFIG.systemPrompt).toContain('Toronto');
             expect(STOREFRONT_AGENT_CONFIG.systemPrompt).toContain('pet nutrition');
+        });
+    });
+
+    // LOGIC CHANGE 2026-03-27: Tests for delivery quote functionality
+    describe('delivery quote functions', () => {
+        beforeEach(() => {
+            jest.clearAllMocks();
+        });
+
+        describe('loadDeliveryQuotes', () => {
+            it('should return parsed JSON from file', async () => {
+                const mockQuotes = [{ id: '1', businessName: 'Test' }];
+                fs.promises.readFile.mockResolvedValue(JSON.stringify(mockQuotes));
+
+                const quotes = await loadDeliveryQuotes();
+
+                expect(quotes).toEqual(mockQuotes);
+            });
+
+            it('should return empty array if file does not exist', async () => {
+                const error = new Error('File not found');
+                error.code = 'ENOENT';
+                fs.promises.readFile.mockRejectedValue(error);
+
+                const quotes = await loadDeliveryQuotes();
+
+                expect(quotes).toEqual([]);
+            });
+
+            it('should throw other errors', async () => {
+                const error = new Error('Permission denied');
+                error.code = 'EACCES';
+                fs.promises.readFile.mockRejectedValue(error);
+
+                await expect(loadDeliveryQuotes()).rejects.toThrow('Permission denied');
+            });
+        });
+
+        describe('saveDeliveryQuotes', () => {
+            it('should create directory and write file', async () => {
+                const mockQuotes = [{ id: '1', businessName: 'Test' }];
+
+                await saveDeliveryQuotes(mockQuotes);
+
+                expect(fs.promises.mkdir).toHaveBeenCalled();
+                expect(fs.promises.writeFile).toHaveBeenCalledWith(
+                    expect.any(String),
+                    JSON.stringify(mockQuotes, null, 2)
+                );
+            });
+        });
+    });
+
+    describe('POST /api/delivery-quote', () => {
+        const validQuoteData = {
+            businessName: 'Pet Store Downtown',
+            contactName: 'Jane Smith',
+            phone: '905-555-1234',
+            email: 'jane@petstore.ca',
+            pickupAddress: '123 Main St, Hamilton, ON',
+            deliveryAddress: '456 King St, Hamilton, ON',
+            pickupCoords: { lat: 43.2501, lng: -79.8496 },
+            deliveryCoords: { lat: 43.2600, lng: -79.8600 },
+            quote: {
+                distance: 5.2,
+                price: 10,
+                contactRequired: false
+            }
+        };
+
+        beforeEach(() => {
+            fs.promises.readFile.mockResolvedValue('[]');
+            fs.promises.writeFile.mockResolvedValue(undefined);
+            fs.promises.mkdir.mockResolvedValue(undefined);
+        });
+
+        it('should accept valid quote request', async () => {
+            const response = await request(app)
+                .post('/api/delivery-quote')
+                .send(validQuoteData);
+
+            expect(response.status).toBe(200);
+            expect(response.body.success).toBe(true);
+            expect(response.body.quoteId).toBeDefined();
+        });
+
+        it('should return error for missing fields', async () => {
+            const response = await request(app)
+                .post('/api/delivery-quote')
+                .send({ businessName: 'Test' });
+
+            expect(response.status).toBe(400);
+            expect(response.body.code).toBe('MISSING_FIELDS');
+        });
+
+        it('should return error for invalid email', async () => {
+            const response = await request(app)
+                .post('/api/delivery-quote')
+                .send({
+                    ...validQuoteData,
+                    email: 'not-an-email'
+                });
+
+            expect(response.status).toBe(400);
+            expect(response.body.code).toBe('INVALID_EMAIL');
+        });
+
+        it('should return error for missing quote data', async () => {
+            const response = await request(app)
+                .post('/api/delivery-quote')
+                .send({
+                    ...validQuoteData,
+                    quote: null
+                });
+
+            expect(response.status).toBe(400);
+            expect(response.body.code).toBe('INVALID_QUOTE');
+        });
+
+        it('should save quote to JSON file', async () => {
+            await request(app)
+                .post('/api/delivery-quote')
+                .send(validQuoteData);
+
+            expect(fs.promises.writeFile).toHaveBeenCalled();
+            const writeCall = fs.promises.writeFile.mock.calls[0];
+            const savedData = JSON.parse(writeCall[1]);
+            expect(savedData).toHaveLength(1);
+            expect(savedData[0].businessName).toBe('Pet Store Downtown');
+        });
+
+        it('should handle contact-required quotes', async () => {
+            const response = await request(app)
+                .post('/api/delivery-quote')
+                .send({
+                    ...validQuoteData,
+                    quote: {
+                        distance: 25,
+                        price: null,
+                        contactRequired: true
+                    }
+                });
+
+            expect(response.status).toBe(200);
+            expect(response.body.success).toBe(true);
+        });
+    });
+
+    describe('GET /delivery', () => {
+        it('should return HTML content', async () => {
+            const response = await request(app).get('/delivery');
+
+            expect(response.status).toBe(200);
+            expect(response.headers['content-type']).toContain('text/html');
         });
     });
 });
