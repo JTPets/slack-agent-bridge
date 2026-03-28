@@ -116,6 +116,10 @@ const { startScheduler, stopScheduler } = require('./lib/agent-scheduler');
 // When a bulletin is posted, watching agents get notified via ASK messages.
 const bulletinWatcher = require('./lib/bulletin-watcher');
 
+// LOGIC CHANGE 2026-03-28: Added watercooler module for weekly team standup conversations.
+// Orchestrates multi-agent conversation where each agent shares updates in their voice.
+const watercooler = require('./lib/watercooler');
+
 // ---- Config ----
 
 // Validate required config
@@ -980,6 +984,41 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
         unfurl_links: false,
       });
       console.log(`[${agentId}] Bulletin query ${msg.ts} answered`);
+      return;
+    }
+
+    // LOGIC CHANGE 2026-03-28: Check for standup command ("team standup", "watercooler").
+    // Triggers the weekly team standup conversation where all agents share updates.
+    if (watercooler.isStandupCommand(questionText)) {
+      console.log(`[${agentId}] Standup command detected: ${msg.ts}`);
+      await slack.chat.postMessage({
+        channel: sourceChannel,
+        thread_ts: msg.ts,
+        text: ':coffee: Starting team standup... This will post to #sqtools-ops.',
+        unfurl_links: false,
+      });
+
+      try {
+        const result = await watercooler.runStandup(slack);
+        const statusMsg = result.success
+          ? `:white_check_mark: Standup complete! ${result.messagesPosted} messages posted.`
+          : `:warning: Standup finished with issues: ${result.errors.join(', ')}`;
+        await slack.chat.postMessage({
+          channel: sourceChannel,
+          thread_ts: msg.ts,
+          text: statusMsg,
+          unfurl_links: false,
+        });
+      } catch (standupErr) {
+        await slack.chat.postMessage({
+          channel: sourceChannel,
+          thread_ts: msg.ts,
+          text: `:x: Standup failed: ${standupErr.message}`,
+          unfurl_links: false,
+        });
+        console.error(`[${agentId}] Standup failed:`, standupErr.message);
+      }
+      console.log(`[${agentId}] Standup command ${msg.ts} completed`);
       return;
     }
 

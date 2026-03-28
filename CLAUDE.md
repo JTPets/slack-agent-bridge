@@ -275,6 +275,8 @@ slack-agent-bridge/
 ├── auto-update.js        # Git polling daemon: pulls updates and restarts PM2 on changes
 ├── morning-digest.js     # Cron job script: sends daily task stats DM to owner
 ├── security-review.js    # Cron job script: security audit of commits from last 24h
+├── scripts/
+│   └── watercooler.js    # Cron/manual script: weekly team standup conversation (Friday 5PM)
 ├── bots/
 │   └── storefront.js     # Express server for storefront chat widget (POST /api/chat, GET /widget, POST /api/delivery-quote)
 ├── data/
@@ -287,6 +289,7 @@ slack-agent-bridge/
 │   ├── activation-checklists.json # Owner action items for activating each agent
 │   ├── shared/
 │   │   ├── bulletin.json         # Inter-agent bulletin board (created at runtime)
+│   │   ├── watercooler-state.json # Tracks last standup timestamp (created at runtime)
 │   │   ├── staff.json            # Staff member definitions (name, slackId, role)
 │   │   └── daily-tasks-template.json  # Recurring daily store tasks template
 │   ├── bridge/
@@ -311,6 +314,7 @@ slack-agent-bridge/
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
+│   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow
 │   └── integrations/
 │       ├── google-calendar.js  # Google Calendar API integration for fetching events
 │       ├── holidays.js         # Canadian public holidays (Nager.Date API) and pet awareness dates
@@ -347,7 +351,8 @@ slack-agent-bridge/
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
 │   ├── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
 │   ├── staff-tasks.test.js      # Tests for lib/staff-tasks.js (assignments, escalations, daily tasks)
-│   └── bulletin-board.test.js   # Tests for lib/bulletin-board.js (inter-agent communication)
+│   ├── bulletin-board.test.js   # Tests for lib/bulletin-board.js (inter-agent communication)
+│   └── watercooler.test.js      # Tests for lib/watercooler.js (standup orchestration, agent flow)
 ├── docs/
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
 │   ├── COURIER-INTAKE.md    # Courier intake page and delivery quote API documentation
@@ -497,6 +502,22 @@ ASK: show bulletins
 - Bulletins automatically posted when: tasks complete, morning digest runs, security review finds issues
 - Other agents see unread bulletins in their conversation context
 - Old bulletins cleaned up daily (7 day retention)
+
+### Team Standup
+Trigger a multi-agent standup conversation:
+```
+ASK: team standup
+ASK: standup
+ASK: watercooler
+ASK: weekly standup
+```
+- Each active agent shares an update in their personality voice
+- Agents reference and respond to what previous agents said
+- The Jester gets the final word and pokes holes in what others said
+- Standup posts to #sqtools-ops channel
+- Story Bot flags anything worth a LinkedIn post
+- Scheduled automatically: Friday 5 PM (cron: `0 17 * * 5`)
+- Can also run manually: `node scripts/watercooler.js`
 
 ---
 
