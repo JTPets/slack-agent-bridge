@@ -307,6 +307,7 @@ slack-agent-bridge/
 │           ├── backlog.json      # Activation backlog and feature roadmap
 │           └── .gitkeep          # Placeholder for memory files
 ├── lib/
+│   ├── agent-context.js  # Agent context builder: injects real data into ASK prompts to prevent hallucination
 │   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel, activateAgent
 │   ├── bulletin-board.js # Inter-agent communication: postBulletin, getBulletins, markRead, cleanupOldBulletins
 │   ├── config.js         # Environment variable loading, validation, and defaults
@@ -320,7 +321,7 @@ slack-agent-bridge/
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
 │   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow
 │   └── integrations/
-│       ├── google-calendar.js  # Google Calendar API integration for fetching events
+│       ├── google-calendar.js  # Google Calendar API integration for fetching events (today, tomorrow, yesterday)
 │       ├── gmail.js            # Gmail API integration: getRecentEmails, getEmailById, getEmailHeaders (read-only)
 │       ├── email-categorizer.js # Email categorization by sender/subject patterns (vendor_deal, customer, newsletter, etc.)
 │       ├── holidays.js         # Canadian public holidays (Nager.Date API) and pet awareness dates
@@ -345,6 +346,7 @@ slack-agent-bridge/
 ├── tests/
 │   ├── smoke.test.js            # Smoke tests: module loading, dotenv checks, export verification
 │   ├── integration.test.js      # Integration tests: critical paths, wiring, no circular deps
+│   ├── agent-context.test.js    # Tests for lib/agent-context.js (anti-hallucination, secretary context)
 │   ├── agent-registry.test.js   # Tests for lib/agent-registry.js (includes activation helpers)
 │   ├── config.test.js           # Tests for lib/config.js
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js

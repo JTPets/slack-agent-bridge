@@ -125,6 +125,11 @@ const watercooler = require('./lib/watercooler');
 // prompt with COMMANDMENTS + CLAUDE.md + structure + context. Phase 3: validateOutput runs tests.
 const { reviewTask, createExecutionPlan, buildPrompt, validateOutput } = require('./lib/code-review-pipeline');
 
+// LOGIC CHANGE 2026-03-28: Added agent-context module for injecting real data into ASK prompts.
+// Prevents hallucination by giving agents (especially secretary) actual calendar events,
+// owner tasks, and bulletins instead of letting them invent fake data.
+const agentContext = require('./lib/agent-context');
+
 // ---- Config ----
 
 // Validate required config
@@ -1200,17 +1205,20 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
       console.error(`[${agentId}] formatBulletinsForContext failed:`, bulletinErr.message);
     }
 
-    // LOGIC CHANGE 2026-03-27: Use agent's system_prompt and personality for conversations.
-    // Each agent responds with its own voice and expertise.
-    const systemInstruction = currentAgent?.system_prompt ||
-      'You are a helpful assistant for John Alexander who runs JT Pets. Answer concisely.';
-
-    const prompt = [
-      systemInstruction,
-      memoryContext,
-      bulletinContext,
+    // LOGIC CHANGE 2026-03-28: Use buildEnrichedPrompt to inject REAL data into agent prompts.
+    // This prevents agents (especially secretary) from hallucinating calendar events,
+    // meetings, people, and other data. Each agent gets relevant real data:
+    // - Secretary: actual calendar events, pending owner tasks
+    // - Security: recent security bulletins
+    // - Jester: recent bulletins, milestones
+    // - Story-bot: recent milestones for LinkedIn content
+    // - Code agents: recent task completions
+    // All agents get an anti-hallucination rule reminding them to only use provided data.
+    const prompt = await agentContext.buildEnrichedPrompt(
+      currentAgent,
       questionText,
-    ].filter(Boolean).join('\n\n');
+      { memoryContext, bulletinContext }
+    );
 
     // LOGIC CHANGE 2026-03-26: Use runLLM from lib/llm-runner.js for conversation
     // handling. Uses max-turns 10 for quick Q&A responses.
