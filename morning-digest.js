@@ -27,6 +27,9 @@ const { getTodaySpecialDates } = require('./lib/integrations/holidays');
 const staffTasks = require('./lib/staff-tasks');
 // LOGIC CHANGE 2026-03-28: Added bulletin board integration for milestone posting
 const bulletinBoard = require('./lib/bulletin-board');
+// LOGIC CHANGE 2026-03-28: Added Gmail and email categorizer integration for email summary
+const gmail = require('./lib/integrations/gmail');
+const emailCategorizer = require('./lib/integrations/email-categorizer');
 
 // ---- Config ----
 
@@ -350,6 +353,24 @@ async function buildDigest() {
         }
     } catch (err) {
         console.error('[morning-digest] Staff tasks section skipped:', err.message);
+    }
+
+    // LOGIC CHANGE 2026-03-28: Added email summary section to morning digest.
+    // Fetches emails from last 24 hours, categorizes them, and shows summary.
+    try {
+        if (gmail.hasCredentials()) {
+            const twentyFourHoursAgo = new Date(Date.now() - (24 * 60 * 60 * 1000));
+            const recentEmails = await gmail.getRecentEmails(twentyFourHoursAgo, 100);
+
+            if (recentEmails.length > 0) {
+                const summary = emailCategorizer.categorizeEmails(recentEmails);
+                const summaryText = emailCategorizer.formatSummary(summary);
+                lines.push(`*${summaryText}*`);
+                lines.push('');
+            }
+        }
+    } catch (err) {
+        console.error('[morning-digest] Email section skipped:', err.message);
     }
 
     lines.push('*Agent task summary:*');

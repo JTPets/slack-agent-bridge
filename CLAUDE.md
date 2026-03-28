@@ -153,16 +153,17 @@ const POLL_INTERVAL = 5000;
 
 **LLM_PROVIDER options:** `claude` (default), `openai` (not yet implemented), `ollama` (not yet implemented)
 
-### Google Calendar integration
+### Google Calendar and Gmail integration
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `GOOGLE_SERVICE_ACCOUNT_KEY` | Path to Google service account JSON key file | - |
-| `GOOGLE_CALENDAR_REFRESH_TOKEN` | OAuth refresh token (alternative to service account) | - |
+| `GOOGLE_REFRESH_TOKEN` | OAuth refresh token (covers both Calendar and Gmail) | - |
+| `GOOGLE_CALENDAR_REFRESH_TOKEN` | Alias for GOOGLE_REFRESH_TOKEN (legacy) | - |
 | `GOOGLE_CLIENT_ID` | OAuth client ID (required with refresh token) | - |
 | `GOOGLE_CLIENT_SECRET` | OAuth client secret (required with refresh token) | - |
 | `GOOGLE_CALENDAR_IDS` | Comma-separated calendar IDs to fetch events from | `primary` |
 
-**Note:** Either `GOOGLE_SERVICE_ACCOUNT_KEY` OR the OAuth trio (`GOOGLE_CALENDAR_REFRESH_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) is required for calendar integration. If neither is set, calendar sections in the morning digest will be skipped.
+**Note:** Either `GOOGLE_SERVICE_ACCOUNT_KEY` OR the OAuth trio (`GOOGLE_REFRESH_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) is required for calendar/Gmail integration. `GOOGLE_CALENDAR_REFRESH_TOKEN` is supported as an alias for `GOOGLE_REFRESH_TOKEN`. If neither is set, calendar and email sections in the morning digest will be skipped.
 
 ### Auto-update vars
 | Variable | Description | Default |
@@ -320,6 +321,8 @@ slack-agent-bridge/
 │   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow
 │   └── integrations/
 │       ├── google-calendar.js  # Google Calendar API integration for fetching events
+│       ├── gmail.js            # Gmail API integration: getRecentEmails, getEmailById, getEmailHeaders (read-only)
+│       ├── email-categorizer.js # Email categorization by sender/subject patterns (vendor_deal, customer, newsletter, etc.)
 │       ├── holidays.js         # Canadian public holidays (Nager.Date API) and pet awareness dates
 │       └── httpsms.js          # httpSMS API wrapper: sendSMS, getMessages, registerWebhook (free SMS via Android)
 ├── memory/
@@ -354,6 +357,8 @@ slack-agent-bridge/
 │   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command)
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
 │   ├── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
+│   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)
+│   ├── email-categorizer.test.js # Tests for lib/integrations/email-categorizer.js (categorization, rules)
 │   ├── staff-tasks.test.js      # Tests for lib/staff-tasks.js (assignments, escalations, daily tasks)
 │   ├── bulletin-board.test.js   # Tests for lib/bulletin-board.js (inter-agent communication)
 │   └── watercooler.test.js      # Tests for lib/watercooler.js (standup orchestration, agent flow)
