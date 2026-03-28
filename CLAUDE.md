@@ -509,15 +509,47 @@ Trigger a multi-agent standup conversation:
 ASK: team standup
 ASK: standup
 ASK: watercooler
-ASK: weekly standup
+ASK: kickoff standup
+ASK: retro standup
 ```
 - Each active agent shares an update in their personality voice
 - Agents reference and respond to what previous agents said
 - The Jester gets the final word and pokes holes in what others said
 - Standup posts to #sqtools-ops channel
 - Story Bot flags anything worth a LinkedIn post
-- Scheduled automatically: Friday 5 PM (cron: `0 17 * * 5`)
-- Can also run manually: `node scripts/watercooler.js`
+
+**Two standup types:**
+
+| Type | Schedule | Theme |
+|------|----------|-------|
+| Kickoff | Monday 8:30 AM | "What are we focused on this week? What opportunities do you see?" |
+| Retro | Friday 5:00 PM | "What did we accomplish? What failed? What surprised us?" |
+
+**Kickoff Standup (Monday 8:30 AM):**
+- Secretary opens: calendar for the week, key dates, deadlines
+- Marketing: campaigns or content due this week
+- Social Media: content calendar for the week
+- Story Bot: LinkedIn posts queued
+- Security: overnight findings
+- Code agents: what's in the pipeline
+- Jester closes: challenges the weekly plan, picks one thing to kill
+
+**Retro Standup (Friday 5:00 PM):**
+- Secretary opens: week recap, tasks completed vs planned
+- All agents: wins, losses, observations from their domain
+- Story Bot: flags best moments for LinkedIn content
+- Jester closes: grades the week A-F, names MVP agent, roasts weakest performer
+
+**Cron schedules:**
+```bash
+# Monday Kickoff (8:30 AM Toronto time)
+30 8 * * 1 cd /home/jtpets/jt-agent && set -a && source .env && set +a && node scripts/watercooler.js kickoff
+
+# Friday Retro (5:00 PM Toronto time)
+0 17 * * 5 cd /home/jtpets/jt-agent && set -a && source .env && set +a && node scripts/watercooler.js retro
+```
+
+Manual execution: `node scripts/watercooler.js [kickoff|retro]`
 
 ---
 

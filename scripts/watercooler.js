@@ -5,15 +5,22 @@ require('dotenv').config();
 /**
  * scripts/watercooler.js
  *
- * Standalone script that runs the weekly team standup conversation.
+ * Standalone script that runs the team standup conversation.
  * Each active agent shares an update in their personality voice, reacting
  * to what previous agents said. The Jester gets the final word.
  *
- * Runs via cron (Friday 5PM) or manually:
- *   node scripts/watercooler.js
+ * LOGIC CHANGE 2026-03-28: Added support for two standup types:
+ * - kickoff: Monday 8:30 AM - "What are we focused on this week?"
+ * - retro: Friday 5:00 PM - "What did we accomplish? What failed?"
  *
- * Or scheduled via cron:
- *   0 17 * * 5 cd /home/jtpets/jt-agent && set -a && source .env && set +a && node scripts/watercooler.js
+ * Usage:
+ *   node scripts/watercooler.js [kickoff|retro]
+ *
+ * If no type is specified, auto-detects based on day (Monday=kickoff, Friday=retro).
+ *
+ * Cron schedules:
+ *   30 8 * * 1 cd /home/jtpets/jt-agent && set -a && source .env && set +a && node scripts/watercooler.js kickoff
+ *   0 17 * * 5 cd /home/jtpets/jt-agent && set -a && source .env && set +a && node scripts/watercooler.js retro
  *
  * Required env vars:
  *   SLACK_BOT_TOKEN     xoxb- token
@@ -26,7 +33,7 @@ require('dotenv').config();
 'use strict';
 
 const { WebClient } = require('@slack/web-api');
-const { runStandup } = require('../lib/watercooler');
+const { runStandup, parseStandupType, STANDUP_TYPES } = require('../lib/watercooler');
 
 // ---- Config ----
 
@@ -68,21 +75,26 @@ async function sendDM(userId, text) {
 // ---- Main ----
 
 async function main() {
-    console.log('[watercooler] Starting weekly team standup');
+    // Parse standup type from command line argument
+    const arg = process.argv[2];
+    const standupType = parseStandupType(arg || '');
+    const typeConfig = STANDUP_TYPES[standupType];
+
+    console.log(`[watercooler] Starting ${typeConfig.name}`);
 
     try {
-        const result = await runStandup(slack, OPS_CHANNEL_ID);
+        const result = await runStandup(slack, OPS_CHANNEL_ID, standupType);
 
         if (result.success) {
-            console.log(`[watercooler] Standup completed: ${result.messagesPosted} messages posted`);
+            console.log(`[watercooler] ${typeConfig.name} completed: ${result.messagesPosted} messages posted`);
             if (result.errors.length > 0) {
                 console.log(`[watercooler] Warnings: ${result.errors.join(', ')}`);
             }
         } else {
-            console.error('[watercooler] Standup failed:', result.errors.join(', '));
+            console.error(`[watercooler] ${typeConfig.name} failed:`, result.errors.join(', '));
             await sendDM(
                 OWNER_USER_ID,
-                `:warning: Weekly standup had issues: ${result.errors.join(', ')}`
+                `:warning: ${typeConfig.name} had issues: ${result.errors.join(', ')}`
             );
         }
 
@@ -90,13 +102,13 @@ async function main() {
         process.exit(result.success ? 0 : 1);
 
     } catch (err) {
-        console.error('[watercooler] Fatal error:', err.message);
+        console.error(`[watercooler] ${typeConfig.name} fatal error:`, err.message);
         console.error(err.stack);
 
         try {
             await sendDM(
                 OWNER_USER_ID,
-                `:x: Weekly standup failed: ${err.message}`
+                `:x: ${typeConfig.name} failed: ${err.message}`
             );
         } catch {
             console.error('[watercooler] Could not send error notification');

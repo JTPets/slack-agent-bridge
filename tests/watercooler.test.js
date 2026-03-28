@@ -395,8 +395,9 @@ describe('watercooler', () => {
             const prompt = watercooler.buildStandupPrompt(agent, context);
 
             expect(prompt).toContain('You get the final word');
-            expect(prompt).toContain('Poke holes');
-            expect(prompt).toContain('devil\'s advocate');
+            // LOGIC CHANGE 2026-03-28: Updated test to reflect retro standup jester prompt
+            expect(prompt).toContain('Grade the week A-F');
+            expect(prompt).toContain('Roast the weakest performer');
         });
 
         it('should include previous messages in context', () => {
@@ -453,11 +454,12 @@ describe('watercooler', () => {
 
             const calls = mockSlack.chat.postMessage.mock.calls;
 
-            // First call should be header
-            expect(calls[0][0].text).toContain('Weekly Team Standup');
+            // LOGIC CHANGE 2026-03-28: Updated test to reflect standup type names
+            // First call should be header (default type is retro)
+            expect(calls[0][0].text).toContain('Retro Standup');
 
             // Last call should be footer
-            expect(calls[calls.length - 1][0].text).toContain('Standup complete');
+            expect(calls[calls.length - 1][0].text).toContain('complete');
         });
 
         it('should include agent names and emojis in messages', async () => {
