@@ -165,6 +165,28 @@
       { "description": "Verify Analytics data access with test report", "completed": false, "priority": "medium" }
     ]
   },
+  "story-bot": {
+    "name": "Story Bot",
+    "status": "planned",
+    "doc": "docs/STORY-BOT-DESIGN.md",
+    "note": "Shares #social-media channel (C0AP8CHCV1U) with Social Media Manager for draft approvals",
+    "tasks": [
+      { "description": "Create LinkedIn Developer App at linkedin.com/developers", "completed": false, "priority": "high" },
+      { "description": "Request Marketing Developer Platform access for w_member_social scope", "completed": false, "priority": "high" },
+      { "description": "Complete LinkedIn OAuth flow to get access token", "completed": false, "priority": "high" },
+      { "description": "Add LINKEDIN_ACCESS_TOKEN to .env", "completed": false, "priority": "high" },
+      { "description": "Add LINKEDIN_PERSON_URN to .env (John's LinkedIn URN)", "completed": false, "priority": "high" },
+      { "description": "Create SqTools LinkedIn company page if not exists", "completed": false, "priority": "high" },
+      { "description": "Add LINKEDIN_ORG_URN to .env (SqTools page URN)", "completed": false, "priority": "high" },
+      { "description": "Add LINKEDIN_CLIENT_ID to .env", "completed": false, "priority": "high" },
+      { "description": "Add LINKEDIN_CLIENT_SECRET to .env", "completed": false, "priority": "high" },
+      { "description": "Verify #social-media channel exists (C0AP8CHCV1U)", "completed": false, "priority": "high" },
+      { "description": "Invite @bridge-agent to #social-media channel if not already", "completed": false, "priority": "high" },
+      { "description": "Create agents/story-bot/memory directory", "completed": true, "priority": "medium" },
+      { "description": "Test LinkedIn API with a draft post (don't publish)", "completed": false, "priority": "medium" },
+      { "description": "Write first 3 content pieces for approval", "completed": false, "priority": "medium" }
+    ]
+  },
   "_meta": {
     "version": 3,
     "lastUpdated": "2026-03-27",
