@@ -286,6 +286,7 @@ slack-agent-bridge/
 │   ├── agents.json               # Agent registry: defines all agents, permissions, and config
 │   ├── activation-checklists.json # Owner action items for activating each agent
 │   ├── shared/
+│   │   ├── bulletin.json         # Inter-agent bulletin board (created at runtime)
 │   │   ├── staff.json            # Staff member definitions (name, slackId, role)
 │   │   └── daily-tasks-template.json  # Recurring daily store tasks template
 │   ├── bridge/
@@ -301,6 +302,7 @@ slack-agent-bridge/
 │           └── .gitkeep          # Placeholder for memory files
 ├── lib/
 │   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel, activateAgent
+│   ├── bulletin-board.js # Inter-agent communication: postBulletin, getBulletins, markRead, cleanupOldBulletins
 │   ├── config.js         # Environment variable loading, validation, and defaults
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, openai, ollama)
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
@@ -344,7 +346,8 @@ slack-agent-bridge/
 │   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command)
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
 │   ├── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
-│   └── staff-tasks.test.js      # Tests for lib/staff-tasks.js (assignments, escalations, daily tasks)
+│   ├── staff-tasks.test.js      # Tests for lib/staff-tasks.js (assignments, escalations, daily tasks)
+│   └── bulletin-board.test.js   # Tests for lib/bulletin-board.js (inter-agent communication)
 ├── docs/
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
 │   ├── COURIER-INTAKE.md    # Courier intake page and delivery quote API documentation
@@ -482,6 +485,18 @@ ASK: store tasks today
 - Daily recurring tasks from `agents/shared/daily-tasks-template.json`
 - Critical overdue tasks (high priority, 1+ hour late) escalate to owner via DM
 - Morning digest includes staff task summary
+
+### Bulletin Board
+View recent inter-agent bulletins:
+```
+ASK: bulletins
+ASK: what's new
+ASK: show bulletins
+```
+- Returns recent bulletins from all agents (milestones, alerts, task completions, security findings)
+- Bulletins automatically posted when: tasks complete, morning digest runs, security review finds issues
+- Other agents see unread bulletins in their conversation context
+- Old bulletins cleaned up daily (7 day retention)
 
 ---
 

@@ -104,6 +104,10 @@ const { createHeartbeat } = require('./lib/heartbeat');
 // Handles "assign [task] to [name] by [time]", "what tasks are overdue", and "store tasks today".
 const staffTasks = require('./lib/staff-tasks');
 
+// LOGIC CHANGE 2026-03-28: Added bulletin-board module for inter-agent communication.
+// Agents can post bulletins (milestones, alerts, task completions) that other agents can read.
+const bulletinBoard = require('./lib/bulletin-board');
+
 // ---- Config ----
 
 // Validate required config
@@ -609,6 +613,28 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
     // This resets the exponential backoff counter.
     await clearRateLimitState();
 
+    // LOGIC CHANGE 2026-03-28: Post task completion bulletin for inter-agent awareness.
+    // Other agents can see what tasks have been completed without watching ops channel.
+    try {
+      // Extract commit hash from output if present (look for common git commit patterns)
+      let commitHash = null;
+      const commitMatch = output.match(/\[([a-f0-9]{7,40})\]|commit\s+([a-f0-9]{7,40})/i);
+      if (commitMatch) {
+        commitHash = commitMatch[1] || commitMatch[2];
+      }
+
+      bulletinBoard.postBulletin('bridge', 'task_completed', {
+        description: task.description,
+        repo: task.repo || null,
+        branch: task.branch || 'main',
+        commitHash,
+        elapsed: parseInt(elapsed, 10),
+        partial: hitMaxTurns || false,
+      });
+    } catch (bulletinErr) {
+      console.error('[bridge-agent] Failed to post task completion bulletin:', bulletinErr.message);
+    }
+
     // LOGIC CHANGE 2026-03-26: Auto-detect ACTION REQUIRED in task output and add
     // to bridge agent's activation checklist. Uses notify-owner module for
     // centralized action tracking.
@@ -925,6 +951,22 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
       return;
     }
 
+    // LOGIC CHANGE 2026-03-28: Check for bulletin query ("bulletins", "what's new").
+    // Returns recent bulletins without using LLM tokens.
+    if (bulletinBoard.isBulletinQuery(questionText)) {
+      console.log(`[${agentId}] Bulletin query detected: ${msg.ts}`);
+      const recentBulletins = bulletinBoard.getBulletins({ limit: 10 });
+      const response = bulletinBoard.formatBulletinsForSlack(recentBulletins);
+      await slack.chat.postMessage({
+        channel: sourceChannel,
+        thread_ts: msg.ts,
+        text: response,
+        unfurl_links: false,
+      });
+      console.log(`[${agentId}] Bulletin query ${msg.ts} answered`);
+      return;
+    }
+
     console.log(`[${agentId}] Processing conversation: ${msg.ts}`);
 
     // Build memory context
@@ -935,6 +977,16 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
       console.error(`[${agentId}] buildTaskContext failed:`, contextErr.message);
     }
 
+    // LOGIC CHANGE 2026-03-28: Include unread bulletins in conversation context.
+    // This allows agents to be aware of recent events from other agents without
+    // needing to explicitly query the bulletin board.
+    let bulletinContext = '';
+    try {
+      bulletinContext = bulletinBoard.formatBulletinsForContext(agentId, 5);
+    } catch (bulletinErr) {
+      console.error(`[${agentId}] formatBulletinsForContext failed:`, bulletinErr.message);
+    }
+
     // LOGIC CHANGE 2026-03-27: Use agent's system_prompt and personality for conversations.
     // Each agent responds with its own voice and expertise.
     const systemInstruction = currentAgent?.system_prompt ||
@@ -943,6 +995,7 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
     const prompt = [
       systemInstruction,
       memoryContext,
+      bulletinContext,
       questionText,
     ].filter(Boolean).join('\n\n');
 

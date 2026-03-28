@@ -25,6 +25,8 @@ const { getAllTodayEvents, getAllYesterdayEvents } = require('./lib/integrations
 const { getTodaySpecialDates } = require('./lib/integrations/holidays');
 // LOGIC CHANGE 2026-03-27: Added staff-tasks integration for morning digest summary
 const staffTasks = require('./lib/staff-tasks');
+// LOGIC CHANGE 2026-03-28: Added bulletin board integration for milestone posting
+const bulletinBoard = require('./lib/bulletin-board');
 
 // ---- Config ----
 
@@ -430,6 +432,37 @@ async function main() {
         console.log('[morning-digest] Digest built, sending DM...');
 
         await sendDM(OWNER_USER_ID, digest);
+
+        // LOGIC CHANGE 2026-03-28: Post daily milestone bulletin for inter-agent awareness.
+        // Other agents can see that the morning digest was sent.
+        try {
+            const history = loadJsonFile(HISTORY_FILE, []);
+            const completedLast24h = history.filter(
+                (t) => t.status === 'completed' && isWithinLast24Hours(t.completedAt)
+            );
+            const failedLast24h = history.filter(
+                (t) => t.status === 'failed' && isWithinLast24Hours(t.failedAt)
+            );
+
+            bulletinBoard.postBulletin('secretary', 'milestone', {
+                description: `Morning digest sent: ${completedLast24h.length} tasks completed, ${failedLast24h.length} failed`,
+                tasksCompleted: completedLast24h.length,
+                tasksFailed: failedLast24h.length,
+                date: new Date().toISOString().split('T')[0],
+            });
+        } catch (bulletinErr) {
+            console.error('[morning-digest] Failed to post milestone bulletin:', bulletinErr.message);
+        }
+
+        // LOGIC CHANGE 2026-03-28: Cleanup old bulletins daily during morning digest.
+        try {
+            const cleanup = bulletinBoard.cleanupOldBulletins(7);
+            if (cleanup.removed > 0) {
+                console.log(`[morning-digest] Cleaned up ${cleanup.removed} old bulletins`);
+            }
+        } catch (cleanupErr) {
+            console.error('[morning-digest] Bulletin cleanup failed:', cleanupErr.message);
+        }
 
         console.log('[morning-digest] Done');
         process.exit(0);

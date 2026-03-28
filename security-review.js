@@ -28,6 +28,7 @@ const path = require('path');
 const os = require('os');
 
 const { runLLM } = require('./lib/llm-runner');
+const bulletinBoard = require('./lib/bulletin-board');
 
 // ---- Config ----
 
@@ -347,6 +348,21 @@ async function main() {
         await sendDM(OWNER_USER_ID, report);
         await postToOps(report);
         console.log('[security-review] Report sent successfully');
+
+        // LOGIC CHANGE 2026-03-28: Post security findings to bulletin board.
+        // Each repo with findings gets its own bulletin for inter-agent visibility.
+        for (const result of results) {
+            try {
+                bulletinBoard.postBulletin('security', 'security_finding', {
+                    description: `Security review of ${result.repo}: ${result.commitCount} commit(s) reviewed`,
+                    repo: result.repo,
+                    commitCount: result.commitCount,
+                    summary: result.review.slice(0, 500),
+                });
+            } catch (bulletinErr) {
+                console.error(`[security-review] Failed to post bulletin for ${result.repo}:`, bulletinErr.message);
+            }
+        }
     } catch (err) {
         console.error('[security-review] Failed to send report:', err.message);
         // Try to at least notify about the failure
