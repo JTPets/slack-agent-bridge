@@ -284,7 +284,7 @@ describe('llm-runner module', () => {
       await runGeminiAdapter('test prompt');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'),
+        expect.stringContaining('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'),
         expect.objectContaining({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
