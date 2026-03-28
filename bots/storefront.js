@@ -21,6 +21,9 @@ const fs = require('fs').promises;
 const crypto = require('crypto');
 const { WebClient } = require('@slack/web-api');
 const { runLLM } = require('../lib/llm-runner');
+// LOGIC CHANGE 2026-03-27: Added catalog search for product recommendations
+const { initCatalog, searchCatalog, getCatalogStats } = require('../lib/integrations/catalog-search');
+const { loadCatalog } = require('../lib/integrations/square-catalog');
 
 // Configuration
 const PORT = parseInt(process.env.STOREFRONT_PORT || '3001', 10);
@@ -39,6 +42,34 @@ const sessions = new Map();
 let slackClient = null;
 if (process.env.SLACK_BOT_TOKEN) {
     slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
+}
+
+// ---- Catalog initialization ----
+
+// LOGIC CHANGE 2026-03-27: Initialize catalog on startup for product search
+let catalogInitialized = false;
+
+async function initializeCatalog() {
+    try {
+        console.log('[storefront] Loading product catalog...');
+        const items = await loadCatalog();
+        if (items.length > 0) {
+            initCatalog(items);
+            catalogInitialized = true;
+            const stats = getCatalogStats();
+            console.log(`[storefront] Catalog initialized: ${stats.itemCount} products, ${stats.categories} categories`);
+        } else {
+            console.log('[storefront] No catalog items available');
+        }
+    } catch (err) {
+        console.error('[storefront] Failed to initialize catalog:', err.message);
+    }
+}
+
+// LOGIC CHANGE 2026-03-27: Only initialize catalog when running as main process
+// to avoid async operations during test imports
+if (require.main === module) {
+    initializeCatalog();
 }
 
 // Storefront agent configuration from agents.json
@@ -103,10 +134,22 @@ function getOrCreateSession(sessionId) {
  * Build a prompt from conversation history.
  * @param {Array} history - Array of { role, content } messages
  * @param {string} userMessage - Current user message
+ * @param {Array} [productMatches] - Optional array of matching products from catalog search
  * @returns {string} Formatted prompt for the LLM
  */
-function buildPrompt(history, userMessage) {
+function buildPrompt(history, userMessage, productMatches = []) {
     let prompt = STOREFRONT_AGENT_CONFIG.systemPrompt + '\n\n';
+
+    // LOGIC CHANGE 2026-03-27: Include matching products from catalog search
+    if (productMatches.length > 0) {
+        prompt += 'Relevant products from our catalog that may help answer this question:\n';
+        for (const match of productMatches) {
+            const priceStr = match.price ? `$${match.price.toFixed(2)}` : 'Price varies';
+            const categoryStr = match.category ? ` (${match.category})` : '';
+            prompt += `- ${match.name}${categoryStr}: ${priceStr}\n`;
+        }
+        prompt += '\nUse these products to provide specific recommendations when relevant.\n\n';
+    }
 
     // Add conversation history (last 10 messages to keep context manageable)
     const recentHistory = history.slice(-10);
@@ -376,8 +419,17 @@ app.post('/api/chat', async (req, res) => {
         const sessionId = providedSessionId || crypto.randomUUID();
         const session = getOrCreateSession(sessionId);
 
-        // Build prompt with conversation history
-        const prompt = buildPrompt(session.history, sanitizedMessage);
+        // LOGIC CHANGE 2026-03-27: Search catalog for relevant products before building prompt
+        let productMatches = [];
+        if (catalogInitialized) {
+            productMatches = searchCatalog(sanitizedMessage, 3);
+            if (productMatches.length > 0) {
+                console.log(`[storefront] Found ${productMatches.length} matching products for query`);
+            }
+        }
+
+        // Build prompt with conversation history and product matches
+        const prompt = buildPrompt(session.history, sanitizedMessage, productMatches);
 
         // Run LLM
         console.log(`[storefront] Processing message for session ${sessionId.substring(0, 8)}`);
@@ -451,4 +503,6 @@ module.exports = {
     saveDeliveryQuotes,
     logDeliveryQuoteToSlack,
     DELIVERY_QUOTES_FILE,
+    initializeCatalog,
+    catalogInitialized: () => catalogInitialized,
 };
