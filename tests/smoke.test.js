@@ -297,6 +297,28 @@ describe('lib/ modules load without errors', () => {
         expect(typeof googleCalendar.getTodayEvents).toBe('function');
         expect(typeof googleCalendar.getCalendarIds).toBe('function');
     });
+
+    test('lib/integrations/holidays.js loads and exports expected functions', () => {
+        const holidays = require('../lib/integrations/holidays');
+
+        expect(holidays).toHaveProperty('getTodayHoliday');
+        expect(holidays).toHaveProperty('getTodayPetAwareness');
+        expect(holidays).toHaveProperty('getActivePetAwareness');
+        expect(holidays).toHaveProperty('getUpcomingHolidays');
+        expect(holidays).toHaveProperty('getUpcomingPetAwareness');
+        expect(holidays).toHaveProperty('isHoliday');
+        expect(holidays).toHaveProperty('getTodaySpecialDates');
+        expect(holidays).toHaveProperty('PET_AWARENESS_DATES');
+        expect(holidays).toHaveProperty('filterOntarioHolidays');
+        expect(holidays).toHaveProperty('parseDate');
+        expect(holidays).toHaveProperty('formatDate');
+        expect(holidays).toHaveProperty('clearCache');
+        expect(holidays).toHaveProperty('CACHE_TTL_MS');
+
+        expect(typeof holidays.getTodayHoliday).toBe('function');
+        expect(typeof holidays.isHoliday).toBe('function');
+        expect(Array.isArray(holidays.PET_AWARENESS_DATES)).toBe(true);
+    });
 });
 
 describe('memory/memory-manager.js loads without errors', () => {

@@ -297,7 +297,8 @@ slack-agent-bridge/
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
 │   └── integrations/
-│       └── google-calendar.js  # Google Calendar API integration for fetching events
+│       ├── google-calendar.js  # Google Calendar API integration for fetching events
+│       └── holidays.js         # Canadian public holidays (Nager.Date API) and pet awareness dates
 ├── memory/
 │   └── memory-manager.js # Task history storage and context retrieval (legacy + tiered API)
 ├── skills/               # Reusable skill templates for common tasks
@@ -327,7 +328,8 @@ slack-agent-bridge/
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
 │   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management)
 │   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command)
-│   └── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
+│   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
+│   └── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
 ├── docs/
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
 │   ├── COURIER-INTAKE.md    # Courier intake page and delivery quote API documentation

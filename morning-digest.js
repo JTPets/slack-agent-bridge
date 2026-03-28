@@ -22,6 +22,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { getAllTodayEvents, getAllYesterdayEvents } = require('./lib/integrations/google-calendar');
+const { getTodaySpecialDates } = require('./lib/integrations/holidays');
 
 // ---- Config ----
 
@@ -266,6 +267,33 @@ async function buildDigest() {
     const lines = [];
     lines.push(`Good morning ${ownerName}. Here is your daily digest:`);
     lines.push('');
+
+    // LOGIC CHANGE 2026-03-27: Added holiday and pet awareness day section to morning digest
+    try {
+        const specialDates = await getTodaySpecialDates();
+
+        // Show statutory holiday first
+        if (specialDates.holiday) {
+            lines.push(`*Today:* ${specialDates.holiday.name} (Ontario statutory holiday)`);
+            lines.push('');
+        }
+
+        // Show pet awareness dates
+        if (specialDates.petAwareness.length > 0) {
+            for (const awareness of specialDates.petAwareness) {
+                if (awareness.type === 'pet_awareness') {
+                    // Specific date (e.g., National Pet Day)
+                    lines.push(`*Today:* ${awareness.name} - ${awareness.socialTip}`);
+                } else if (awareness.type === 'pet_awareness_month') {
+                    // Monthly observance
+                    lines.push(`*This month:* ${awareness.name} - ${awareness.socialTip}`);
+                }
+            }
+            lines.push('');
+        }
+    } catch (err) {
+        console.error('[morning-digest] Holiday section skipped:', err.message);
+    }
 
     // Fetch weather (skip section if fetch fails)
     try {
