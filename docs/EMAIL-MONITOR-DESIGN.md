@@ -171,9 +171,151 @@ Owner: "unsubscribe from marketing@example.com"
 - [ ] Test categorization with sample emails
 - [ ] Test unsubscribe with test newsletter
 
+## Vendor Deal Detection
+
+When the Email Monitor detects a vendor email containing pricing keywords, it triggers a special workflow to help the owner capitalize on good deals.
+
+### Pricing Keywords
+
+The following keywords trigger vendor deal detection:
+- `sale`, `discount`, `promo`, `clearance`
+- `% off`, `special pricing`, `bulk pricing`
+- `limited time`, `flash sale`, `deal`
+
+### Extraction Process
+
+When a vendor deal email is detected:
+
+1. **Gemini extracts structured data:**
+   - Vendor name
+   - Product names
+   - Sale prices
+   - Regular prices
+   - Sale dates (start/end)
+   - Minimum quantities (if applicable)
+
+2. **Posts to bulletin board:**
+   ```json
+   {
+     "type": "vendor-deal",
+     "priority": "high",
+     "timestamp": "2026-03-26T10:00:00.000Z",
+     "data": {
+       "vendor": "ABC Pet Supplies",
+       "products": [
+         {
+           "name": "Premium Dog Food 30lb",
+           "salePrice": 45.99,
+           "regularPrice": 59.99,
+           "savings": 14.00
+         }
+       ],
+       "validUntil": "2026-04-01",
+       "minimumQty": null,
+       "sourceEmail": "sales@abcpetsupplies.com"
+     }
+   }
+   ```
+
+### Secretary Integration
+
+Secretary picks up vendor deal bulletins and cross-references with SqTools data (when available):
+
+| Data Point | Source | Purpose |
+|------------|--------|---------|
+| Current sales velocity | SqTools API | Units sold per month |
+| Current stock levels | SqTools API | Days of inventory remaining |
+| Current margin | SqTools API | Existing profit margin |
+| Sale margin | Calculated | New margin at sale price |
+
+### Recommendation Algorithm
+
+Secretary calculates the optimal purchase quantity:
+
+1. **Base quantity:** 3-month supply based on sales velocity
+2. **Stock adjustment:** Subtract current inventory
+3. **Margin threshold:** Only recommend if margin improves by ≥5%
+4. **Deal quality score:** `(regular_price - sale_price) / regular_price * 100`
+
+### Slack Notification Format
+
+Secretary posts recommendations to `#secretary-inbox`:
+
+```
+📦 Deal Alert: ABC Pet Supplies
+
+Product: Premium Dog Food 30lb
+Sale Price: $45.99 (save $14.00/unit)
+Regular: $59.99 | Valid until: Apr 1
+
+📊 Your Data:
+• Sales velocity: 12 units/month
+• Current stock: 8 units (20 days)
+• Margin: 33% → 44% (+11%)
+
+💡 Recommendation: Stock up 28 units (3mo supply - current stock)
+Savings if purchased: $392.00
+
+[View in SqTools] [Dismiss] [Snooze 1 week]
+```
+
+### Rules.json Category
+
+```json
+{
+  "vendor_deal": {
+    "action": "push_to_secretary",
+    "priority": "high",
+    "extract_pricing": true,
+    "keywords": ["sale", "discount", "promo", "clearance", "% off", "special pricing", "bulk"]
+  }
+}
+```
+
+### Deal Processing Flow
+
+```
+Vendor Email Arrives
+        │
+        ▼
+Check for pricing keywords
+        │
+        ├── No keywords → Normal categorization
+        │
+        └── Keywords found
+                │
+                ▼
+        Extract pricing with Gemini
+                │
+                ▼
+        Post to bulletin board (type: vendor-deal, priority: high)
+                │
+                ▼
+        Secretary picks up bulletin
+                │
+                ▼
+        Query SqTools for product data
+                │
+                ├── Product found → Calculate recommendation
+                │       │
+                │       ▼
+                │   Post to #secretary-inbox
+                │
+                └── Product not found → Post deal summary only
+```
+
+### Safety Controls
+
+- **Vendor whitelist** - Only process deals from known vendors in `trusted_vendors` list
+- **No auto-purchase** - Recommendations only; owner must approve purchases
+- **Duplicate detection** - Skip if same deal was processed in last 7 days
+- **Price validation** - Flag suspicious deals (>80% off) for manual review
+
 ## Future Enhancements
 
 - **Smart categorization** - Use LLM to categorize ambiguous emails
 - **Sender reputation** - Track sender patterns over time
 - **Auto-rules** - Suggest rules based on email patterns
 - **Thread awareness** - Group related emails in digest
+- **Deal history** - Track deal patterns by vendor over time
+- **Price alerts** - Notify when prices drop below historical lows

@@ -12,6 +12,13 @@
       "keywords": ["invoice", "payment", "order confirmation"],
       "senders": []
     },
+    "vendor_deal": {
+      "action": "push_to_secretary",
+      "priority": "high",
+      "extract_pricing": true,
+      "description": "Vendor emails with pricing deals to cross-reference with inventory",
+      "keywords": ["sale", "discount", "promo", "clearance", "% off", "special pricing", "bulk"]
+    },
     "newsletter": {
       "action": "ignore",
       "auto_unsubscribe": false,
@@ -23,5 +30,6 @@
     }
   },
   "auto_unsubscribe_list": [],
-  "unsubscribe_log": []
+  "unsubscribe_log": [],
+  "trusted_vendors": []
 }
