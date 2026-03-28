@@ -108,6 +108,14 @@ const staffTasks = require('./lib/staff-tasks');
 // Agents can post bulletins (milestones, alerts, task completions) that other agents can read.
 const bulletinBoard = require('./lib/bulletin-board');
 
+// LOGIC CHANGE 2026-03-28: Added agent-scheduler module for cron-based proactive tasks.
+// Enables agents to run on schedules (e.g., morning briefings, nightly audits).
+const { startScheduler, stopScheduler } = require('./lib/agent-scheduler');
+
+// LOGIC CHANGE 2026-03-28: Added bulletin-watcher module for event-driven agent triggers.
+// When a bulletin is posted, watching agents get notified via ASK messages.
+const bulletinWatcher = require('./lib/bulletin-watcher');
+
 // ---- Config ----
 
 // Validate required config
@@ -623,7 +631,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
         commitHash = commitMatch[1] || commitMatch[2];
       }
 
-      bulletinBoard.postBulletin('bridge', 'task_completed', {
+      const bulletinResult = bulletinBoard.postBulletin('bridge', 'task_completed', {
         description: task.description,
         repo: task.repo || null,
         branch: task.branch || 'main',
@@ -631,6 +639,14 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
         elapsed: parseInt(elapsed, 10),
         partial: hitMaxTurns || false,
       });
+
+      // LOGIC CHANGE 2026-03-28: Notify watching agents about the bulletin.
+      // Agents with watches.bulletin_types containing 'task_completed' get notified.
+      if (bulletinResult.success && bulletinResult.bulletin) {
+        bulletinWatcher.processBulletin(slack, bulletinResult.bulletin).catch(watchErr => {
+          console.error('[bridge-agent] Bulletin watcher error:', watchErr.message);
+        });
+      }
     } catch (bulletinErr) {
       console.error('[bridge-agent] Failed to post task completion bulletin:', bulletinErr.message);
     }
@@ -1297,6 +1313,11 @@ console.log(`  Channels: ${channelsToPoll.length} (${channelsToPoll.map(c => c.a
 // Run memory maintenance before starting poll loop
 runStartupMemoryMaintenance();
 
+// LOGIC CHANGE 2026-03-28: Start the agent scheduler for cron-based proactive tasks.
+// Each agent with a schedule field gets a cron job that posts TASK messages to their channel.
+const schedulerResult = startScheduler(slack);
+console.log(`  Scheduler: ${schedulerResult.jobCount} jobs (${schedulerResult.agents.join(', ') || 'none'})`);
+
 poll();
 setInterval(poll, POLL_INTERVAL);
 
@@ -1311,6 +1332,13 @@ async function gracefulShutdown(signal) {
 
   shuttingDown = true;
   console.log(`[bridge-agent] Received ${signal}, initiating graceful shutdown`);
+
+  // LOGIC CHANGE 2026-03-28: Stop the agent scheduler on shutdown.
+  try {
+    stopScheduler();
+  } catch (err) {
+    console.error('[bridge-agent] Failed to stop scheduler:', err.message);
+  }
 
   // Notify ops channel about shutdown
   try {
