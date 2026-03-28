@@ -5,6 +5,8 @@ node_modules
 # Agent state files (local only)
 agents/shared/watercooler-state.json
 agents/shared/bulletin.json
+agents/shared/processed-tasks.json
+agents/shared/channel-map.json
 data/delivery-quotes.json
 
 # Memory data files (local only)

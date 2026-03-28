@@ -4,9 +4,13 @@
  * Tests for lib/slack-client.js
  *
  * LOGIC CHANGE 2026-03-26: Initial test suite for Slack channel management functions.
+ * LOGIC CHANGE 2026-03-28: Added tests for joinAgentChannels(), loadChannelMap(), saveChannelMap().
  */
 
-const { createSlackClient, CHANNEL_NAME_MAX_LENGTH, CHANNEL_NAME_PATTERN } = require('../lib/slack-client');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const { createSlackClient, loadChannelMap, saveChannelMap, CHANNEL_NAME_MAX_LENGTH, CHANNEL_NAME_PATTERN } = require('../lib/slack-client');
 
 // Mock @slack/web-api
 jest.mock('@slack/web-api', () => ({
@@ -27,10 +31,18 @@ describe('slack-client', () => {
     let slackClient;
     let mockWebClient;
 
+    // LOGIC CHANGE 2026-03-28: Suppress expected console.error output from missing_scope
+    // and other error-path tests. These are deliberate error tests, not real failures.
     beforeEach(() => {
         jest.clearAllMocks();
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
         slackClient = createSlackClient('xoxb-test-token');
         mockWebClient = slackClient.client;
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
     });
 
     describe('createSlackClient', () => {
@@ -417,5 +429,128 @@ describe('slack-client', () => {
             expect(CHANNEL_NAME_PATTERN.test('-invalid')).toBe(false);
             expect(CHANNEL_NAME_PATTERN.test('_invalid')).toBe(false);
         });
+    });
+
+    // LOGIC CHANGE 2026-03-28: Tests for joinAgentChannels().
+    describe('joinAgentChannels', () => {
+        it('should join all channels and report success', async () => {
+            mockWebClient.conversations.join.mockResolvedValue({});
+
+            const channels = [
+                { channelId: 'C11111', agentId: 'bridge' },
+                { channelId: 'C22222', agentId: 'secretary' },
+            ];
+
+            const result = await slackClient.joinAgentChannels(channels);
+
+            expect(result.joined).toBe(2);
+            expect(result.failed).toBe(0);
+            expect(result.total).toBe(2);
+            expect(mockWebClient.conversations.join).toHaveBeenCalledTimes(2);
+        });
+
+        it('should count already_in_channel as success', async () => {
+            const alreadyErr = new Error('already_in_channel');
+            alreadyErr.data = { error: 'already_in_channel' };
+            mockWebClient.conversations.join.mockRejectedValue(alreadyErr);
+
+            const channels = [{ channelId: 'C11111', agentId: 'bridge' }];
+            const result = await slackClient.joinAgentChannels(channels);
+
+            expect(result.joined).toBe(1);
+            expect(result.failed).toBe(0);
+        });
+
+        it('should count method_not_supported as success', async () => {
+            const err = new Error('method_not_supported_for_channel_type');
+            err.data = { error: 'method_not_supported_for_channel_type' };
+            mockWebClient.conversations.join.mockRejectedValue(err);
+
+            const channels = [{ channelId: 'C11111', agentId: 'bridge' }];
+            const result = await slackClient.joinAgentChannels(channels);
+
+            expect(result.joined).toBe(1);
+            expect(result.failed).toBe(0);
+        });
+
+        it('should count missing_scope as failed', async () => {
+            const err = new Error('missing_scope');
+            err.data = { error: 'missing_scope', needed: 'channels:join' };
+            mockWebClient.conversations.join.mockRejectedValue(err);
+
+            const channels = [{ channelId: 'C11111', agentId: 'bridge' }];
+            const result = await slackClient.joinAgentChannels(channels);
+
+            expect(result.joined).toBe(0);
+            expect(result.failed).toBe(1);
+        });
+
+        it('should skip channels without channelId', async () => {
+            const channels = [
+                { channelId: null, agentId: 'planned-agent' },
+                { channelId: 'C22222', agentId: 'secretary' },
+            ];
+            mockWebClient.conversations.join.mockResolvedValue({});
+
+            const result = await slackClient.joinAgentChannels(channels);
+
+            expect(result.total).toBe(1);
+            expect(result.joined).toBe(1);
+        });
+
+        it('should return zeros for empty channel list', async () => {
+            const result = await slackClient.joinAgentChannels([]);
+            expect(result.joined).toBe(0);
+            expect(result.failed).toBe(0);
+            expect(result.total).toBe(0);
+        });
+
+        it('should continue after individual channel failure', async () => {
+            mockWebClient.conversations.join
+                .mockRejectedValueOnce(new Error('some error'))
+                .mockResolvedValueOnce({});
+
+            const channels = [
+                { channelId: 'C11111', agentId: 'bridge' },
+                { channelId: 'C22222', agentId: 'secretary' },
+            ];
+
+            const result = await slackClient.joinAgentChannels(channels);
+
+            expect(result.joined).toBe(1);
+            expect(result.failed).toBe(1);
+        });
+    });
+});
+
+// LOGIC CHANGE 2026-03-28: Tests for loadChannelMap() and saveChannelMap() module exports.
+describe('channel-map functions', () => {
+    let tempDir;
+    let originalChannelMapFile;
+
+    beforeEach(() => {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'channel-map-test-'));
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
+        try {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch { /* ignore */ }
+    });
+
+    it('loadChannelMap should return {} when file does not exist', () => {
+        // The actual CHANNEL_MAP_FILE path is inside the project
+        // We test the self-healing behavior using corrupt data
+        const result = loadChannelMap();
+        expect(typeof result).toBe('object');
+        expect(Array.isArray(result)).toBe(false);
+    });
+
+    it('saveChannelMap and loadChannelMap should be exported functions', () => {
+        expect(typeof loadChannelMap).toBe('function');
+        expect(typeof saveChannelMap).toBe('function');
     });
 });

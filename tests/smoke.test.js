@@ -181,9 +181,30 @@ describe('lib/ modules load without errors', () => {
         expect(slackClient).toHaveProperty('createSlackClient');
         expect(slackClient).toHaveProperty('CHANNEL_NAME_MAX_LENGTH');
         expect(slackClient).toHaveProperty('CHANNEL_NAME_PATTERN');
+        expect(slackClient).toHaveProperty('loadChannelMap');
+        expect(slackClient).toHaveProperty('saveChannelMap');
 
         expect(typeof slackClient.createSlackClient).toBe('function');
         expect(typeof slackClient.CHANNEL_NAME_MAX_LENGTH).toBe('number');
+        expect(typeof slackClient.loadChannelMap).toBe('function');
+        expect(typeof slackClient.saveChannelMap).toBe('function');
+    });
+
+    // LOGIC CHANGE 2026-03-28: Added smoke test for new code-review-pipeline module.
+    test('lib/code-review-pipeline.js loads and exports expected functions', () => {
+        const pipeline = require('../lib/code-review-pipeline');
+
+        expect(pipeline).toHaveProperty('reviewTask');
+        expect(pipeline).toHaveProperty('createExecutionPlan');
+        expect(pipeline).toHaveProperty('buildPrompt');
+        expect(pipeline).toHaveProperty('validateOutput');
+        expect(pipeline).toHaveProperty('runCommand');
+
+        expect(typeof pipeline.reviewTask).toBe('function');
+        expect(typeof pipeline.createExecutionPlan).toBe('function');
+        expect(typeof pipeline.buildPrompt).toBe('function');
+        expect(typeof pipeline.validateOutput).toBe('function');
+        expect(typeof pipeline.runCommand).toBe('function');
     });
 
     test('lib/agent-registry.js loads and exports expected functions', () => {

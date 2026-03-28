@@ -84,8 +84,15 @@ describe('agent-registry', () => {
         }
     ];
 
+    // LOGIC CHANGE 2026-03-28: Suppress expected console.warn output from error-path tests.
     beforeEach(() => {
         jest.clearAllMocks();
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
     });
 
     describe('loadAgents', () => {
@@ -108,18 +115,22 @@ describe('agent-registry', () => {
             expect(agents).toEqual([]);
         });
 
-        it('should throw on invalid JSON', () => {
+        // LOGIC CHANGE 2026-03-28: loadAgents() now returns [] on JSON parse errors instead
+        // of re-throwing. This prevents the bot from crashing on a corrupted agents.json.
+        it('should return empty array on invalid JSON (self-healing)', () => {
             fs.readFileSync.mockReturnValue('invalid json{');
 
-            expect(() => loadAgents()).toThrow();
+            const agents = loadAgents();
+            expect(agents).toEqual([]);
         });
 
-        it('should throw on other file read errors', () => {
+        it('should return empty array on other file read errors (self-healing)', () => {
             const error = new Error('Permission denied');
             error.code = 'EACCES';
             fs.readFileSync.mockImplementation(() => { throw error; });
 
-            expect(() => loadAgents()).toThrow('Permission denied');
+            const agents = loadAgents();
+            expect(agents).toEqual([]);
         });
     });
 
