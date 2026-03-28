@@ -76,7 +76,8 @@ const {
 // Loads agent config from agents/agents.json with fallback to env vars if registry
 // doesn't exist or agent not found.
 // LOGIC CHANGE 2026-03-26: Added isProductionRepo for production workflow detection.
-const { getAgent, loadAgents, registryExists, isProductionRepo } = require('./lib/agent-registry');
+// LOGIC CHANGE 2026-03-27: Added getActiveAgents and getAgentByChannel for multi-channel polling.
+const { getAgent, loadAgents, getActiveAgents, getAgentByChannel, registryExists, isProductionRepo } = require('./lib/agent-registry');
 
 // LOGIC CHANGE 2026-03-26: Extracted LLM execution into lib/llm-runner.js
 // to support multiple LLM providers via LLM_PROVIDER env var.
@@ -155,14 +156,23 @@ if (!fs.existsSync(WORK_DIR)) {
 // ---- State persistence ----
 
 const STATE_FILE = path.join(__dirname, '.bridge-agent-state.json');
-let lastChecked = loadState();
 let isRunning = false;
+
+// LOGIC CHANGE 2026-03-27: Changed from single lastChecked to per-channel lastChecked map.
+// Each channel has its own timestamp to track which messages have been processed.
+// Format: { channelId: timestamp, ... }
+let channelLastChecked = loadState();
 
 // LOGIC CHANGE 2026-03-27: Added graceful shutdown support.
 // shuttingDown: flag to stop processing new tasks on SIGTERM/SIGINT
 // currentTaskPromise: tracks the currently running task for graceful completion
 let shuttingDown = false;
 let currentTaskPromise = null;
+
+// LOGIC CHANGE 2026-03-27: Multi-channel polling support.
+// channelsToPoll: list of channels to poll on each interval (bridge channel + active agent channels).
+// Built on startup from active agents in registry. Each entry has { channelId, agentId, agentConfig }.
+let channelsToPoll = [];
 
 // LOGIC CHANGE 2026-03-26: Rate limit state tracking with exponential backoff.
 // pauseUntil: timestamp when pause expires, retryCount: number of consecutive rate limits,
@@ -177,21 +187,47 @@ let rateLimitState = {
   failedTask: null,
 };
 
+// LOGIC CHANGE 2026-03-27: Updated loadState to support per-channel timestamps.
+// Returns an object mapping channelId -> lastChecked timestamp.
+// Migrates legacy single-channel format ({ lastChecked: ts }) to multi-channel format.
 function loadState() {
   try {
     const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-    return data.lastChecked || '0';
+    // Legacy format: { lastChecked: "timestamp" }
+    // New format: { channels: { channelId: "timestamp", ... } }
+    if (data.channels) {
+      return data.channels;
+    }
+    // Migrate legacy format: assign old timestamp to bridge channel
+    if (data.lastChecked) {
+      return { [BRIDGE_CHANNEL]: data.lastChecked };
+    }
+    return {};
   } catch {
-    return '0';
+    return {};
   }
 }
 
-function saveState(ts) {
+// LOGIC CHANGE 2026-03-27: Updated saveState to save per-channel timestamps.
+// Saves the entire channelLastChecked object to disk.
+function saveState() {
   try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ lastChecked: ts }), 'utf8');
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ channels: channelLastChecked }), 'utf8');
   } catch (err) {
     console.error('[bridge-agent] Failed to save state:', err.message);
   }
+}
+
+// LOGIC CHANGE 2026-03-27: Helper to get lastChecked timestamp for a channel.
+// Returns '0' if channel has never been polled.
+function getLastChecked(channelId) {
+  return channelLastChecked[channelId] || '0';
+}
+
+// LOGIC CHANGE 2026-03-27: Helper to update lastChecked timestamp for a channel.
+function setLastChecked(channelId, ts) {
+  channelLastChecked[channelId] = ts;
+  saveState();
 }
 
 // LOGIC CHANGE 2026-03-26: Check if currently paused due to rate limit.
@@ -346,8 +382,10 @@ function truncate(text, max = 3500) {
   return text.slice(0, half) + '\n\n... [truncated] ...\n\n' + text.slice(-half);
 }
 
-function msgLink(ts) {
-  return `https://jtpets.slack.com/archives/${BRIDGE_CHANNEL}/p${ts.replace('.', '')}`;
+// LOGIC CHANGE 2026-03-27: Added channel parameter to support multi-channel polling.
+// Defaults to BRIDGE_CHANNEL for backward compatibility.
+function msgLink(ts, channel = BRIDGE_CHANNEL) {
+  return `https://jtpets.slack.com/archives/${channel}/p${ts.replace('.', '')}`;
 }
 
 // ---- Process a single task ----
@@ -357,7 +395,9 @@ function msgLink(ts) {
 // to be removed before restarting PM2 to avoid interrupting running tasks.
 const TASK_LOCK_FILE = path.join(WORK_DIR, '.task-running');
 
-async function processTask(msg) {
+// LOGIC CHANGE 2026-03-27: Added sourceChannel parameter for multi-channel support.
+// Tasks can be submitted from any agent channel but always execute with bridge agent.
+async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
   const task = parseTask(msg.text);
   const startTime = Date.now();
   let taskDir = null;
@@ -366,7 +406,8 @@ async function processTask(msg) {
   // LOGIC CHANGE 2026-03-27: Create heartbeat for visual progress feedback.
   // Cycles through emojis while task runs. Wrapped in try/catch so heartbeat
   // failures never affect task execution.
-  const heartbeat = createHeartbeat(slack, BRIDGE_CHANNEL, msg.ts);
+  // Uses sourceChannel to add reactions to the correct channel's message.
+  const heartbeat = createHeartbeat(slack, sourceChannel, msg.ts);
 
   // LOGIC CHANGE 2026-03-27: Create task lock file to signal to auto-update.js
   // that a task is running. Auto-update will wait for this file to be removed
@@ -514,7 +555,7 @@ async function processTask(msg) {
         const retryTurns = Math.min(currentTurns * 2, 100);
         await postToOps(
           `:hourglass_flowing_sand: *Task hit max turns (${currentTurns}). Retrying with ${retryTurns} turns...*\n` +
-          `Source: <${msgLink(msg.ts)}|#claude-bridge>`
+          `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
         );
         currentTurns = retryTurns;
         retryCount++;
@@ -526,7 +567,7 @@ async function processTask(msg) {
       // Post warning and break out of loop
       await postToOps(
         `:warning: *Task hit max turns limit${didRetry ? ' on retry' : ''}. May be partially complete.*\n` +
-        `Source: <${msgLink(msg.ts)}|#claude-bridge>`
+        `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
       );
       break;
     }
@@ -538,7 +579,7 @@ async function processTask(msg) {
     // Do not count as failure, do not trigger rate limit. Just log and return.
     if (interrupted) {
       console.log(`[bridge-agent] Task interrupted (exit code null) - likely PM2 restart`);
-      await postToOps(`:warning: Task interrupted (likely PM2 restart) after ${elapsed}s.\nSource: <${msgLink(msg.ts)}|#claude-bridge>`);
+      await postToOps(`:warning: Task interrupted (likely PM2 restart) after ${elapsed}s.\nSource: <${msgLink(msg.ts, sourceChannel)}|source>`);
       taskSuccess = true; // Don't mark as failure
       if (memoryTaskId) {
         try {
@@ -553,7 +594,7 @@ async function processTask(msg) {
     // LOGIC CHANGE 2026-03-26: Use notify-owner module for task completion notification.
     await notifyOwner.taskCompleted(task, truncate(output), {
       elapsed,
-      sourceLink: `<${msgLink(msg.ts)}|#claude-bridge>`,
+      sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
     });
 
     // LOGIC CHANGE 2026-03-27: Mark task as successful for heartbeat cleanup.
@@ -613,7 +654,7 @@ async function processTask(msg) {
     // Posts to ops channel and sends critical DM to owner.
     await notifyOwner.taskFailed(task, err, {
       elapsed,
-      sourceLink: `<${msgLink(msg.ts)}|#claude-bridge>`,
+      sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
     });
 
     // LOGIC CHANGE 2026-03-27: taskSuccess remains false, heartbeat.stop(false)
@@ -733,54 +774,65 @@ function formatStatusResponse() {
 // LOGIC CHANGE 2026-03-26: Added processConversation for handling ASK: messages.
 // Uses Claude Code with -p flag and max-turns 10 for quick Q&A responses.
 // Replies are posted as thread replies to the original message.
-async function processConversation(msg) {
+// LOGIC CHANGE 2026-03-27: Added sourceChannel and handlingAgent parameters for
+// multi-channel routing. Each agent handles ASK: messages in its own channel
+// with its own personality and system_prompt.
+async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handlingAgent = null) {
+  // Use the handling agent's config, or fall back to bridge agent config
+  const currentAgent = handlingAgent || agentConfig;
+  const agentName = currentAgent?.name || 'Bridge Agent';
+  const agentId = currentAgent?.id || 'bridge';
+
   try {
     // Extract question text after "ASK:" prefix
     const questionText = msg.text.replace(/^ASK:\s*/i, '').trim();
     if (!questionText) {
-      console.log(`[bridge-agent] Empty ASK: message, skipping`);
+      console.log(`[${agentId}] Empty ASK: message, skipping`);
       return;
     }
 
     // LOGIC CHANGE 2026-03-26: Check for built-in status query before calling LLM.
     // This saves LLM tokens for simple status checks.
-    if (isStatusQuery(questionText)) {
-      console.log(`[bridge-agent] Status query detected: ${msg.ts}`);
+    // Only bridge agent handles status queries (they're global to the system).
+    if (sourceChannel === BRIDGE_CHANNEL && isStatusQuery(questionText)) {
+      console.log(`[${agentId}] Status query detected: ${msg.ts}`);
       const statusResponse = formatStatusResponse();
       await slack.chat.postMessage({
-        channel: BRIDGE_CHANNEL,
+        channel: sourceChannel,
         thread_ts: msg.ts,
         text: statusResponse,
         unfurl_links: false,
       });
-      console.log(`[bridge-agent] Status query ${msg.ts} answered`);
+      console.log(`[${agentId}] Status query ${msg.ts} answered`);
       return;
     }
 
     // LOGIC CHANGE 2026-03-26: Check for owner tasks query ("what do I need to do",
     // "my tasks", etc.) to return pending activation checklist items.
-    if (isOwnerTasksQuery(questionText)) {
-      console.log(`[bridge-agent] Owner tasks query detected: ${msg.ts}`);
+    // Only bridge agent handles owner task queries (they're global to the system).
+    if (sourceChannel === BRIDGE_CHANNEL && isOwnerTasksQuery(questionText)) {
+      console.log(`[${agentId}] Owner tasks query detected: ${msg.ts}`);
       const tasksResponse = formatPendingTasks();
       await slack.chat.postMessage({
-        channel: BRIDGE_CHANNEL,
+        channel: sourceChannel,
         thread_ts: msg.ts,
         text: tasksResponse,
         unfurl_links: false,
       });
-      console.log(`[bridge-agent] Owner tasks query ${msg.ts} answered`);
+      console.log(`[${agentId}] Owner tasks query ${msg.ts} answered`);
       return;
     }
 
     // LOGIC CHANGE 2026-03-26: Check for "create channel #name" command.
     // Creates the channel, invites the bot, and returns the channel ID.
-    if (isCreateChannelCommand(questionText)) {
-      console.log(`[bridge-agent] Create channel command detected: ${msg.ts}`);
+    // Only bridge agent handles channel creation (system-level operation).
+    if (sourceChannel === BRIDGE_CHANNEL && isCreateChannelCommand(questionText)) {
+      console.log(`[${agentId}] Create channel command detected: ${msg.ts}`);
       const channelName = parseCreateChannelCommand(questionText);
 
       if (!channelName) {
         await slack.chat.postMessage({
-          channel: BRIDGE_CHANNEL,
+          channel: sourceChannel,
           thread_ts: msg.ts,
           text: ':x: Invalid channel name. Use: `create channel #channel-name`',
           unfurl_links: false,
@@ -792,37 +844,40 @@ async function processConversation(msg) {
         const result = await slackClient.ensureChannel(channelName);
         const action = result.created ? 'Created' : 'Found existing';
         await slack.chat.postMessage({
-          channel: BRIDGE_CHANNEL,
+          channel: sourceChannel,
           thread_ts: msg.ts,
           text: `:white_check_mark: ${action} channel <#${result.channelId}|${result.name}>\nChannel ID: \`${result.channelId}\``,
           unfurl_links: false,
         });
-        console.log(`[bridge-agent] Channel ${action.toLowerCase()}: ${result.name} (${result.channelId})`);
+        console.log(`[${agentId}] Channel ${action.toLowerCase()}: ${result.name} (${result.channelId})`);
       } catch (channelErr) {
         // Post error to thread
         await slack.chat.postMessage({
-          channel: BRIDGE_CHANNEL,
+          channel: sourceChannel,
           thread_ts: msg.ts,
           text: `:x: Failed to create channel: ${channelErr.message}`,
           unfurl_links: false,
         });
-        console.error(`[bridge-agent] Create channel failed:`, channelErr.message);
+        console.error(`[${agentId}] Create channel failed:`, channelErr.message);
       }
       return;
     }
 
-    console.log(`[bridge-agent] Processing conversation: ${msg.ts}`);
+    console.log(`[${agentId}] Processing conversation: ${msg.ts}`);
 
     // Build memory context
     let memoryContext = '';
     try {
       memoryContext = memory.buildTaskContext() || '';
     } catch (contextErr) {
-      console.error('[bridge-agent] buildTaskContext failed:', contextErr.message);
+      console.error(`[${agentId}] buildTaskContext failed:`, contextErr.message);
     }
 
-    // Build prompt with system instruction
-    const systemInstruction = 'You are a helpful assistant for John Alexander who runs JT Pets. Answer concisely.';
+    // LOGIC CHANGE 2026-03-27: Use agent's system_prompt and personality for conversations.
+    // Each agent responds with its own voice and expertise.
+    const systemInstruction = currentAgent?.system_prompt ||
+      'You are a helpful assistant for John Alexander who runs JT Pets. Answer concisely.';
+
     const prompt = [
       systemInstruction,
       memoryContext,
@@ -831,34 +886,39 @@ async function processConversation(msg) {
 
     // LOGIC CHANGE 2026-03-26: Use runLLM from lib/llm-runner.js for conversation
     // handling. Uses max-turns 10 for quick Q&A responses.
-    // LOGIC CHANGE 2026-03-27: Pass agent's llm_provider for conversation handling.
+    // LOGIC CHANGE 2026-03-27: Pass handling agent's llm_provider for conversation handling.
+    // Uses the agent's configured max_turns capped at 20 for conversations.
+    const maxTurns = Math.min(currentAgent?.max_turns || 10, 20);
     const result = await runLLM(prompt, {
       cwd: WORK_DIR,
-      maxTurns: 10,
+      maxTurns,
       timeout: TASK_TIMEOUT,
       claudeBin: CLAUDE_BIN,
-      provider: agentConfig?.llm_provider,
+      provider: currentAgent?.llm_provider,
     });
     const { output } = result;
 
     // Post response as a thread reply
     await slack.chat.postMessage({
-      channel: BRIDGE_CHANNEL,
+      channel: sourceChannel,
       thread_ts: msg.ts,
       text: truncate(output),
       unfurl_links: false,
     });
 
-    console.log(`[bridge-agent] Conversation ${msg.ts} answered`);
+    console.log(`[${agentId}] Conversation ${msg.ts} answered`);
 
   } catch (err) {
     // Log errors but do not post to ops channel
-    console.error(`[bridge-agent] Conversation ${msg.ts} failed:`, err.message);
+    console.error(`[${agentId}] Conversation ${msg.ts} failed:`, err.message);
   }
 }
 
 // ---- Poll loop ----
 
+// LOGIC CHANGE 2026-03-27: Refactored poll() to iterate through all agent channels.
+// Each channel is polled for messages. TASK: messages always go to bridge agent.
+// ASK: messages are routed to the agent that owns the channel.
 async function poll() {
   if (isRunning) return;
 
@@ -897,64 +957,74 @@ async function poll() {
     return;
   }
 
-  try {
-    const result = await slack.conversations.history({
-      channel: BRIDGE_CHANNEL,
-      oldest: lastChecked,
-      limit: 5,
-      inclusive: false,
-    });
+  // LOGIC CHANGE 2026-03-27: Poll all channels in channelsToPoll array.
+  // Process messages from each channel with appropriate agent context.
+  for (const channelInfo of channelsToPoll) {
+    const { channelId, agentId, agentConfig: channelAgentConfig } = channelInfo;
 
-    if (!result.messages?.length) return;
+    try {
+      const result = await slack.conversations.history({
+        channel: channelId,
+        oldest: getLastChecked(channelId),
+        limit: 5,
+        inclusive: false,
+      });
 
-    const messages = result.messages.reverse();
+      if (!result.messages?.length) continue;
 
-    for (const msg of messages) {
-      if (msg.ts > lastChecked) {
-        lastChecked = msg.ts;
-        saveState(lastChecked);
-      }
+      const messages = result.messages.reverse();
 
-      // LOGIC CHANGE 2026-03-26: Check if message sender is authorized before
-      // processing TASK: or ASK: messages. Unauthorized users are logged and skipped.
-      if ((isTaskMessage(msg) || isConversationMessage(msg)) && !isUserAuthorized(msg.user)) {
-        console.log(`[bridge-agent] Ignoring message from unauthorized user: ${msg.user}`);
-        continue;
-      }
-
-      // Check for TASK: messages first
-      if (isTaskMessage(msg) && !alreadyProcessed(msg)) {
-        console.log(`[bridge-agent] Task found: ${msg.ts}`);
-        isRunning = true;
-
-        // LOGIC CHANGE 2026-03-27: Track current task promise for graceful shutdown.
-        // Allows shutdown handler to wait for task completion.
-        currentTaskPromise = processTask(msg);
-        await currentTaskPromise;
-        currentTaskPromise = null;
-
-        isRunning = false;
-
-        // LOGIC CHANGE 2026-03-26: After processing a task, check if we got rate limited.
-        // If so, exit the loop to pause processing.
-        if (isRateLimitPaused()) {
-          console.log('[bridge-agent] Rate limit triggered. Pausing task processing.');
-          return;
+      for (const msg of messages) {
+        if (msg.ts > getLastChecked(channelId)) {
+          setLastChecked(channelId, msg.ts);
         }
 
-        continue;
-      }
+        // LOGIC CHANGE 2026-03-26: Check if message sender is authorized before
+        // processing TASK: or ASK: messages. Unauthorized users are logged and skipped.
+        if ((isTaskMessage(msg) || isConversationMessage(msg)) && !isUserAuthorized(msg.user)) {
+          console.log(`[bridge-agent] Ignoring message from unauthorized user: ${msg.user}`);
+          continue;
+        }
 
-      // LOGIC CHANGE 2026-03-26: Check for ASK: conversational messages.
-      // These are handled inline without blocking the task queue.
-      if (isConversationMessage(msg) && !alreadyProcessed(msg)) {
-        await processConversation(msg);
+        // LOGIC CHANGE 2026-03-27: TASK: messages always go to bridge agent regardless of channel.
+        // This allows tasks to be submitted from any agent channel but always use bridge for execution.
+        if (isTaskMessage(msg) && !alreadyProcessed(msg)) {
+          console.log(`[bridge-agent] Task found in ${agentId} channel: ${msg.ts}`);
+          isRunning = true;
+
+          // LOGIC CHANGE 2026-03-27: Track current task promise for graceful shutdown.
+          // Allows shutdown handler to wait for task completion.
+          // Pass channel context for proper message linking
+          currentTaskPromise = processTask(msg, channelId);
+          await currentTaskPromise;
+          currentTaskPromise = null;
+
+          isRunning = false;
+
+          // LOGIC CHANGE 2026-03-26: After processing a task, check if we got rate limited.
+          // If so, exit the loop to pause processing.
+          if (isRateLimitPaused()) {
+            console.log('[bridge-agent] Rate limit triggered. Pausing task processing.');
+            return;
+          }
+
+          continue;
+        }
+
+        // LOGIC CHANGE 2026-03-27: ASK: messages are routed to the agent that owns the channel.
+        // Each agent processes conversations with its own personality and system_prompt.
+        if (isConversationMessage(msg) && !alreadyProcessed(msg)) {
+          await processConversation(msg, channelId, channelAgentConfig);
+        }
       }
+    } catch (err) {
+      // LOGIC CHANGE 2026-03-27: Log channel-specific poll errors but continue polling other channels.
+      // A single channel error shouldn't block the entire poll loop.
+      console.error(`[bridge-agent] Poll error for channel ${channelId} (${agentId}):`, err.message);
     }
-  } catch (err) {
-    console.error('[bridge-agent] Poll error:', err.message);
-    isRunning = false;
   }
+
+  isRunning = false;
 }
 
 // ---- Startup ----
@@ -1043,6 +1113,49 @@ function runStartupMemoryMaintenance() {
   }
 }
 
+// LOGIC CHANGE 2026-03-27: Build list of channels to poll on startup.
+// Always includes bridge channel. Adds channels for all active agents that have
+// a channel assigned. Returns array of { channelId, agentId, agentConfig }.
+function buildChannelsToPoll() {
+  const channels = [];
+
+  // Always include bridge channel (for TASK: messages and bridge agent)
+  channels.push({
+    channelId: BRIDGE_CHANNEL,
+    agentId: 'bridge',
+    agentConfig: agentConfig,
+  });
+
+  // Add channels for all active agents (those without status="planned")
+  try {
+    const activeAgents = getActiveAgents();
+    for (const agent of activeAgents) {
+      // Skip bridge agent (already added) and agents without channels
+      if (agent.id === 'bridge' || !agent.channel) {
+        continue;
+      }
+      // Skip if channel is same as bridge (some agents share channels)
+      if (agent.channel === BRIDGE_CHANNEL) {
+        continue;
+      }
+      // Check if this channel is already in the list (multiple agents may share a channel)
+      const existing = channels.find(c => c.channelId === agent.channel);
+      if (!existing) {
+        channels.push({
+          channelId: agent.channel,
+          agentId: agent.id,
+          agentConfig: agent,
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[bridge-agent] Failed to load active agents:', err.message);
+    // Continue with just the bridge channel
+  }
+
+  return channels;
+}
+
 console.log('[bridge-agent] Starting v2');
 
 // LOGIC CHANGE 2026-03-27: Rate limit state is in-memory only — never persisted
@@ -1050,6 +1163,9 @@ console.log('[bridge-agent] Starting v2');
 // automatically gives the bot a fresh start with no stale pause state.
 // No memory.updateContext/loadContext calls needed here.
 console.log('[bridge-agent] Startup: rate limit state is in-memory only, cleared on every restart');
+
+// LOGIC CHANGE 2026-03-27: Build channels to poll from active agents.
+channelsToPoll = buildChannelsToPoll();
 
 console.log(`  Config:   ${agentConfig ? 'agent registry' : 'env vars'}`);
 console.log(`  Claude:   ${CLAUDE_BIN}`);
@@ -1061,6 +1177,7 @@ console.log(`  Interval: ${POLL_INTERVAL / 1000}s`);
 console.log(`  Timeout:  ${TASK_TIMEOUT / 1000}s`);
 console.log(`  Turns:    ${MAX_TURNS}`);
 console.log(`  Allowed:  ${ALLOWED_USER_IDS.join(', ')}`);
+console.log(`  Channels: ${channelsToPoll.length} (${channelsToPoll.map(c => c.agentId).join(', ')})`);
 
 // Run memory maintenance before starting poll loop
 runStartupMemoryMaintenance();
