@@ -494,6 +494,85 @@ describe('llm-runner module', () => {
     });
   });
 
+  // LOGIC CHANGE 2026-03-30: Regression tests for validateGeminiOnStartup.
+  // Added after gemini-2.5-flash rename silenced all Gemini agents for 2 days.
+  describe('validateGeminiOnStartup', () => {
+    let originalFetch;
+
+    beforeEach(() => {
+      originalFetch = global.fetch;
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+      delete process.env.GEMINI_API_KEY;
+    });
+
+    test('skips validation and logs when GEMINI_API_KEY is not set', async () => {
+      delete process.env.GEMINI_API_KEY;
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const { validateGeminiOnStartup } = require('../lib/llm-runner');
+      await expect(validateGeminiOnStartup()).resolves.toBeUndefined();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Gemini startup check skipped')
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    test('logs PASSED when Gemini API responds successfully', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ content: { parts: [{ text: 'ok' }] } }],
+        }),
+      });
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const { validateGeminiOnStartup } = require('../lib/llm-runner');
+      await expect(validateGeminiOnStartup()).resolves.toBeUndefined();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Gemini startup check PASSED')
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    test('logs FAILED but does not throw when Gemini API fails', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve('models/gemini-2.5-flash is not found'),
+      });
+      const consoleErrSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const { validateGeminiOnStartup } = require('../lib/llm-runner');
+      await expect(validateGeminiOnStartup()).resolves.toBeUndefined();
+      expect(consoleErrSpy).toHaveBeenCalledWith(
+        expect.stringContaining('GEMINI STARTUP CHECK FAILED')
+      );
+
+      consoleErrSpy.mockRestore();
+    });
+
+    test('logs FAILED but does not throw on network error', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      global.fetch = jest.fn().mockRejectedValue(new TypeError('fetch failed: network error'));
+      const consoleErrSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const { validateGeminiOnStartup } = require('../lib/llm-runner');
+      await expect(validateGeminiOnStartup()).resolves.toBeUndefined();
+      expect(consoleErrSpy).toHaveBeenCalledWith(
+        expect.stringContaining('GEMINI STARTUP CHECK FAILED')
+      );
+
+      consoleErrSpy.mockRestore();
+    });
+  });
+
   describe('exported constants', () => {
     test('exports DEFAULT_PROVIDER as claude', () => {
       const { DEFAULT_PROVIDER } = require('../lib/llm-runner');
