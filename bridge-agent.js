@@ -85,7 +85,7 @@ const { getAgent, loadAgents, getActiveAgents, getAgentByChannel, registryExists
 // errors and implementing pause/retry behavior.
 // LOGIC CHANGE 2026-03-27: Import BandwidthExhaustedError for bandwidth-specific
 // handling when Claude CLI exits with code 1 and empty/short output.
-const { runLLM, RateLimitError, BandwidthExhaustedError } = require('./lib/llm-runner');
+const { runLLM, RateLimitError, BandwidthExhaustedError, validateGeminiOnStartup } = require('./lib/llm-runner');
 
 // LOGIC CHANGE 2026-03-26: Added slack-client module for channel management
 // functions (createChannel, ensureChannel, etc.).
@@ -1245,8 +1245,18 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
     console.log(`[${agentId}] Conversation ${msg.ts} answered`);
 
   } catch (err) {
-    // Log errors but do not post to ops channel
+    // LOGIC CHANGE 2026-03-30: Post conversation errors to #sqtools-ops.
+    // Previously only logged — this allowed the gemini-2.5-flash outage to go
+    // undetected for 2 days because all 8 Gemini agent failures were invisible.
     console.error(`[${agentId}] Conversation ${msg.ts} failed:`, err.message);
+    try {
+      await slack.chat.postMessage({
+        channel: OPS_CHANNEL,
+        text: `:x: [${agentId}] ASK handler failed (msg ${msg.ts}): ${err.message}`,
+      });
+    } catch (postErr) {
+      console.error(`[${agentId}] Failed to post error to ops:`, postErr.message);
+    }
   }
 }
 
@@ -1538,12 +1548,16 @@ console.log(`  Scheduler: ${schedulerResult.jobCount} jobs (${schedulerResult.ag
 // LOGIC CHANGE 2026-03-28: Join all agent channels before starting the poll loop.
 // Runs async so the bot is guaranteed to be in all channels before first poll.
 // This must happen on EVERY startup — channels might be recreated while offline.
+// LOGIC CHANGE 2026-03-30: Also validates Gemini API at startup so a bad model
+// name or expired key shows up immediately in logs instead of silently on the
+// first ASK message. Does not block the poll loop from starting.
 (async () => {
   try {
     await slackClient.joinAgentChannels(channelsToPoll);
   } catch (joinErr) {
     console.error('[bridge-agent] Failed to join agent channels on startup:', joinErr.message);
   }
+  await validateGeminiOnStartup();
   poll();
   setInterval(poll, POLL_INTERVAL);
 })();

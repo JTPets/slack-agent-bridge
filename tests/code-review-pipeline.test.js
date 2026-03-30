@@ -356,3 +356,20 @@ describe('code-review-pipeline', () => {
         });
     });
 });
+
+// LOGIC CHANGE 2026-03-30: Regression tests for silent catch removal.
+// Both `catch { return false; }` and `catch { /* ignore */ }` blocks were silently
+// swallowing errors in validateOutput. Verify they now log before returning.
+describe('code-review-pipeline silent catch regression', () => {
+    it('pipeline source has no bare catch {} blocks (all must log)', () => {
+        const pipelineSrc = fs.readFileSync(
+            path.join(__dirname, '../lib/code-review-pipeline.js'),
+            'utf8'
+        );
+        // Bare catch blocks: "} catch {" with nothing or only a comment inside
+        const bareCatch = /\} catch \s*\{[\s]*\}/g;
+        const ignoreCatch = /\} catch \s*\{\s*\/\*\s*ignore\s*\*\/\s*\}/g;
+        expect(bareCatch.test(pipelineSrc)).toBe(false);
+        expect(ignoreCatch.test(pipelineSrc)).toBe(false);
+    });
+});

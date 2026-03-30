@@ -439,3 +439,21 @@ describe('Google Calendar integration', () => {
         expect(transformed.recurring).toBe(false);
     });
 });
+
+// LOGIC CHANGE 2026-03-30: Regression test for silent processConversation catch.
+// The gemini-2.5-flash outage went undetected for 2 days because processConversation
+// caught all errors and only logged them — no Slack post. Verify the source now
+// posts to OPS_CHANNEL on failure.
+describe('processConversation error reporting regression', () => {
+    test('bridge-agent.js processConversation catch block posts to ops channel on failure', () => {
+        const bridgeSrc = fs.readFileSync(
+            path.join(__dirname, '../bridge-agent.js'),
+            'utf8'
+        );
+        // The catch block must include a postMessage call to OPS_CHANNEL
+        expect(bridgeSrc).toMatch(/ASK handler failed.*OPS_CHANNEL|postMessage[\s\S]{0,200}OPS_CHANNEL[\s\S]{0,200}ASK handler failed/);
+        // The old "do not post to ops channel" comment must be gone
+        expect(bridgeSrc).not.toContain('Log errors but do not post to ops channel');
+    });
+});
+
