@@ -55,6 +55,8 @@ describe('heartbeat', () => {
   });
 
   describe('heartbeat cycling', () => {
+    // LOGIC CHANGE 2026-04-01: Fixed test to use advanceTimersByTimeAsync() instead of
+    // runAllTimersAsync() which caused infinite loops with setInterval
     it('cycles through emojis every 30 seconds', async () => {
       await heartbeat.start();
 
@@ -62,10 +64,8 @@ describe('heartbeat', () => {
       expect(mockSlack.reactions.add).toHaveBeenCalledTimes(1);
 
       // After 30s: hourglass_flowing_sand
-      jest.advanceTimersByTime(30000);
-      // Flush microtasks and pending promises
-      await jest.runAllTimersAsync().catch(() => {});
-      await Promise.resolve();
+      // Use advanceTimersByTimeAsync to properly handle async tick function
+      await jest.advanceTimersByTimeAsync(30000);
 
       expect(mockSlack.reactions.add).toHaveBeenCalledWith({
         channel: 'C123',
@@ -74,9 +74,7 @@ describe('heartbeat', () => {
       });
 
       // After another 30s: gear (and remove hourglass)
-      jest.advanceTimersByTime(30000);
-      await jest.runAllTimersAsync().catch(() => {});
-      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(30000);
 
       expect(mockSlack.reactions.remove).toHaveBeenCalledWith({
         channel: 'C123',
@@ -201,21 +199,20 @@ describe('heartbeat', () => {
       await expect(heartbeat.start()).resolves.not.toThrow();
     });
 
+    // LOGIC CHANGE 2026-04-01: Fixed test to use advanceTimersByTimeAsync() instead of
+    // runAllTimersAsync() which caused infinite loops with setInterval
     it('heartbeat tick continues on error', async () => {
       await heartbeat.start();
 
       // Make first tick fail
       mockSlack.reactions.add.mockRejectedValueOnce(new Error('API error'));
 
-      jest.advanceTimersByTime(30000);
-      await jest.runAllTimersAsync().catch(() => {});
-      await Promise.resolve();
+      // Use advanceTimersByTimeAsync to properly handle async tick function
+      await jest.advanceTimersByTimeAsync(30000);
 
       // Second tick should still work
       mockSlack.reactions.add.mockResolvedValue({});
-      jest.advanceTimersByTime(30000);
-      await jest.runAllTimersAsync().catch(() => {});
-      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(30000);
 
       expect(mockSlack.reactions.add).toHaveBeenCalledWith({
         channel: 'C123',
