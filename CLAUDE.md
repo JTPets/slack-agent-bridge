@@ -151,6 +151,7 @@ const POLL_INTERVAL = 5000;
 | `REPOS` | Comma-separated repos for security-review | `jtpets/slack-agent-bridge,jtpets/SquareDashboardTool` |
 | `CLAUDE_RATE_LIMIT_PAUSE` | Initial pause duration (ms) when rate limit/bandwidth exhausted | `1800000` |
 | `STORE_TASKS_CHANNEL_ID` | #store-tasks channel ID for staff task management | - |
+| `NATURAL_CONVERSATION_MODE` | Enable natural language processing for messages without TASK:/ASK: prefixes | `false` |
 
 **LLM_PROVIDER options:** `claude` (default), `openai` (not yet implemented), `ollama` (not yet implemented)
 
