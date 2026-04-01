@@ -523,6 +523,10 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
     console.error('[bridge-agent] Memory addTask failed:', memErr.message);
   }
 
+  // LOGIC CHANGE 2026-04-01: Determine LLM provider early so it's available in catch block
+  // for error notifications. Falls back to env LLM_PROVIDER or 'claude'.
+  const llmProvider = agentConfig?.llm_provider || process.env.LLM_PROVIDER || 'claude';
+
   try {
     // LOGIC CHANGE 2026-03-27: Start heartbeat reactions (eyes -> cycling emojis).
     await heartbeat.start();
@@ -727,7 +731,8 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
       break;
     }
 
-    const { output, hitMaxTurns, interrupted } = result;
+    // LOGIC CHANGE 2026-04-01: Extract provider from result for LLM engine visibility.
+    const { output, hitMaxTurns, interrupted, provider: usedProvider } = result;
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
 
     // LOGIC CHANGE 2026-03-27: Handle interrupted tasks (exit code null, e.g., PM2 restart).
@@ -747,9 +752,11 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
     }
 
     // LOGIC CHANGE 2026-03-26: Use notify-owner module for task completion notification.
+    // LOGIC CHANGE 2026-04-01: Pass llmProvider to surface which engine handled the task.
     await notifyOwner.taskCompleted(task, truncate(output), {
       elapsed,
       sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
+      llmProvider: usedProvider,
     });
 
     // LOGIC CHANGE 2026-03-27: Mark task as successful for heartbeat cleanup.
@@ -869,9 +876,12 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
 
     // LOGIC CHANGE 2026-03-26: Use notify-owner module for task failure notification.
     // Posts to ops channel and sends critical DM to owner.
+    // LOGIC CHANGE 2026-04-01: Pass llmProvider to surface which engine was being used when task failed.
+    // Uses the configured provider since the error occurred during LLM execution.
     await notifyOwner.taskFailed(task, err, {
       elapsed,
       sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
+      llmProvider: llmProvider || 'claude',
     });
 
     // LOGIC CHANGE 2026-03-27: taskSuccess remains false, heartbeat.stop(false)

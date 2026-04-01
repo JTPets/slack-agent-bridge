@@ -111,6 +111,55 @@ describe('llm-runner module', () => {
 
       expect(result.output).toBe('output');
     });
+
+    // LOGIC CHANGE 2026-04-01: Tests for LLM engine visibility in task notifications.
+    // runLLM should return the provider name in the result so callers can surface it.
+    test('returns provider name in result for claude', async () => {
+      setupMockSpawn({ stdout: 'output' });
+
+      const { runLLM } = require('../lib/llm-runner');
+      const result = await runLLM('test', { provider: 'claude' });
+
+      expect(result.provider).toBe('claude');
+    });
+
+    test('returns normalized provider name (lowercase)', async () => {
+      setupMockSpawn({ stdout: 'output' });
+
+      const { runLLM } = require('../lib/llm-runner');
+      const result = await runLLM('test', { provider: 'CLAUDE' });
+
+      expect(result.provider).toBe('claude');
+    });
+
+    test('returns default provider when not specified', async () => {
+      setupMockSpawn({ stdout: 'output' });
+      delete process.env.LLM_PROVIDER;
+
+      const { runLLM } = require('../lib/llm-runner');
+      const result = await runLLM('test');
+
+      expect(result.provider).toBe('claude');
+    });
+
+    test('returns provider from LLM_PROVIDER env var', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      process.env.LLM_PROVIDER = 'gemini';
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ content: { parts: [{ text: 'response' }] } }],
+        }),
+      });
+
+      const { runLLM } = require('../lib/llm-runner');
+      const result = await runLLM('test');
+
+      expect(result.provider).toBe('gemini');
+
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.LLM_PROVIDER;
+    });
   });
 
   describe('runClaudeAdapter', () => {

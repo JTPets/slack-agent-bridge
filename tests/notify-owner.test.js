@@ -263,6 +263,57 @@ describe('notify-owner', () => {
 
             expect(result.opsPosted).toBe(true);
         });
+
+        // LOGIC CHANGE 2026-04-01: Tests for LLM engine visibility in task failure notifications.
+        // When llmProvider is passed, it should appear as a badge like [claude] or [gemini].
+        it('should include LLM engine badge when llmProvider is specified', async () => {
+            await notifyOwner.taskFailed(task, new Error('Test error'), {
+                elapsed: '30',
+                llmProvider: 'claude',
+            });
+
+            const opsCall = mockSlack.chat.postMessage.mock.calls.find(
+                call => call[0].channel === testOpsChannel
+            );
+            expect(opsCall[0].text).toContain('[claude]');
+            expect(opsCall[0].text).toContain(':x: *Task failed* [claude]');
+        });
+
+        it('should include gemini badge when llmProvider is gemini', async () => {
+            await notifyOwner.taskFailed(task, new Error('Test error'), {
+                elapsed: '45',
+                llmProvider: 'gemini',
+            });
+
+            const opsCall = mockSlack.chat.postMessage.mock.calls.find(
+                call => call[0].channel === testOpsChannel
+            );
+            expect(opsCall[0].text).toContain('[gemini]');
+        });
+
+        it('should not include badge when llmProvider is not specified', async () => {
+            await notifyOwner.taskFailed(task, new Error('Test error'), {
+                elapsed: '30',
+            });
+
+            const opsCall = mockSlack.chat.postMessage.mock.calls.find(
+                call => call[0].channel === testOpsChannel
+            );
+            expect(opsCall[0].text).toContain(':x: *Task failed* (30s)');
+            expect(opsCall[0].text).not.toContain('[');
+        });
+
+        it('should not include badge when llmProvider is null', async () => {
+            await notifyOwner.taskFailed(task, new Error('Test error'), {
+                elapsed: '30',
+                llmProvider: null,
+            });
+
+            const opsCall = mockSlack.chat.postMessage.mock.calls.find(
+                call => call[0].channel === testOpsChannel
+            );
+            expect(opsCall[0].text).not.toMatch(/\[.*\]/);
+        });
     });
 
     describe('taskCompleted', () => {
@@ -307,6 +358,49 @@ describe('notify-owner', () => {
 
             const call = mockSlack.chat.postMessage.mock.calls[0];
             expect(call[0].text).not.toContain('Repo:');
+        });
+
+        // LOGIC CHANGE 2026-04-01: Tests for LLM engine visibility in task notifications.
+        // When llmProvider is passed, it should appear as a badge like [claude] or [gemini].
+        it('should include LLM engine badge when llmProvider is specified', async () => {
+            await notifyOwner.taskCompleted(task, 'Output', {
+                elapsed: '30',
+                llmProvider: 'claude',
+            });
+
+            const call = mockSlack.chat.postMessage.mock.calls[0];
+            expect(call[0].text).toContain('[claude]');
+            expect(call[0].text).toContain(':white_check_mark: *Task completed* [claude]');
+        });
+
+        it('should include gemini badge when llmProvider is gemini', async () => {
+            await notifyOwner.taskCompleted(task, 'Output', {
+                elapsed: '45',
+                llmProvider: 'gemini',
+            });
+
+            const call = mockSlack.chat.postMessage.mock.calls[0];
+            expect(call[0].text).toContain('[gemini]');
+        });
+
+        it('should not include badge when llmProvider is not specified', async () => {
+            await notifyOwner.taskCompleted(task, 'Output', {
+                elapsed: '30',
+            });
+
+            const call = mockSlack.chat.postMessage.mock.calls[0];
+            expect(call[0].text).toContain(':white_check_mark: *Task completed* (30s)');
+            expect(call[0].text).not.toContain('[');
+        });
+
+        it('should not include badge when llmProvider is null', async () => {
+            await notifyOwner.taskCompleted(task, 'Output', {
+                elapsed: '30',
+                llmProvider: null,
+            });
+
+            const call = mockSlack.chat.postMessage.mock.calls[0];
+            expect(call[0].text).not.toMatch(/\[.*\]/);
         });
     });
 
