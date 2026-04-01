@@ -155,10 +155,14 @@ const POLL_INTERVAL = 5000;
 | `GEMINI_API_KEY` | Google Gemini API key for fallback provider. **Never log this.** | - |
 | `LLM_FALLBACK_ENABLED` | Enable automatic fallback to secondary LLM on rate limits | `true` |
 | `LLM_FALLBACK_PROVIDER` | Secondary LLM provider to use when primary hits rate limits | `gemini` |
+| `SECURITY_FOLLOWUP_ENABLED` | Auto-create tasks from CRITICAL/HIGH security findings | `true` |
+| `SECURITY_FOLLOWUP_INCLUDE_MEDIUM` | Also create tasks for MEDIUM severity findings | `false` |
 
 **LLM_PROVIDER options:** `claude` (default), `gemini`, `openai` (not yet implemented), `ollama` (not yet implemented)
 
 **LLM Fallback:** When `LLM_FALLBACK_ENABLED=true` (default), Claude rate limits automatically trigger retry with `LLM_FALLBACK_PROVIDER` (default: gemini). Requires `GEMINI_API_KEY` to be set for Gemini fallback.
+
+**Security Followup:** When `SECURITY_FOLLOWUP_ENABLED=true` (default), the nightly security review automatically creates TASK messages for CRITICAL and HIGH severity findings. Tasks are routed to the appropriate code agent based on the repository.
 
 ### Google Calendar and Gmail integration
 | Variable | Description | Default |
@@ -324,6 +328,7 @@ slack-agent-bridge/
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
+│   ├── security-followup.js # Security finding → auto-task pipeline: parses findings, creates TASK messages
 │   ├── task-decomposer.js # Automated task decomposition: analyzeComplexity, decomposeTask, findAgentForTask, subtask management
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update
@@ -350,6 +355,8 @@ slack-agent-bridge/
 │   │   └── SKILL.md      # Safe refactoring with pre/post checks
 │   ├── security-review/
 │   │   └── SKILL.md      # Security audit of commits for vulnerabilities
+│   ├── security-fix/
+│   │   └── SKILL.md      # Fix security vulnerabilities found by security-review
 │   ├── accountability-check/
 │   │   └── SKILL.md      # Review calendar events and verify task completion
 │   └── decompose/
@@ -376,7 +383,8 @@ slack-agent-bridge/
 │   ├── bulletin-board.test.js   # Tests for lib/bulletin-board.js (inter-agent communication)
 │   ├── watercooler.test.js      # Tests for lib/watercooler.js (standup orchestration, agent flow)
 │   ├── task-queue.test.js       # Tests for lib/task-queue.js (queue persistence, auto-update coordination)
-│   └── task-decomposer.test.js  # Tests for lib/task-decomposer.js (complexity analysis, decomposition, agent routing)
+│   ├── task-decomposer.test.js  # Tests for lib/task-decomposer.js (complexity analysis, decomposition, agent routing)
+│   └── security-followup.test.js # Tests for lib/security-followup.js (finding parsing, task generation)
 ├── docs/
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
 │   ├── COURIER-INTAKE.md    # Courier intake page and delivery quote API documentation

@@ -29,6 +29,8 @@ const os = require('os');
 
 const { runLLM } = require('./lib/llm-runner');
 const bulletinBoard = require('./lib/bulletin-board');
+const securityFollowup = require('./lib/security-followup');
+const { config } = require('./lib/config');
 
 // ---- Config ----
 
@@ -351,14 +353,37 @@ async function main() {
 
         // LOGIC CHANGE 2026-03-28: Post security findings to bulletin board.
         // Each repo with findings gets its own bulletin for inter-agent visibility.
+        // LOGIC CHANGE 2026-04-01: Include full review text for auto-task pipeline.
         for (const result of results) {
             try {
-                bulletinBoard.postBulletin('security', 'security_finding', {
+                const bulletinResult = bulletinBoard.postBulletin('security', 'security_finding', {
                     description: `Security review of ${result.repo}: ${result.commitCount} commit(s) reviewed`,
                     repo: result.repo,
                     commitCount: result.commitCount,
                     summary: result.review.slice(0, 500),
+                    fullReview: result.review, // Full text for auto-task parsing
                 });
+
+                // LOGIC CHANGE 2026-04-01: Trigger security followup pipeline if enabled.
+                // Automatically creates TASK messages for CRITICAL/HIGH severity findings.
+                if (bulletinResult.success && config.SECURITY_FOLLOWUP_ENABLED) {
+                    try {
+                        const followupResult = await securityFollowup.processSecurityBulletin(
+                            slack,
+                            { ...bulletinResult.bulletin, data: { ...bulletinResult.bulletin.data, fullReview: result.review } },
+                            { includeMedium: config.SECURITY_FOLLOWUP_INCLUDE_MEDIUM }
+                        );
+
+                        if (followupResult.tasks.length > 0) {
+                            console.log(`[security-review] Created ${followupResult.tasks.length} remediation task(s) for ${result.repo}`);
+                            // Post summary to ops channel
+                            const summary = securityFollowup.formatFollowupSummary(followupResult);
+                            await postToOps(`*Security Auto-Task Pipeline* (${result.repo})\n${summary}`);
+                        }
+                    } catch (followupErr) {
+                        console.error(`[security-review] Followup pipeline error for ${result.repo}:`, followupErr.message);
+                    }
+                }
             } catch (bulletinErr) {
                 console.error(`[security-review] Failed to post bulletin for ${result.repo}:`, bulletinErr.message);
             }
