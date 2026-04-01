@@ -47,10 +47,13 @@ const memory = require('./memory/memory-manager');
 // command handling without LLM calls.
 // LOGIC CHANGE 2026-03-26: Added isCreateChannelCommand and parseCreateChannelCommand
 // for built-in "create channel #name" command handling.
+// LOGIC CHANGE 2026-04-01: Added isNaturalConversationMessage for natural language
+// routing when NATURAL_CONVERSATION_MODE is enabled.
 const {
   parseTask,
   isTaskMessage,
   isConversationMessage,
+  isNaturalConversationMessage,
   isStatusQuery,
   isCreateChannelCommand,
   parseCreateChannelCommand,
@@ -1374,6 +1377,26 @@ async function poll() {
         // Each agent processes conversations with its own personality and system_prompt.
         // LOGIC CHANGE 2026-03-28: Added isTaskProcessed() to prevent re-answering old ASK: messages.
         if (isConversationMessage(msg) && !alreadyProcessed(msg) && !isTaskProcessed(msg.ts)) {
+          await processConversation(msg, channelId, channelAgentConfig);
+          markTaskProcessed(msg.ts);
+          continue;
+        }
+
+        // LOGIC CHANGE 2026-04-01: Natural conversation mode - route messages without TASK:/ASK:
+        // prefixes to the channel's default agent. Only active when NATURAL_CONVERSATION_MODE=true.
+        // This enables casual conversation with agents without requiring structured prefixes.
+        if (config.NATURAL_CONVERSATION_MODE &&
+            isNaturalConversationMessage(msg) &&
+            !alreadyProcessed(msg) &&
+            !isTaskProcessed(msg.ts)) {
+          // Check authorization for natural messages too
+          const isBotMessage = msg.user === BOT_USER_ID;
+          if (!isUserAuthorized(msg.user) && !isBotMessage) {
+            console.log(`[bridge-agent] Ignoring natural message from unauthorized user: ${msg.user}`);
+            continue;
+          }
+
+          console.log(`[bridge-agent] Natural conversation in ${agentId} channel: ${msg.ts}`);
           await processConversation(msg, channelId, channelAgentConfig);
           markTaskProcessed(msg.ts);
         }

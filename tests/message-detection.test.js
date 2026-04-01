@@ -8,6 +8,7 @@
 const {
   isTaskMessage,
   isConversationMessage,
+  isNaturalConversationMessage,
   isStatusQuery,
   alreadyProcessed,
   EMOJI_DONE,
@@ -219,5 +220,99 @@ describe('alreadyProcessed', () => {
   test('returns true when done emoji among other reactions', () => {
     const msg = { reactions: [{ name: 'thumbsup' }, { name: EMOJI_DONE }, { name: 'heart' }] };
     expect(alreadyProcessed(msg)).toBe(true);
+  });
+});
+
+// LOGIC CHANGE 2026-04-01: Added tests for isNaturalConversationMessage which detects
+// messages without TASK:/ASK: prefixes for natural conversation mode routing.
+describe('isNaturalConversationMessage', () => {
+  test('returns true for regular text messages', () => {
+    const msg = { text: 'What is the weather today?' };
+    expect(isNaturalConversationMessage(msg)).toBe(true);
+  });
+
+  test('returns true for greetings', () => {
+    const msg = { text: 'Hello!' };
+    expect(isNaturalConversationMessage(msg)).toBe(true);
+  });
+
+  test('returns true for questions without ASK prefix', () => {
+    const msg = { text: 'How do I deploy the app?' };
+    expect(isNaturalConversationMessage(msg)).toBe(true);
+  });
+
+  test('returns false for TASK: messages', () => {
+    const msg = { text: 'TASK: Do something\nINSTRUCTIONS: Details' };
+    expect(isNaturalConversationMessage(msg)).toBe(false);
+  });
+
+  test('returns false for lowercase task: messages', () => {
+    const msg = { text: 'task: lowercase task' };
+    expect(isNaturalConversationMessage(msg)).toBe(false);
+  });
+
+  test('returns false for ASK: messages', () => {
+    const msg = { text: 'ASK: What is the status?' };
+    expect(isNaturalConversationMessage(msg)).toBe(false);
+  });
+
+  test('returns false for lowercase ask: messages', () => {
+    const msg = { text: 'ask: lowercase question' };
+    expect(isNaturalConversationMessage(msg)).toBe(false);
+  });
+
+  test('returns false for channel_join subtypes', () => {
+    const msg = { subtype: 'channel_join', text: 'Hello everyone!' };
+    expect(isNaturalConversationMessage(msg)).toBe(false);
+  });
+
+  test('returns false for channel_leave subtypes', () => {
+    const msg = { subtype: 'channel_leave', text: 'Goodbye!' };
+    expect(isNaturalConversationMessage(msg)).toBe(false);
+  });
+
+  test('returns false for bot_message subtypes', () => {
+    const msg = { subtype: 'bot_message', text: 'Bot says hello' };
+    expect(isNaturalConversationMessage(msg)).toBe(false);
+  });
+
+  test('returns false for message_changed subtypes', () => {
+    const msg = { subtype: 'message_changed', text: 'Edited message' };
+    expect(isNaturalConversationMessage(msg)).toBe(false);
+  });
+
+  test('returns false for message_deleted subtypes', () => {
+    const msg = { subtype: 'message_deleted', text: 'Deleted' };
+    expect(isNaturalConversationMessage(msg)).toBe(false);
+  });
+
+  test('returns false for empty text', () => {
+    const msg = { text: '' };
+    expect(isNaturalConversationMessage(msg)).toBe(false);
+  });
+
+  test('returns false for whitespace-only text', () => {
+    const msg = { text: '   ' };
+    expect(isNaturalConversationMessage(msg)).toBe(false);
+  });
+
+  test('returns false for undefined text', () => {
+    const msg = {};
+    expect(isNaturalConversationMessage(msg)).toBe(false);
+  });
+
+  test('returns false for null text', () => {
+    const msg = { text: null };
+    expect(isNaturalConversationMessage(msg)).toBe(false);
+  });
+
+  test('returns true for messages containing task word but not TASK: prefix', () => {
+    const msg = { text: 'I need help with this task' };
+    expect(isNaturalConversationMessage(msg)).toBe(true);
+  });
+
+  test('returns true for messages containing ask word but not ASK: prefix', () => {
+    const msg = { text: 'I want to ask you something' };
+    expect(isNaturalConversationMessage(msg)).toBe(true);
   });
 });
