@@ -419,6 +419,22 @@ The bot requires these OAuth scopes at [api.slack.com/apps](https://api.slack.co
 
 If the API returns `missing_scope` error, the log will show: `Missing Slack scope: <scope>. Add it at api.slack.com/apps`
 
+### Required Google OAuth Scopes
+When using OAuth (not service account), the refresh token must be generated with these scopes at [console.cloud.google.com](https://console.cloud.google.com):
+| Scope | Purpose |
+|-------|---------|
+| `https://www.googleapis.com/auth/gmail.readonly` | Read emails for morning digest and inbox triage |
+| `https://www.googleapis.com/auth/calendar.readonly` | Read calendar events for daily briefings |
+| `https://www.googleapis.com/auth/analytics.readonly` | Read Google Analytics data for marketing reports (future) |
+
+**Generating a refresh token with multiple scopes:**
+```bash
+# Use the OAuth Playground or a script to request these scopes together:
+SCOPES="https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/analytics.readonly"
+```
+
+**Note:** A single `GOOGLE_REFRESH_TOKEN` can cover multiple scopes if generated with all required scopes during the OAuth consent flow. The same token works for both Gmail and Calendar integrations.
+
 ---
 
 ## Code Review Pipeline
