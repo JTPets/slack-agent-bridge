@@ -451,19 +451,39 @@ describe('llm-runner module', () => {
       await expect(runGeminiAdapter('prompt')).rejects.toThrow('Gemini returned no candidates');
     });
 
-    test('throws error when response text is empty', async () => {
+    // LOGIC CHANGE 2026-04-01: Updated to reflect new specific error messages.
+    // Generic "empty response" replaced with finishReason-aware diagnostics.
+    test('throws error with finishReason when response text is empty', async () => {
       process.env.GEMINI_API_KEY = 'test-key';
 
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
-          candidates: [{ content: { parts: [{ text: '' }] } }],
+          candidates: [{ content: { parts: [{ text: '' }] }, finishReason: 'STOP' }],
         }),
       });
 
       const { runGeminiAdapter } = require('../lib/llm-runner');
 
-      await expect(runGeminiAdapter('prompt')).rejects.toThrow('Gemini returned empty response');
+      await expect(runGeminiAdapter('prompt')).rejects.toThrow('Gemini returned no text in response');
+    });
+
+    test('throws MAX_TOKENS error with thoughtsTokenCount when response is empty due to token limit', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ finishReason: 'MAX_TOKENS' }], // no content.parts when budget exhausted
+          usageMetadata: { thoughtsTokenCount: 42 },
+        }),
+      });
+
+      const { runGeminiAdapter } = require('../lib/llm-runner');
+
+      await expect(runGeminiAdapter('prompt')).rejects.toThrow(
+        'Gemini hit MAX_TOKENS limit (thoughtsTokenCount=42 - increase maxOutputTokens)'
+      );
     });
 
     test('handles network error', async () => {
@@ -570,6 +590,27 @@ describe('llm-runner module', () => {
       );
 
       consoleErrSpy.mockRestore();
+    });
+
+    // LOGIC CHANGE 2026-04-01: Regression test — startup check must use
+    // maxOutputTokens=100 so Gemini 2.5 Flash has budget beyond reasoning tokens.
+    test('uses maxOutputTokens=100 to avoid MAX_TOKENS from reasoning token overhead', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ content: { parts: [{ text: 'ok' }] } }],
+        }),
+      });
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const { validateGeminiOnStartup } = require('../lib/llm-runner');
+      await validateGeminiOnStartup();
+
+      const callBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(callBody.generationConfig.maxOutputTokens).toBe(100);
+
+      consoleSpy.mockRestore();
     });
   });
 
