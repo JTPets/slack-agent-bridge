@@ -140,6 +140,7 @@ const POLL_INTERVAL = 5000;
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `ALLOWED_USER_IDS` | Comma-separated Slack user IDs allowed to submit tasks | `U02QKNHHU7J` |
+| `BOT_USER_ID` | Slack user ID of the bot itself; allows bot to post scheduled tasks in agent channels | `U0AP5PLQB44` |
 | `LLM_PROVIDER` | Which LLM backend to use | `claude` |
 | `GITHUB_ORG` | Default GitHub org | `jtpets` |
 | `CLAUDE_BIN` | Path to claude binary | `/home/jtpets/.local/bin/claude` |

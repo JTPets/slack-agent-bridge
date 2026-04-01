@@ -158,6 +158,7 @@ const {
   EMOJI_DONE,
   EMOJI_FAILED,
   ALLOWED_USER_IDS,
+  BOT_USER_ID,
 } = config;
 
 // LOGIC CHANGE 2026-03-26: MAX_TURNS can be overridden by agent registry.
@@ -1327,7 +1328,12 @@ async function poll() {
 
         // LOGIC CHANGE 2026-03-26: Check if message sender is authorized before
         // processing TASK: or ASK: messages. Unauthorized users are logged and skipped.
-        if ((isTaskMessage(msg) || isConversationMessage(msg)) && !isUserAuthorized(msg.user)) {
+        // LOGIC CHANGE 2026-04-01: Allow bot's own messages in agent channels so
+        // scheduled tasks (morning-briefing, nightly-audit, etc.) posted AS THE BOT
+        // are not silently dropped. All channels in channelsToPoll are agent channels,
+        // so this does not open up non-agent channels (store-inbox, social-media, etc.).
+        const isBotMessage = msg.user === BOT_USER_ID;
+        if ((isTaskMessage(msg) || isConversationMessage(msg)) && !isUserAuthorized(msg.user) && !isBotMessage) {
           console.log(`[bridge-agent] Ignoring message from unauthorized user: ${msg.user}`);
           continue;
         }

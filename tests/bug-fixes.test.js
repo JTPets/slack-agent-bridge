@@ -364,3 +364,65 @@ describe('Bug 4: Stale working memory cleanup', () => {
     expect(working.length).toBe(0);
   });
 });
+
+// ============================================================================
+// Bug 6: Bot's own messages blocked in agent channels
+// LOGIC CHANGE 2026-04-01: Scheduled tasks (morning-briefing, nightly-audit)
+// posted AS THE BOT were silently dropped because BOT_USER_ID was not in
+// ALLOWED_USER_IDS. Fix: allow bot messages in polled agent channels.
+// ============================================================================
+
+describe('Bug 6: Bot messages in agent channels should not be blocked', () => {
+  const BOT_USER_ID = 'U0AP5PLQB44';
+  const OWNER_USER_ID = 'U02QKNHHU7J';
+  const RANDOM_USER_ID = 'UABCDEF123';
+
+  // Simulate the authorization check from bridge-agent.js poll loop
+  function isAllowed(userId, allowedIds, botUserId) {
+    const isAuthorized = allowedIds.includes(userId);
+    const isBotMessage = userId === botUserId;
+    return isAuthorized || isBotMessage;
+  }
+
+  test('bot user is allowed in agent channels (scheduled tasks work)', () => {
+    expect(isAllowed(BOT_USER_ID, [OWNER_USER_ID], BOT_USER_ID)).toBe(true);
+  });
+
+  test('owner user is still allowed', () => {
+    expect(isAllowed(OWNER_USER_ID, [OWNER_USER_ID], BOT_USER_ID)).toBe(true);
+  });
+
+  test('random user is still blocked', () => {
+    expect(isAllowed(RANDOM_USER_ID, [OWNER_USER_ID], BOT_USER_ID)).toBe(false);
+  });
+
+  test('bot user is blocked when it is not the configured BOT_USER_ID', () => {
+    // A different bot user ID is not granted access
+    expect(isAllowed('UOTHER_BOT', [OWNER_USER_ID], BOT_USER_ID)).toBe(false);
+  });
+
+  test('BOT_USER_ID loaded from config has correct default', () => {
+    jest.resetModules();
+    delete process.env.BOT_USER_ID;
+    process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+    process.env.BRIDGE_CHANNEL_ID = 'C12345';
+    process.env.OPS_CHANNEL_ID = 'C67890';
+
+    const { loadConfig } = require('../lib/config');
+    const config = loadConfig();
+    expect(config.BOT_USER_ID).toBe('U0AP5PLQB44');
+  });
+
+  test('BOT_USER_ID can be overridden via env var', () => {
+    jest.resetModules();
+    process.env.BOT_USER_ID = 'UCUSTOM_BOT';
+    process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+    process.env.BRIDGE_CHANNEL_ID = 'C12345';
+    process.env.OPS_CHANNEL_ID = 'C67890';
+
+    const { loadConfig } = require('../lib/config');
+    const config = loadConfig();
+    expect(config.BOT_USER_ID).toBe('UCUSTOM_BOT');
+    delete process.env.BOT_USER_ID;
+  });
+});
