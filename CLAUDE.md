@@ -324,6 +324,7 @@ slack-agent-bridge/
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
+│   ├── task-decomposer.js # Automated task decomposition: analyzeComplexity, decomposeTask, findAgentForTask, subtask management
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
@@ -349,8 +350,10 @@ slack-agent-bridge/
 │   │   └── SKILL.md      # Safe refactoring with pre/post checks
 │   ├── security-review/
 │   │   └── SKILL.md      # Security audit of commits for vulnerabilities
-│   └── accountability-check/
-│       └── SKILL.md      # Review calendar events and verify task completion
+│   ├── accountability-check/
+│   │   └── SKILL.md      # Review calendar events and verify task completion
+│   └── decompose/
+│       └── SKILL.md      # Task decomposition: break complex tasks into subtasks
 ├── tests/
 │   ├── smoke.test.js            # Smoke tests: module loading, dotenv checks, export verification
 │   ├── integration.test.js      # Integration tests: critical paths, wiring, no circular deps
@@ -372,7 +375,8 @@ slack-agent-bridge/
 │   ├── staff-tasks.test.js      # Tests for lib/staff-tasks.js (assignments, escalations, daily tasks)
 │   ├── bulletin-board.test.js   # Tests for lib/bulletin-board.js (inter-agent communication)
 │   ├── watercooler.test.js      # Tests for lib/watercooler.js (standup orchestration, agent flow)
-│   └── task-queue.test.js       # Tests for lib/task-queue.js (queue persistence, auto-update coordination)
+│   ├── task-queue.test.js       # Tests for lib/task-queue.js (queue persistence, auto-update coordination)
+│   └── task-decomposer.test.js  # Tests for lib/task-decomposer.js (complexity analysis, decomposition, agent routing)
 ├── docs/
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
 │   ├── COURIER-INTAKE.md    # Courier intake page and delivery quote API documentation
@@ -530,6 +534,66 @@ queue.cleanup();
 // Wait for queue to drain before restart
 await waitForTaskCompletion();
 // Checks: fs.existsSync(TASK_LOCK_FILE) AND checkTaskQueue().hasActive
+```
+
+### Task Decomposition
+
+`lib/task-decomposer.js` provides automated analysis and decomposition of complex tasks into subtasks.
+
+**Complexity Analysis:**
+- Detects multi-task indicators: numbered lists, bullet points, "then/also/finally" keywords
+- Counts task components and assigns complexity score
+- Threshold: score >= 3 triggers potential decomposition
+
+**Decomposition Flow:**
+1. `analyzeComplexity(text)` - heuristic analysis for fast detection
+2. `decomposeTask(task)` - LLM-powered decomposition (uses Gemini for efficiency)
+3. LLM returns structured JSON with subtasks, dependencies, and priorities
+4. `findAgentForTask(repo, taskType)` - routes subtasks to appropriate agents
+
+**Subtask Routing:**
+
+| Task Type | Default Agent |
+|-----------|---------------|
+| Code (slack-agent-bridge) | code-bridge |
+| Code (SquareDashboardTool) | code-sqtools |
+| Code (other repos) | bridge |
+| Security review | security |
+| Email/inbox | email-monitor or secretary |
+| Calendar/scheduling | secretary |
+| Social media | social-media |
+| Research/analysis | bridge with research skill |
+
+**Subtask Status Flow:**
+```
+pending → running → completed
+                 → failed
+       → blocked (waiting for dependency)
+       → skipped (dependency failed)
+```
+
+**Dependency Handling:**
+- Subtasks can specify `dependsOn: [subtask-ids]`
+- `getReadySubtasks()` returns subtasks with all dependencies satisfied
+- Failed dependencies cascade to skip dependent subtasks
+- Independent subtasks can run in parallel
+
+**Key Functions:**
+```javascript
+// Analyze complexity heuristically
+const { score, isComplex, indicators } = analyzeComplexity(task.instructions);
+
+// Full decomposition with LLM
+const { decomposed, subtasks, reason } = await decomposeTask(task);
+
+// Check which subtasks are ready
+const ready = getReadySubtasks(allSubtasks);
+
+// Format for execution
+const message = formatSubtaskAsMessage(subtask, { previousResults });
+
+// Generate final summary
+const summary = generateSummary(completedSubtasks);
 ```
 
 ---
