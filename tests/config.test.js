@@ -288,6 +288,68 @@ describe('config module', () => {
     });
   });
 
+  describe('NATURAL_CONVERSATION_MODE', () => {
+    test('defaults to false when not set', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      delete process.env.NATURAL_CONVERSATION_MODE;
+
+      const { loadConfig } = require('../lib/config');
+      const config = loadConfig();
+
+      expect(config.NATURAL_CONVERSATION_MODE).toBe(false);
+    });
+
+    test('is true when set to "true"', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      process.env.NATURAL_CONVERSATION_MODE = 'true';
+
+      const { loadConfig } = require('../lib/config');
+      const config = loadConfig();
+
+      expect(config.NATURAL_CONVERSATION_MODE).toBe(true);
+    });
+
+    test('is false when set to "false"', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      process.env.NATURAL_CONVERSATION_MODE = 'false';
+
+      const { loadConfig } = require('../lib/config');
+      const config = loadConfig();
+
+      expect(config.NATURAL_CONVERSATION_MODE).toBe(false);
+    });
+
+    test('is false for any value other than "true"', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      process.env.NATURAL_CONVERSATION_MODE = 'yes';
+
+      const { loadConfig } = require('../lib/config');
+      const config = loadConfig();
+
+      expect(config.NATURAL_CONVERSATION_MODE).toBe(false);
+    });
+
+    test('is false for "TRUE" (case-sensitive)', () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.BRIDGE_CHANNEL_ID = 'C12345';
+      process.env.OPS_CHANNEL_ID = 'C67890';
+      process.env.NATURAL_CONVERSATION_MODE = 'TRUE';
+
+      const { loadConfig } = require('../lib/config');
+      const config = loadConfig();
+
+      expect(config.NATURAL_CONVERSATION_MODE).toBe(false);
+    });
+  });
+
   describe('parseInt edge cases', () => {
     test('handles non-numeric POLL_INTERVAL_MS (defaults to NaN)', () => {
       process.env.SLACK_BOT_TOKEN = 'xoxb-test';
