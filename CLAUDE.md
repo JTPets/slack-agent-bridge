@@ -313,10 +313,13 @@ slack-agent-bridge/
 │   │       ├── short-term.json   # 24-72h TTL: recent events, reminders
 │   │       ├── long-term.json    # Weeks/months: patterns, preferences
 │   │       └── archive.json      # Decayed long-term (reference only)
-│   └── social-media/
-│       └── memory/       # Social Media Manager's memory directory
-│           ├── backlog.json      # Activation backlog and feature roadmap
-│           └── .gitkeep          # Placeholder for memory files
+│   ├── social-media/
+│   │   └── memory/       # Social Media Manager's memory directory
+│   │       ├── backlog.json      # Activation backlog and feature roadmap
+│   │       └── .gitkeep          # Placeholder for memory files
+│   └── email-monitor/
+│       └── memory/       # Email Monitor's memory directory
+│           └── rules.json        # Email categorization rules (urgent, important, vendor_deal, newsletter, spam)
 ├── lib/
 │   ├── agent-context.js  # Agent context builder: injects real data into ASK prompts to prevent hallucination
 │   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel, activateAgent

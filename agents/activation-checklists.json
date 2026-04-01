@@ -178,9 +178,23 @@
       { "description": "Write first 3 content pieces for approval", "completed": false, "priority": "medium" }
     ]
   },
+  "email-monitor": {
+    "name": "Email Monitor",
+    "status": "active",
+    "note": "Background email monitoring agent. Uses Gmail API via shared OAuth credentials with secretary/calendar.",
+    "tasks": [
+      { "description": "Create #email-monitor-agent Slack channel", "completed": true, "priority": "high", "completedAt": "2026-04-01" },
+      { "description": "Assign channel C0AQH3KC31S in agents.json", "completed": true, "priority": "high", "completedAt": "2026-04-01" },
+      { "description": "Create agents/email-monitor/memory directory with rules.json", "completed": true, "priority": "medium", "completedAt": "2026-04-01" },
+      { "description": "Gmail API credentials already configured (shared with secretary)", "completed": true, "priority": "high", "completedAt": "2026-04-01", "note": "Uses GOOGLE_REFRESH_TOKEN from .env" },
+      { "description": "Configure email categorization rules in memory/rules.json", "completed": true, "priority": "medium", "completedAt": "2026-04-01" },
+      { "description": "Test email categorization with sample inbox", "completed": false, "priority": "medium" },
+      { "description": "Verify integration with morning digest", "completed": false, "priority": "medium" }
+    ]
+  },
   "_meta": {
-    "version": 4,
-    "lastUpdated": "2026-03-28",
-    "description": "Activation checklists for multi-agent system. Tasks marked completed:true are done. Priority: high, medium, low. The twilio integration has phased sub-checklists. LOGIC CHANGE 2026-03-28: Cleaned up obsolete service account tasks (using OAuth), marked completed channel/invite tasks (auto-join), marked branch protection as done."
+    "version": 5,
+    "lastUpdated": "2026-04-01",
+    "description": "Activation checklists for multi-agent system. Tasks marked completed:true are done. Priority: high, medium, low. The twilio integration has phased sub-checklists. LOGIC CHANGE 2026-04-01: Added email-monitor agent activation checklist."
   }
 }
