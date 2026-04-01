@@ -19,32 +19,39 @@ const os = require('os');
 const EventEmitter = require('events');
 
 // ============================================================================
-// Bug 1: Rate limit false positives
+// Bug 1: Rate limit detection - now RE-ENABLED for fallback only (2026-04-01)
+// Original bug: false positives caused entire bot to pause
+// Fix: detection re-enabled but ONLY throws RateLimitError, does NOT pause bot
 // ============================================================================
 
-describe('Bug 1: Rate limit detection disabled', () => {
+describe('Bug 1: Rate limit detection (re-enabled for fallback)', () => {
   beforeEach(() => {
     jest.resetModules();
   });
 
-  test('isRateLimitError always returns false', () => {
+  // LOGIC CHANGE 2026-04-01: Rate limit detection re-enabled for Claude → Gemini fallback.
+  // isRateLimitError now returns true for rate limit patterns.
+  test('isRateLimitError detects rate limit patterns (for fallback)', () => {
     const { isRateLimitError } = require('../lib/llm-runner');
-    expect(isRateLimitError('rate limit exceeded')).toBe(false);
-    expect(isRateLimitError('429 Too Many Requests')).toBe(false);
-    expect(isRateLimitError('quota exceeded')).toBe(false);
-    expect(isRateLimitError('Error: rate_limit_error')).toBe(false);
+    expect(isRateLimitError('rate limit exceeded')).toBe(true);
+    expect(isRateLimitError('429 Too Many Requests')).toBe(true);
+    expect(isRateLimitError('quota exceeded')).toBe(true);
+    expect(isRateLimitError('Error: rate_limit_error')).toBe(true);
+    // null/empty still return false
     expect(isRateLimitError(null)).toBe(false);
     expect(isRateLimitError('')).toBe(false);
   });
 
-  test('isBandwidthExhausted always returns false', () => {
+  // isBandwidthExhausted remains disabled - no need for pause behavior
+  test('isBandwidthExhausted still always returns false (pause behavior disabled)', () => {
     const { isBandwidthExhausted } = require('../lib/llm-runner');
     expect(isBandwidthExhausted(1, '', 'rate limit exceeded')).toBe(false);
     expect(isBandwidthExhausted(1, '', 'bandwidth exhausted')).toBe(false);
     expect(isBandwidthExhausted(1, '', 'quota exceeded')).toBe(false);
   });
 
-  test('runClaudeAdapter does not throw RateLimitError on rate limit text in stdout', async () => {
+  // Rate limit text in stdout with exit code 0 does NOT throw (task succeeded)
+  test('runClaudeAdapter does not throw RateLimitError on rate limit text in stdout with exit code 0', async () => {
     const mockSpawn = jest.fn();
     jest.doMock('child_process', () => ({ spawn: mockSpawn }));
 
@@ -62,7 +69,7 @@ describe('Bug 1: Rate limit detection disabled', () => {
     const { runClaudeAdapter } = require('../lib/llm-runner');
     const result = await runClaudeAdapter('test prompt');
 
-    // Should resolve normally, NOT throw RateLimitError
+    // Should resolve normally - only check stderr on non-zero exit
     expect(result.output).toContain('rate limit exceeded');
   });
 });

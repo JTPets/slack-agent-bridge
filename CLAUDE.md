@@ -152,8 +152,13 @@ const POLL_INTERVAL = 5000;
 | `CLAUDE_RATE_LIMIT_PAUSE` | Initial pause duration (ms) when rate limit/bandwidth exhausted | `1800000` |
 | `STORE_TASKS_CHANNEL_ID` | #store-tasks channel ID for staff task management | - |
 | `NATURAL_CONVERSATION_MODE` | Enable natural language processing for messages without TASK:/ASK: prefixes | `false` |
+| `GEMINI_API_KEY` | Google Gemini API key for fallback provider. **Never log this.** | - |
+| `LLM_FALLBACK_ENABLED` | Enable automatic fallback to secondary LLM on rate limits | `true` |
+| `LLM_FALLBACK_PROVIDER` | Secondary LLM provider to use when primary hits rate limits | `gemini` |
 
-**LLM_PROVIDER options:** `claude` (default), `openai` (not yet implemented), `ollama` (not yet implemented)
+**LLM_PROVIDER options:** `claude` (default), `gemini`, `openai` (not yet implemented), `ollama` (not yet implemented)
+
+**LLM Fallback:** When `LLM_FALLBACK_ENABLED=true` (default), Claude rate limits automatically trigger retry with `LLM_FALLBACK_PROVIDER` (default: gemini). Requires `GEMINI_API_KEY` to be set for Gemini fallback.
 
 ### Google Calendar and Gmail integration
 | Variable | Description | Default |
