@@ -55,9 +55,15 @@ describe('isTaskMessage', () => {
     expect(isTaskMessage(msg)).toBe(false);
   });
 
-  test('returns false for task (lowercase)', () => {
+  // LOGIC CHANGE 2026-04-01: Task detection is now case-insensitive
+  test('is case-insensitive (lowercase task:)', () => {
     const msg = { text: 'task: lowercase task' };
-    expect(isTaskMessage(msg)).toBe(false);
+    expect(isTaskMessage(msg)).toBe(true);
+  });
+
+  test('is case-insensitive (mixed case Task:)', () => {
+    const msg = { text: 'Task: Mixed case task' };
+    expect(isTaskMessage(msg)).toBe(true);
   });
 });
 

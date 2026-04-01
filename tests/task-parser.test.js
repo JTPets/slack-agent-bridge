@@ -173,6 +173,49 @@ INSTRUCTIONS: Fix it`;
     expect(result.raw).toBe('');
   });
 
+  // LOGIC CHANGE 2026-04-01: Tests for case-insensitive field parsing
+  describe('case-insensitive field parsing', () => {
+    test('parses lowercase task/repo/branch/instructions fields', () => {
+      const text = `task: Lowercase task
+repo: jtpets/my-app
+branch: feature/test
+instructions: Do the work`;
+
+      const result = parseTask(text);
+
+      expect(result.description).toBe('Lowercase task');
+      expect(result.repo).toBe('jtpets/my-app');
+      expect(result.branch).toBe('feature/test');
+      expect(result.instructions).toBe('Do the work');
+    });
+
+    test('parses mixed case field names', () => {
+      const text = `Task: Mixed case task
+Repo: jtpets/mixed-repo
+Branch: dev
+Instructions: Test mixed case`;
+
+      const result = parseTask(text);
+
+      expect(result.description).toBe('Mixed case task');
+      expect(result.repo).toBe('jtpets/mixed-repo');
+      expect(result.branch).toBe('dev');
+      expect(result.instructions).toBe('Test mixed case');
+    });
+
+    test('parses lowercase turns and skill fields', () => {
+      const text = `task: Test task
+turns: 75
+skill: run-tests
+instructions: Run tests`;
+
+      const result = parseTask(text);
+
+      expect(result.turns).toBe(75);
+      expect(result.skill).toBe('run-tests');
+    });
+  });
+
   // TURNS parsing tests
   describe('TURNS parsing', () => {
     test('parses TURNS field as integer', () => {
