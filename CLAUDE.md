@@ -325,6 +325,7 @@ slack-agent-bridge/
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
 │   ├── task-parser.js    # Task message parsing and message type detection
+│   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
 │   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow
 │   └── integrations/
@@ -370,7 +371,8 @@ slack-agent-bridge/
 │   ├── email-categorizer.test.js # Tests for lib/integrations/email-categorizer.js (categorization, rules)
 │   ├── staff-tasks.test.js      # Tests for lib/staff-tasks.js (assignments, escalations, daily tasks)
 │   ├── bulletin-board.test.js   # Tests for lib/bulletin-board.js (inter-agent communication)
-│   └── watercooler.test.js      # Tests for lib/watercooler.js (standup orchestration, agent flow)
+│   ├── watercooler.test.js      # Tests for lib/watercooler.js (standup orchestration, agent flow)
+│   └── task-queue.test.js       # Tests for lib/task-queue.js (queue persistence, auto-update coordination)
 ├── docs/
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
 │   ├── COURIER-INTAKE.md    # Courier intake page and delivery quote API documentation
@@ -493,6 +495,42 @@ if channels were recreated while the bot was offline. Results are logged:
 
 Resolved channel IDs are cached in `agents/shared/channel-map.json` (gitignored) to reduce
 API calls on subsequent startups.
+
+### Task Queue Coordination
+
+`lib/task-queue.js` provides a persistent task queue that coordinates between `bridge-agent.js`
+and `auto-update.js` to prevent task interruption during updates.
+
+**Queue file:** `$WORK_DIR/task-queue.json` (default: `/tmp/bridge-agent/task-queue.json`)
+
+**Task statuses:**
+- `pending`: Task is queued, waiting to be processed
+- `running`: Task is currently being executed
+- `completed`: Task finished successfully
+- `failed`: Task failed with an error
+- `interrupted`: Task was interrupted by PM2 restart
+
+**Coordination flow:**
+1. When a TASK: message is found, it's enqueued before processing
+2. Auto-update checks both the queue and lock file before restarting PM2
+3. If tasks are active, auto-update waits up to 5 minutes (30s intervals, 10 attempts)
+4. On startup, any tasks with status "running" are marked as "interrupted"
+5. Completed/failed tasks are cleaned up after 24 hours
+
+**Bridge-agent startup:**
+```javascript
+// Recover any interrupted tasks
+queue.recoverInterrupted();
+// Clean up old entries
+queue.cleanup();
+```
+
+**Auto-update coordination:**
+```javascript
+// Wait for queue to drain before restart
+await waitForTaskCompletion();
+// Checks: fs.existsSync(TASK_LOCK_FILE) AND checkTaskQueue().hasActive
+```
 
 ---
 

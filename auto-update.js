@@ -19,8 +19,11 @@ const PM2_PROCESS_NAME = process.env.PM2_PROCESS_NAME || 'bridge-agent';
 
 // LOGIC CHANGE 2026-03-27: Task lock file path for coordination with bridge-agent.js.
 // Auto-update waits for this file to be removed before restarting PM2.
+// LOGIC CHANGE 2026-04-01: Added task queue file path for more reliable coordination.
+// Task queue is persistent and provides accurate task status across restarts.
 const WORK_DIR = process.env.WORK_DIR || '/tmp/bridge-agent';
 const TASK_LOCK_FILE = path.join(WORK_DIR, '.task-running');
+const TASK_QUEUE_FILE = path.join(WORK_DIR, 'task-queue.json');
 const TASK_WAIT_INTERVAL_MS = 30000; // 30 seconds between checks
 const TASK_WAIT_MAX_ATTEMPTS = 10;   // Max 10 attempts = 5 minutes max wait
 
@@ -170,33 +173,83 @@ function npmInstall() {
 // LOGIC CHANGE 2026-03-27: Wait for bridge-agent task to complete before restarting PM2.
 // Checks for task lock file every 30 seconds, up to 10 times (5 min max).
 // This prevents interrupting a running task during auto-update.
+// LOGIC CHANGE 2026-04-01: Also checks task queue for pending/running tasks.
+// Queue is more reliable than lock file since it persists task state to disk.
+
 /**
- * Wait for any running task to complete
+ * Check if task queue has active tasks (pending or running)
+ * @returns {{ hasActive: boolean, pending: number, running: object|null }}
+ */
+function checkTaskQueue() {
+    try {
+        if (!fs.existsSync(TASK_QUEUE_FILE)) {
+            return { hasActive: false, pending: 0, running: null };
+        }
+        const data = fs.readFileSync(TASK_QUEUE_FILE, 'utf8');
+        if (!data || !data.trim()) {
+            return { hasActive: false, pending: 0, running: null };
+        }
+        const queue = JSON.parse(data);
+        if (!Array.isArray(queue)) {
+            return { hasActive: false, pending: 0, running: null };
+        }
+
+        const pending = queue.filter(t => t.status === 'pending');
+        const running = queue.find(t => t.status === 'running');
+        const hasActive = pending.length > 0 || running != null;
+
+        return { hasActive, pending: pending.length, running };
+    } catch (err) {
+        console.error('Failed to check task queue:', err.message);
+        return { hasActive: false, pending: 0, running: null };
+    }
+}
+
+/**
+ * Wait for any running or pending task to complete
  * @returns {Promise<{ waited: boolean, attempts: number }>}
  */
 async function waitForTaskCompletion() {
     let attempts = 0;
 
     while (attempts < TASK_WAIT_MAX_ATTEMPTS) {
-        if (!fs.existsSync(TASK_LOCK_FILE)) {
-            // No task running, proceed
+        // Check both lock file and task queue for active tasks
+        const lockFileExists = fs.existsSync(TASK_LOCK_FILE);
+        const queueStatus = checkTaskQueue();
+
+        // If neither indicates active tasks, proceed
+        if (!lockFileExists && !queueStatus.hasActive) {
             return { waited: attempts > 0, attempts };
         }
 
-        // Task is running, wait and retry
+        // Task is running or pending, wait and retry
         attempts++;
+
+        // Build status message
         let taskInfo = '';
-        try {
-            taskInfo = fs.readFileSync(TASK_LOCK_FILE, 'utf8').split('\n')[2] || '';
-        } catch {
-            // Ignore read errors
+        if (queueStatus.running) {
+            taskInfo = queueStatus.running.description || 'unknown';
+            if (queueStatus.pending > 0) {
+                taskInfo += ` (+${queueStatus.pending} pending)`;
+            }
+        } else if (lockFileExists) {
+            try {
+                taskInfo = fs.readFileSync(TASK_LOCK_FILE, 'utf8').split('\n')[2] || '';
+            } catch {
+                // Ignore read errors
+            }
+        } else if (queueStatus.pending > 0) {
+            taskInfo = `${queueStatus.pending} pending task(s)`;
         }
 
-        console.log(`Task lock file exists (attempt ${attempts}/${TASK_WAIT_MAX_ATTEMPTS}). Task: ${taskInfo || 'unknown'}`);
+        console.log(`Task active (attempt ${attempts}/${TASK_WAIT_MAX_ATTEMPTS}). Task: ${taskInfo || 'unknown'}`);
 
         if (attempts === 1) {
             // Notify on first wait
-            await postToOps(`:hourglass_flowing_sand: Auto-update: waiting for running task to complete before restart...`);
+            const queueInfo = queueStatus.pending > 0
+                ? ` (${queueStatus.pending} pending in queue)`
+                : '';
+            await postToOps(`:hourglass_flowing_sand: Auto-update: waiting for running task to complete before restart...${queueInfo}`);
         }
 
         // Wait before checking again
@@ -204,8 +257,12 @@ async function waitForTaskCompletion() {
     }
 
     // Max attempts reached, task still running
+    const finalStatus = checkTaskQueue();
     console.log(`Max wait attempts (${TASK_WAIT_MAX_ATTEMPTS}) reached. Proceeding with restart.`);
-    await postToOps(`:warning: Auto-update: max wait time reached. Restarting despite possible running task.`);
+    const warningMsg = finalStatus.running
+        ? `:warning: Auto-update: max wait time reached. Restarting with running task: ${finalStatus.running.description || 'unknown'}`
+        : `:warning: Auto-update: max wait time reached. Restarting despite possible running task.`;
+    await postToOps(warningMsg);
     return { waited: true, attempts };
 }
 

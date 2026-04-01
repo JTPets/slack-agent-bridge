@@ -128,6 +128,11 @@ const watercooler = require('./lib/watercooler');
 // prompt with COMMANDMENTS + CLAUDE.md + structure + context. Phase 3: validateOutput runs tests.
 const { reviewTask, createExecutionPlan, buildPrompt, validateOutput } = require('./lib/code-review-pipeline');
 
+// LOGIC CHANGE 2026-04-01: Added task-queue module for persistent task queueing.
+// Tasks are queued on disk before execution, allowing auto-update to wait for
+// queue to drain before restarting PM2. Prevents task interruption during updates.
+const taskQueue = require('./lib/task-queue');
+
 // LOGIC CHANGE 2026-03-28: Added agent-context module for injecting real data into ASK prompts.
 // Prevents hallucination by giving agents (especially secretary) actual calendar events,
 // owner tasks, and bulletins instead of letting them invent fake data.
@@ -485,7 +490,9 @@ const TASK_LOCK_FILE = path.join(WORK_DIR, '.task-running');
 
 // LOGIC CHANGE 2026-03-27: Added sourceChannel parameter for multi-channel support.
 // Tasks can be submitted from any agent channel but always execute with bridge agent.
-async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
+// LOGIC CHANGE 2026-04-01: Added queueId parameter for task queue integration.
+// Queue status is updated on task completion/failure for auto-update coordination.
+async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) {
   const task = parseTask(msg.text);
   const startTime = Date.now();
   let taskDir = null;
@@ -748,6 +755,8 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
           console.error('[bridge-agent] Memory completeTask failed:', memErr.message);
         }
       }
+      // LOGIC CHANGE 2026-04-01: Queue status for interrupted tasks will be recovered on next startup
+      // by recoverInterrupted() which marks all "running" tasks as "interrupted".
       return;
     }
 
@@ -762,6 +771,15 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
     // LOGIC CHANGE 2026-03-27: Mark task as successful for heartbeat cleanup.
     taskSuccess = true;
     console.log(`[bridge-agent] Task ${msg.ts} done (${elapsed}s)`);
+
+    // LOGIC CHANGE 2026-04-01: Mark task as completed in queue for auto-update coordination.
+    if (queueId) {
+      try {
+        taskQueue.getQueue().complete(queueId, `Success in ${elapsed}s`);
+      } catch (queueErr) {
+        console.error('[bridge-agent] Queue complete failed:', queueErr.message);
+      }
+    }
 
     // LOGIC CHANGE 2026-03-26: Clear rate limit state on successful task completion.
     // This resets the exponential backoff counter.
@@ -888,6 +906,15 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
     // will add :x: emoji in finally block.
     console.error(`[bridge-agent] Task ${msg.ts} failed (${elapsed}s):`, err.message);
 
+    // LOGIC CHANGE 2026-04-01: Mark task as failed in queue for auto-update coordination.
+    if (queueId) {
+      try {
+        taskQueue.getQueue().fail(queueId, err.message);
+      } catch (queueErr) {
+        console.error('[bridge-agent] Queue fail failed:', queueErr.message);
+      }
+    }
+
     // LOGIC CHANGE 2026-03-26: Record task failure in memory.
     if (memoryTaskId) {
       try {
@@ -937,60 +964,85 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL) {
 // status message from memory data. Shows currently running task, queued tasks,
 // and last 5 completed tasks with elapsed time.
 // LOGIC CHANGE 2026-03-26: Added rate limit status display when queue is paused.
+// LOGIC CHANGE 2026-04-01: Updated to use task queue for more accurate status.
 function formatStatusResponse() {
-  const activeTasks = memory.getActiveTasks();
-  const history = memory.loadMemory(path.join(__dirname, 'memory', 'history.json'));
-  const last5 = history.slice(-5).reverse();
+  // Use task queue for current status (more accurate than memory)
+  const queue = taskQueue.getQueue();
+  const queueStatus = queue.getStatus();
+  const running = queue.getRunning();
+  const pending = queue.getPending();
+  const recentCompleted = queue.getRecentCompleted(5);
 
   let response = '';
 
   // LOGIC CHANGE 2026-03-26: Show rate limit status at the top if active.
   if (isRateLimitPaused()) {
     const resumeTime = getPauseResumeTime();
-    const waitingCount = activeTasks.length + (rateLimitState.failedTask ? 1 : 0);
+    const waitingCount = queueStatus.pending + (rateLimitState.failedTask ? 1 : 0);
     response += `:warning: *Queue paused due to rate limit.*\n`;
     response += `Resumes at ${resumeTime}. ${waitingCount} task(s) waiting.\n`;
     response += `Retry attempt: ${rateLimitState.retryCount}\n\n`;
   }
 
   // Currently running task
-  if (activeTasks.length > 0) {
-    const running = activeTasks[0];
-    const startedAt = new Date(running.created);
+  if (running) {
+    const startedAt = new Date(running.startedAt);
     const minutesAgo = Math.round((Date.now() - startedAt.getTime()) / 60000);
     response += `*Currently running:* ${running.description || 'No description'} (started ${minutesAgo} min ago)\n`;
-
-    // Additional queued tasks
-    if (activeTasks.length > 1) {
-      response += `*Queued:* ${activeTasks.length - 1} task(s)\n`;
-      for (let i = 1; i < activeTasks.length; i++) {
-        response += `  • ${activeTasks[i].description || 'No description'}\n`;
-      }
-    } else {
-      response += `*Queued:* none\n`;
-    }
   } else {
     response += `*Currently running:* none\n`;
+  }
+
+  // Queued tasks
+  if (pending.length > 0) {
+    response += `*Queued:* ${pending.length} task(s)\n`;
+    for (const task of pending.slice(0, 5)) {
+      response += `  • ${task.description || 'No description'}\n`;
+    }
+    if (pending.length > 5) {
+      response += `  ... and ${pending.length - 5} more\n`;
+    }
+  } else {
     response += `*Queued:* none\n`;
   }
 
-  // Last 5 completed
-  if (last5.length > 0) {
+  // Last 5 completed (from queue)
+  if (recentCompleted.length > 0) {
     response += `\n*Last 5 completed:*\n`;
-    for (const task of last5) {
-      const timestamp = task.completedAt || task.failedAt || task.created;
+    for (const task of recentCompleted) {
+      const timestamp = task.completedAt || task.enqueuedAt;
       const timeStr = new Date(timestamp).toLocaleTimeString('en-US', {
         hour: 'numeric',
         minute: '2-digit',
         hour12: true,
         timeZone: 'America/Toronto',
       });
-      const emoji = task.status === 'completed' ? '✅' : '❌';
-      const elapsed = task.outcome?.elapsed ? `${task.outcome.elapsed}s` : 'N/A';
-      response += `• ${timeStr} ${emoji} ${task.description || 'No description'} (${elapsed})\n`;
+      const emoji = task.status === 'completed' ? '✅'
+        : task.status === 'interrupted' ? '⚠️'
+        : '❌';
+      response += `• ${timeStr} ${emoji} ${task.description || 'No description'} (${task.status})\n`;
     }
   } else {
-    response += `\n*Last 5 completed:* none\n`;
+    // Fall back to memory history if queue is empty
+    const history = memory.loadMemory(path.join(__dirname, 'memory', 'history.json'));
+    const last5 = history.slice(-5).reverse();
+    if (last5.length > 0) {
+      response += `\n*Last 5 completed:*\n`;
+      for (const task of last5) {
+        const timestamp = task.completedAt || task.failedAt || task.created;
+        const timeStr = new Date(timestamp).toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: 'America/Toronto',
+        });
+        const emoji = task.status === 'completed' ? '✅' : '❌';
+        const elapsed = task.outcome?.elapsed ? `${task.outcome.elapsed}s` : 'N/A';
+        response += `• ${timeStr} ${emoji} ${task.description || 'No description'} (${elapsed})\n`;
+      }
+    } else {
+      response += `\n*Last 5 completed:* none\n`;
+    }
   }
 
   return response;
@@ -1356,14 +1408,30 @@ async function poll() {
         // LOGIC CHANGE 2026-03-28: Added isTaskProcessed() deduplication check to prevent
         // re-processing old messages after bot restarts. alreadyProcessed() checks reactions;
         // isTaskProcessed() checks our local processed-tasks.json file.
+        // LOGIC CHANGE 2026-04-01: Tasks are now enqueued before processing. The queue is
+        // persisted to disk so auto-update can see pending tasks and wait for them.
         if (isTaskMessage(msg) && !alreadyProcessed(msg) && !isTaskProcessed(msg.ts)) {
           console.log(`[bridge-agent] Task found in ${agentId} channel: ${msg.ts}`);
+
+          // Parse task to get description for queue
+          const taskData = parseTask(msg.text);
+
+          // Enqueue task before processing (persists to disk for auto-update coordination)
+          const queue = taskQueue.getQueue();
+          const queuedTask = queue.enqueue({
+            msgTs: msg.ts,
+            channelId,
+            text: msg.text,
+            description: taskData.description || 'Unnamed task',
+            repo: taskData.repo,
+          });
+
           isRunning = true;
 
           // LOGIC CHANGE 2026-03-27: Track current task promise for graceful shutdown.
           // Allows shutdown handler to wait for task completion.
           // Pass channel context for proper message linking
-          currentTaskPromise = processTask(msg, channelId);
+          currentTaskPromise = processTask(msg, channelId, queuedTask.id);
           await currentTaskPromise;
           currentTaskPromise = null;
 
@@ -1575,6 +1643,26 @@ console.log(`  Channels: ${channelsToPoll.length} (${channelsToPoll.map(c => c.a
 
 // Run memory maintenance before starting poll loop
 runStartupMemoryMaintenance();
+
+// LOGIC CHANGE 2026-04-01: Recover interrupted tasks and clean up old queue entries on startup.
+// Any task with status "running" at startup was interrupted by a restart.
+try {
+  const queue = taskQueue.getQueue();
+  const interruptedCount = queue.recoverInterrupted();
+  if (interruptedCount > 0) {
+    console.log(`[bridge-agent] Recovered ${interruptedCount} interrupted task(s) from queue`);
+  }
+  const cleanedCount = queue.cleanup();
+  if (cleanedCount > 0) {
+    console.log(`[bridge-agent] Cleaned up ${cleanedCount} old queue entries`);
+  }
+  const queueStatus = queue.getStatus();
+  if (queueStatus.pending > 0) {
+    console.log(`[bridge-agent] Queue has ${queueStatus.pending} pending task(s) from previous session`);
+  }
+} catch (queueErr) {
+  console.error('[bridge-agent] Task queue startup failed:', queueErr.message);
+}
 
 // LOGIC CHANGE 2026-03-28: Clean up processed-tasks entries older than 7 days on startup.
 cleanupProcessedTasks();
