@@ -663,6 +663,166 @@ describe('llm-runner module', () => {
     });
   });
 
+  // LOGIC CHANGE 2026-04-01: Tests for runWithFallback function.
+  // Implements Claude → Gemini automatic fallback on rate limits.
+  describe('runWithFallback', () => {
+    let originalFetch;
+
+    beforeEach(() => {
+      originalFetch = global.fetch;
+      // Setup successful Gemini response for fallback tests
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ content: { parts: [{ text: 'Gemini fallback response' }] } }],
+        }),
+      });
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.LLM_FALLBACK_ENABLED;
+      delete process.env.LLM_FALLBACK_PROVIDER;
+    });
+
+    test('returns result from primary provider when successful', async () => {
+      setupMockSpawn({ stdout: 'Claude response' });
+
+      const { runWithFallback } = require('../lib/llm-runner');
+      const result = await runWithFallback('test prompt', { cwd: '/tmp/test' });
+
+      expect(result.output).toBe('Claude response');
+      expect(result.usedFallback).toBeUndefined();
+    });
+
+    test('falls back to Gemini when Claude hits rate limit', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      // Setup Claude to fail with rate limit
+      setupMockSpawn({ stderr: 'rate limit exceeded', exitCode: 1 });
+
+      const { runWithFallback } = require('../lib/llm-runner');
+      const result = await runWithFallback('test prompt', { cwd: '/tmp/test' });
+
+      expect(result.output).toBe('Gemini fallback response');
+      expect(result.usedFallback).toBe(true);
+      expect(result.fallbackProvider).toBe('gemini');
+    });
+
+    test('does not fallback when LLM_FALLBACK_ENABLED is false', async () => {
+      process.env.LLM_FALLBACK_ENABLED = 'false';
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      // Setup Claude to fail with rate limit
+      setupMockSpawn({ stderr: 'rate limit exceeded', exitCode: 1 });
+
+      const { runWithFallback, RateLimitError } = require('../lib/llm-runner');
+
+      await expect(runWithFallback('test prompt')).rejects.toThrow(RateLimitError);
+    });
+
+    test('does not fallback when enableFallback option is false', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      // Setup Claude to fail with rate limit
+      setupMockSpawn({ stderr: 'rate limit exceeded', exitCode: 1 });
+
+      const { runWithFallback, RateLimitError } = require('../lib/llm-runner');
+
+      await expect(runWithFallback('test prompt', { enableFallback: false })).rejects.toThrow(RateLimitError);
+    });
+
+    test('throws RateLimitError when GEMINI_API_KEY not set and fallback needed', async () => {
+      delete process.env.GEMINI_API_KEY;
+
+      // Setup Claude to fail with rate limit
+      setupMockSpawn({ stderr: 'rate limit exceeded', exitCode: 1 });
+
+      const { runWithFallback, RateLimitError } = require('../lib/llm-runner');
+
+      await expect(runWithFallback('test prompt')).rejects.toThrow(RateLimitError);
+    });
+
+    test('throws original error when primary fails with non-rate-limit error', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      // Setup Claude to fail with non-rate-limit error
+      setupMockSpawn({ stderr: 'Some other error', exitCode: 1 });
+
+      const { runWithFallback } = require('../lib/llm-runner');
+
+      await expect(runWithFallback('test prompt')).rejects.toThrow('Exit code 1');
+    });
+
+    test('throws combined error when both primary and fallback fail', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      // Setup Claude to fail with rate limit
+      setupMockSpawn({ stderr: 'rate limit exceeded', exitCode: 1 });
+
+      // Setup Gemini to also fail
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('Gemini server error'),
+      });
+
+      const { runWithFallback } = require('../lib/llm-runner');
+
+      try {
+        await runWithFallback('test prompt');
+        fail('Should have thrown');
+      } catch (err) {
+        expect(err.message).toContain('Primary (claude) rate limited');
+        expect(err.message).toContain('fallback (gemini) failed');
+        expect(err.primaryError).toBeDefined();
+        expect(err.fallbackError).toBeDefined();
+      }
+    });
+
+    test('respects LLM_FALLBACK_PROVIDER env var', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      process.env.LLM_FALLBACK_PROVIDER = 'gemini';
+
+      // Setup Claude to fail with rate limit
+      setupMockSpawn({ stderr: 'rate limit exceeded', exitCode: 1 });
+
+      const { runWithFallback } = require('../lib/llm-runner');
+      const result = await runWithFallback('test prompt');
+
+      expect(result.fallbackProvider).toBe('gemini');
+    });
+
+    test('respects fallbackProvider option over env var', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      process.env.LLM_FALLBACK_PROVIDER = 'ollama';
+
+      // Setup Claude to fail with rate limit
+      setupMockSpawn({ stderr: 'rate limit exceeded', exitCode: 1 });
+
+      const { runWithFallback } = require('../lib/llm-runner');
+      const result = await runWithFallback('test prompt', { fallbackProvider: 'gemini' });
+
+      expect(result.fallbackProvider).toBe('gemini');
+    });
+
+    test('passes options to fallback provider', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      // Setup Claude to fail with rate limit
+      setupMockSpawn({ stderr: 'rate limit exceeded', exitCode: 1 });
+
+      const { runWithFallback } = require('../lib/llm-runner');
+      await runWithFallback('test prompt', { maxOutputTokens: 4096, temperature: 0.5 });
+
+      // Verify Gemini was called with the options
+      const callBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(callBody.generationConfig.maxOutputTokens).toBe(4096);
+      expect(callBody.generationConfig.temperature).toBe(0.5);
+    });
+  });
+
   describe('exported constants', () => {
     test('exports DEFAULT_PROVIDER as claude', () => {
       const { DEFAULT_PROVIDER } = require('../lib/llm-runner');
@@ -680,20 +840,39 @@ describe('llm-runner module', () => {
       const { DEFAULT_TIMEOUT } = require('../lib/llm-runner');
       expect(DEFAULT_TIMEOUT).toBe(600000);
     });
+
+    // LOGIC CHANGE 2026-04-01: Tests for fallback configuration exports
+    test('exports DEFAULT_FALLBACK_PROVIDER as gemini', () => {
+      const { DEFAULT_FALLBACK_PROVIDER } = require('../lib/llm-runner');
+      expect(DEFAULT_FALLBACK_PROVIDER).toBe('gemini');
+    });
+
+    test('exports FALLBACK_ENABLED as true by default', () => {
+      delete process.env.LLM_FALLBACK_ENABLED;
+      jest.resetModules();
+      const { FALLBACK_ENABLED } = require('../lib/llm-runner');
+      expect(FALLBACK_ENABLED).toBe(true);
+    });
+
+    test('FALLBACK_ENABLED is false when env var set to false', () => {
+      process.env.LLM_FALLBACK_ENABLED = 'false';
+      jest.resetModules();
+      const { FALLBACK_ENABLED } = require('../lib/llm-runner');
+      expect(FALLBACK_ENABLED).toBe(false);
+    });
   });
 
-  // LOGIC CHANGE 2026-03-27: isRateLimitError is DISABLED (always returns false)
-  // to fix false positive rate limit detection. Tests updated accordingly.
-  describe('isRateLimitError (DISABLED)', () => {
-    test('always returns false - rate limit detection disabled to fix false positives', () => {
+  // LOGIC CHANGE 2026-04-01: isRateLimitError re-enabled for fallback purposes.
+  // Detection now used to trigger Claude → Gemini fallback, NOT to pause the bot.
+  describe('isRateLimitError (RE-ENABLED for fallback)', () => {
+    test('returns true for rate limit error patterns', () => {
       const { isRateLimitError } = require('../lib/llm-runner');
-      // All of these previously returned true but caused false positives
-      expect(isRateLimitError('Error: rate limit exceeded')).toBe(false);
-      expect(isRateLimitError('429 Too Many Requests')).toBe(false);
-      expect(isRateLimitError('quota exceeded')).toBe(false);
-      expect(isRateLimitError('rate_limit_error')).toBe(false);
-      expect(isRateLimitError('Usage limit reached')).toBe(false);
-      expect(isRateLimitError('HTTP 429')).toBe(false);
+      expect(isRateLimitError('Error: rate limit exceeded')).toBe(true);
+      expect(isRateLimitError('429 Too Many Requests')).toBe(true);
+      expect(isRateLimitError('quota exceeded')).toBe(true);
+      expect(isRateLimitError('rate_limit_error')).toBe(true);
+      expect(isRateLimitError('Usage limit reached')).toBe(true);
+      expect(isRateLimitError('HTTP 429')).toBe(true);
     });
 
     test('returns false for null or empty text', () => {
@@ -736,33 +915,34 @@ describe('llm-runner module', () => {
     });
   });
 
-  // LOGIC CHANGE 2026-03-27: Rate limit detection DISABLED in runClaudeAdapter.
-  // Tests updated to verify no RateLimitError is thrown for any text.
-  describe('runClaudeAdapter rate limit detection (DISABLED)', () => {
-    test('does NOT throw RateLimitError for rate limit text in stdout (detection disabled)', async () => {
+  // LOGIC CHANGE 2026-04-01: Rate limit detection RE-ENABLED for fallback.
+  // Tests updated to verify RateLimitError IS thrown for rate limit text in stderr.
+  describe('runClaudeAdapter rate limit detection (RE-ENABLED for fallback)', () => {
+    test('rate limit text in stdout with exit code 0 resolves normally', async () => {
       setupMockSpawn({ stdout: 'Error: rate limit exceeded', exitCode: 0 });
 
       const { runClaudeAdapter } = require('../lib/llm-runner');
-      // Should resolve normally, not throw
+      // Should resolve normally - only check stderr on non-zero exit
       const result = await runClaudeAdapter('prompt');
       expect(result.output).toContain('rate limit exceeded');
     });
 
-    test('exit code 1 with rate limit text in stderr throws regular Error, not RateLimitError', async () => {
+    test('exit code 1 with rate limit text in stderr throws RateLimitError', async () => {
       setupMockSpawn({ stderr: 'Too many requests', exitCode: 1 });
 
-      const { runClaudeAdapter } = require('../lib/llm-runner');
+      const { runClaudeAdapter, RateLimitError } = require('../lib/llm-runner');
 
       try {
         await runClaudeAdapter('prompt');
         fail('Should have thrown');
       } catch (err) {
-        expect(err.isRateLimit).toBeUndefined();
-        expect(err.message).toContain('Exit code 1');
+        expect(err).toBeInstanceOf(RateLimitError);
+        expect(err.isRateLimit).toBe(true);
+        expect(err.message).toContain('Claude rate limit detected');
       }
     });
 
-    test('normal errors still work correctly', async () => {
+    test('exit code 1 with non-rate-limit stderr throws regular Error', async () => {
       setupMockSpawn({ stderr: 'Some other error', exitCode: 1 });
 
       const { runClaudeAdapter } = require('../lib/llm-runner');
