@@ -157,12 +157,19 @@ const POLL_INTERVAL = 5000;
 | `LLM_FALLBACK_PROVIDER` | Secondary LLM provider to use when primary hits rate limits | `gemini` |
 | `SECURITY_FOLLOWUP_ENABLED` | Auto-create tasks from CRITICAL/HIGH security findings | `true` |
 | `SECURITY_FOLLOWUP_INCLUDE_MEDIUM` | Also create tasks for MEDIUM severity findings | `false` |
+| `EMAIL_RATE_LIMIT_EMAILS_PER_WINDOW` | Max emails to process per rate limit window | `50` |
+| `EMAIL_RATE_LIMIT_BULLETINS_PER_WINDOW` | Max bulletins to post per rate limit window | `10` |
+| `EMAIL_RATE_LIMIT_SLACK_PER_WINDOW` | Max Slack messages to post per rate limit window | `20` |
+| `EMAIL_RATE_LIMIT_WINDOW_MS` | Rate limit sliding window size in ms | `300000` (5 min) |
+| `EMAIL_RATE_LIMIT_COOLDOWN_MS` | Cooldown period after hitting rate limit | `60000` (1 min) |
 
 **LLM_PROVIDER options:** `claude` (default), `gemini`, `openai` (not yet implemented), `ollama` (not yet implemented)
 
 **LLM Fallback:** When `LLM_FALLBACK_ENABLED=true` (default), Claude rate limits automatically trigger retry with `LLM_FALLBACK_PROVIDER` (default: gemini). Requires `GEMINI_API_KEY` to be set for Gemini fallback.
 
 **Security Followup:** When `SECURITY_FOLLOWUP_ENABLED=true` (default), the nightly security review automatically creates TASK messages for CRITICAL and HIGH severity findings. Tasks are routed to the appropriate code agent based on the repository.
+
+**Email Rate Limiting:** Protects Slack from flood attacks when large volumes of emails arrive (spam, attack, or legitimate burst). Uses a sliding window approach: if limits are exceeded, excess items are suppressed and aggregated into a summary message. Hitting the email limit triggers a cooldown period during which all email pipeline operations are blocked. The rate limiter is integrated into `email-categorizer.js` and automatically tracks emails processed, bulletins posted, and Slack messages sent.
 
 ### Google Calendar and Gmail integration
 | Variable | Description | Default |
@@ -337,10 +344,12 @@ slack-agent-bridge/
 │   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
 │   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow
+│   ├── email-rate-limiter.js # Rate limiting for email-to-Slack pipeline: sliding window, cooldown, flood protection
 │   └── integrations/
 │       ├── google-calendar.js  # Google Calendar API integration for fetching events (today, tomorrow, yesterday)
 │       ├── gmail.js            # Gmail API integration: getRecentEmails, getEmailById, getEmailHeaders (read-only)
 │       ├── email-categorizer.js # Email categorization by sender/subject patterns (vendor_deal, customer, newsletter, etc.)
+│       ├── email-sanitizer.js  # Email content sanitization: prompt injection protection for LLM-bound content
 │       ├── holidays.js         # Canadian public holidays (Nager.Date API) and pet awareness dates
 │       └── httpsms.js          # httpSMS API wrapper: sendSMS, getMessages, registerWebhook (free SMS via Android)
 ├── memory/
@@ -382,6 +391,7 @@ slack-agent-bridge/
 │   ├── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
 │   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)
 │   ├── email-categorizer.test.js # Tests for lib/integrations/email-categorizer.js (categorization, rules)
+│   ├── email-rate-limiter.test.js # Tests for lib/email-rate-limiter.js (sliding window, cooldown, flood protection)
 │   ├── staff-tasks.test.js      # Tests for lib/staff-tasks.js (assignments, escalations, daily tasks)
 │   ├── bulletin-board.test.js   # Tests for lib/bulletin-board.js (inter-agent communication)
 │   ├── watercooler.test.js      # Tests for lib/watercooler.js (standup orchestration, agent flow)
