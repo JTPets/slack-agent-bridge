@@ -167,7 +167,7 @@ const POLL_INTERVAL = 5000;
 
 **LLM Fallback:** When `LLM_FALLBACK_ENABLED=true` (default), Claude rate limits automatically trigger retry with `LLM_FALLBACK_PROVIDER` (default: gemini). Requires `GEMINI_API_KEY` to be set for Gemini fallback.
 
-**Security Followup:** When `SECURITY_FOLLOWUP_ENABLED=true` (default), the nightly security review automatically creates TASK messages for CRITICAL and HIGH severity findings. Tasks are routed to the appropriate code agent based on the repository.
+**Security Followup:** When `SECURITY_FOLLOWUP_ENABLED=true` (default), the nightly security review creates TASK messages for CRITICAL and HIGH severity findings. Tasks are queued in the approval queue for owner review instead of executing immediately. Use `ASK: pending approvals` to review and `ASK: approve <id>` to execute. This prevents prompt injection attacks via malicious security findings.
 
 **Email Rate Limiting:** Protects Slack from flood attacks when large volumes of emails arrive (spam, attack, or legitimate burst). Uses a sliding window approach: if limits are exceeded, excess items are suppressed and aggregated into a summary message. Hitting the email limit triggers a cooldown period during which all email pipeline operations are blocked. The rate limiter is integrated into `email-categorizer.js` and automatically tracks emails processed, bulletins posted, and Slack messages sent.
 
@@ -311,6 +311,7 @@ slack-agent-bridge/
 │   │   ├── watercooler-state.json # Tracks last standup timestamp (created at runtime, gitignored)
 │   │   ├── processed-tasks.json  # Task deduplication: Slack msg timestamps (created at runtime, gitignored)
 │   │   ├── channel-map.json      # Resolved channel ID cache (created at runtime, gitignored)
+│   │   ├── approval-queue.json   # Manual approval queue for auto-generated tasks (created at runtime, gitignored)
 │   │   ├── staff.json            # Staff member definitions (name, slackId, role)
 │   │   └── daily-tasks-template.json  # Recurring daily store tasks template
 │   ├── bridge/
@@ -339,6 +340,7 @@ slack-agent-bridge/
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
 │   ├── security-followup.js # Security finding → auto-task pipeline: parses findings, creates TASK messages
+│   ├── approval-queue.js # Manual approval queue for auto-generated tasks: queueTask, approveTask, rejectTask
 │   ├── task-decomposer.js # Automated task decomposition: analyzeComplexity, decomposeTask, findAgentForTask, subtask management
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update
@@ -397,7 +399,8 @@ slack-agent-bridge/
 │   ├── watercooler.test.js      # Tests for lib/watercooler.js (standup orchestration, agent flow)
 │   ├── task-queue.test.js       # Tests for lib/task-queue.js (queue persistence, auto-update coordination)
 │   ├── task-decomposer.test.js  # Tests for lib/task-decomposer.js (complexity analysis, decomposition, agent routing)
-│   └── security-followup.test.js # Tests for lib/security-followup.js (finding parsing, task generation)
+│   ├── security-followup.test.js # Tests for lib/security-followup.js (finding parsing, task generation)
+│   └── approval-queue.test.js   # Tests for lib/approval-queue.js (queueing, approval/rejection, commands)
 ├── docs/
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
 │   ├── COURIER-INTAKE.md    # Courier intake page and delivery quote API documentation
@@ -718,6 +721,47 @@ ASK: show bulletins
 - Bulletins automatically posted when: tasks complete, morning digest runs, security review finds issues
 - Other agents see unread bulletins in their conversation context
 - Old bulletins cleaned up daily (7 day retention)
+
+### Approval Queue
+Manage the manual approval queue for auto-generated tasks:
+```
+ASK: pending approvals
+ASK: approval queue
+ASK: awaiting approval
+ASK: what's pending
+```
+- Returns list of auto-generated tasks awaiting owner approval
+- Tasks queued from: security-followup, email-monitor, automated-scan
+- Each task shows: ID, source, repo, file, severity, age
+
+**Approve tasks:**
+```
+ASK: approve <task-id>
+ASK: approve all
+```
+- Approving posts the task to its target agent channel for execution
+- `approve all` approves all pending tasks at once
+
+**Reject tasks:**
+```
+ASK: reject <task-id> [reason]
+ASK: reject all [reason]
+```
+- Rejected tasks are removed from the queue without execution
+- Optional reason is logged for audit purposes
+
+**View task details:**
+```
+ASK: show task <task-id>
+```
+- Shows full task message content and metadata
+- Useful for reviewing before approve/reject decision
+
+**Why approval queue exists:**
+- Prevents prompt injection attacks via malicious security findings
+- Prevents automated systems from creating arbitrary code execution tasks
+- All auto-generated tasks are queued, not executed directly
+- Owner must explicitly approve before tasks run
 
 ### Team Standup
 Trigger a multi-agent standup conversation:

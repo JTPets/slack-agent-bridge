@@ -57,6 +57,14 @@ const {
   isStatusQuery,
   isCreateChannelCommand,
   parseCreateChannelCommand,
+  // LOGIC CHANGE 2026-04-01: Added approval queue command imports.
+  isApprovalQuery,
+  isApproveCommand,
+  parseApproveCommand,
+  isRejectCommand,
+  parseRejectCommand,
+  isShowTaskCommand,
+  parseShowTaskCommand,
   alreadyProcessed,
 } = require('./lib/task-parser');
 
@@ -137,6 +145,11 @@ const taskQueue = require('./lib/task-queue');
 // Prevents hallucination by giving agents (especially secretary) actual calendar events,
 // owner tasks, and bulletins instead of letting them invent fake data.
 const agentContext = require('./lib/agent-context');
+
+// LOGIC CHANGE 2026-04-01: Added approval-queue module for manual approval of auto-generated tasks.
+// Auto-generated tasks (security findings, email actions) are queued for owner approval
+// instead of executing immediately. This prevents prompt injection attacks.
+const approvalQueue = require('./lib/approval-queue');
 
 // ---- Config ----
 
@@ -1248,6 +1261,200 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
         console.error(`[${agentId}] Standup failed:`, standupErr.message);
       }
       console.log(`[${agentId}] Standup command ${msg.ts} completed`);
+      return;
+    }
+
+    // LOGIC CHANGE 2026-04-01: Check for approval queue queries ("pending approvals", etc.).
+    // Returns pending auto-generated tasks awaiting owner approval.
+    if (isApprovalQuery(questionText)) {
+      console.log(`[${agentId}] Approval query detected: ${msg.ts}`);
+      const response = approvalQueue.formatPendingTasks();
+      await slack.chat.postMessage({
+        channel: sourceChannel,
+        thread_ts: msg.ts,
+        text: response,
+        unfurl_links: false,
+      });
+      console.log(`[${agentId}] Approval query ${msg.ts} answered`);
+      return;
+    }
+
+    // LOGIC CHANGE 2026-04-01: Check for approve command ("approve <id>" or "approve all").
+    // Approves pending tasks and posts them to the target agent channel.
+    if (isApproveCommand(questionText)) {
+      console.log(`[${agentId}] Approve command detected: ${msg.ts}`);
+      const parsed = parseApproveCommand(questionText);
+
+      if (!parsed) {
+        await slack.chat.postMessage({
+          channel: sourceChannel,
+          thread_ts: msg.ts,
+          text: ':x: Invalid format. Use: `approve <task-id>` or `approve all`',
+          unfurl_links: false,
+        });
+        return;
+      }
+
+      try {
+        if (parsed.all) {
+          // Approve all pending tasks
+          const result = approvalQueue.approveAllTasks(msg.user);
+          if (result.count === 0) {
+            await slack.chat.postMessage({
+              channel: sourceChannel,
+              thread_ts: msg.ts,
+              text: ':information_source: No pending tasks to approve.',
+              unfurl_links: false,
+            });
+            return;
+          }
+
+          // Post each approved task to its target channel
+          let posted = 0;
+          for (const task of result.tasks) {
+            if (task.targetChannel && task.taskMessage) {
+              await slack.chat.postMessage({
+                channel: task.targetChannel,
+                text: task.taskMessage,
+                unfurl_links: false,
+              });
+              posted++;
+            }
+          }
+
+          await slack.chat.postMessage({
+            channel: sourceChannel,
+            thread_ts: msg.ts,
+            text: `:white_check_mark: Approved and posted ${posted} task(s) to agent channels.`,
+            unfurl_links: false,
+          });
+        } else {
+          // Approve specific task
+          const result = approvalQueue.approveTask(parsed.id, msg.user);
+          if (!result.success) {
+            await slack.chat.postMessage({
+              channel: sourceChannel,
+              thread_ts: msg.ts,
+              text: `:x: ${result.error}`,
+              unfurl_links: false,
+            });
+            return;
+          }
+
+          // Post approved task to target channel
+          const task = result.task;
+          if (task.targetChannel && task.taskMessage) {
+            await slack.chat.postMessage({
+              channel: task.targetChannel,
+              text: task.taskMessage,
+              unfurl_links: false,
+            });
+          }
+
+          await slack.chat.postMessage({
+            channel: sourceChannel,
+            thread_ts: msg.ts,
+            text: `:white_check_mark: Approved task \`${parsed.id}\` and posted to <#${task.targetChannel}>.`,
+            unfurl_links: false,
+          });
+        }
+        console.log(`[${agentId}] Approve command ${msg.ts} completed`);
+      } catch (approveErr) {
+        await slack.chat.postMessage({
+          channel: sourceChannel,
+          thread_ts: msg.ts,
+          text: `:x: Approval failed: ${approveErr.message}`,
+          unfurl_links: false,
+        });
+        console.error(`[${agentId}] Approve command failed:`, approveErr.message);
+      }
+      return;
+    }
+
+    // LOGIC CHANGE 2026-04-01: Check for reject command ("reject <id>" or "reject all").
+    // Rejects pending tasks, removing them from the queue without execution.
+    if (isRejectCommand(questionText)) {
+      console.log(`[${agentId}] Reject command detected: ${msg.ts}`);
+      const parsed = parseRejectCommand(questionText);
+
+      if (!parsed) {
+        await slack.chat.postMessage({
+          channel: sourceChannel,
+          thread_ts: msg.ts,
+          text: ':x: Invalid format. Use: `reject <task-id> [reason]` or `reject all`',
+          unfurl_links: false,
+        });
+        return;
+      }
+
+      try {
+        if (parsed.all) {
+          const result = approvalQueue.rejectAllTasks(msg.user, parsed.reason);
+          await slack.chat.postMessage({
+            channel: sourceChannel,
+            thread_ts: msg.ts,
+            text: result.count > 0
+              ? `:wastebasket: Rejected ${result.count} task(s).`
+              : ':information_source: No pending tasks to reject.',
+            unfurl_links: false,
+          });
+        } else {
+          const result = approvalQueue.rejectTask(parsed.id, msg.user, parsed.reason);
+          if (!result.success) {
+            await slack.chat.postMessage({
+              channel: sourceChannel,
+              thread_ts: msg.ts,
+              text: `:x: ${result.error}`,
+              unfurl_links: false,
+            });
+            return;
+          }
+
+          await slack.chat.postMessage({
+            channel: sourceChannel,
+            thread_ts: msg.ts,
+            text: `:wastebasket: Rejected task \`${parsed.id}\`.`,
+            unfurl_links: false,
+          });
+        }
+        console.log(`[${agentId}] Reject command ${msg.ts} completed`);
+      } catch (rejectErr) {
+        await slack.chat.postMessage({
+          channel: sourceChannel,
+          thread_ts: msg.ts,
+          text: `:x: Rejection failed: ${rejectErr.message}`,
+          unfurl_links: false,
+        });
+        console.error(`[${agentId}] Reject command failed:`, rejectErr.message);
+      }
+      return;
+    }
+
+    // LOGIC CHANGE 2026-04-01: Check for show task command ("show task <id>").
+    // Shows detailed information about a specific queued task.
+    if (isShowTaskCommand(questionText)) {
+      console.log(`[${agentId}] Show task command detected: ${msg.ts}`);
+      const taskId = parseShowTaskCommand(questionText);
+
+      if (!taskId) {
+        await slack.chat.postMessage({
+          channel: sourceChannel,
+          thread_ts: msg.ts,
+          text: ':x: Invalid format. Use: `show task <task-id>`',
+          unfurl_links: false,
+        });
+        return;
+      }
+
+      const task = approvalQueue.getTaskById(taskId);
+      const response = approvalQueue.formatTaskDetails(task);
+      await slack.chat.postMessage({
+        channel: sourceChannel,
+        thread_ts: msg.ts,
+        text: response,
+        unfurl_links: false,
+      });
+      console.log(`[${agentId}] Show task command ${msg.ts} answered`);
       return;
     }
 

@@ -15,11 +15,13 @@ process.env.BRIDGE_CHANNEL_ID = 'C_BRIDGE_TEST';
 process.env.OPS_CHANNEL_ID = 'C_OPS_TEST';
 
 const securityFollowup = require('../lib/security-followup');
+const approvalQueue = require('../lib/approval-queue');
 
 describe('security-followup', () => {
     beforeEach(() => {
-        // Clear dedup map before each test
+        // Clear dedup map and approval queue before each test
         securityFollowup.clearDedupMap();
+        approvalQueue.clearQueue();
     });
 
     describe('parseFindings', () => {
@@ -331,7 +333,9 @@ low: Issue D - file.js:4 - Fix D`;
             expect(result.skipped.some(s => s.reason.includes('No CRITICAL/HIGH'))).toBe(true);
         });
 
-        test('creates task for CRITICAL finding', async () => {
+        // LOGIC CHANGE 2026-04-01: Default behavior now queues tasks for approval.
+        // Use skipApproval: true for legacy behavior (direct posting).
+        test('queues task for CRITICAL finding (default behavior)', async () => {
             const bulletin = {
                 data: {
                     repo: 'jtpets/slack-agent-bridge',
@@ -341,13 +345,30 @@ low: Issue D - file.js:4 - Fix D`;
 
             const result = await securityFollowup.processSecurityBulletin(mockSlack, bulletin);
 
+            expect(result.queued).toHaveLength(1);
+            expect(result.queued[0].highestSeverity).toBe('CRITICAL');
+            expect(result.queued[0].file).toBe('db.js');
+            expect(result.queued[0].id).toBeDefined();
+            expect(mockSlack.chat.postMessage).not.toHaveBeenCalled();
+        });
+
+        test('creates task for CRITICAL finding with skipApproval', async () => {
+            const bulletin = {
+                data: {
+                    repo: 'jtpets/slack-agent-bridge',
+                    fullReview: 'CRITICAL: SQL injection - db.js:10 - Use prepared statements',
+                },
+            };
+
+            const result = await securityFollowup.processSecurityBulletin(mockSlack, bulletin, { skipApproval: true });
+
             expect(result.tasks).toHaveLength(1);
             expect(result.tasks[0].highestSeverity).toBe('CRITICAL');
             expect(result.tasks[0].file).toBe('db.js');
             expect(mockSlack.chat.postMessage).toHaveBeenCalledTimes(1);
         });
 
-        test('creates multiple tasks for findings in different files', async () => {
+        test('queues multiple tasks for findings in different files', async () => {
             const bulletin = {
                 data: {
                     repo: 'jtpets/slack-agent-bridge',
@@ -357,6 +378,21 @@ HIGH: Issue B - file2.js:20 - Fix B`,
             };
 
             const result = await securityFollowup.processSecurityBulletin(mockSlack, bulletin);
+
+            expect(result.queued).toHaveLength(2);
+            expect(mockSlack.chat.postMessage).not.toHaveBeenCalled();
+        });
+
+        test('creates multiple tasks with skipApproval', async () => {
+            const bulletin = {
+                data: {
+                    repo: 'jtpets/slack-agent-bridge',
+                    fullReview: `CRITICAL: Issue A - file1.js:10 - Fix A
+HIGH: Issue B - file2.js:20 - Fix B`,
+                },
+            };
+
+            const result = await securityFollowup.processSecurityBulletin(mockSlack, bulletin, { skipApproval: true });
 
             expect(result.tasks).toHaveLength(2);
             expect(mockSlack.chat.postMessage).toHaveBeenCalledTimes(2);
@@ -385,13 +421,13 @@ HIGH: Issue B - file2.js:20 - Fix B`,
                 },
             };
 
-            // First call should create task
+            // First call should queue task
             const result1 = await securityFollowup.processSecurityBulletin(mockSlack, bulletin);
-            expect(result1.tasks).toHaveLength(1);
+            expect(result1.queued).toHaveLength(1);
 
             // Second call should skip (duplicate)
             const result2 = await securityFollowup.processSecurityBulletin(mockSlack, bulletin);
-            expect(result2.tasks).toHaveLength(0);
+            expect(result2.queued).toHaveLength(0);
             expect(result2.skipped.some(s => s.reason.includes('Duplicate'))).toBe(true);
         });
 
@@ -406,10 +442,10 @@ HIGH: Issue B - file2.js:20 - Fix B`,
 
             const result = await securityFollowup.processSecurityBulletin(mockSlack, bulletin);
 
-            // Should parse from fullReview, which has CRITICAL
-            expect(result.tasks).toHaveLength(1);
-            expect(result.tasks[0].highestSeverity).toBe('CRITICAL');
-            expect(result.tasks[0].file).toBe('full.js');
+            // Should parse from fullReview, which has CRITICAL (now queued instead of tasks)
+            expect(result.queued).toHaveLength(1);
+            expect(result.queued[0].highestSeverity).toBe('CRITICAL');
+            expect(result.queued[0].file).toBe('full.js');
         });
 
         test('includes MEDIUM findings when option set', async () => {
@@ -422,23 +458,45 @@ HIGH: Issue B - file2.js:20 - Fix B`,
 
             // Without includeMedium - should skip
             const result1 = await securityFollowup.processSecurityBulletin(mockSlack, bulletin);
-            expect(result1.tasks).toHaveLength(0);
+            expect(result1.queued).toHaveLength(0);
 
             securityFollowup.clearDedupMap();
 
-            // With includeMedium - should create task
+            // With includeMedium - should queue task
             const result2 = await securityFollowup.processSecurityBulletin(mockSlack, bulletin, { includeMedium: true });
-            expect(result2.tasks).toHaveLength(1);
+            expect(result2.queued).toHaveLength(1);
         });
     });
 
     describe('formatFollowupSummary', () => {
-        test('formats tasks correctly', () => {
+        test('formats queued tasks correctly', () => {
+            const result = {
+                tasks: [],
+                queued: [
+                    { id: 'sec-123', file: 'file1.js', findingCount: 2, highestSeverity: 'CRITICAL' },
+                    { id: 'sec-456', file: 'file2.js', findingCount: 1, highestSeverity: 'HIGH' },
+                ],
+                skipped: [],
+                errors: [],
+            };
+
+            const summary = securityFollowup.formatFollowupSummary(result);
+
+            expect(summary).toContain('Queued 2 task(s) for approval');
+            expect(summary).toContain('file1.js');
+            expect(summary).toContain('file2.js');
+            expect(summary).toContain(':rotating_light:');
+            expect(summary).toContain(':warning:');
+            expect(summary).toContain('pending approvals');
+        });
+
+        test('formats direct tasks correctly (skipApproval mode)', () => {
             const result = {
                 tasks: [
                     { file: 'file1.js', findingCount: 2, highestSeverity: 'CRITICAL' },
                     { file: 'file2.js', findingCount: 1, highestSeverity: 'HIGH' },
                 ],
+                queued: [],
                 skipped: [],
                 errors: [],
             };
@@ -518,7 +576,7 @@ HIGH: Issue B - file2.js:20 - Fix B`,
             expect(result.reason).toContain('Not a security_finding');
         });
 
-        test('handler processes security_finding bulletins', async () => {
+        test('handler processes security_finding bulletins and queues tasks', async () => {
             const handler = securityFollowup.createSecurityFollowupHandler(mockSlack);
             const result = await handler({
                 type: 'security_finding',
@@ -528,7 +586,22 @@ HIGH: Issue B - file2.js:20 - Fix B`,
                 },
             });
 
+            // Default behavior queues tasks for approval
+            expect(result.queued.length).toBeGreaterThan(0);
+        });
+
+        test('handler with skipApproval posts tasks directly', async () => {
+            const handler = securityFollowup.createSecurityFollowupHandler(mockSlack, { skipApproval: true });
+            const result = await handler({
+                type: 'security_finding',
+                data: {
+                    repo: 'jtpets/test-repo',
+                    fullReview: 'HIGH: Test issue - test.js:1 - Fix it',
+                },
+            });
+
             expect(result.tasks.length).toBeGreaterThan(0);
+            expect(mockSlack.chat.postMessage).toHaveBeenCalled();
         });
     });
 
