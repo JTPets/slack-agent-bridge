@@ -7,12 +7,14 @@
 'use strict';
 
 // Mock googleapis before requiring gmail module
-jest.mock('googleapis', () => {
-    const mockMessages = {
-        list: jest.fn(),
-        get: jest.fn(),
-    };
+const mockModify = jest.fn();
+const mockMessages = {
+    list: jest.fn(),
+    get: jest.fn(),
+    modify: mockModify,
+};
 
+jest.mock('googleapis', () => {
     const mockGmail = jest.fn(() => ({
         users: {
             messages: mockMessages,
@@ -406,6 +408,128 @@ describe('gmail module', () => {
         });
     });
 
+    // LOGIC CHANGE 2026-04-01: Added tests for markAsRead and markAsUnread functions
+    // These tests verify scope handling and error detection for gmail.modify operations
+    describe('markAsRead', () => {
+        beforeEach(() => {
+            mockModify.mockClear();
+        });
+
+        test('returns success for empty array', async () => {
+            const result = await gmail.markAsRead([]);
+            expect(result).toEqual({ success: true, marked: [], failed: [] });
+            expect(mockModify).not.toHaveBeenCalled();
+        });
+
+        test('returns error when no credentials configured', async () => {
+            const result = await gmail.markAsRead(['msg123']);
+            expect(result.success).toBe(false);
+            expect(result.failed).toEqual(['msg123']);
+            expect(result.error).toContain('Gmail client not available');
+        });
+
+        test('handles single message ID as string', async () => {
+            process.env.GOOGLE_REFRESH_TOKEN = 'refresh-token';
+            process.env.GOOGLE_CLIENT_ID = 'client-id';
+            process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
+            mockModify.mockResolvedValueOnce({ data: {} });
+
+            const result = await gmail.markAsRead('msg123');
+            expect(result.success).toBe(true);
+            expect(result.marked).toEqual(['msg123']);
+            expect(result.failed).toEqual([]);
+        });
+
+        test('handles array of message IDs', async () => {
+            process.env.GOOGLE_REFRESH_TOKEN = 'refresh-token';
+            process.env.GOOGLE_CLIENT_ID = 'client-id';
+            process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
+            mockModify.mockResolvedValue({ data: {} });
+
+            const result = await gmail.markAsRead(['msg1', 'msg2', 'msg3']);
+            expect(result.success).toBe(true);
+            expect(result.marked).toEqual(['msg1', 'msg2', 'msg3']);
+            expect(result.failed).toEqual([]);
+            expect(mockModify).toHaveBeenCalledTimes(3);
+        });
+
+        test('detects scope mismatch error (403)', async () => {
+            process.env.GOOGLE_REFRESH_TOKEN = 'refresh-token';
+            process.env.GOOGLE_CLIENT_ID = 'client-id';
+            process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
+            mockModify.mockRejectedValueOnce({ code: 403, message: 'Insufficient Permission' });
+
+            const result = await gmail.markAsRead(['msg123']);
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('gmail.modify required');
+        });
+
+        test('handles partial failures', async () => {
+            process.env.GOOGLE_REFRESH_TOKEN = 'refresh-token';
+            process.env.GOOGLE_CLIENT_ID = 'client-id';
+            process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
+            mockModify
+                .mockResolvedValueOnce({ data: {} })
+                .mockRejectedValueOnce(new Error('Network error'))
+                .mockResolvedValueOnce({ data: {} });
+
+            const result = await gmail.markAsRead(['msg1', 'msg2', 'msg3']);
+            expect(result.success).toBe(false);
+            expect(result.marked).toEqual(['msg1', 'msg3']);
+            expect(result.failed).toEqual(['msg2']);
+        });
+    });
+
+    describe('markAsUnread', () => {
+        beforeEach(() => {
+            mockModify.mockClear();
+        });
+
+        test('returns success for empty array', async () => {
+            const result = await gmail.markAsUnread([]);
+            expect(result).toEqual({ success: true, marked: [], failed: [] });
+        });
+
+        test('returns error when no credentials configured', async () => {
+            const result = await gmail.markAsUnread(['msg123']);
+            expect(result.success).toBe(false);
+            expect(result.failed).toEqual(['msg123']);
+            expect(result.error).toContain('Gmail client not available');
+        });
+
+        test('handles single message ID as string', async () => {
+            process.env.GOOGLE_REFRESH_TOKEN = 'refresh-token';
+            process.env.GOOGLE_CLIENT_ID = 'client-id';
+            process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
+            mockModify.mockResolvedValueOnce({ data: {} });
+
+            const result = await gmail.markAsUnread('msg456');
+            expect(result.success).toBe(true);
+            expect(result.marked).toEqual(['msg456']);
+        });
+
+        test('detects scope mismatch error', async () => {
+            process.env.GOOGLE_REFRESH_TOKEN = 'refresh-token';
+            process.env.GOOGLE_CLIENT_ID = 'client-id';
+            process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
+            mockModify.mockRejectedValueOnce({ code: 403, message: 'scope' });
+
+            const result = await gmail.markAsUnread(['msg456']);
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('gmail.modify required');
+        });
+    });
+
+    describe('scope constants', () => {
+        test('exports SCOPE_READONLY constant', () => {
+            expect(gmail.SCOPE_READONLY).toBe('https://www.googleapis.com/auth/gmail.readonly');
+        });
+
+        test('exports SCOPE_MODIFY constant', () => {
+            expect(gmail.SCOPE_MODIFY).toBe('https://www.googleapis.com/auth/gmail.modify');
+        });
+    });
+
     describe('module exports', () => {
         test('exports all expected functions', () => {
             expect(gmail).toHaveProperty('getRecentEmails');
@@ -418,11 +542,20 @@ describe('gmail module', () => {
             expect(gmail).toHaveProperty('getHeader');
             expect(gmail).toHaveProperty('extractBody');
             expect(gmail).toHaveProperty('transformEmail');
+            // LOGIC CHANGE 2026-04-01: Added markAsRead, markAsUnread, getGmailClient exports
+            expect(gmail).toHaveProperty('markAsRead');
+            expect(gmail).toHaveProperty('markAsUnread');
+            expect(gmail).toHaveProperty('getGmailClient');
+            expect(gmail).toHaveProperty('SCOPE_READONLY');
+            expect(gmail).toHaveProperty('SCOPE_MODIFY');
 
             expect(typeof gmail.getRecentEmails).toBe('function');
             expect(typeof gmail.getEmailById).toBe('function');
             expect(typeof gmail.getEmailHeaders).toBe('function');
             expect(typeof gmail.hasCredentials).toBe('function');
+            expect(typeof gmail.markAsRead).toBe('function');
+            expect(typeof gmail.markAsUnread).toBe('function');
+            expect(typeof gmail.getGmailClient).toBe('function');
         });
     });
 });

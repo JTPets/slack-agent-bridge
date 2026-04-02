@@ -441,16 +441,19 @@ When using OAuth (not service account), the refresh token must be generated with
 | Scope | Purpose |
 |-------|---------|
 | `https://www.googleapis.com/auth/gmail.readonly` | Read emails for morning digest and inbox triage |
+| `https://www.googleapis.com/auth/gmail.modify` | Mark emails as read after processing (prevents re-processing) |
 | `https://www.googleapis.com/auth/calendar.readonly` | Read calendar events for daily briefings |
 | `https://www.googleapis.com/auth/analytics.readonly` | Read Google Analytics data for marketing reports (future) |
+
+**Gmail Scope Upgrade (2026-04-01):** The email monitoring system now requires `gmail.modify` scope to mark emails as read after processing. If you only have `gmail.readonly`, email reading will still work but `markAsRead()` calls will fail with a scope error. Regenerate your OAuth token with `gmail.modify` to enable this feature.
 
 **Generating a refresh token with multiple scopes:**
 ```bash
 # Use the OAuth Playground or a script to request these scopes together:
-SCOPES="https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/analytics.readonly"
+SCOPES="https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/analytics.readonly"
 ```
 
-**Note:** A single `GOOGLE_REFRESH_TOKEN` can cover multiple scopes if generated with all required scopes during the OAuth consent flow. The same token works for both Gmail and Calendar integrations.
+**Note:** A single `GOOGLE_REFRESH_TOKEN` can cover multiple scopes if generated with all required scopes during the OAuth consent flow. The same token works for both Gmail and Calendar integrations. The `gmail.modify` scope is a superset of `gmail.readonly`, so you only need `gmail.modify` for full functionality.
 
 ---
 
