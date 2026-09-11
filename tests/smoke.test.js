@@ -170,9 +170,31 @@ describe('lib/ modules load without errors', () => {
         expect(llmRunner).toHaveProperty('DEFAULT_PROVIDER');
         expect(llmRunner).toHaveProperty('DEFAULT_MAX_TURNS');
         expect(llmRunner).toHaveProperty('DEFAULT_TIMEOUT');
+        // LOGIC CHANGE 2026-09-11: Ollama provider surface
+        expect(llmRunner).toHaveProperty('runWithFallback');
+        expect(llmRunner).toHaveProperty('validateOllamaOnStartup');
+        expect(llmRunner).toHaveProperty('isOllamaAvailable');
+        expect(llmRunner).toHaveProperty('resolveFallbackChain');
 
         expect(typeof llmRunner.runLLM).toBe('function');
         expect(typeof llmRunner.isRateLimitError).toBe('function');
+        expect(typeof llmRunner.runOllamaAdapter).toBe('function');
+        expect(typeof llmRunner.validateOllamaOnStartup).toBe('function');
+    });
+
+    // LOGIC CHANGE 2026-09-11: lib/llm-metrics.js is the counter surface behind
+    // the provider verdict. A missing require here would silently disable every
+    // fallback statistic, so it gets the same load check as every other module.
+    test('lib/llm-metrics.js loads and exports expected functions', () => {
+        const llmMetrics = require('../lib/llm-metrics');
+
+        expect(llmMetrics).toHaveProperty('recordVerdict');
+        expect(llmMetrics).toHaveProperty('getStats');
+        expect(llmMetrics).toHaveProperty('resetStats');
+        expect(llmMetrics).toHaveProperty('getMetricsFile');
+
+        expect(typeof llmMetrics.recordVerdict).toBe('function');
+        expect(typeof llmMetrics.getStats).toBe('function');
     });
 
     test('lib/slack-client.js loads and exports expected functions', () => {

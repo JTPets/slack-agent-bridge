@@ -130,6 +130,34 @@ The agent responds directly without cloning any repo.
 | `WORK_DIR` | `/tmp/bridge-agent` | Temp directory for clones |
 | `GITHUB_ORG` | - | Default org for short repo names |
 
+### LLM Provider Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_PROVIDER` | `claude` | Primary provider: `claude`, `gemini`, `ollama` |
+| `LLM_FALLBACK_ENABLED` | `true` | Automatic fallback on provider failure |
+| `LLM_FALLBACK_PROVIDER` | per-primary | Fallback chain (comma-separated). Unset: `ollama` -> `gemini` -> `claude`, else -> `gemini` |
+| `GEMINI_API_KEY` | - | Required for the `gemini` provider. Never logged. |
+| `OLLAMA_MODEL` | - | **Required** for the `ollama` provider. No default model name. |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server URL (loopback by design) |
+| `OLLAMA_KEEP_ALIVE` | `5m` | How long the model stays resident in RAM |
+| `OLLAMA_NUM_CTX` | `8192` | Context window in tokens |
+| `OLLAMA_TIMEOUT_MS` | `120000` | Per-request timeout when the caller passes none |
+| `OLLAMA_THINK` | `false` | Thinking mode: `false`, `true`, or `low`/`medium`/`high`/`max` |
+| `LLM_METRICS_FILE` | `agents/shared/llm-metrics.json` | Provider verdict counter |
+| `LLM_METRICS_RETENTION_DAYS` | `30` | Days of verdict history to keep |
+
+Fallback triggers on timeout, connection refused, non-2xx, rate limit, empty output
+and malformed output. Every call — fallback or not — emits one `[llm-verdict]` log
+line and increments a durable counter:
+
+```bash
+node -e "console.log(require('./lib/llm-metrics').getStats({ agentId: 'secretary', days: 7 }))"
+```
+
+See [CLAUDE.md](CLAUDE.md) for the full provider contract and the Pi-side
+resource fencing for a local Ollama server.
+
 ### Auto-Update Variables
 
 | Variable | Default | Description |
@@ -168,7 +196,8 @@ slack-agent-bridge/
 ├── morning-digest.js     # Daily stats (cron job)
 ├── lib/
 │   ├── config.js         # Environment config
-│   ├── llm-runner.js     # Claude CLI wrapper
+│   ├── llm-runner.js     # Provider adapters (claude, gemini, ollama) + fallback chain
+│   ├── llm-metrics.js    # Provider verdict counter (fallback visibility)
 │   ├── task-parser.js    # Message parsing
 │   └── validate.js       # Pre-commit checks
 ├── memory/

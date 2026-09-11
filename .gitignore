@@ -14,3 +14,17 @@ data/delivery-quotes.json
 memory/*.json
 package-lock.json
 package-lock.json
+
+# LLM provider verdict counter (local runtime state)
+agents/shared/llm-metrics.json
+
+# Local model weights and binaries - NEVER commit these.
+# Ollama stores models under its own data dir (default ~/.ollama), not the repo,
+# but these patterns stop a stray pull or export from landing in git.
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.onnx
+models/
+.ollama/
