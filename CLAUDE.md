@@ -162,10 +162,100 @@ const POLL_INTERVAL = 5000;
 | `EMAIL_RATE_LIMIT_SLACK_PER_WINDOW` | Max Slack messages to post per rate limit window | `20` |
 | `EMAIL_RATE_LIMIT_WINDOW_MS` | Rate limit sliding window size in ms | `300000` (5 min) |
 | `EMAIL_RATE_LIMIT_COOLDOWN_MS` | Cooldown period after hitting rate limit | `60000` (1 min) |
+| `OLLAMA_MODEL` | Model for the ollama provider. **No default** — ollama calls fail their precondition check without it. | - |
+| `OLLAMA_BASE_URL` | Ollama server base URL. Loopback by design. | `http://127.0.0.1:11434` |
+| `OLLAMA_KEEP_ALIVE` | How long the model stays resident in RAM after a request | `5m` |
+| `OLLAMA_NUM_CTX` | Context window in tokens | `8192` |
+| `OLLAMA_TIMEOUT_MS` | Per-request timeout for ollama (used when the caller passes none) | `120000` |
+| `OLLAMA_THINK` | Thinking mode: `false`, `true`, or a level (`low`/`medium`/`high`/`max`) | `false` |
+| `LLM_METRICS_FILE` | Path to the provider verdict counter | `agents/shared/llm-metrics.json` |
+| `LLM_METRICS_RETENTION_DAYS` | Days of verdict history to keep | `30` |
 
-**LLM_PROVIDER options:** `claude` (default), `gemini`, `openai` (not yet implemented), `ollama` (not yet implemented)
+**LLM_PROVIDER options:** `claude` (default), `gemini`, `ollama`, `openai` (not yet implemented)
 
-**LLM Fallback:** When `LLM_FALLBACK_ENABLED=true` (default), Claude rate limits automatically trigger retry with `LLM_FALLBACK_PROVIDER` (default: gemini). Requires `GEMINI_API_KEY` to be set for Gemini fallback.
+**LLM Fallback:** When `LLM_FALLBACK_ENABLED=true` (default), a provider failure automatically retries on the next provider in the chain. `LLM_FALLBACK_PROVIDER` accepts a single provider or a comma-separated chain; when unset, the chain defaults per primary — `ollama` -> `gemini` -> `claude`, everything else -> `gemini`. Gemini requires `GEMINI_API_KEY`; an unconfigured provider is skipped (with a logged reason) rather than attempted.
+
+**Fallback triggers** (any of these on the primary moves to the next provider):
+
+| Trigger | `fallback_reason` |
+|---------|-------------------|
+| Request exceeded the timeout | `timeout` |
+| Server refused the connection / unreachable | `connection_refused` |
+| Non-2xx response | `http_error` |
+| HTTP 429 or a rate-limit message | `rate_limit` |
+| 200 with empty output | `empty_output` |
+| 200 with unparseable or wrong-shaped output | `malformed_output` |
+
+An **unknown provider name is a configuration defect, not a fallback trigger** — it throws so the typo is visible rather than being masked by another engine.
+
+### No silent fallback
+
+Every LLM call records exactly one verdict via `lib/llm-metrics.js`, whether or not it fell back:
+
+- **One structured log line per call:** `[llm-verdict] {"provider_requested":…,"provider_used":…,"fallback_reason":…,"latency_ms":…,"model":…,"agent_id":…,"ok":…}`. `fallback_reason` is `null` when the requested provider served the call — that null distinguishes "no fallback" from "never measured".
+- **A durable counter**, day-bucketed per agent, so the question is answerable without grepping logs:
+
+```bash
+# What fraction of the secretary's calls fell back this week?
+node -e "console.log(require('./lib/llm-metrics').getStats({ agentId: 'secretary', days: 7 }))"
+```
+
+Fallback is meant to be invisible to the agent. Invisible to the *operator* is the defect this exists to prevent.
+
+### Local LLM (Ollama) provider
+
+`runOllamaAdapter` in `lib/llm-runner.js` posts to Ollama's **native** `/api/chat` (not the OpenAI-compatible `/v1/chat/completions`), non-streaming, single-shot.
+
+**Why native and not the OpenAI-compatible path:** the compat endpoint's request struct carries no `keep_alive` and no `options` field, so model residency and context size cannot be set per request — both are load-bearing on a memory-fenced Pi. Thinking control *is* reachable over compat (`reasoning_effort: "none"`), but `keep_alive`/`num_ctx` are not. **There is no `enable_thinking` field on either path** — Ollama's knob is `think`, which takes a boolean or one of `low`/`medium`/`high`/`max`.
+
+**Portability cost of that choice:** this adapter speaks Ollama's wire format, so pointing it at llama.cpp's server, vLLM or LM Studio needs a second request/response mapping rather than just a base-URL swap. Accepted deliberately.
+
+**Contract:** single-shot, so `maxTurns` is ignored and `hitMaxTurns` is always `false` (same as the Gemini adapter). Returns `{ output, hitMaxTurns: false, model }`. `options.timeout` is honored via `AbortController`.
+
+**Per-agent model override:** an agent in `agents/agents.json` may carry `llm_model` alongside `llm_provider`; it is passed through as `options.model` and wins over `OLLAMA_MODEL`. This is what lets a router model and a workhorse model share one provider. There is no hardcoded model name in the adapter — with neither `options.model` nor `OLLAMA_MODEL` set, the call throws a precondition error rather than guessing a model that may not be pulled.
+
+**Startup check:** `validateOllamaOnStartup()` probes `GET /api/tags` and, like `validateGeminiOnStartup`, **never prevents boot**. An unreachable or down server logs a loud warning, marks the provider unavailable, and the bridge starts normally with every agent on its configured provider. The availability flag is reporting state only — it never gates dispatch, because a sticky flag would route an agent away from its provider forever after one bad boot.
+
+#### Pi-side resource fencing (reproducible)
+
+Ollama on the Pi runs alongside `sqtools` (PRODUCTION) and must never starve it. The fencing below lives in a systemd drop-in so it survives package upgrades — config that lives only on the box is the same class of problem as a finding that lives only in chat.
+
+```bash
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+sudo tee /etc/systemd/system/ollama.service.d/override.conf >/dev/null <<'EOF'
+[Service]
+# Loopback only. The model server must never be reachable off-box.
+Environment="OLLAMA_HOST=127.0.0.1:11434"
+
+# One model resident, one request at a time, short queue.
+Environment="OLLAMA_MAX_LOADED_MODELS=1"
+Environment="OLLAMA_NUM_PARALLEL=1"
+Environment="OLLAMA_MAX_QUEUE=4"
+
+# Unload promptly so RAM returns to sqtools between bursts.
+Environment="OLLAMA_KEEP_ALIVE=5m"
+
+# Hard memory ceiling: the kernel kills ollama, not postgres, under pressure.
+MemoryMax=4G
+MemoryHigh=3G
+CPUQuota=300%
+
+# ollama is the first thing to die under global memory pressure.
+OOMScoreAdjust=500
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+
+# Verify the fence actually applied:
+systemctl show ollama -p MemoryMax -p CPUQuota -p OOMScoreAdjust
+sudo ss -lntp | grep 11434   # must show 127.0.0.1:11434, never 0.0.0.0
+curl -s http://127.0.0.1:11434/api/tags | head -c 200
+```
+
+Tune `MemoryMax` to the model actually pulled — it must be below `(total RAM - sqtools + postgres working set)`. Matching app-side values go in `.env`: `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `OLLAMA_KEEP_ALIVE`, `OLLAMA_NUM_CTX`.
+
+**Not done by this change:** no agent's `llm_provider` was migrated to ollama, and ollama is not installed or configured on any machine by this repo. Migration is a separate, observed, one-at-a-time decision.
 
 **Security Followup:** When `SECURITY_FOLLOWUP_ENABLED=true` (default), the nightly security review creates TASK messages for CRITICAL and HIGH severity findings. Tasks are queued in the approval queue for owner review instead of executing immediately. Use `ASK: pending approvals` to review and `ASK: approve <id>` to execute. This prevents prompt injection attacks via malicious security findings.
 
@@ -333,7 +423,7 @@ slack-agent-bridge/
 │   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel, activateAgent
 │   ├── bulletin-board.js # Inter-agent communication: postBulletin, getBulletins, markRead, cleanupOldBulletins
 │   ├── config.js         # Environment variable loading, validation, and defaults
-│   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, openai, ollama)
+│   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, gemini, ollama), fallback chain, startup validation
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
 │   ├── owner-tasks.js    # Owner task management: activation checklists, pending tasks, ACTION REQUIRED detection
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
@@ -347,6 +437,7 @@ slack-agent-bridge/
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
 │   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow
 │   ├── email-rate-limiter.js # Rate limiting for email-to-Slack pipeline: sliding window, cooldown, flood protection
+│   ├── llm-metrics.js    # LLM provider verdict counter: recordVerdict, getStats (fallback visibility)
 │   └── integrations/
 │       ├── google-calendar.js  # Google Calendar API integration for fetching events (today, tomorrow, yesterday)
 │       ├── gmail.js            # Gmail API integration: getRecentEmails, getEmailById, getEmailHeaders (read-only)
@@ -394,6 +485,7 @@ slack-agent-bridge/
 │   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)
 │   ├── email-categorizer.test.js # Tests for lib/integrations/email-categorizer.js (categorization, rules)
 │   ├── email-rate-limiter.test.js # Tests for lib/email-rate-limiter.js (sliding window, cooldown, flood protection)
+│   ├── llm-metrics.test.js      # Tests for lib/llm-metrics.js (verdict recording, getStats, retention)
 │   ├── staff-tasks.test.js      # Tests for lib/staff-tasks.js (assignments, escalations, daily tasks)
 │   ├── bulletin-board.test.js   # Tests for lib/bulletin-board.js (inter-agent communication)
 │   ├── watercooler.test.js      # Tests for lib/watercooler.js (standup orchestration, agent flow)

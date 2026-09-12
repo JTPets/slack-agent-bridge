@@ -96,7 +96,7 @@ const { getAgent, loadAgents, getActiveAgents, getAgentByChannel, registryExists
 // errors and implementing pause/retry behavior.
 // LOGIC CHANGE 2026-03-27: Import BandwidthExhaustedError for bandwidth-specific
 // handling when Claude CLI exits with code 1 and empty/short output.
-const { runLLM, RateLimitError, BandwidthExhaustedError, validateGeminiOnStartup } = require('./lib/llm-runner');
+const { runLLM, RateLimitError, BandwidthExhaustedError, validateGeminiOnStartup, validateOllamaOnStartup } = require('./lib/llm-runner');
 
 // LOGIC CHANGE 2026-03-26: Added slack-client module for channel management
 // functions (createChannel, ensureChannel, etc.).
@@ -709,12 +709,18 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
 
     while (retryCount <= 1) {
       try {
+        // LOGIC CHANGE 2026-09-11: Pass the agent's optional llm_model and its id.
+        // llm_model lets two agents share a provider with different models (a
+        // router model and a workhorse model on the same local Ollama server).
+        // agentId is what makes the per-agent fallback counter answerable.
         result = await runLLM(prompt, {
           cwd,
           maxTurns: currentTurns,
           timeout: TASK_TIMEOUT,
           claudeBin: CLAUDE_BIN,
           provider: llmProvider,
+          model: agentConfig?.llm_model,
+          agentId,
         });
       } catch (llmErr) {
         // Re-throw LLM errors - they will be caught by outer catch
@@ -1498,12 +1504,15 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
     // LOGIC CHANGE 2026-03-27: Pass handling agent's llm_provider for conversation handling.
     // Uses the agent's configured max_turns capped at 20 for conversations.
     const maxTurns = Math.min(currentAgent?.max_turns || 10, 20);
+    // LOGIC CHANGE 2026-09-11: Pass llm_model and agentId (see the task call site).
     const result = await runLLM(prompt, {
       cwd: WORK_DIR,
       maxTurns,
       timeout: TASK_TIMEOUT,
       claudeBin: CLAUDE_BIN,
       provider: currentAgent?.llm_provider,
+      model: currentAgent?.llm_model,
+      agentId,
     });
     const { output } = result;
 
@@ -1892,6 +1901,14 @@ console.log(`  Scheduler: ${schedulerResult.jobCount} jobs (${schedulerResult.ag
     console.error('[bridge-agent] Failed to join agent channels on startup:', joinErr.message);
   }
   await validateGeminiOnStartup();
+  // LOGIC CHANGE 2026-09-11: Probe the local Ollama server the same way.
+  // Like the Gemini check, this NEVER blocks boot - an unreachable ollama logs
+  // a warning and every agent still starts on its configured provider.
+  try {
+    await validateOllamaOnStartup({ agents: getActiveAgents() });
+  } catch (ollamaErr) {
+    console.error('[bridge-agent] Ollama startup check threw unexpectedly:', ollamaErr.message);
+  }
   poll();
   setInterval(poll, POLL_INTERVAL);
 })();

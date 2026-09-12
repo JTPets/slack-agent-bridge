@@ -5,9 +5,13 @@
  */
 
 const EventEmitter = require('events');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 describe('llm-runner module', () => {
   const originalEnv = process.env;
+  const metricsFiles = [];
   let mockSpawn;
   let childProcess;
 
@@ -16,6 +20,14 @@ describe('llm-runner module', () => {
     process.env = { ...originalEnv };
     // Clear LLM_PROVIDER to ensure default behavior
     delete process.env.LLM_PROVIDER;
+    // LOGIC CHANGE 2026-09-11: llm-runner now records a verdict counter via
+    // lib/llm-metrics.js. Point it at a throwaway file so tests never touch
+    // agents/shared/llm-metrics.json.
+    process.env.LLM_METRICS_FILE = path.join(os.tmpdir(), `llm-metrics-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+    metricsFiles.push(process.env.LLM_METRICS_FILE);
+    delete process.env.OLLAMA_MODEL;
+    delete process.env.OLLAMA_BASE_URL;
+    delete process.env.OLLAMA_THINK;
 
     // Create fresh mock for each test
     mockSpawn = jest.fn();
@@ -30,7 +42,21 @@ describe('llm-runner module', () => {
 
   afterAll(() => {
     process.env = originalEnv;
+    for (const f of metricsFiles) {
+      try { fs.unlinkSync(f); } catch (err) { /* never existed */ }
+    }
   });
+
+  /**
+   * LOGIC CHANGE 2026-09-11: Helper - mock a successful Ollama /api/chat reply.
+   */
+  function mockOllamaResponse(content, extra = {}) {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ model: 'test-model', message: { role: 'assistant', content }, done: true, ...extra }),
+    });
+  }
 
   /**
    * Helper to setup spawn mock that auto-resolves
@@ -87,12 +113,20 @@ describe('llm-runner module', () => {
       await expect(runLLM('test prompt')).rejects.toThrow('OpenAI adapter not yet implemented');
     });
 
+    // LOGIC CHANGE 2026-09-11: Was an "Ollama adapter not yet implemented"
+    // assertion. Ollama is implemented, so this now asserts the same thing the
+    // test always meant: options.provider wins over the env var.
     test('options.provider overrides LLM_PROVIDER env var', async () => {
       process.env.LLM_PROVIDER = 'claude';
+      process.env.OLLAMA_MODEL = 'test-model';
+      mockOllamaResponse('ollama answer');
 
       const { runLLM } = require('../lib/llm-runner');
+      const result = await runLLM('test prompt', { provider: 'ollama' });
 
-      await expect(runLLM('test prompt', { provider: 'ollama' })).rejects.toThrow('Ollama adapter not yet implemented');
+      expect(result.provider).toBe('ollama');
+      expect(result.output).toBe('ollama answer');
+      expect(mockSpawn).not.toHaveBeenCalled();
     });
 
     test('throws error for unknown provider', async () => {
@@ -287,11 +321,377 @@ describe('llm-runner module', () => {
     });
   });
 
+  // LOGIC CHANGE 2026-09-11: Replaced the "not yet implemented" placeholder test
+  // with real coverage of the implemented adapter. The timeout,
+  // connection-refused and malformed-output cases below all FAIL against the
+  // old stub (which rejected every call with the same message regardless of
+  // what the server did).
   describe('runOllamaAdapter', () => {
-    test('throws not implemented error', async () => {
+    let originalFetch;
+
+    beforeEach(() => {
+      originalFetch = global.fetch;
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    test('throws precondition error when no model is configured', async () => {
+      delete process.env.OLLAMA_MODEL;
+
       const { runOllamaAdapter } = require('../lib/llm-runner');
 
-      await expect(runOllamaAdapter('prompt')).rejects.toThrow('Ollama adapter not yet implemented');
+      await expect(runOllamaAdapter('prompt')).rejects.toThrow(
+        'OLLAMA_MODEL environment variable (or options.model) is required for Ollama provider'
+      );
+    });
+
+    test('posts to the native /api/chat endpoint with stream disabled', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      mockOllamaResponse('hello');
+
+      const { runOllamaAdapter } = require('../lib/llm-runner');
+      await runOllamaAdapter('my prompt');
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:11434/api/chat',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(body.stream).toBe(false);
+      expect(body.messages).toEqual([{ role: 'user', content: 'my prompt' }]);
+    });
+
+    test('sends think=false by default (thinking mode off)', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      mockOllamaResponse('hello');
+
+      const { runOllamaAdapter } = require('../lib/llm-runner');
+      await runOllamaAdapter('prompt');
+
+      const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(body.think).toBe(false);
+      // The knob is Ollama's native `think`, NOT `enable_thinking` (which does
+      // not exist in the Ollama API on any endpoint).
+      expect(body).not.toHaveProperty('enable_thinking');
+    });
+
+    test('accepts a thinking level from OLLAMA_THINK', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      process.env.OLLAMA_THINK = 'medium';
+      mockOllamaResponse('hello');
+
+      const { runOllamaAdapter } = require('../lib/llm-runner');
+      await runOllamaAdapter('prompt');
+
+      const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(body.think).toBe('medium');
+    });
+
+    test('takes base url, keep-alive and context size from env with defaults', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      process.env.OLLAMA_BASE_URL = 'http://127.0.0.1:9999/';
+      process.env.OLLAMA_KEEP_ALIVE = '30m';
+      process.env.OLLAMA_NUM_CTX = '4096';
+      mockOllamaResponse('hello');
+
+      const { runOllamaAdapter } = require('../lib/llm-runner');
+      await runOllamaAdapter('prompt');
+
+      expect(global.fetch.mock.calls[0][0]).toBe('http://127.0.0.1:9999/api/chat');
+      const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(body.keep_alive).toBe('30m');
+      expect(body.options.num_ctx).toBe(4096);
+
+      delete process.env.OLLAMA_KEEP_ALIVE;
+      delete process.env.OLLAMA_NUM_CTX;
+    });
+
+    test('per-agent options.model overrides OLLAMA_MODEL', async () => {
+      process.env.OLLAMA_MODEL = 'workhorse-model';
+      mockOllamaResponse('routed');
+
+      const { runOllamaAdapter } = require('../lib/llm-runner');
+      const result = await runOllamaAdapter('prompt', { model: 'router-model' });
+
+      const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(body.model).toBe('router-model');
+      expect(result.model).toBe('router-model');
+    });
+
+    test('returns output with hitMaxTurns false (single-shot provider)', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      mockOllamaResponse('  the answer  ');
+
+      const { runOllamaAdapter } = require('../lib/llm-runner');
+      const result = await runOllamaAdapter('prompt', { maxTurns: 50 });
+
+      expect(result.output).toBe('the answer');
+      expect(result.hitMaxTurns).toBe(false);
+    });
+
+    // FAILS against the old stub: the stub rejected with "not yet implemented"
+    // regardless of the timeout, so no timeout path existed to assert on.
+    test('aborts and tags fallbackReason=timeout when options.timeout elapses', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      global.fetch = jest.fn((url, opts) => new Promise((resolve, reject) => {
+        opts.signal.addEventListener('abort', () => {
+          const abortErr = new Error('The operation was aborted');
+          abortErr.name = 'AbortError';
+          reject(abortErr);
+        });
+      }));
+
+      const { runOllamaAdapter } = require('../lib/llm-runner');
+
+      try {
+        await runOllamaAdapter('prompt', { timeout: 50 });
+        throw new Error('Should have thrown');
+      } catch (err) {
+        expect(err.message).toContain('Ollama request timed out after 50ms');
+        expect(err.fallbackReason).toBe('timeout');
+        expect(err.isProviderUnavailable).toBe(true);
+      }
+    });
+
+    // FAILS against the old stub for the same reason as the timeout test.
+    test('tags fallbackReason=connection_refused when the server is down', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      const connErr = new TypeError('fetch failed');
+      connErr.cause = { code: 'ECONNREFUSED' };
+      global.fetch = jest.fn().mockRejectedValue(connErr);
+
+      const { runOllamaAdapter } = require('../lib/llm-runner');
+
+      try {
+        await runOllamaAdapter('prompt');
+        throw new Error('Should have thrown');
+      } catch (err) {
+        expect(err.message).toContain('Ollama connection failed');
+        expect(err.message).toContain('ECONNREFUSED');
+        expect(err.fallbackReason).toBe('connection_refused');
+      }
+    });
+
+    test('tags fallbackReason=http_error on a non-2xx response', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('internal error'),
+      });
+
+      const { runOllamaAdapter } = require('../lib/llm-runner');
+
+      try {
+        await runOllamaAdapter('prompt');
+        throw new Error('Should have thrown');
+      } catch (err) {
+        expect(err.message).toContain('Ollama API error (500)');
+        expect(err.fallbackReason).toBe('http_error');
+      }
+    });
+
+    test('throws RateLimitError tagged rate_limit on 429', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        text: () => Promise.resolve('too many requests'),
+      });
+
+      const { runOllamaAdapter, RateLimitError } = require('../lib/llm-runner');
+
+      try {
+        await runOllamaAdapter('prompt');
+        throw new Error('Should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(RateLimitError);
+        expect(err.isRateLimit).toBe(true);
+        expect(err.fallbackReason).toBe('rate_limit');
+      }
+    });
+
+    // FAILS against the old stub: a 200 with the wrong body shape had no
+    // distinct behaviour before this adapter existed.
+    test('tags fallbackReason=malformed_output when message.content is missing', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ model: 'test-model', done: true }),
+      });
+
+      const { runOllamaAdapter } = require('../lib/llm-runner');
+
+      try {
+        await runOllamaAdapter('prompt');
+        throw new Error('Should have thrown');
+      } catch (err) {
+        expect(err.message).toContain('Ollama response missing message.content');
+        expect(err.fallbackReason).toBe('malformed_output');
+      }
+    });
+
+    test('tags fallbackReason=malformed_output when the body is not JSON', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new SyntaxError('Unexpected token < in JSON')),
+      });
+
+      const { runOllamaAdapter } = require('../lib/llm-runner');
+
+      try {
+        await runOllamaAdapter('prompt');
+        throw new Error('Should have thrown');
+      } catch (err) {
+        expect(err.message).toContain('Ollama returned unparseable JSON');
+        expect(err.fallbackReason).toBe('malformed_output');
+      }
+    });
+
+    test('tags fallbackReason=empty_output when content is blank', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      mockOllamaResponse('   ', { done_reason: 'length' });
+
+      const { runOllamaAdapter } = require('../lib/llm-runner');
+
+      try {
+        await runOllamaAdapter('prompt');
+        throw new Error('Should have thrown');
+      } catch (err) {
+        expect(err.message).toContain('Ollama returned empty output');
+        expect(err.fallbackReason).toBe('empty_output');
+      }
+    });
+  });
+
+  // LOGIC CHANGE 2026-09-11: Tests for validateOllamaOnStartup. The hard
+  // requirement is that it NEVER prevents boot - validateGeminiOnStartup at HEAD
+  // catches and logs without exiting, and this mirrors that exactly.
+  describe('validateOllamaOnStartup', () => {
+    let originalFetch;
+
+    beforeEach(() => {
+      originalFetch = global.fetch;
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    test('skips the probe when nothing routes to ollama', async () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      global.fetch = jest.fn();
+
+      const { validateOllamaOnStartup } = require('../lib/llm-runner');
+      await expect(validateOllamaOnStartup({ agents: [{ id: 'a', llm_provider: 'claude' }] })).resolves.toBeUndefined();
+
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Ollama startup check skipped'));
+      consoleSpy.mockRestore();
+    });
+
+    test('probes when an agent is configured for ollama', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ models: [{ name: 'test-model:8b' }] }),
+      });
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const { validateOllamaOnStartup } = require('../lib/llm-runner');
+      await validateOllamaOnStartup({ agents: [{ id: 'local', llm_provider: 'ollama' }] });
+
+      expect(global.fetch).toHaveBeenCalledWith('http://127.0.0.1:11434/api/tags', expect.any(Object));
+      consoleSpy.mockRestore();
+      warnSpy.mockRestore();
+    });
+
+    test('logs PASSED when the server answers and the model is pulled', async () => {
+      process.env.OLLAMA_MODEL = 'test-model:8b';
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ models: [{ name: 'test-model:8b' }] }),
+      });
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const { validateOllamaOnStartup, isOllamaAvailable } = require('../lib/llm-runner');
+      await expect(validateOllamaOnStartup()).resolves.toBeUndefined();
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Ollama startup check PASSED'));
+      expect(isOllamaAvailable()).toBe(true);
+      consoleSpy.mockRestore();
+    });
+
+    test('warns without throwing when the configured model is not pulled', async () => {
+      process.env.OLLAMA_MODEL = 'missing-model';
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ models: [{ name: 'some-other-model:8b' }] }),
+      });
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const { validateOllamaOnStartup } = require('../lib/llm-runner');
+      await expect(validateOllamaOnStartup()).resolves.toBeUndefined();
+
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('is not pulled'));
+      errSpy.mockRestore();
+    });
+
+    test('does NOT throw when the server is unreachable - boot must continue', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      const connErr = new TypeError('fetch failed');
+      connErr.cause = { code: 'ECONNREFUSED' };
+      global.fetch = jest.fn().mockRejectedValue(connErr);
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const { validateOllamaOnStartup, isOllamaAvailable } = require('../lib/llm-runner');
+      await expect(validateOllamaOnStartup()).resolves.toBeUndefined();
+
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('OLLAMA STARTUP CHECK FAILED'));
+      expect(isOllamaAvailable()).toBe(false);
+      errSpy.mockRestore();
+    });
+
+    test('does NOT throw on a non-2xx probe response', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 503, json: () => Promise.resolve({}) });
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const { validateOllamaOnStartup } = require('../lib/llm-runner');
+      await expect(validateOllamaOnStartup()).resolves.toBeUndefined();
+
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('HTTP 503'));
+      errSpy.mockRestore();
+    });
+
+    test('does NOT throw when the probe times out', async () => {
+      process.env.OLLAMA_MODEL = 'test-model';
+      global.fetch = jest.fn((url, opts) => new Promise((resolve, reject) => {
+        opts.signal.addEventListener('abort', () => {
+          const abortErr = new Error('aborted');
+          abortErr.name = 'AbortError';
+          reject(abortErr);
+        });
+      }));
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const { validateOllamaOnStartup } = require('../lib/llm-runner');
+      await expect(validateOllamaOnStartup({ timeout: 50 })).resolves.toBeUndefined();
+
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('no response within 50ms'));
+      errSpy.mockRestore();
     });
   });
 
@@ -820,6 +1220,297 @@ describe('llm-runner module', () => {
       const callBody = JSON.parse(global.fetch.mock.calls[0][1].body);
       expect(callBody.generationConfig.maxOutputTokens).toBe(4096);
       expect(callBody.generationConfig.temperature).toBe(0.5);
+    });
+  });
+
+  // LOGIC CHANGE 2026-09-11: Tests for the ollama -> gemini -> claude fallback
+  // chain. These FAIL against the previous runWithFallback, which only fell back
+  // on primaryError.isRateLimit and only ever tried a single provider.
+  describe('runWithFallback - ollama chain', () => {
+    let originalFetch;
+
+    beforeEach(() => {
+      originalFetch = global.fetch;
+      process.env.OLLAMA_MODEL = 'local-model';
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.OLLAMA_MODEL;
+      delete process.env.LLM_FALLBACK_PROVIDER;
+      delete process.env.LLM_FALLBACK_ENABLED;
+    });
+
+    /**
+     * Route /api/chat (ollama) to a failure and Gemini's endpoint to a success.
+     */
+    function mockOllamaFailureGeminiSuccess(ollamaFailure) {
+      global.fetch = jest.fn((url) => {
+        if (String(url).includes('/api/chat')) {
+          return ollamaFailure();
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({
+            candidates: [{ content: { parts: [{ text: 'Gemini fallback response' }] } }],
+          }),
+        });
+      });
+    }
+
+    test('connection refused on ollama completes on gemini with a recorded fallback_reason', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      const connErr = new TypeError('fetch failed');
+      connErr.cause = { code: 'ECONNREFUSED' };
+      mockOllamaFailureGeminiSuccess(() => Promise.reject(connErr));
+
+      const { runWithFallback } = require('../lib/llm-runner');
+      const result = await runWithFallback('test prompt', { provider: 'ollama', agentId: 'local-agent' });
+
+      expect(result.output).toBe('Gemini fallback response');
+      expect(result.usedFallback).toBe(true);
+      expect(result.fallbackProvider).toBe('gemini');
+      expect(result.fallbackReason).toBe('connection_refused');
+      expect(result.providerRequested).toBe('ollama');
+      expect(result.providerUsed).toBe('gemini');
+
+      // The reason must also be durably recorded, not only returned.
+      const { getStats } = require('../lib/llm-metrics');
+      const stats = getStats({ agentId: 'local-agent', days: 1 });
+      expect(stats.calls).toBe(1);
+      expect(stats.fallbacks).toBe(1);
+      expect(stats.fallbackRate).toBe(1);
+      expect(stats.reasons.connection_refused).toBe(1);
+      expect(stats.used.gemini).toBe(1);
+      expect(stats.requested.ollama).toBe(1);
+    });
+
+    test('timeout on ollama falls back to gemini', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      global.fetch = jest.fn((url, opts) => {
+        if (String(url).includes('/api/chat')) {
+          return new Promise((resolve, reject) => {
+            opts.signal.addEventListener('abort', () => {
+              const abortErr = new Error('aborted');
+              abortErr.name = 'AbortError';
+              reject(abortErr);
+            });
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ candidates: [{ content: { parts: [{ text: 'gemini' }] } }] }),
+        });
+      });
+
+      const { runWithFallback } = require('../lib/llm-runner');
+      const result = await runWithFallback('p', { provider: 'ollama', timeout: 50 });
+
+      expect(result.fallbackReason).toBe('timeout');
+      expect(result.fallbackProvider).toBe('gemini');
+    });
+
+    test('empty ollama output falls back to gemini', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      mockOllamaFailureGeminiSuccess(() => Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ message: { role: 'assistant', content: '  ' }, done: true }),
+      }));
+
+      const { runWithFallback } = require('../lib/llm-runner');
+      const result = await runWithFallback('p', { provider: 'ollama' });
+
+      expect(result.fallbackReason).toBe('empty_output');
+      expect(result.output).toBe('Gemini fallback response');
+    });
+
+    test('malformed ollama output falls back to gemini', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      mockOllamaFailureGeminiSuccess(() => Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ done: true }),
+      }));
+
+      const { runWithFallback } = require('../lib/llm-runner');
+      const result = await runWithFallback('p', { provider: 'ollama' });
+
+      expect(result.fallbackReason).toBe('malformed_output');
+      expect(result.output).toBe('Gemini fallback response');
+    });
+
+    test('non-2xx ollama response falls back to gemini', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      mockOllamaFailureGeminiSuccess(() => Promise.resolve({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('boom'),
+      }));
+
+      const { runWithFallback } = require('../lib/llm-runner');
+      const result = await runWithFallback('p', { provider: 'ollama' });
+
+      expect(result.fallbackReason).toBe('http_error');
+    });
+
+    test('falls through to claude when gemini is unconfigured', async () => {
+      delete process.env.GEMINI_API_KEY;
+      setupMockSpawn({ stdout: 'Claude response' });
+      const connErr = new TypeError('fetch failed');
+      connErr.cause = { code: 'ECONNREFUSED' };
+      global.fetch = jest.fn().mockRejectedValue(connErr);
+
+      const { runWithFallback } = require('../lib/llm-runner');
+      const result = await runWithFallback('p', { provider: 'ollama' });
+
+      expect(result.output).toBe('Claude response');
+      expect(result.fallbackProvider).toBe('claude');
+      expect(result.fallbackReason).toBe('connection_refused');
+    });
+
+    test('falls through to claude when gemini also fails', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      setupMockSpawn({ stdout: 'Claude response' });
+      const connErr = new TypeError('fetch failed');
+      connErr.cause = { code: 'ECONNREFUSED' };
+      global.fetch = jest.fn((url) => {
+        if (String(url).includes('/api/chat')) return Promise.reject(connErr);
+        return Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('gemini down') });
+      });
+
+      const { runWithFallback } = require('../lib/llm-runner');
+      const result = await runWithFallback('p', { provider: 'ollama' });
+
+      expect(result.output).toBe('Claude response');
+      expect(result.fallbackProvider).toBe('claude');
+    });
+
+    test('default chain for ollama is gemini then claude', () => {
+      const { resolveFallbackChain } = require('../lib/llm-runner');
+      expect(resolveFallbackChain('ollama', {})).toEqual(['gemini', 'claude']);
+    });
+
+    test('default chain for claude is unchanged (gemini only)', () => {
+      const { resolveFallbackChain } = require('../lib/llm-runner');
+      expect(resolveFallbackChain('claude', {})).toEqual(['gemini']);
+    });
+
+    test('LLM_FALLBACK_PROVIDER accepts a comma-separated chain', () => {
+      process.env.LLM_FALLBACK_PROVIDER = 'gemini, claude';
+      const { resolveFallbackChain } = require('../lib/llm-runner');
+      expect(resolveFallbackChain('ollama', {})).toEqual(['gemini', 'claude']);
+    });
+
+    test('an unknown provider is a config defect and never triggers fallback', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+
+      const { runWithFallback } = require('../lib/llm-runner');
+
+      await expect(runWithFallback('p', { provider: 'not-a-provider' })).rejects.toThrow(
+        'Unknown LLM provider: not-a-provider'
+      );
+    });
+
+    test('does not fall back when fallback is disabled', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      const connErr = new TypeError('fetch failed');
+      connErr.cause = { code: 'ECONNREFUSED' };
+      global.fetch = jest.fn().mockRejectedValue(connErr);
+
+      const { runWithFallback } = require('../lib/llm-runner');
+
+      await expect(
+        runWithFallback('p', { provider: 'ollama', enableFallback: false })
+      ).rejects.toThrow('Ollama connection failed');
+    });
+
+    test('reports the whole chain failing with the primary reason named', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      setupMockSpawn({ exitCode: 1, stderr: 'claude is broken too' });
+      const connErr = new TypeError('fetch failed');
+      connErr.cause = { code: 'ECONNREFUSED' };
+      global.fetch = jest.fn((url) => {
+        if (String(url).includes('/api/chat')) return Promise.reject(connErr);
+        return Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('gemini down') });
+      });
+
+      const { runWithFallback } = require('../lib/llm-runner');
+
+      try {
+        await runWithFallback('p', { provider: 'ollama' });
+        throw new Error('Should have thrown');
+      } catch (err) {
+        expect(err.message).toContain('Primary (ollama) failed (connection_refused)');
+        expect(err.message).toContain('fallback (claude) failed');
+        expect(err.fallbackReason).toBe('connection_refused');
+        expect(err.primaryError).toBeDefined();
+        expect(err.fallbackError).toBeDefined();
+      }
+    });
+  });
+
+  // LOGIC CHANGE 2026-09-11: Every call must leave a verdict, fallback or not.
+  describe('verdict recording', () => {
+    test('a successful call with no fallback records fallback_reason null', async () => {
+      setupMockSpawn({ stdout: 'ok' });
+
+      const { runLLM } = require('../lib/llm-runner');
+      await runLLM('p', { provider: 'claude', agentId: 'bridge' });
+
+      const { getStats } = require('../lib/llm-metrics');
+      const stats = getStats({ agentId: 'bridge', days: 1 });
+      expect(stats.calls).toBe(1);
+      expect(stats.fallbacks).toBe(0);
+      expect(stats.fallbackRate).toBe(0);
+      expect(stats.used.claude).toBe(1);
+    });
+
+    test('runWithFallback records exactly one verdict per logical call', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      process.env.OLLAMA_MODEL = 'local-model';
+      const connErr = new TypeError('fetch failed');
+      connErr.cause = { code: 'ECONNREFUSED' };
+      global.fetch = jest.fn((url) => {
+        if (String(url).includes('/api/chat')) return Promise.reject(connErr);
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ candidates: [{ content: { parts: [{ text: 'g' }] } }] }),
+        });
+      });
+
+      const { runWithFallback } = require('../lib/llm-runner');
+      await runWithFallback('p', { provider: 'ollama', agentId: 'solo' });
+
+      const { getStats } = require('../lib/llm-metrics');
+      const stats = getStats({ agentId: 'solo', days: 1 });
+      // Two provider attempts, ONE verdict.
+      expect(stats.calls).toBe(1);
+
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.OLLAMA_MODEL;
+    });
+
+    test('a failed call records ok=false and the reason', async () => {
+      process.env.OLLAMA_MODEL = 'local-model';
+      const connErr = new TypeError('fetch failed');
+      connErr.cause = { code: 'ECONNREFUSED' };
+      global.fetch = jest.fn().mockRejectedValue(connErr);
+
+      const { runLLM } = require('../lib/llm-runner');
+      await expect(runLLM('p', { provider: 'ollama', agentId: 'doomed' })).rejects.toThrow();
+
+      const { getStats } = require('../lib/llm-metrics');
+      const stats = getStats({ agentId: 'doomed', days: 1 });
+      expect(stats.calls).toBe(1);
+      expect(stats.failures).toBe(1);
+      expect(stats.reasons.connection_refused).toBe(1);
+
+      delete process.env.OLLAMA_MODEL;
     });
   });
 
