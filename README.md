@@ -8,7 +8,7 @@ A Slack bot that executes coding tasks via Claude Code CLI—post a task, get a 
 - Clones GitHub repos, runs Claude Code CLI with your instructions
 - Commits and pushes changes automatically
 - Supports conversational mode for quick questions (ASK prefix)
-- Self-updates from git (the restart step is currently manual — see Auto-Update)
+- Self-updates from git — pulls, verifies, then exits so the container supervisor restarts it
 
 ## Architecture
 
@@ -31,7 +31,7 @@ A Slack bot that executes coding tasks via Claude Code CLI—post a task, get a 
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐ │
 │  │ Task Parser  │  │ Memory Mgr   │  │ Auto-Updater             │ │
 │  │ - validates  │  │ - history    │  │ - git pull               │ │
-│  │ - extracts   │  │ - context    │  │ - restart (manual)       │ │
+│  │ - extracts   │  │ - context    │  │ - verify, then exit(0)   │ │
 │  └──────┬───────┘  └──────────────┘  └──────────────────────────┘ │
 │         │                                                          │
 │         ▼                                                          │
@@ -164,19 +164,37 @@ resource fencing for a local Ollama server.
 |----------|---------|-------------|
 | `LOCAL_REPO_DIR` | `/home/jtpets/jt-agent` | Path to the agent's own repo (stale default — set explicitly) |
 | `CHECK_INTERVAL_MS` | `300000` | Git poll interval (5 min) |
-| `PM2_PROCESS_NAME` | `bridge-agent` | PM2 process name to restart |
 
 ## Auto-Update
 
-The agent runs a background process that polls its own git repo every 5 minutes. When
-new commits are detected on main, it pulls the changes and then runs
-`pm2 restart $PM2_PROCESS_NAME`.
+The agent polls its own git repo every 5 minutes. When new commits land on `main` it
+pulls them, verifies them, and then **exits with code 0**. The `jt-agent` container runs
+with `restart: unless-stopped`, so the supervisor re-runs
+`npm install && node bridge-agent.js` — exiting *is* the restart. There is no process
+manager inside the container and no env var configures this.
 
-> **The restart step does not currently work.** The bridge runs in a container with no
-> `pm2` binary, so that spawn fails with `ENOENT`. Auto-update posts the failure to
-> `#sqtools-ops` and returns *before* saving the new commit hash, so it re-pulls and
-> re-fails every check interval. The pull succeeds; restarting is a manual step until a
-> container-aware restart mechanism is chosen.
+It tracks `main` deliberately: this is a single-operator repo, and a deploy branch that
+has to be moved by hand would only go stale. **So merging to `main` deploys within
+`CHECK_INTERVAL_MS`**, and the verification below is what stands between a bad merge and
+a container that restarts into failure forever with no shell to fix it from.
+
+Four guards gate the exit:
+
+| Guard | What it prevents |
+|-------|------------------|
+| **Verify before exiting** — `node --check` on every entry point, plus `npm install` exiting 0 | Exiting into code that cannot start. On failure it reverts to the commit that was running, posts to `#sqtools-ops`, and stays up on working code |
+| **Save state before exiting** | The pm2 bug: state written after the restart point never gets written, so the same commit is pulled again every cycle |
+| **Never exit twice for the same commit** | A restart loop if a commit somehow comes back around |
+| **Post to Slack before exiting** | A silent restart — there is no "after" an exit |
+
+A commit that fails verification is recorded and not retried; the next commit on `main`
+deploys normally, so pushing a fix is all that is needed.
+
+> **Known limit:** `node --check` is a *syntax* check. A commit that deletes a required
+> file or adds a dependency missing from `package.json` parses clean and would still
+> bring the bridge down. Closing that gap needs a real load/smoke gate;
+> `npm run test:smoke` is the designated one but does not currently exit on its own
+> (jest holds an open handle), so it is not wired in yet.
 
 ## Memory
 
@@ -200,13 +218,14 @@ npm start
 ```
 slack-agent-bridge/
 ├── bridge-agent.js       # Main entry point
-├── auto-update.js        # Git polling and restart (restart step is PM2-only; see Auto-Update)
+├── auto-update.js        # Git polling, verification, and exit-based self-restart
 ├── morning-digest.js     # Daily stats (cron job)
 ├── lib/
 │   ├── config.js         # Environment config
 │   ├── llm-runner.js     # Provider adapters (claude, gemini, ollama) + fallback chain
 │   ├── llm-metrics.js    # Provider verdict counter (fallback visibility)
 │   ├── task-parser.js    # Message parsing
+│   ├── update-verifier.js # Pre-restart gate for auto-update (node --check, restart plan)
 │   └── validate.js       # Pre-commit checks
 ├── memory/
 │   └── memory-manager.js # Task history storage
