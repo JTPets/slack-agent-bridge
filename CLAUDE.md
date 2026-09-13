@@ -152,7 +152,8 @@ const POLL_INTERVAL = 5000;
 |----------|-------------|---------|
 | `ALLOWED_USER_IDS` | Comma-separated Slack user IDs allowed to submit tasks | `U02QKNHHU7J` |
 | `BOT_USER_ID` | Slack user ID of the bot itself; allows bot to post scheduled tasks in agent channels | `U0AP5PLQB44` |
-| `LLM_PROVIDER` | Which LLM backend to use | `claude` |
+| `LLM_PROVIDER` | Which LLM backend to use (global default) | `claude` |
+| `LLM_PROVIDER_<AGENTID>` | Per-agent provider override; wins over the agent's `agents.json` `llm_provider`. `<AGENTID>` is the agent id upper-cased with non-alphanumerics as `_` (e.g. `code-bridge` → `LLM_PROVIDER_CODE_BRIDGE`). Lives in `.env`, so it survives auto-update's `git reset --hard`. | - |
 | `GITHUB_ORG` | Default GitHub org | `jtpets` |
 | `CLAUDE_BIN` | Path to claude binary | `/usr/local/bin/claude` |
 | `POLL_INTERVAL_MS` | Poll frequency in ms | `30000` |
@@ -183,6 +184,8 @@ const POLL_INTERVAL = 5000;
 | `LLM_METRICS_RETENTION_DAYS` | Days of verdict history to keep | `30` |
 
 **LLM_PROVIDER options:** `claude` (default), `gemini`, `ollama`, `openai` (not yet implemented)
+
+**Per-agent provider precedence:** `LLM_PROVIDER_<AGENTID>` env > the agent's `agents.json` `llm_provider` > global `LLM_PROVIDER` env > `claude`. Resolved by `resolveLlmProvider()` in `lib/config.js`. Because `agents.json` is tracked and auto-update runs `git reset --hard HEAD` before each pull, on-box edits to it are silently discarded — set the per-agent env var in `.env` (gitignored) instead so the override survives a pull.
 
 **LLM Fallback:** When `LLM_FALLBACK_ENABLED=true` (default), a provider failure automatically retries on the next provider in the chain. `LLM_FALLBACK_PROVIDER` accepts a single provider or a comma-separated chain; when unset, the chain defaults per primary — `ollama` -> `gemini` -> `claude`, everything else -> `gemini`. Gemini requires `GEMINI_API_KEY`; an unconfigured provider is skipped (with a logged reason) rather than attempted.
 

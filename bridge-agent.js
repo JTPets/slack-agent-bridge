@@ -72,7 +72,7 @@ const {
 // lib/config.js for centralized env var management.
 // LOGIC CHANGE 2026-03-26: Import isUserAuthorized from config for user
 // authorization checks in the poll loop.
-const { config, validate, isUserAuthorized } = require('./lib/config');
+const { config, validate, isUserAuthorized, resolveLlmProvider } = require('./lib/config');
 
 // LOGIC CHANGE 2026-03-26: Added owner-tasks module for tracking activation
 // checklists and owner action items across all agents.
@@ -550,7 +550,9 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
 
   // LOGIC CHANGE 2026-04-01: Determine LLM provider early so it's available in catch block
   // for error notifications. Falls back to env LLM_PROVIDER or 'claude'.
-  const llmProvider = agentConfig?.llm_provider || process.env.LLM_PROVIDER || 'claude';
+  // LOGIC CHANGE 2026-09-13: resolveLlmProvider adds a per-agent LLM_PROVIDER_<AGENTID>
+  // env override (highest precedence) so on-box provider config in .env survives a pull.
+  const llmProvider = resolveLlmProvider(agentConfig, agentConfig?.id || 'bridge');
 
   try {
     // LOGIC CHANGE 2026-03-27: Start heartbeat reactions (eyes -> cycling emojis).
@@ -710,7 +712,9 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
 
     // LOGIC CHANGE 2026-03-27: Pass agent's llm_provider to runLLM. Code agents
     // use claude, others use gemini. Falls back to env LLM_PROVIDER or 'claude'.
-    const llmProvider = agentConfig?.llm_provider;
+    // LOGIC CHANGE 2026-09-13: resolveLlmProvider layers a per-agent
+    // LLM_PROVIDER_<AGENTID> env override on top so on-box .env config survives a pull.
+    const llmProvider = resolveLlmProvider(agentConfig, agentConfig?.id || 'bridge');
 
     // LOGIC CHANGE 2026-09-13: Declare agentId in this scope. It was referenced in
     // the runLLM options below but never bound here, so evaluating that object
@@ -1543,7 +1547,9 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
       maxTurns,
       timeout: TASK_TIMEOUT,
       claudeBin: CLAUDE_BIN,
-      provider: currentAgent?.llm_provider,
+      // LOGIC CHANGE 2026-09-13: resolveLlmProvider honours the per-agent
+      // LLM_PROVIDER_<AGENTID> on-box override (see the task call site).
+      provider: resolveLlmProvider(currentAgent, agentId),
       model: currentAgent?.llm_model,
       agentId,
     });

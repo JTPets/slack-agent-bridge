@@ -452,4 +452,64 @@ describe('config module', () => {
       expect(isUserAuthorized(undefined, config.ALLOWED_USER_IDS)).toBe(false);
     });
   });
+
+  describe('resolveLlmProvider', () => {
+    beforeEach(() => {
+      delete process.env.LLM_PROVIDER;
+      delete process.env.LLM_PROVIDER_BRIDGE;
+      delete process.env.LLM_PROVIDER_CODE_BRIDGE;
+    });
+
+    test('per-agent env var wins over every other source', () => {
+      process.env.LLM_PROVIDER = 'gemini';
+      process.env.LLM_PROVIDER_CODE_BRIDGE = 'ollama';
+      const { resolveLlmProvider } = require('../lib/config');
+
+      expect(resolveLlmProvider({ id: 'code-bridge', llm_provider: 'claude' }))
+        .toBe('ollama');
+    });
+
+    test('normalizes hyphenated agent ids to underscored env keys', () => {
+      process.env.LLM_PROVIDER_CODE_BRIDGE = 'ollama';
+      const { resolveLlmProvider } = require('../lib/config');
+
+      expect(resolveLlmProvider({ id: 'code-bridge' })).toBe('ollama');
+    });
+
+    test('honours explicit agentId when registry record is null', () => {
+      process.env.LLM_PROVIDER_BRIDGE = 'gemini';
+      const { resolveLlmProvider } = require('../lib/config');
+
+      expect(resolveLlmProvider(null, 'bridge')).toBe('gemini');
+    });
+
+    test('falls back to registry llm_provider when no per-agent env', () => {
+      const { resolveLlmProvider } = require('../lib/config');
+
+      expect(resolveLlmProvider({ id: 'bridge', llm_provider: 'gemini' }))
+        .toBe('gemini');
+    });
+
+    test('falls back to global LLM_PROVIDER when registry has none', () => {
+      process.env.LLM_PROVIDER = 'gemini';
+      const { resolveLlmProvider } = require('../lib/config');
+
+      expect(resolveLlmProvider({ id: 'bridge' })).toBe('gemini');
+    });
+
+    test('defaults to claude when nothing is configured', () => {
+      const { resolveLlmProvider } = require('../lib/config');
+
+      expect(resolveLlmProvider(null)).toBe('claude');
+      expect(resolveLlmProvider({ id: 'bridge' })).toBe('claude');
+    });
+
+    test('ignores blank per-agent env and falls through', () => {
+      process.env.LLM_PROVIDER_BRIDGE = '   ';
+      const { resolveLlmProvider } = require('../lib/config');
+
+      expect(resolveLlmProvider({ id: 'bridge', llm_provider: 'gemini' }))
+        .toBe('gemini');
+    });
+  });
 });
