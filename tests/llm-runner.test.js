@@ -1667,6 +1667,86 @@ describe('llm-runner module', () => {
       expect(result.interrupted).toBe(true);
       expect(result.output).toBe('partial output');
     });
+
+    // LOGIC CHANGE 2026-09-13: Surface the spawned LLM process's stderr and the
+    // signal that killed it, so a failed task reports the cause instead of a bare
+    // "Exit code 143".
+    test('signal kill (code null, signal set) carries the signal and stderr through the interrupted result', async () => {
+      mockSpawn.mockImplementation(() => {
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        setImmediate(() => {
+          child.stderr.emit('data', 'FATAL: out of memory\n');
+          child.emit('close', null, 'SIGKILL');
+        });
+        return child;
+      });
+
+      const { runClaudeAdapter } = require('../lib/llm-runner');
+      const result = await runClaudeAdapter('prompt');
+      expect(result.interrupted).toBe(true);
+      expect(result.signal).toBe('SIGKILL');
+      expect(result.stderr).toContain('out of memory');
+    });
+
+    test('non-zero exit includes stderr and decodes a 128+N code to its signal name', async () => {
+      // 143 = 128 + 15 (SIGTERM): the shape a trapped-signal wrapper exits with.
+      setupMockSpawn({ exitCode: 143, stderr: 'terminated mid-task' });
+
+      const { runClaudeAdapter } = require('../lib/llm-runner');
+      try {
+        await runClaudeAdapter('prompt');
+        fail('Should have thrown');
+      } catch (err) {
+        expect(err.message).toContain('Exit code 143');
+        expect(err.message).toContain('SIGTERM');
+        expect(err.message).toContain('terminated mid-task');
+        expect(err.exitCode).toBe(143);
+        expect(err.signal).toBe('SIGTERM');
+        expect(err.stderr).toBe('terminated mid-task');
+      }
+    });
+
+    test('non-zero exit with empty stderr states "(no stderr output)" explicitly', async () => {
+      setupMockSpawn({ exitCode: 143, stderr: '' });
+
+      const { runClaudeAdapter } = require('../lib/llm-runner');
+      try {
+        await runClaudeAdapter('prompt');
+        fail('Should have thrown');
+      } catch (err) {
+        expect(err.message).toContain('Exit code 143');
+        expect(err.message).toContain('SIGTERM');
+        expect(err.message).toContain('(no stderr output)');
+      }
+    });
+  });
+
+  // LOGIC CHANGE 2026-09-13: Exit diagnostics helpers.
+  describe('describeClaudeExit / signalFromExitCode', () => {
+    test('signalFromExitCode decodes 128+N and rejects ordinary codes', () => {
+      const { signalFromExitCode } = require('../lib/llm-runner');
+      expect(signalFromExitCode(143)).toBe('SIGTERM');
+      expect(signalFromExitCode(137)).toBe('SIGKILL');
+      expect(signalFromExitCode(130)).toBe('SIGINT');
+      expect(signalFromExitCode(1)).toBeNull();
+      expect(signalFromExitCode(0)).toBeNull();
+      expect(signalFromExitCode(null)).toBeNull();
+    });
+
+    test('describeClaudeExit keeps the "Exit code N" prefix callers match on', () => {
+      const { describeClaudeExit } = require('../lib/llm-runner');
+      expect(describeClaudeExit(1, null, 'boom')).toContain('Exit code 1');
+      expect(describeClaudeExit(1, null, 'boom')).toContain('boom');
+    });
+
+    test('describeClaudeExit reports a direct signal kill when code is null', () => {
+      const { describeClaudeExit } = require('../lib/llm-runner');
+      const msg = describeClaudeExit(null, 'SIGTERM', '');
+      expect(msg).toContain('SIGTERM');
+      expect(msg).toContain('(no stderr output)');
+    });
   });
 
   // LOGIC CHANGE 2026-03-27: isBandwidthExhausted DISABLED (always returns false).
