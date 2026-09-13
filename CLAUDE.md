@@ -6,11 +6,20 @@ Node.js Slack polling agent that monitors Slack channels for task messages and e
 
 **Deployment (as of 2026-09-13):** runs as the `jt-agent` container (`node:20`) on a QNAP NAS. The Raspberry Pi that previously hosted it is dead. The compose file lives beside the repo on the NAS and is deliberately untracked (it carries host paths). Line endings are pinned to LF by `.gitattributes` — a Windows clone copied to Linux once made the entire tree uncommittable.
 
+**`package-lock.json` is committed (as of 2026-09-13).** It was gitignored, which meant every container start resolved semver ranges afresh: the deployed dependency tree was whatever npm picked that minute, and `.github/dependabot.yml`'s weekly npm PRs could only ever bump direct ranges in `package.json` — transitive dependencies, where most published advisories actually live, were unpinnable and invisible.
+
+> **ACTION REQUIRED on the NAS (not changeable from this repo):** the compose
+> `command:` should move from `npm install` to `npm ci`. `npm install` is free to
+> re-resolve and rewrite the lockfile, so committing it buys nothing at deploy time
+> until the command honours it. `npm ci` installs the locked tree exactly and fails
+> loudly if `package.json` and the lockfile disagree. Until that edit is made, the
+> lockfile pins CI and local installs but not production.
+
 ## Tech Stack
 
 - **Runtime**: Node.js 18+
 - **Slack SDK**: @slack/web-api ^7.0.0
-- **Process Manager**: PM2
+- **Process supervisor**: the container runtime (`restart: unless-stopped`). There is no PM2 and no process manager inside the `jt-agent` image.
 - **Timezone**: America/Toronto
 
 ---
@@ -108,7 +117,7 @@ const POLL_INTERVAL = 5000;
 | Dependencies | `npm install --save` only — never manually edit package.json |
 | Env vars | Document in README if adding new ones |
 | Refactor validation | Before committing any refactor that moves variables or changes imports, run: `node -e "require('./bridge-agent.js')"` to verify the process loads. This catches missing references that unit tests miss. |
-| dotenv required | Every executable JS file (bridge-agent.js, auto-update.js, cron scripts) MUST have `require('dotenv').config()` as its first line. PM2 does not inherit shell environment variables on restart. |
+| dotenv required | Every executable JS file (bridge-agent.js, auto-update.js, cron scripts) MUST have `require('dotenv').config()` as its first line. A restarted process does not inherit shell environment variables — originally a PM2 problem, now a container-restart one. |
 
 ### Anti-Duplication
 • BEFORE creating any file or function, check if it already exists (find/grep first)
@@ -288,14 +297,39 @@ Tune `MemoryMax` to the model actually pulled — it must be below `(total RAM -
 |----------|-------------|---------|
 | `LOCAL_REPO_DIR` | Path to local repo, as seen by the auto-update process | `/home/jtpets/jt-agent` (stale Pi default — set explicitly) |
 | `CHECK_INTERVAL_MS` | Git poll frequency | `300000` |
-| `PM2_PROCESS_NAME` | PM2 process to restart | `bridge-agent` |
 
-> **PM2 is not installed in the `jt-agent` container.** `auto-update.js` still runs
-> `pm2 restart $PM2_PROCESS_NAME` after a successful pull. With no `pm2` on PATH the
-> spawn fails with `ENOENT`, auto-update posts the failure to `#sqtools-ops` and
-> returns **before** saving the new commit hash — so it re-pulls and re-fails on every
-> check interval. This is a live failure, not a no-op. Restarting after an update is a
-> manual step until a container-aware restart mechanism is chosen.
+### Self-update (how the bridge deploys itself)
+
+**There is no `PM2_PROCESS_NAME`.** `auto-update.js` used to run
+`pm2 restart $PM2_PROCESS_NAME` after a successful pull. The `jt-agent` container has no
+`pm2` on PATH, so that spawn failed with `ENOENT` on every update and returned **before**
+saving the new commit hash — re-pulling and re-failing every check interval, permanently.
+
+The restart is now **`process.exit(0)`**. The container runs with
+`restart: unless-stopped`, so the supervisor re-runs `npm install && node bridge-agent.js`
+— exiting *is* the restart. Nothing configures this; there is no branch knob either.
+auto-update tracks `main` deliberately (single-operator repo; a hand-moved deploy branch
+would just go stale), which means **merging to `main` deploys within `CHECK_INTERVAL_MS`.**
+
+Self-updating is the point of a code agent, but `unless-stopped` turns a commit that
+cannot start into an endless restart loop with no shell to fix it from. Four guards gate
+the exit — see `lib/update-verifier.js` and `checkForUpdates()` in `auto-update.js`:
+
+| Guard | Implementation | Prevents |
+|-------|----------------|----------|
+| (a) Verify before exiting | `node --check` on every entry point + `npm install` exits 0. On failure: revert to the commit that was running, post to `#sqtools-ops`, keep running | Exiting into code that cannot start |
+| (b) Save state before exiting | `lastKnownCommit` written and the write confirmed before `exit()` | The pm2 bug — state written after the restart point is never written, so the commit re-pulls forever |
+| (c) Never re-exit for the same commit | `restartedIntoCommit` persisted; `planRestart()` refuses a repeat | A restart loop on a commit that comes back around |
+| (d) Post before exiting | Slack post awaited, stdout flushed, then exit | A silent restart — there is no "after" an exit |
+
+A commit that fails (a) is recorded in `failedCommit` and not retried; the next commit on
+`main` deploys normally. Exit code is `0` — a clean intentional restart, not a crash.
+
+> **Known limit, stated rather than papered over:** `node --check` is a *syntax* check. A
+> commit that deletes a required file or adds a dependency missing from `package.json`
+> parses clean and would still bring the bridge down. `npm run test:smoke` is the repo's
+> designated pre-deploy gate and would close that gap, but jest currently does not exit on
+> its own (an open handle keeps it alive), so it cannot be wired in yet.
 
 ### httpSMS integration (Primary SMS)
 | Variable | Description | Default |
@@ -343,10 +377,8 @@ docker compose up -d jt-agent
 docker compose restart jt-agent
 docker compose logs -f jt-agent
 
-# The PM2 commands below are HISTORICAL - PM2 does not exist on this host.
-# They are kept only so the auto-update note above makes sense in context.
-#   pm2 start bridge-agent.js --name slack-bridge
-#   pm2 restart slack-bridge
+# PM2 does not exist on this host and no longer appears anywhere in the code.
+# The bridge restarts itself by exiting; the container supervisor does the rest.
 
 # Cron jobs. <repo> is the repo path as the cron host sees it; on the NAS the
 # host path is /share/CACHEDEV1_DATA/jt-agent, and the in-container path differs.
@@ -403,7 +435,7 @@ async function handleTask(channel, message) {
 ```
 slack-agent-bridge/
 ├── bridge-agent.js       # Main entry point: Slack polling, task execution via Claude CLI
-├── auto-update.js        # Git polling daemon: pulls updates and restarts PM2 on changes
+├── auto-update.js        # Git polling daemon: pulls, verifies, then exits so the container supervisor restarts the bridge
 ├── morning-digest.js     # Cron job script: sends daily task stats DM to owner
 ├── security-review.js    # Cron job script: security audit of commits from last 24h
 ├── scripts/
@@ -456,6 +488,7 @@ slack-agent-bridge/
 │   ├── task-decomposer.js # Automated task decomposition: analyzeComplexity, decomposeTask, findAgentForTask, subtask management
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update
+│   ├── update-verifier.js # Pre-restart gate for auto-update: node --check on entry points, restart plan (guard c)
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
 │   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow
 │   ├── email-rate-limiter.js # Rate limiting for email-to-Slack pipeline: sliding window, cooldown, flood protection
@@ -515,6 +548,8 @@ slack-agent-bridge/
 │   ├── task-decomposer.test.js  # Tests for lib/task-decomposer.js (complexity analysis, decomposition, agent routing)
 │   ├── security-followup.test.js # Tests for lib/security-followup.js (finding parsing, task generation)
 │   ├── approval-queue.test.js   # Tests for lib/approval-queue.js (queueing, approval/rejection, commands)
+│   ├── update-verifier.test.js      # Tests for lib/update-verifier.js (entry-point syntax gate, planRestart)
+│   ├── auto-update-restart.test.js  # Tests for the exit-based self-update: one per guard (a)-(d)
 │   ├── bridge-agent-scope.test.js   # AST scope guard: catches `X is not defined` in bridge-agent.js
 │   └── silent-drop-logging.test.js  # Tests for describeSkipReason + the poll loop's skip logging
 ├── docs/
@@ -629,7 +664,7 @@ When a task has a REPO field, `bridge-agent.js` runs a 3-phase pipeline via `lib
 - Checked before processing any TASK: or ASK: message
 - Written after processing (success or fail)
 - Entries older than 7 days cleaned up on startup
-- Prevents re-processing old messages after PM2 restarts
+- Prevents re-processing old messages after container restarts
 
 ### Channel Auto-Join
 
@@ -653,11 +688,11 @@ and `auto-update.js` to prevent task interruption during updates.
 - `running`: Task is currently being executed
 - `completed`: Task finished successfully
 - `failed`: Task failed with an error
-- `interrupted`: Task was interrupted by PM2 restart
+- `interrupted`: Task was interrupted by a restart
 
 **Coordination flow:**
 1. When a TASK: message is found, it's enqueued before processing
-2. Auto-update checks both the queue and lock file before restarting PM2
+2. Auto-update checks both the queue and lock file before restarting
 3. If tasks are active, auto-update waits up to 5 minutes (30s intervals, 10 attempts)
 4. On startup, any tasks with status "running" are marked as "interrupted"
 5. Completed/failed tasks are cleaned up after 24 hours

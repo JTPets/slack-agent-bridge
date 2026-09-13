@@ -12,7 +12,27 @@ data/delivery-quotes.json
 
 # Memory data files (local only)
 memory/*.json
-package-lock.json
+
+# Agent tiered memory (agents/<id>/memory/). INVERSE rule by design.
+#
+# The old `memory/*.json` line above is root-anchored and never covered these -
+# they were untracked only because nobody ran `git add`. An explicit allowlist of
+# the tier filenames we know today (working/short-term/long-term/archive/.migrated)
+# would FAIL OPEN: lib/memory-tiers.js exports both a generic writer
+# (saveMemoryFile) and a path builder (getAgentMemoryPath), and the agent id is
+# whatever agents.json says, so any new tier or any new caller lands a live
+# runtime file in git silently. The owner's rule is "no live runtime memory
+# reaches the repo, EVER", so the default is ignore-everything and the SEEDED
+# files are re-included by name. A new tier file is ignored without anyone
+# remembering to add a rule.
+#
+# Re-included below: the seeded config agents read on boot. Untracking these
+# would delete seed data, so they stay tracked deliberately.
+agents/*/memory/*
+!agents/*/memory/.gitkeep
+!agents/*/memory/context.json
+!agents/*/memory/backlog.json
+!agents/*/memory/rules.json
 
 # LLM provider verdict counter (local runtime state)
 agents/shared/llm-metrics.json
