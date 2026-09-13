@@ -77,6 +77,10 @@ function makeDeps(overrides = {}) {
             calls.push('verifyEntryPoints');
             return { ok: true, checked: ['bridge-agent.js'], missing: [], failures: [] };
         }),
+        runSmokeTest: jest.fn(() => {
+            calls.push('runSmokeTest');
+            return { ok: true };
+        }),
         planRestart: jest.fn(({ newHead, restartedIntoCommit }) => {
             calls.push('planRestart');
             if (restartedIntoCommit && restartedIntoCommit === newHead) {
@@ -295,6 +299,80 @@ describe('guard (a): verify before exiting', () => {
         expect(deps.savedStates[0].failedCommit).toBe(NEW_HEAD);
         // lastKnownCommit must NOT advance to a commit that never ran.
         expect(deps.savedStates[0].lastKnownCommit).toBe(PREV_HEAD);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// GUARD (a) part 3: the smoke test is a real load check, not just a parse
+// ---------------------------------------------------------------------------
+
+describe('guard (a) part 3: smoke test gates the restart', () => {
+    test('a commit whose smoke test fails does NOT exit and is reverted', async () => {
+        // The whole reason this guard exists: node --check passes on a commit that
+        // deletes a required file or adds a missing dependency. The smoke test is
+        // what actually require()s the modules and catches it.
+        const deps = makeDeps({
+            runSmokeTest: jest.fn(() => ({ ok: false, error: "Cannot find module '../lib/gone'" })),
+        });
+
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.exit).not.toHaveBeenCalled();
+        expect(deps.gitResetTo).toHaveBeenCalledWith(PREV_HEAD);
+        expect(deps.posts[0]).toMatch(/smoke test failed/i);
+        expect(deps.posts[0]).toMatch(/Cannot find module/);
+    });
+
+    test('a smoke test that TIMES OUT is a failure, not a pass', async () => {
+        // A wedged test must revert, never restart and never hang the loop.
+        const deps = makeDeps({
+            runSmokeTest: jest.fn(() => ({ ok: false, timedOut: true, error: 'smoke test did not finish within 120000ms - treated as failure' })),
+        });
+
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.exit).not.toHaveBeenCalled();
+        expect(deps.gitResetTo).toHaveBeenCalledWith(PREV_HEAD);
+        expect(deps.posts[0]).toMatch(/smoke test timed out/i);
+    });
+
+    test('the failed commit is recorded so a red smoke test is not retried every interval', async () => {
+        const deps = makeDeps({
+            runSmokeTest: jest.fn(() => ({ ok: false, error: 'boom' })),
+        });
+
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.savedStates[0].failedCommit).toBe(NEW_HEAD);
+        expect(deps.savedStates[0].lastKnownCommit).toBe(PREV_HEAD);
+    });
+
+    test('smoke test runs AFTER npm install (it needs node_modules) and BEFORE the exit', async () => {
+        const deps = makeDeps();
+
+        await autoUpdate.checkForUpdates(deps);
+
+        const npmIdx = deps.calls.indexOf('npmInstall');
+        const smokeIdx = deps.calls.indexOf('runSmokeTest');
+        const exitIdx = deps.calls.indexOf('exit');
+        expect(npmIdx).toBeGreaterThan(-1);
+        expect(smokeIdx).toBeGreaterThan(npmIdx);
+        expect(exitIdx).toBeGreaterThan(smokeIdx);
+    });
+
+    // MUTATION TRIPWIRE: if someone deletes the `if (!smokeResult.ok)` block, the
+    // "does NOT exit" test above would go green on a red smoke result. This asserts
+    // the gate is consulted at all on the happy path, so removing it turns red.
+    test('the smoke gate is actually invoked on the happy path', async () => {
+        const deps = makeDeps();
+
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.runSmokeTest).toHaveBeenCalledTimes(1);
+        expect(deps.runSmokeTest).toHaveBeenCalledWith(
+            expect.objectContaining({ repoDir: expect.any(String) })
+        );
+        expect(deps.exit).toHaveBeenCalledTimes(1);
     });
 });
 

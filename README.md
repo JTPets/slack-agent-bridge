@@ -182,7 +182,7 @@ Four guards gate the exit:
 
 | Guard | What it prevents |
 |-------|------------------|
-| **Verify before exiting** — `node --check` on every entry point, plus `npm install` exiting 0 | Exiting into code that cannot start. On failure it reverts to the commit that was running, posts to `#sqtools-ops`, and stays up on working code |
+| **Verify before exiting** — `node --check` on every entry point, `npm install` exiting 0, then `npm run test:smoke` passing | Exiting into code that cannot start. On failure it reverts to the commit that was running, posts to `#sqtools-ops`, and stays up on working code |
 | **Save state before exiting** | The pm2 bug: state written after the restart point never gets written, so the same commit is pulled again every cycle |
 | **Never exit twice for the same commit** | A restart loop if a commit somehow comes back around |
 | **Post to Slack before exiting** | A silent restart — there is no "after" an exit |
@@ -190,11 +190,12 @@ Four guards gate the exit:
 A commit that fails verification is recorded and not retried; the next commit on `main`
 deploys normally, so pushing a fix is all that is needed.
 
-> **Known limit:** `node --check` is a *syntax* check. A commit that deletes a required
-> file or adds a dependency missing from `package.json` parses clean and would still
-> bring the bridge down. Closing that gap needs a real load/smoke gate;
-> `npm run test:smoke` is the designated one but does not currently exit on its own
-> (jest holds an open handle), so it is not wired in yet.
+> **Load gate (closes the old syntax-only gap):** `node --check` is only a *syntax* check —
+> a commit that deletes a required file or adds a dependency missing from `package.json`
+> parses clean. So after `npm install`, verification also runs `npm run test:smoke`, which
+> `require()`s every entry point and lib module and catches exactly those breakages before
+> the exit. It is bounded (`SMOKE_TEST_TIMEOUT_MS`, well under `CHECK_INTERVAL_MS`): a
+> wedged or failing smoke run reverts rather than restarting or hanging the update loop.
 
 ## Memory
 

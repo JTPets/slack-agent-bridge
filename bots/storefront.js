@@ -108,8 +108,16 @@ function cleanExpiredSessions() {
     }
 }
 
-// Run session cleanup every 5 minutes
-setInterval(cleanExpiredSessions, 5 * 60 * 1000);
+// Run session cleanup every 5 minutes.
+// .unref() so this module-scope timer does not pin the Node event loop open.
+// Without it, `require('bots/storefront')` keeps the process alive forever:
+// tests/smoke.test.js require()s this module and jest hung after the suite passed
+// ("Jest did not exit one second after the test run has completed"), which blocked
+// wiring `npm run test:smoke` into the self-update gate. .unref() lets the process
+// exit when this timer is the only thing left, while a real server stays alive on
+// its HTTP listener and the cleanup keeps running. See WORK-TODO.md item 1.
+const sessionCleanupTimer = setInterval(cleanExpiredSessions, 5 * 60 * 1000);
+sessionCleanupTimer.unref();
 
 /**
  * Get or create a session.
