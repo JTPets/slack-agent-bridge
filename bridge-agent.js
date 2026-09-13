@@ -156,6 +156,11 @@ const agentContext = require('./lib/agent-context');
 // instead of executing immediately. This prevents prompt injection attacks.
 const approvalQueue = require('./lib/approval-queue');
 
+// LOGIC CHANGE 2026-09-13: Redact secrets from any text before it reaches Slack
+// or the logs. Guards the stderr-surfacing path (a child process's stderr could
+// echo live tokens) and every #sqtools-ops post via postToOps().
+const { redact } = require('./lib/redact-secrets');
+
 // ---- Config ----
 
 // Validate required config
@@ -438,7 +443,9 @@ async function postToOps(text) {
   try {
     await slack.chat.postMessage({
       channel: OPS_CHANNEL,
-      text,
+      // LOGIC CHANGE 2026-09-13: Redact secrets at the choke point so no ops
+      // post can leak a live token, regardless of how the caller built `text`.
+      text: redact(text),
       unfurl_links: false,
     });
   } catch (err) {
@@ -797,9 +804,14 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
     // Do not count as failure, do not trigger rate limit. Just log and return.
     if (interrupted) {
       const signalNote = signal ? ` (${signal})` : '';
-      const stderrNote = llmStderr ? `\n\`\`\`\n${llmStderr.slice(-1000)}\n\`\`\`` : '';
-      console.log(`[bridge-agent] Task interrupted${signalNote} - likely container restart${llmStderr ? `; stderr: ${llmStderr.slice(-500)}` : ''}`);
+      // LOGIC CHANGE 2026-09-13: Redact stderr before it reaches the logs. The
+      // Slack post is additionally scrubbed in postToOps, but console.log is a
+      // separate sink that log aggregation ships off-box, so scrub here too.
+      const safeStderr = llmStderr ? redact(llmStderr) : '';
+      const stderrNote = safeStderr ? `\n\`\`\`\n${safeStderr.slice(-1000)}\n\`\`\`` : '';
+      console.log(`[bridge-agent] Task interrupted${signalNote} - likely container restart${safeStderr ? `; stderr: ${safeStderr.slice(-500)}` : ''}`);
       await postToOps(`:warning: Task interrupted${signalNote} (likely container restart) after ${elapsed}s.${stderrNote}\nSource: <${msgLink(msg.ts, sourceChannel)}|source>`);
+      // stderrNote is built from safeStderr (already redacted); postToOps redacts again defensively.
       taskSuccess = true; // Don't mark as failure
       if (memoryTaskId) {
         try {

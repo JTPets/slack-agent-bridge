@@ -58,3 +58,6 @@ models/
 # auto-update.js writes this next to the repo. Sibling of .bridge-agent-state.json,
 # which was already ignored; this one was not.
 .auto-update-state.json
+.npm-global/
+*.bak*
+.deploy_key*
