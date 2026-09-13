@@ -783,14 +783,19 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
     }
 
     // LOGIC CHANGE 2026-04-01: Extract provider from result for LLM engine visibility.
-    const { output, hitMaxTurns, interrupted, provider: usedProvider } = result;
+    // LOGIC CHANGE 2026-09-13: Also pull signal/stderr the adapter now carries so
+    // an interruption reports which signal killed it and any last stderr, not a
+    // bare "exit code null".
+    const { output, hitMaxTurns, interrupted, provider: usedProvider, signal, stderr: llmStderr } = result;
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
 
-    // LOGIC CHANGE 2026-03-27: Handle interrupted tasks (exit code null, e.g., PM2 restart).
+    // LOGIC CHANGE 2026-03-27: Handle interrupted tasks (exit code null, e.g., container restart).
     // Do not count as failure, do not trigger rate limit. Just log and return.
     if (interrupted) {
-      console.log(`[bridge-agent] Task interrupted (exit code null) - likely PM2 restart`);
-      await postToOps(`:warning: Task interrupted (likely PM2 restart) after ${elapsed}s.\nSource: <${msgLink(msg.ts, sourceChannel)}|source>`);
+      const signalNote = signal ? ` (${signal})` : '';
+      const stderrNote = llmStderr ? `\n\`\`\`\n${llmStderr.slice(-1000)}\n\`\`\`` : '';
+      console.log(`[bridge-agent] Task interrupted${signalNote} - likely container restart${llmStderr ? `; stderr: ${llmStderr.slice(-500)}` : ''}`);
+      await postToOps(`:warning: Task interrupted${signalNote} (likely container restart) after ${elapsed}s.${stderrNote}\nSource: <${msgLink(msg.ts, sourceChannel)}|source>`);
       taskSuccess = true; // Don't mark as failure
       if (memoryTaskId) {
         try {
