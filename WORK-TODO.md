@@ -24,47 +24,29 @@ have / uncertain ROI
 
 ## P1 — Protects or unblocks the live deployment
 
-### 1. Make the deploy gate a real load check, not just a syntax check — blocked by the jest hang
-**Problem:** The bridge deploys itself by exiting; the container's `restart: unless-stopped`
-policy re-runs `npm install && node bridge-agent.js` (`auto-update.js:8-13`). The only
-thing standing between a bad merge to `main` and a container that restarts into failure
-forever — with no shell to fix it from — is guard (a) in `auto-update.js:498`, which is
-`node --check` on the entry points. `node --check` is a *syntax parse*. A commit that
-deletes a required file or adds a dependency missing from `package.json` parses clean
-and still bricks the bridge. The repo already knows this (`lib/update-verifier.js:23-28`,
-`README.md:193-197`, `CLAUDE.md:328-332`).
+### 1. ~~Make the deploy gate a real load check, not just a syntax check~~ — DONE 2026-09-13
+**Was:** The bridge deploys itself by exiting; the container's `restart: unless-stopped`
+policy re-runs `npm install && node bridge-agent.js` (`auto-update.js:8-13`). Guard (a)
+was `node --check` only — a *syntax parse*. A commit that deletes a required file or adds
+a dependency missing from `package.json` parses clean and still bricks the bridge. The
+designated closer, `npm run test:smoke`, could not be wired in because jest never exited:
+a module-scope `setInterval(cleanExpiredSessions, …)` at `bots/storefront.js:112` was
+never `.unref()`'d, so `require`-ing storefront (which `tests/smoke.test.js` does) pinned
+the event loop open.
 
-The designated closer is `npm run test:smoke`, but jest does not exit on its own, so it
-cannot be wired into the gate.
-
-**Root cause of the hang (verified, not guessed):** the suite passes, then jest hangs on
-a single open handle — a module-scope `setInterval(cleanExpiredSessions, 5 * 60 * 1000)`
-at `bots/storefront.js:112` that is never `.unref()`'d or cleared. `tests/smoke.test.js`
-`require`s storefront, the timer arms, and the event loop never drains.
-Regenerate: `npx jest tests/smoke.test.js --detectOpenHandles` → names `bots/storefront.js:112`.
-Reproduce the hang: `npx jest tests/smoke.test.js` passes 25 tests in ~2.6s then prints
-"Jest did not exit one second after the test run has completed" and hangs. Confirm the
-handle is the cause: the same command with `--forceExit` exits cleanly.
-
-**Fix (two parts, in order):**
-- **1a — unblock the test runner.** `.unref()` the storefront cleanup interval (or arm it
-  only under `require.main === module`) so requiring the module does not pin the loop.
-  Audit siblings for the same shape: `grep -n setInterval bridge-agent.js auto-update.js bots/storefront.js lib/*.js`
-  — the other three (`bridge-agent.js:1985`, `auto-update.js:684`, `lib/heartbeat.js:72`)
-  are behind entry-point / start guards; storefront's is not. `--forceExit` in the
-  `test`/`test:smoke` scripts is an acceptable *stopgap* but masks handles rather than
-  proving they are gone, so do 1a regardless.
-- **1b — wire it into the gate.** Once `test:smoke` exits on its own, add it to
-  `verifyEntryPoints`/`checkForUpdates` as guard (a) part 3, after `node --check` and
-  `npm install`, before the exit. Keep the `SYNTAX_CHECK_TIMEOUT_MS` discipline: a
-  bounded timeout so a wedged test can never hang the update loop.
-
-**Blocks:** 1b is blocked by 1a. Nothing else is blocked by this, but this is the single
-highest-blast-radius gap in the system — it is what turns a bad merge into an
-unrecoverable container.
-**Effort:** 1a Low. 1b Low–Medium (the gate plumbing already exists).
-**Risk:** Low for 1a. Medium for 1b — a flaky smoke test would start blocking real
-deploys, so the smoke suite must stay hermetic (no network, no Slack) before it gates.
+**Fixed (both parts):**
+- **1a — `.unref()`'d the storefront cleanup interval** (`bots/storefront.js:111`). The
+  smoke suite now exits on its own; so does the full `npx jest` run (38 suites, 1445
+  tests, ~16s, clean exit — the storefront handle was the only leak). The other three
+  module-scope intervals (`bridge-agent.js`, `auto-update.js`, `lib/heartbeat.js`) were
+  already behind entry-point/start guards.
+- **1b — wired `runSmokeTest()` in as guard (a) part 3** (`lib/update-verifier.js`,
+  `auto-update.js` after `npm install`, before the exit). Bounded by
+  `SMOKE_TEST_TIMEOUT_MS` (120s, well under the 300s check interval); a timeout or a
+  non-zero exit is scored as a FAILURE that reverts, never a hang of the update loop. The
+  smoke suite is hermetic (no network/Slack/spawn — `require()` + export assertions only),
+  so it is safe to gate on. Covered by `tests/auto-update-restart.test.js` (guard a part 3)
+  and `tests/update-verifier.test.js` (`runSmokeTest`).
 
 ---
 
@@ -303,7 +285,7 @@ Previous revision: **2026-04-05**. This revision: **2026-09-13**.
 | `npm run validate` hanging forever | `validate.js` now `process.exit(0)`s after the load check and has a 30s spawn timeout (`lib/validate.js:26-69`). |
 
 ### Still open, and none of it was in the old file (now ranked above)
-- Syntax-only deploy gate + the jest open-handle hang that blocks the smoke gate → **P1 #1**.
+- ~~Syntax-only deploy gate + the jest open-handle hang that blocks the smoke gate~~ → **P1 #1, DONE 2026-09-13**.
 - Per-agent provider only in tracked `agents.json`, on-box edits silently reset → **P1 #2**.
 - Scheduler ignores `planned` status; story-bot's cron would fire → **P1 #3**.
 - 59 files over the 300-line rule → **P2 #10**.

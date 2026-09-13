@@ -26,7 +26,7 @@ const { WebClient } = require('@slack/web-api');
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { verifyEntryPoints, planRestart } = require('./lib/update-verifier');
+const { verifyEntryPoints, runSmokeTest, planRestart } = require('./lib/update-verifier');
 
 // Configuration from environment variables
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
@@ -533,6 +533,31 @@ async function checkForUpdates(overrides = {}) {
         }
         console.log('npm install completed successfully');
 
+        // ---- GUARD (a), part 3: does the repo's own smoke test pass? ----
+        // node --check (part 1) is syntax-only: a commit that deletes a required
+        // file or adds a dependency missing from package.json parses clean and
+        // still bricks the container. The smoke suite (`npm run test:smoke`)
+        // require()s every entry point and lib module, so it catches exactly those.
+        // It runs AFTER npm install because it needs node_modules present, and
+        // BEFORE the exit. Bounded by SMOKE_TEST_TIMEOUT_MS: a wedged test is a
+        // FAILURE that reverts, never a hang of the update loop.
+        console.log('Running smoke test...');
+        const smokeResult = deps.runSmokeTest({ repoDir: LOCAL_REPO_DIR });
+        if (!smokeResult.ok) {
+            await abortUpdate({
+                previousHead: localHead,
+                remoteHead,
+                reason: smokeResult.timedOut
+                    ? 'smoke test timed out on the pulled commit'
+                    : 'smoke test failed on the pulled commit',
+                details: smokeResult.error,
+                state,
+                deps
+            });
+            return;
+        }
+        console.log('Smoke test passed');
+
         // Get the new commit info
         const newHead = deps.getLocalHead();
         const commitMessage = deps.getCommitMessage(newHead);
@@ -606,6 +631,7 @@ const DEFAULT_DEPS = {
     gitPull,
     npmInstall,
     verifyEntryPoints,
+    runSmokeTest,
     planRestart,
     waitForTaskCompletion,
     postToOps,

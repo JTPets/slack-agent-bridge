@@ -13,8 +13,10 @@ const path = require('path');
 
 const {
     ENTRY_POINTS,
+    SMOKE_TEST_TIMEOUT_MS,
     defaultRunSyntaxCheck,
     verifyEntryPoints,
+    runSmokeTest,
     planRestart,
 } = require('../lib/update-verifier');
 
@@ -137,6 +139,53 @@ describe('verifyEntryPoints', () => {
         });
         expect(result.ok).toBe(false);
         expect(result.failures).toHaveLength(2);
+    });
+});
+
+describe('runSmokeTest (guard a, part 3)', () => {
+    // The runner is injected so these are hermetic - they never actually spawn
+    // `npm run test:smoke`. They pin the contract auto-update.js relies on:
+    // a non-zero exit or a timeout is a FAILURE, and only status 0 is a pass.
+    test('status 0 is the only pass', () => {
+        const result = runSmokeTest({ repoDir: '/repo', run: () => ({ status: 0 }) });
+        expect(result.ok).toBe(true);
+    });
+
+    test('a non-zero exit is a failure and keeps the tail of the output', () => {
+        const longTail = 'x'.repeat(2000) + 'FAILING ASSERTION HERE';
+        const result = runSmokeTest({
+            repoDir: '/repo',
+            run: () => ({ status: 1, stderr: longTail, stdout: '' }),
+        });
+        expect(result.ok).toBe(false);
+        expect(result.error).toMatch(/FAILING ASSERTION HERE/);
+        expect(result.error.length).toBeLessThanOrEqual(800);
+    });
+
+    test('a timeout (ETIMEDOUT) is scored as a failure, never a pass', () => {
+        const result = runSmokeTest({
+            repoDir: '/repo',
+            run: () => ({ status: null, error: Object.assign(new Error('spawn timed out'), { code: 'ETIMEDOUT' }) }),
+        });
+        expect(result.ok).toBe(false);
+        expect(result.timedOut).toBe(true);
+        expect(result.error).toMatch(/did not finish/i);
+    });
+
+    test('a non-timeout spawn error is a failure', () => {
+        const result = runSmokeTest({
+            repoDir: '/repo',
+            run: () => ({ status: null, error: Object.assign(new Error('nope'), { code: 'ENOENT' }) }),
+        });
+        expect(result.ok).toBe(false);
+        expect(result.timedOut).toBe(false);
+        expect(result.error).toMatch(/ENOENT/);
+    });
+
+    test('the default timeout is well under the 300s update interval', () => {
+        // A gate that could outlive the update loop's own interval could stall it;
+        // this is the invariant that keeps a wedged test bounded.
+        expect(SMOKE_TEST_TIMEOUT_MS).toBeLessThan(300000);
     });
 });
 

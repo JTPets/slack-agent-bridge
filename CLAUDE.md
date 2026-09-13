@@ -317,7 +317,7 @@ the exit — see `lib/update-verifier.js` and `checkForUpdates()` in `auto-updat
 
 | Guard | Implementation | Prevents |
 |-------|----------------|----------|
-| (a) Verify before exiting | `node --check` on every entry point + `npm install` exits 0. On failure: revert to the commit that was running, post to `#sqtools-ops`, keep running | Exiting into code that cannot start |
+| (a) Verify before exiting | `node --check` on every entry point + `npm install` exits 0 + `npm run test:smoke` passes (`runSmokeTest()`, bounded by `SMOKE_TEST_TIMEOUT_MS`). On failure: revert to the commit that was running, post to `#sqtools-ops`, keep running | Exiting into code that cannot start |
 | (b) Save state before exiting | `lastKnownCommit` written and the write confirmed before `exit()` | The pm2 bug — state written after the restart point is never written, so the commit re-pulls forever |
 | (c) Never re-exit for the same commit | `restartedIntoCommit` persisted; `planRestart()` refuses a repeat | A restart loop on a commit that comes back around |
 | (d) Post before exiting | Slack post awaited, stdout flushed, then exit | A silent restart — there is no "after" an exit |
@@ -325,11 +325,14 @@ the exit — see `lib/update-verifier.js` and `checkForUpdates()` in `auto-updat
 A commit that fails (a) is recorded in `failedCommit` and not retried; the next commit on
 `main` deploys normally. Exit code is `0` — a clean intentional restart, not a crash.
 
-> **Known limit, stated rather than papered over:** `node --check` is a *syntax* check. A
-> commit that deletes a required file or adds a dependency missing from `package.json`
-> parses clean and would still bring the bridge down. `npm run test:smoke` is the repo's
-> designated pre-deploy gate and would close that gap, but jest currently does not exit on
-> its own (an open handle keeps it alive), so it cannot be wired in yet.
+> **Why (a) runs the smoke suite, not just `node --check`:** `node --check` is a *syntax*
+> check — a commit that deletes a required file or adds a dependency missing from
+> `package.json` parses clean and would still brick the bridge. `npm run test:smoke`
+> `require()`s every entry point and lib module, so it catches exactly those breakages.
+> It runs after `npm install` (it needs `node_modules`) and is bounded by
+> `SMOKE_TEST_TIMEOUT_MS` (< `CHECK_INTERVAL_MS`), so a wedged smoke run reverts rather
+> than hanging the update loop. It became wireable once the jest open handle at
+> `bots/storefront.js` (an un-`.unref()`'d module-scope `setInterval`) was fixed.
 
 ### httpSMS integration (Primary SMS)
 | Variable | Description | Default |
