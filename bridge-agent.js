@@ -509,6 +509,106 @@ function cleanupDir(dir) {
   }
 }
 
+// LOGIC CHANGE 2026-09-13: Decide whether a scratch clone is safe to delete.
+// "Delivered" means the work reached the remote (pushed). Deleting a clone that
+// still holds uncommitted changes or local commits the remote never received
+// silently destroys finished work — the exact failure that lost three tasks
+// before the deploy key was wired (see cloneRepo). Cleanup must now gate on this.
+//
+// Why ls-remote and not `git log --not --remotes`: scratch clones are created
+// with `--branch --single-branch`, whose fetch refspec is
+// `+refs/heads/<branch>:refs/remotes/origin/<branch>`. Pushing the agent's work
+// to any OTHER branch (the common `git checkout -b feature/x && git push` flow)
+// never creates a local `origin/feature/x` tracking ref, so `--not --remotes`
+// reports delivered commits as unpushed. ls-remote asks the remote directly and
+// is immune to that, so tip-SHA matching against it is the source of truth.
+//
+// Returns { undelivered: boolean, reason: string }. On genuine uncertainty it
+// errs toward undelivered=true (preserve the clone) rather than risk data loss.
+function detectUndeliveredWork(dir) {
+  const git = (args, timeout = 15000) =>
+    execSync(`git ${args}`, {
+      cwd: dir,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      // GIT_TERMINAL_PROMPT=0 keeps ls-remote from blocking on a credential
+      // prompt when the remote is private and unreachable — it fails fast instead.
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      timeout,
+    }).toString().trim();
+
+  // Not a git repo (e.g. the clone failed before init) — no committed work to lose.
+  try {
+    git('rev-parse --is-inside-work-tree');
+  } catch (e) {
+    return { undelivered: false, reason: '' };
+  }
+
+  // Uncommitted changes (tracked edits or untracked files) would be destroyed by
+  // cleanup. gitignored files are not reported by --porcelain, so test artifacts
+  // do not trip this.
+  let status;
+  try {
+    status = git('status --porcelain');
+  } catch (e) {
+    return { undelivered: true, reason: `delivery status unknown: ${e.message}` };
+  }
+  if (status) {
+    return { undelivered: true, reason: 'uncommitted changes in the clone' };
+  }
+
+  // The commits that would be lost with the clone: every local branch tip + HEAD.
+  const localTips = new Set();
+  try {
+    localTips.add(git('rev-parse HEAD'));
+    // Quote the format: execSync runs through /bin/sh, which treats the
+    // parentheses in %(objectname) as a subshell and errors out unquoted.
+    const branchTips = git("for-each-ref --format='%(objectname)' refs/heads");
+    for (const sha of branchTips.split('\n')) {
+      if (sha) localTips.add(sha);
+    }
+  } catch (e) {
+    return { undelivered: true, reason: `delivery status unknown: ${e.message}` };
+  }
+
+  // Ask the remote what it actually holds.
+  let remoteShas;
+  try {
+    const lsRemote = git('ls-remote origin', 30000);
+    remoteShas = new Set(
+      lsRemote.split('\n').map((line) => line.split(/\s+/)[0]).filter(Boolean)
+    );
+  } catch (e) {
+    // Remote unreachable — e.g. a READ-ONLY clone that could never push, the
+    // exact case that lost work before. Fall back to local-only evidence: any
+    // local commit missing from the tracking refs we do have is unverified, so
+    // preserve. A clean clone with nothing local still cleans up.
+    let unpushed = '';
+    try {
+      unpushed = git(`log ${[...localTips].join(' ')} --not --remotes --oneline`);
+    } catch (_) {
+      /* leave empty — cannot enumerate, treated as no local-only commits */
+    }
+    if (unpushed) {
+      return {
+        undelivered: true,
+        reason: `remote unreachable; ${unpushed.split('\n').length} local commit(s) unverified`,
+      };
+    }
+    return { undelivered: false, reason: '' };
+  }
+
+  // A local tip present on the remote as some ref's tip is delivered (this is
+  // true for a clean clone: HEAD == origin/<branch> tip, which ls-remote reports).
+  const missing = [...localTips].filter((sha) => !remoteShas.has(sha));
+  if (missing.length > 0) {
+    return {
+      undelivered: true,
+      reason: `${missing.length} local commit(s) not found on the remote`,
+    };
+  }
+  return { undelivered: false, reason: '' };
+}
+
 // ---- Formatting ----
 
 function truncate(text, max = 3500) {
@@ -1022,8 +1122,31 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
       console.error('[bridge-agent] Heartbeat cleanup failed:', heartbeatErr.message);
     }
 
+    // LOGIC CHANGE 2026-09-13: Only clean up the scratch clone once its work has
+    // been delivered (pushed to the remote). Deleting a clone that still holds
+    // uncommitted changes or unpushed commits silently destroys finished work —
+    // the failure that lost three tasks before the deploy key was wired. When
+    // work is undelivered, preserve the clone and alert #sqtools-ops so it can be
+    // recovered and pushed manually, rather than deleting it.
     if (taskDir && fs.existsSync(taskDir)) {
-      cleanupDir(taskDir);
+      const delivery = detectUndeliveredWork(taskDir);
+      if (delivery.undelivered) {
+        console.warn(`[bridge-agent] Preserving scratch clone ${taskDir} — ${delivery.reason}`);
+        try {
+          await postToOps(
+            `:warning: *Scratch clone preserved — undelivered work.*\n` +
+            `Task: ${task.description}\n` +
+            `Reason: ${delivery.reason}\n` +
+            `Location: \`${taskDir}\`\n` +
+            `The clone was NOT deleted so the work can be recovered and pushed manually.\n` +
+            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
+          );
+        } catch (postErr) {
+          console.error('[bridge-agent] Failed to post undelivered-work alert:', postErr.message);
+        }
+      } else {
+        cleanupDir(taskDir);
+      }
     }
 
     // LOGIC CHANGE 2026-03-27: Clear working memory at end of each task to prevent

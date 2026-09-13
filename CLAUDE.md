@@ -672,6 +672,31 @@ When a task has a REPO field, `bridge-agent.js` runs a 3-phase pipeline via `lib
 - Entries older than 7 days cleaned up on startup
 - Prevents re-processing old messages after container restarts
 
+### Scratch Clone Lifecycle
+
+Each repo task is executed in a fresh scratch clone under `WORK_DIR`
+(`cloneRepo`, configured to push via the deploy key). `processTask`'s `finally`
+block used to delete that clone unconditionally — so when a push never landed
+(a READ-ONLY clone, or a failed push), the agent's commits lived only in the
+clone and cleanup erased them. Three tasks were lost this way.
+
+**Cleanup now gates on delivery.** `detectUndeliveredWork(dir)` in
+`bridge-agent.js` classifies the clone before `cleanupDir` runs:
+
+- **Uncommitted changes** (`git status --porcelain` non-empty) → undelivered.
+- **Local commits absent from the remote** → undelivered. Delivery is checked by
+  matching local branch/HEAD tip SHAs against `git ls-remote origin`, *not*
+  `git log --not --remotes`: scratch clones use `--single-branch`, whose fetch
+  refspec never creates a local `origin/feature/*` tracking ref, so a pushed
+  feature branch would otherwise look unpushed. ls-remote asks the remote directly.
+- **Remote unreachable** (e.g. a READ-ONLY clone) → preserve if any local commits
+  exist, else clean up. On any uncertainty the function errs toward preserving.
+
+An undelivered clone is **kept** (not deleted) and an alert is posted to
+`#sqtools-ops` with its path so the work can be recovered and pushed manually.
+Delivered clones (clean tree, tips on the remote — the normal success case, and
+research/audit tasks that make no commits) are cleaned up as before.
+
 ### Channel Auto-Join
 
 On every startup, `slackClient.joinAgentChannels(channelsToPoll)` is called to join all
