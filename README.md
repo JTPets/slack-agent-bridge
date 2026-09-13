@@ -8,7 +8,7 @@ A Slack bot that executes coding tasks via Claude Code CLI—post a task, get a 
 - Clones GitHub repos, runs Claude Code CLI with your instructions
 - Commits and pushes changes automatically
 - Supports conversational mode for quick questions (ASK prefix)
-- Self-updates from git and restarts via PM2
+- Self-updates from git (the restart step is currently manual — see Auto-Update)
 
 ## Architecture
 
@@ -31,7 +31,7 @@ A Slack bot that executes coding tasks via Claude Code CLI—post a task, get a 
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐ │
 │  │ Task Parser  │  │ Memory Mgr   │  │ Auto-Updater             │ │
 │  │ - validates  │  │ - history    │  │ - git pull               │ │
-│  │ - extracts   │  │ - context    │  │ - pm2 restart            │ │
+│  │ - extracts   │  │ - context    │  │ - restart (manual)       │ │
 │  └──────┬───────┘  └──────────────┘  └──────────────────────────┘ │
 │         │                                                          │
 │         ▼                                                          │
@@ -73,7 +73,7 @@ cp .env.example .env
 
 # Install and run
 npm install
-pm2 start bridge-agent.js --name slack-bridge
+npm start
 ```
 
 ## Task Format
@@ -123,7 +123,7 @@ The agent responds directly without cloning any repo.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CLAUDE_BIN` | `claude` | Path to Claude CLI binary |
+| `CLAUDE_BIN` | `/usr/local/bin/claude` | Path to Claude CLI binary |
 | `POLL_INTERVAL_MS` | `30000` | How often to check Slack (ms) |
 | `MAX_TURNS` | `50` | Default max LLM turns per task |
 | `TASK_TIMEOUT_MS` | `600000` | Hard timeout per task (10 min) |
@@ -162,13 +162,21 @@ resource fencing for a local Ollama server.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LOCAL_REPO_DIR` | - | Path to the agent's own repo |
+| `LOCAL_REPO_DIR` | `/home/jtpets/jt-agent` | Path to the agent's own repo (stale default — set explicitly) |
 | `CHECK_INTERVAL_MS` | `300000` | Git poll interval (5 min) |
 | `PM2_PROCESS_NAME` | `bridge-agent` | PM2 process name to restart |
 
 ## Auto-Update
 
-The agent runs a background process that polls its own git repo every 5 minutes. When new commits are detected on main, it pulls the changes and triggers a PM2 restart. No manual deployments needed.
+The agent runs a background process that polls its own git repo every 5 minutes. When
+new commits are detected on main, it pulls the changes and then runs
+`pm2 restart $PM2_PROCESS_NAME`.
+
+> **The restart step does not currently work.** The bridge runs in a container with no
+> `pm2` binary, so that spawn fails with `ENOENT`. Auto-update posts the failure to
+> `#sqtools-ops` and returns *before* saving the new commit hash, so it re-pulls and
+> re-fails every check interval. The pull succeeds; restarting is a manual step until a
+> container-aware restart mechanism is chosen.
 
 ## Memory
 
@@ -183,7 +191,7 @@ npm test
 # Validate before commit
 npm run validate
 
-# Run directly (not via PM2)
+# Run directly
 npm start
 ```
 
@@ -192,7 +200,7 @@ npm start
 ```
 slack-agent-bridge/
 ├── bridge-agent.js       # Main entry point
-├── auto-update.js        # Git polling and PM2 restart
+├── auto-update.js        # Git polling and restart (restart step is PM2-only; see Auto-Update)
 ├── morning-digest.js     # Daily stats (cron job)
 ├── lib/
 │   ├── config.js         # Environment config

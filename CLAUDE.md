@@ -2,7 +2,9 @@
 
 ## Project Overview
 
-Node.js Slack polling agent that monitors Slack channels for task messages and executes them via Claude Code CLI. Running on Raspberry Pi. No database, no frontend, no multi-tenant.
+Node.js Slack polling agent that monitors Slack channels for task messages and executes them via Claude Code CLI. No database, no frontend, no multi-tenant.
+
+**Deployment (as of 2026-09-13):** runs as the `jt-agent` container (`node:20`) on a QNAP NAS. The Raspberry Pi that previously hosted it is dead. The compose file lives beside the repo on the NAS and is deliberately untracked (it carries host paths). Line endings are pinned to LF by `.gitattributes` — a Windows clone copied to Linux once made the entire tree uncommittable.
 
 ## Tech Stack
 
@@ -143,7 +145,7 @@ const POLL_INTERVAL = 5000;
 | `BOT_USER_ID` | Slack user ID of the bot itself; allows bot to post scheduled tasks in agent channels | `U0AP5PLQB44` |
 | `LLM_PROVIDER` | Which LLM backend to use | `claude` |
 | `GITHUB_ORG` | Default GitHub org | `jtpets` |
-| `CLAUDE_BIN` | Path to claude binary | `/home/jtpets/.local/bin/claude` |
+| `CLAUDE_BIN` | Path to claude binary | `/usr/local/bin/claude` |
 | `POLL_INTERVAL_MS` | Poll frequency in ms | `30000` |
 | `MAX_TURNS` | CC max turns per task | `50` |
 | `TASK_TIMEOUT_MS` | Hard kill timeout in ms | `600000` |
@@ -189,6 +191,14 @@ const POLL_INTERVAL = 5000;
 An **unknown provider name is a configuration defect, not a fallback trigger** — it throws so the typo is visible rather than being masked by another engine.
 
 ### No silent fallback
+
+**Where it is wired in:** `bridge-agent.js` calls `runWithFallback` at both LLM entry
+points — `processTask` (TASK:) and `processConversation` (ASK:). Until 2026-09-13 both
+called `runLLM` directly, so `runWithFallback` had zero non-test callers and everything
+documented in this section described code that never ran. `tests/integration.test.js`
+pins the wiring so it cannot become dead code again. The remaining `runLLM` callers —
+`security-review.js`, `bots/storefront.js`, `lib/watercooler.js`, `lib/task-decomposer.js`
+— still bypass the chain and are **not** covered by this section.
 
 Every LLM call records exactly one verdict via `lib/llm-metrics.js`, whether or not it fell back:
 
@@ -276,9 +286,16 @@ Tune `MemoryMax` to the model actually pulled — it must be below `(total RAM -
 ### Auto-update vars
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `LOCAL_REPO_DIR` | Path to local repo | `/home/jtpets/jt-agent` |
+| `LOCAL_REPO_DIR` | Path to local repo, as seen by the auto-update process | `/home/jtpets/jt-agent` (stale Pi default — set explicitly) |
 | `CHECK_INTERVAL_MS` | Git poll frequency | `300000` |
 | `PM2_PROCESS_NAME` | PM2 process to restart | `bridge-agent` |
+
+> **PM2 is not installed in the `jt-agent` container.** `auto-update.js` still runs
+> `pm2 restart $PM2_PROCESS_NAME` after a successful pull. With no `pm2` on PATH the
+> spawn fails with `ENOENT`, auto-update posts the failure to `#sqtools-ops` and
+> returns **before** saving the new commit hash — so it re-pulls and re-fails on every
+> check interval. This is a live failure, not a no-op. Restarting after an update is a
+> manual step until a container-aware restart mechanism is chosen.
 
 ### httpSMS integration (Primary SMS)
 | Variable | Description | Default |
@@ -320,22 +337,27 @@ Tune `MemoryMax` to the model actually pulled — it must be below `(total RAM -
 npm start                    # Run the agent
 node bridge-agent.js         # Direct execution
 
-# Production (PM2)
-# PM2 runs 3 processes: sqtools (PRODUCTION DO NOT TOUCH), bridge-agent, auto-update
-# Cloudflare tunnel: sudo systemctl restart cloudflared-sqtools
-pm2 start bridge-agent.js --name slack-bridge
-pm2 restart slack-bridge
-pm2 logs slack-bridge
+# Production: the `jt-agent` container (node:20) on the QNAP NAS.
+# The compose file lives at the repo's path on the NAS and is untracked.
+docker compose up -d jt-agent
+docker compose restart jt-agent
+docker compose logs -f jt-agent
 
-# Morning digest runs via cron, not PM2:
-# 0 8 * * * cd /home/jtpets/jt-agent && set -a && source .env && set +a && node morning-digest.js
+# The PM2 commands below are HISTORICAL - PM2 does not exist on this host.
+# They are kept only so the auto-update note above makes sense in context.
+#   pm2 start bridge-agent.js --name slack-bridge
+#   pm2 restart slack-bridge
 
-# Security review runs via cron at 1am daily:
-# 0 1 * * * cd /home/jtpets/jt-agent && set -a && source .env && set +a && node security-review.js
+# Cron jobs. <repo> is the repo path as the cron host sees it; on the NAS the
+# host path is /share/CACHEDEV1_DATA/jt-agent, and the in-container path differs.
+# Morning digest:
+# 0 8 * * * cd <repo> && set -a && source .env && set +a && node morning-digest.js
+
+# Security review (1am daily):
+# 0 1 * * * cd <repo> && set -a && source .env && set +a && node security-review.js
 
 # Storefront chat widget
 node bots/storefront.js              # Direct execution
-pm2 start bots/storefront.js --name storefront-chat
 
 # Testing
 npm test
@@ -492,7 +514,9 @@ slack-agent-bridge/
 │   ├── task-queue.test.js       # Tests for lib/task-queue.js (queue persistence, auto-update coordination)
 │   ├── task-decomposer.test.js  # Tests for lib/task-decomposer.js (complexity analysis, decomposition, agent routing)
 │   ├── security-followup.test.js # Tests for lib/security-followup.js (finding parsing, task generation)
-│   └── approval-queue.test.js   # Tests for lib/approval-queue.js (queueing, approval/rejection, commands)
+│   ├── approval-queue.test.js   # Tests for lib/approval-queue.js (queueing, approval/rejection, commands)
+│   ├── bridge-agent-scope.test.js   # AST scope guard: catches `X is not defined` in bridge-agent.js
+│   └── silent-drop-logging.test.js  # Tests for describeSkipReason + the poll loop's skip logging
 ├── docs/
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
 │   ├── COURIER-INTAKE.md    # Courier intake page and delivery quote API documentation
@@ -503,7 +527,8 @@ slack-agent-bridge/
 ├── package.json          # Dependencies and npm scripts
 ├── CLAUDE.md             # Project rules and documentation (this file)
 ├── README.md             # Project overview
-└── .gitignore            # Git ignore rules (node_modules, .env, etc.)
+├── .gitattributes        # Line-ending normalization (* text=auto eol=lf) - stops CRLF corruption
+└── .gitignore            # Git ignore rules (node_modules, .env, .claude-home/, *.bak, etc.)
 ```
 
 ---
@@ -895,10 +920,10 @@ ASK: retro standup
 **Cron schedules:**
 ```bash
 # Monday Kickoff (8:30 AM Toronto time)
-30 8 * * 1 cd /home/jtpets/jt-agent && set -a && source .env && set +a && node scripts/watercooler.js kickoff
+30 8 * * 1 cd <repo> && set -a && source .env && set +a && node scripts/watercooler.js kickoff
 
 # Friday Retro (5:00 PM Toronto time)
-0 17 * * 5 cd /home/jtpets/jt-agent && set -a && source .env && set +a && node scripts/watercooler.js retro
+0 17 * * 5 cd <repo> && set -a && source .env && set +a && node scripts/watercooler.js retro
 ```
 
 Manual execution: `node scripts/watercooler.js [kickoff|retro]`
