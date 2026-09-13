@@ -258,6 +258,26 @@ describe('notify-owner', () => {
             expect(ownerCall[0].text.length).toBeLessThan(300);
         });
 
+        it('should redact secrets from the error before posting to ops and owner', async () => {
+            // Assembled at runtime so no literal xox*-token sits in source (would
+            // trip GitHub push protection — which is the very thing we redact for).
+            const fakeToken = ['xoxb', '9999999999', '8888888888', 'secretslacktoken'].join('-');
+            const err = new Error(`claude exited: token=${fakeToken} here`);
+
+            await notifyOwner.taskFailed(task, err, { elapsed: '5' });
+
+            const opsCall = mockSlack.chat.postMessage.mock.calls.find(
+                call => call[0].channel === testOpsChannel
+            );
+            const ownerCall = mockSlack.chat.postMessage.mock.calls.find(
+                call => call[0].channel === testOwnerId
+            );
+
+            expect(opsCall[0].text).not.toContain(fakeToken);
+            expect(opsCall[0].text).toContain('[REDACTED:SLACK_TOKEN]');
+            expect(ownerCall[0].text).not.toContain(fakeToken);
+        });
+
         it('should work without options', async () => {
             const result = await notifyOwner.taskFailed(task, 'Error');
 

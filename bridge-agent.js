@@ -951,6 +951,13 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
 
   } catch (err) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+    // LOGIC CHANGE 2026-09-13: Redact secrets from the error message before it
+    // is logged or persisted. err.message embeds subprocess stderr (via
+    // describeClaudeExit), which can carry an env dump with live tokens. The
+    // Slack/DM path is scrubbed inside notifyOwner.taskFailed; console.error,
+    // taskQueue.fail (writes task-queue.json), and memory.failTask are separate
+    // sinks that must be scrubbed here.
+    const safeErrMsg = redact(err.message);
 
     // LOGIC CHANGE 2026-03-27: Rate limit auto-pause disabled due to false positives killing tasks.
     // Manual restart is safer than auto-pausing on misdetection. If a task fails, it just fails.
@@ -969,12 +976,12 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
 
     // LOGIC CHANGE 2026-03-27: taskSuccess remains false, heartbeat.stop(false)
     // will add :x: emoji in finally block.
-    console.error(`[bridge-agent] Task ${msg.ts} failed (${elapsed}s):`, err.message);
+    console.error(`[bridge-agent] Task ${msg.ts} failed (${elapsed}s):`, safeErrMsg);
 
     // LOGIC CHANGE 2026-04-01: Mark task as failed in queue for auto-update coordination.
     if (queueId) {
       try {
-        taskQueue.getQueue().fail(queueId, err.message);
+        taskQueue.getQueue().fail(queueId, safeErrMsg);
       } catch (queueErr) {
         console.error('[bridge-agent] Queue fail failed:', queueErr.message);
       }
@@ -983,7 +990,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
     // LOGIC CHANGE 2026-03-26: Record task failure in memory.
     if (memoryTaskId) {
       try {
-        memory.failTask(memoryTaskId, err.message);
+        memory.failTask(memoryTaskId, safeErrMsg);
       } catch (memErr) {
         console.error('[bridge-agent] Memory failTask failed:', memErr.message);
       }
