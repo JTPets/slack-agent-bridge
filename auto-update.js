@@ -12,6 +12,11 @@ const path = require('path');
 // Configuration from environment variables
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 const OPS_CHANNEL_ID = process.env.OPS_CHANNEL_ID;
+// NOTE 2026-09-13: this default is the dead Raspberry Pi path. It is left in place
+// rather than guessed at, because the repo's path INSIDE the `jt-agent` container is
+// not knowable from this repo (on the NAS host it is /share/CACHEDEV1_DATA/jt-agent).
+// Set LOCAL_REPO_DIR explicitly in .env; an unset value points auto-update at a path
+// that does not exist.
 const LOCAL_REPO_DIR = process.env.LOCAL_REPO_DIR || '/home/jtpets/jt-agent';
 const CHECK_INTERVAL_MS = parseInt(process.env.CHECK_INTERVAL_MS, 10) || 5 * 60 * 1000; // 5 minutes default
 const STATE_FILE = process.env.STATE_FILE || path.join(LOCAL_REPO_DIR, '.auto-update-state.json');
@@ -268,6 +273,14 @@ async function waitForTaskCompletion() {
 
 /**
  * Restart PM2 process
+ *
+ * NOTE (2026-09-13): the bridge no longer runs under PM2. It runs as the `jt-agent`
+ * container (node:20), which has no pm2 binary. This function therefore fails on
+ * every update: spawnSync returns ENOENT, the caller posts the failure to
+ * #sqtools-ops and returns before saving the new commit hash, so the next check
+ * interval pulls and fails again. Restarting after an update is a manual step
+ * until a container-aware restart mechanism is chosen.
+ *
  * @returns {{ success: boolean, error?: string }}
  */
 function restartPM2() {
@@ -276,9 +289,22 @@ function restartPM2() {
         timeout: 30000
     });
 
+    if (result.status === 0) {
+        return { success: true };
+    }
+
+    // LOGIC CHANGE 2026-09-13: Surface spawn-level failures. On a host without pm2,
+    // spawnSync sets result.error (ENOENT) and leaves stdout/stderr undefined, so the
+    // previous expression collapsed to the useless string 'Unknown PM2 error'. Naming
+    // the real cause is the difference between "pm2 is not installed here" and "the
+    // restart command failed" - two very different fixes.
+    const spawnFailure = result.error
+        ? `could not run pm2 (${result.error.code || result.error.message})`
+        : null;
+
     return {
-        success: result.status === 0,
-        error: result.status === 0 ? undefined : (result.stderr || result.stdout || 'Unknown PM2 error').trim()
+        success: false,
+        error: (spawnFailure || result.stderr || result.stdout || 'Unknown PM2 error').trim()
     };
 }
 

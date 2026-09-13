@@ -121,6 +121,34 @@ describe('agent-scheduler', () => {
             const message = buildTaskMessage('test', 'unknown-task');
             expect(message).toBeNull();
         });
+
+        // LOGIC CHANGE 2026-09-13: Regression tests for the duplicated
+        // "(scheduled by <agent>)" suffix. The check-inbox template hardcoded the
+        // suffix in its own description while buildTaskMessage appends it to every
+        // template, so production Slack showed it twice, every 30 minutes.
+        it('should not duplicate the scheduled-by suffix for check-inbox', () => {
+            const message = buildTaskMessage('email-monitor', 'check-inbox');
+            const firstLine = message.split('\n')[0];
+
+            expect(firstLine).toBe('TASK: Check and triage email inbox (scheduled by email-monitor)');
+            expect(firstLine.match(/\(scheduled by /g)).toHaveLength(1);
+        });
+
+        it('should append the scheduled-by suffix exactly once for every template', () => {
+            for (const taskName of Object.keys(TASK_TEMPLATES)) {
+                const firstLine = buildTaskMessage('some-agent', taskName).split('\n')[0];
+                expect(firstLine.match(/\(scheduled by /g)).toHaveLength(1);
+                expect(firstLine.endsWith('(scheduled by some-agent)')).toBe(true);
+            }
+        });
+
+        it('should keep the scheduled-by suffix out of every template description', () => {
+            // The suffix belongs to buildTaskMessage, which is generic. A description
+            // that carries it is the defect, whichever template reintroduces it.
+            for (const [taskName, template] of Object.entries(TASK_TEMPLATES)) {
+                expect(`${taskName}: ${template.description}`).not.toContain('scheduled by');
+            }
+        });
     });
 
     describe('startScheduler', () => {

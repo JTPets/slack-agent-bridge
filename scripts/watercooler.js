@@ -19,8 +19,11 @@ require('dotenv').config();
  * If no type is specified, auto-detects based on day (Monday=kickoff, Friday=retro).
  *
  * Cron schedules:
- *   30 8 * * 1 cd /home/jtpets/jt-agent && set -a && source .env && set +a && node scripts/watercooler.js kickoff
- *   0 17 * * 5 cd /home/jtpets/jt-agent && set -a && source .env && set +a && node scripts/watercooler.js retro
+ *   30 8 * * 1 cd <repo> && set -a && source .env && set +a && node scripts/watercooler.js kickoff
+ *   0 17 * * 5 cd <repo> && set -a && source .env && set +a && node scripts/watercooler.js retro
+ *
+ * <repo> is the repo path as the cron host sees it. The Raspberry Pi path
+ * (/home/jtpets/jt-agent) is dead; the bridge now runs in the `jt-agent` container.
  *
  * Required env vars:
  *   SLACK_BOT_TOKEN     xoxb- token

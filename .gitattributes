@@ -1,0 +1,24 @@
+# Normalize line endings on commit and check out LF everywhere.
+#
+# Why this file exists: on 2026-09-13 the deployed working tree had to be
+# re-cloned because the previous one was cloned on Windows and copied to Linux.
+# Every file differed by CRLF, so nothing was committable and the tree looked
+# entirely modified. This is a public MIT repo — any contributor on Windows
+# hits the same trap without this.
+#
+# `text=auto` lets git detect text files; `eol=lf` forces LF in the working
+# tree as well as in the index, so a Windows checkout does not reintroduce CRLF.
+* text=auto eol=lf
+
+# Binary formats git must never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.gguf binary
+*.safetensors binary
+*.bin binary
+*.pt binary
+*.onnx binary

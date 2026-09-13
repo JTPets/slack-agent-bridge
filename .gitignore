@@ -13,7 +13,6 @@ data/delivery-quotes.json
 # Memory data files (local only)
 memory/*.json
 package-lock.json
-package-lock.json
 
 # LLM provider verdict counter (local runtime state)
 agents/shared/llm-metrics.json
@@ -28,3 +27,14 @@ agents/shared/llm-metrics.json
 *.onnx
 models/
 .ollama/
+
+# Claude Code home directory for the container. Holds a LIVE OAuth credential
+# (.credentials.json) and .claude.json. NEVER commit — this is a public repo.
+.claude-home/
+
+# Editor/script backups. A stray copy of .env would land here as .env.bak.
+*.bak
+
+# auto-update.js writes this next to the repo. Sibling of .bridge-agent-state.json,
+# which was already ignored; this one was not.
+.auto-update-state.json

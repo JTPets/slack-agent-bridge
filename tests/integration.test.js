@@ -457,3 +457,54 @@ describe('processConversation error reporting regression', () => {
     });
 });
 
+
+// LOGIC CHANGE 2026-09-13: The claude -> gemini failover documented in CLAUDE.md,
+// README.md and .env.example had ZERO non-test call sites - bridge-agent.js called
+// runLLM directly at both LLM entry points, so the fallback chain, its env vars and
+// the llm-metrics fallback_reason counter described nothing that actually ran. That
+// is why a stale CLAUDE_BIN took three agents down with no fallback. These tests
+// pin the wiring so the documented behaviour cannot become dead code again.
+describe('LLM fallback is actually wired in', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const bridgeAgentSource = fs.readFileSync(
+        path.join(__dirname, '..', 'bridge-agent.js'),
+        'utf8'
+    );
+
+    test('runWithFallback is exported by lib/llm-runner.js', () => {
+        const llmRunner = require('../lib/llm-runner');
+        expect(typeof llmRunner.runWithFallback).toBe('function');
+    });
+
+    test('bridge-agent.js imports runWithFallback', () => {
+        expect(bridgeAgentSource).toMatch(
+            /const \{[^}]*\brunWithFallback\b[^}]*\} = require\('\.\/lib\/llm-runner'\);/
+        );
+    });
+
+    test('bridge-agent.js has no direct runLLM call sites left', () => {
+        // Comments may still mention runLLM; a call `runLLM(` may not.
+        const withoutComments = bridgeAgentSource
+            .replace(/\/\*[\s\S]*?\*\//g, '')
+            .replace(/^\s*\/\/.*$/gm, '');
+        expect(withoutComments).not.toMatch(/[^a-zA-Z0-9_.]runLLM\s*\(/);
+    });
+
+    test('both LLM entry points go through runWithFallback', () => {
+        const calls = bridgeAgentSource.match(/await runWithFallback\(prompt, \{/g) || [];
+        // One in processTask (TASK:) and one in processConversation (ASK:).
+        expect(calls).toHaveLength(2);
+    });
+
+    test('runWithFallback accepts the same option shape bridge-agent passes', () => {
+        // Guards against the two functions drifting apart in signature.
+        const llmRunnerSource = fs.readFileSync(
+            path.join(__dirname, '..', 'lib', 'llm-runner.js'),
+            'utf8'
+        );
+        for (const option of ['provider', 'model', 'agentId', 'maxTurns', 'timeout', 'cwd']) {
+            expect(llmRunnerSource).toContain(option);
+        }
+    });
+});

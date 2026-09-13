@@ -9,7 +9,10 @@ require('dotenv').config();
  * of commits from the last 24 hours across configured repositories.
  *
  * Runs via cron, not PM2:
- *   0 1 * * * cd /home/jtpets/jt-agent && set -a && source .env && set +a && node security-review.js
+ *   0 1 * * * cd <repo> && set -a && source .env && set +a && node security-review.js
+ *
+ * <repo> is the repo path as the cron host sees it. The Raspberry Pi path
+ * (/home/jtpets/jt-agent) is dead; the bridge now runs in the `jt-agent` container.
  *
  * Required env vars:
  *   SLACK_BOT_TOKEN     xoxb- token

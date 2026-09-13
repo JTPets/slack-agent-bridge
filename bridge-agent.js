@@ -96,7 +96,12 @@ const { getAgent, loadAgents, getActiveAgents, getAgentByChannel, registryExists
 // errors and implementing pause/retry behavior.
 // LOGIC CHANGE 2026-03-27: Import BandwidthExhaustedError for bandwidth-specific
 // handling when Claude CLI exits with code 1 and empty/short output.
-const { runLLM, RateLimitError, BandwidthExhaustedError, validateGeminiOnStartup, validateOllamaOnStartup } = require('./lib/llm-runner');
+// LOGIC CHANGE 2026-09-13: Import runWithFallback and use it for both LLM call
+// sites below. It had zero non-test callers, so the claude -> gemini failover
+// documented in CLAUDE.md/README/.env.example never actually ran - which is why
+// a stale CLAUDE_BIN took three agents down with no fallback, and why the
+// llm-metrics fallback_reason counter could only ever record null.
+const { runWithFallback, RateLimitError, BandwidthExhaustedError, validateGeminiOnStartup, validateOllamaOnStartup } = require('./lib/llm-runner');
 
 // LOGIC CHANGE 2026-03-26: Added slack-client module for channel management
 // functions (createChannel, ensureChannel, etc.).
@@ -707,13 +712,33 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
     // use claude, others use gemini. Falls back to env LLM_PROVIDER or 'claude'.
     const llmProvider = agentConfig?.llm_provider;
 
+    // LOGIC CHANGE 2026-09-13: Declare agentId in this scope. It was referenced in
+    // the runLLM options below but never bound here, so evaluating that object
+    // literal threw `ReferenceError: agentId is not defined` before the LLM was
+    // ever spawned. That broke EVERY TASK: message - most visibly the scheduled
+    // check-inbox job, which failed in zero seconds every 30 minutes.
+    //
+    // Source of the value: processTask always executes as the bridge agent (see the
+    // poll loop: "TASK: messages always go to bridge agent regardless of channel"),
+    // which is why every sibling option here - system_prompt, llm_provider,
+    // llm_model - reads the module-level agentConfig. agentId comes from the same
+    // record. The `|| 'bridge'` arm covers only agentConfig being null because the
+    // registry failed to load; 'bridge' is that agent's literal id, and matches the
+    // identical idiom in processConversation and the hardcoded 'bridge' already used
+    // by clearAgentWorkingMemory and formatBulletinsForContext in this same function.
+    const agentId = agentConfig?.id || 'bridge';
+
     while (retryCount <= 1) {
       try {
         // LOGIC CHANGE 2026-09-11: Pass the agent's optional llm_model and its id.
         // llm_model lets two agents share a provider with different models (a
         // router model and a workhorse model on the same local Ollama server).
         // agentId is what makes the per-agent fallback counter answerable.
-        result = await runLLM(prompt, {
+        // LOGIC CHANGE 2026-09-13: runLLM -> runWithFallback. Same options, same
+        // return shape, plus usedFallback/fallbackProvider. runWithFallback records
+        // exactly one verdict per logical call, so the per-agent counter now
+        // distinguishes "no fallback" from "never measured".
+        result = await runWithFallback(prompt, {
           cwd,
           maxTurns: currentTurns,
           timeout: TASK_TIMEOUT,
@@ -1505,7 +1530,10 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
     // Uses the agent's configured max_turns capped at 20 for conversations.
     const maxTurns = Math.min(currentAgent?.max_turns || 10, 20);
     // LOGIC CHANGE 2026-09-11: Pass llm_model and agentId (see the task call site).
-    const result = await runLLM(prompt, {
+    // LOGIC CHANGE 2026-09-13: runLLM -> runWithFallback, so a gemini agent whose
+    // provider is rate limited or unreachable falls through the chain instead of
+    // failing the ASK outright. See the task call site for the full rationale.
+    const result = await runWithFallback(prompt, {
       cwd: WORK_DIR,
       maxTurns,
       timeout: TASK_TIMEOUT,
@@ -1543,6 +1571,43 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
 }
 
 // ---- Poll loop ----
+
+// LOGIC CHANGE 2026-09-13: Name the reason a polled message was not acted on.
+//
+// Why this exists: a message with no TASK:/ASK: prefix, with
+// NATURAL_CONVERSATION_MODE unset, fell through all three branches of the poll
+// loop and logged nothing at all. From the outside that is indistinguishable
+// from the bot being down, and it turned a one-line cause into an afternoon of
+// diagnosis. A silently discarded input is the same class of defect as a test
+// suite that reports green because it skipped.
+//
+// Returns a short human-readable reason. Never includes the message body -
+// only metadata the operator needs to correlate the message in Slack.
+//
+// @param {{ ts: string, text?: string, subtype?: string }} msg - Slack message
+// @returns {string} Reason the message was skipped
+function describeSkipReason(msg) {
+  if (msg.subtype) return `message subtype "${msg.subtype}" is not actionable`;
+  if (!msg.text || !msg.text.trim()) return 'message has no text';
+
+  const isTask = isTaskMessage(msg);
+  const isAsk = isConversationMessage(msg);
+
+  if (isTask || isAsk) {
+    const kind = isTask ? 'TASK:' : 'ASK:';
+    if (alreadyProcessed(msg)) return `${kind} message already carries a done/failed reaction`;
+    if (isTaskProcessed(msg.ts)) return `${kind} message already recorded in processed-tasks.json`;
+    return `${kind} message matched no handler`;
+  }
+
+  // Unprefixed message.
+  if (!config.NATURAL_CONVERSATION_MODE) {
+    return 'no TASK:/ASK: prefix and NATURAL_CONVERSATION_MODE is off';
+  }
+  if (alreadyProcessed(msg)) return 'unprefixed message already carries a done/failed reaction';
+  if (isTaskProcessed(msg.ts)) return 'unprefixed message already recorded in processed-tasks.json';
+  return 'unprefixed message rejected by isNaturalConversationMessage';
+}
 
 // LOGIC CHANGE 2026-03-27: Refactored poll() to iterate through all agent channels.
 // Each channel is polled for messages. TASK: messages always go to bridge agent.
@@ -1693,7 +1758,14 @@ async function poll() {
           console.log(`[bridge-agent] Natural conversation in ${agentId} channel: ${msg.ts}`);
           await processConversation(msg, channelId, channelAgentConfig);
           markTaskProcessed(msg.ts);
+          continue;
         }
+
+        // LOGIC CHANGE 2026-09-13: Nothing handled this message. Say so, with the
+        // channel, the ts and the reason, instead of dropping it without a trace.
+        console.log(
+          `[bridge-agent] Skipped message in ${agentId} channel (${channelId}) ts=${msg.ts}: ${describeSkipReason(msg)}`
+        );
       }
     } catch (err) {
       // LOGIC CHANGE 2026-03-27: Log channel-specific poll errors but continue polling other channels.

@@ -1,6 +1,11 @@
 # SqTools Integration Specification
 
-This document defines the integration interface between bridge-agent (Slack polling agent) and SqTools (Square Dashboard Tool) running on the same Raspberry Pi.
+This document defines the integration interface between bridge-agent (Slack polling agent) and SqTools (Square Dashboard Tool) running on the same host.
+
+> **Host note (2026-09-13):** that host was a Raspberry Pi. It is dead. bridge-agent now
+> runs as the `jt-agent` container (`node:20`) on a QNAP NAS. The loopback-only
+> assumptions below (127.0.0.1 IP allowlist) depend on both processes sharing a network
+> namespace — **unverified** on the container layout; confirm before relying on it.
 
 ---
 

@@ -51,7 +51,9 @@ describe('config module', () => {
       expect(config.POLL_INTERVAL).toBe(30000);
       expect(config.MAX_TURNS).toBe(50);
       expect(config.TASK_TIMEOUT).toBe(600000);
-      expect(config.CLAUDE_BIN).toBe('/home/jtpets/.local/bin/claude');
+      // LOGIC CHANGE 2026-09-13: This assertion previously encoded the defect - it
+      // pinned the Raspberry Pi home path that cannot exist on the container image.
+      expect(config.CLAUDE_BIN).toBe('/usr/local/bin/claude');
       expect(config.WORK_DIR).toBe('/tmp/bridge-agent');
     });
 
