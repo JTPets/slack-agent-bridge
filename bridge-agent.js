@@ -481,6 +481,23 @@ function cloneRepo(repo, branch, targetDir) {
       throw err;
     }
   }
+
+  // LOGIC CHANGE 2026-09-13: Configure the clone to push via the deploy key.
+  // Without this the clone is read-only and finished work cannot be delivered;
+  // three tasks committed locally and were deleted by cleanup.
+  const keyPath = process.env.DEPLOY_KEY_PATH || "/bridge/.deploy_key";
+  if (fs.existsSync(keyPath)) {
+    try {
+      execSync(`git -C ${targetDir} remote set-url origin git@github.com:${repo}.git`, {stdio:"pipe"});
+      execSync(`git -C ${targetDir} config core.sshCommand "ssh -i ${keyPath} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"`, {stdio:"pipe"});
+      execSync(`git -C ${targetDir} fetch origin`, {stdio:"pipe", timeout:60000});
+      console.log("[bridge-agent] Clone configured for push via deploy key (fetch verified)");
+    } catch (e) {
+      console.warn("[bridge-agent] Push config failed, clone is READ-ONLY:", e.message);
+    }
+  } else {
+    console.warn(`[bridge-agent] No deploy key at ${keyPath} - clone is READ-ONLY, pushes will fail`);
+  }
 }
 
 function cleanupDir(dir) {
