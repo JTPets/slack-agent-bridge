@@ -28,7 +28,18 @@ Node.js Slack polling agent that monitors Slack channels for task messages and e
 
 ### Security First
 - **NEVER log tokens** — Slack tokens, API keys, and secrets must never appear in logs or console output
-- **No eval/exec** — Never use `eval()`, `child_process.exec()` or `child_process.execSync()` with an interpolated value. Use `child_process.spawn()` (async) or `child_process.execFileSync()` (sync) with an **argv array** — those never involve a shell, so a metacharacter in an argument is just a character
+- **No eval/exec** — Never use `eval()`, `child_process.exec()` or `child_process.execSync()` **at all** (not merely "with an interpolated value" — a call with no interpolation today is the next one's template). Use `child_process.spawn()` (async) or `child_process.execFileSync()` (sync) with an **argv array** — those never involve a shell, so a metacharacter in an argument is just a character. Do not import `exec` or `execSync` from `child_process` either; a dead shell import is the next shell call's missing half
+- **Argv arrays defeat a shell, not git's option parser** — a positional value beginning with `-` is read by `git` as a flag however it arrived. Validate the value (reject, never sanitise) **and** pass `--` before positional arguments where the subcommand accepts one. `git clone`, `git config`, `git fetch` and `git ls-remote` all do; `git log` does **not** — after `git log`, `--` begins a *pathspec*, so revisions are shape-asserted instead
+- **The enumerating guard for this class is `tests/no-shell-execution.test.js`.** It scans every non-test `.js` file in the repo, enumerated from disk, with comments and string contents stripped. Cite it — not a count and not a grep you ran once — when claiming the class is closed. The shell equivalent, for a one-off check:
+  ```bash
+  find . -name '*.js' -not -path './node_modules/*' -not -path './.git/*' \
+         -not -path './tests/*' -not -path './coverage/*' \
+    | xargs grep -nE '\bexecSync\s*\(|(^|[^.\w])exec\s*\(|shell\s*:\s*true'
+  ```
+  That grep is **comment-blind** — it matches prose naming a banned API as readily as a
+  call, and it currently reports exactly one such false positive (a LOGIC CHANGE comment
+  in `bridge-agent.js`). It is a lead, not a verdict. The test strips comments and string
+  contents first, which is why the test is the authority and the grep is the convenience.
 - **Sanitize all input** — Validate and sanitize any data from Slack before processing
 - **No hardcoded secrets** — All credentials via environment variables
 
@@ -110,7 +121,9 @@ const POLL_INTERVAL = 5000;
 |------|-------------|
 | Token logging | NEVER — immediate security violation |
 | Error reporting | ALL errors to Slack |
-| Shell execution | spawn() only, never exec() or eval() |
+| Shell execution | spawn()/execFileSync() with an argv array only, never exec(), execSync() or eval(). Guarded repo-wide by `tests/no-shell-execution.test.js` |
+| git positional args | Validate the value AND pass `--` before positionals (not for `git log` — see Critical Rules) |
+| Error message vs pattern | A rejection message must be GENERATED from the same character list the pattern is built around, never retyped beside it |
 | Temp cleanup | Always in finally block |
 | Logic changes | LOGIC CHANGE comment required |
 | Bug fixes | Regression test required |
@@ -491,12 +504,12 @@ slack-agent-bridge/
 │   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel, activateAgent
 │   ├── bulletin-board.js # Inter-agent communication: postBulletin, getBulletins, markRead, cleanupOldBulletins
 │   ├── config.js         # Environment variable loading, validation, and defaults
-│   ├── git-identifiers.js # Boundary validation for Slack-controlled REPO:/BRANCH: values (isValidRepo, isValidBranch, assertValid*)
+│   ├── git-identifiers.js # Boundary validation for Slack-controlled REPO:/BRANCH: values (isValidRepo, isValidBranch, assertValid*); *_PUNCTUATION + describeCharset() generate the rejection messages from the same character lists the patterns use
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, gemini, ollama), fallback chain, startup validation
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
 │   ├── owner-tasks.js    # Owner task management: activation checklists, pending tasks, ACTION REQUIRED detection
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
-│   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo (execFileSync argv arrays, no shell), cleanupDir, detectUndeliveredWork
+│   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork, assertValidTargetDir. Every git call is an execFileSync argv array — no function here builds a shell command string
 │   ├── bridge-state.js    # State persistence (seam B): sole owner of .bridge-agent-state.json (per-channel poll cursors) and processed-tasks.json (task dedup); init, get/setLastChecked, isTaskProcessed, markTaskProcessed, cleanupProcessedTasks
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
@@ -551,11 +564,12 @@ slack-agent-bridge/
 │   ├── owner-tasks.test.js      # Tests for lib/owner-tasks.js (checklists, pending tasks)
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
 │   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
-│   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo, cleanupDir export surface)
+│   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo argv/`--` separators, assertValidTargetDir rejections, deploy-key paths, cleanupDir, export surface)
 │   ├── bridge-state.test.js     # Tests for lib/bridge-state.js (poll cursors, legacy migration, processed-task dedup; temp-dir CRUD)
 │   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management, joinAgentChannels)
 │   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command, label anchoring, field rejection)
-│   ├── git-identifiers.test.js  # Tests for lib/git-identifiers.js (repo/branch allowlists, injection payload rejection)
+│   ├── git-identifiers.test.js  # Tests for lib/git-identifiers.js (repo/branch allowlists, injection payload rejection, message-vs-pattern agreement probed over every ASCII punctuation character)
+│   ├── no-shell-execution.test.js # THE enumerating guard for the command-injection class: scans every non-test .js file in the repo for execSync/exec/shell:true and for shell APIs imported from child_process
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
 │   ├── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
 │   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)

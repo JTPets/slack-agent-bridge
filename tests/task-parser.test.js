@@ -4,16 +4,23 @@
  * Unit tests for parseTask function from lib/task-parser.js
  */
 
+const fs = require('fs');
+const path = require('path');
+
 const {
   parseTask,
   isStatusQuery,
   isCreateChannelCommand,
   parseCreateChannelCommand,
   FIELD_LABELS,
+  SKILL_PATTERN,
+  SKILL_PUNCTUATION,
   DEFAULT_TURNS,
   MIN_TURNS,
   MAX_TURNS
 } = require('../lib/task-parser');
+
+const TASK_PARSER_PATH = path.join(__dirname, '..', 'lib', 'task-parser.js');
 
 describe('parseTask', () => {
   test('parses full TASK/REPO/BRANCH/INSTRUCTIONS message', () => {
@@ -750,5 +757,103 @@ describe('isStatusQuery', () => {
     expect(isStatusQuery('')).toBe(false);
     expect(isStatusQuery(null)).toBe(false);
     expect(isStatusQuery(undefined)).toBe(false);
+  });
+});
+
+// LOGIC CHANGE 2026-09-14: Anti-drift guards for the two places lib/task-parser.js
+// described a rule it did not enforce. Both are the same defect class as a rejection
+// message naming the wrong character set, and both are load-bearing: the operator has
+// no other way to learn the rule, so a wrong description is a wrong rule.
+describe('rejection messages and docstrings agree with the code', () => {
+  const ASCII_PUNCTUATION = Array.from({ length: 95 }, (_, i) =>
+    String.fromCharCode(32 + i)
+  ).filter((c) => !/[A-Za-z0-9]/.test(c));
+
+  const skillMessage = (value) => {
+    const result = parseTask(`TASK: t\nSKILL: ${value}\nINSTRUCTIONS: go`);
+    return result.errors.find((e) => e.startsWith('SKILL: rejected')) || '';
+  };
+
+  test('SKILL_PUNCTUATION names exactly what SKILL_PATTERN accepts', () => {
+    // The drift that existed: the message said "lowercase letters, digits and '-'
+    // only" while SKILL_PATTERN also admits "." and "_" — so "deploy_check", a
+    // perfectly legal skill name, was described as illegal by the very message that
+    // would have accepted it.
+    const accepted = ASCII_PUNCTUATION.filter((c) => SKILL_PATTERN.test(`a${c}b`));
+    expect(accepted.sort()).toEqual([...SKILL_PUNCTUATION].sort());
+  });
+
+  test('the SKILL rejection message names "." and "_", which the pattern accepts', () => {
+    const message = skillMessage('Bad Skill!');
+    expect(message).toContain('SKILL: rejected');
+    expect(message).toContain('"."');
+    expect(message).toContain('"_"');
+    expect(message).toContain('"-"');
+  });
+
+  test('every character the SKILL message names really is accepted', () => {
+    // The inverse defect: a message promising a character the pattern refuses.
+    for (const c of SKILL_PUNCTUATION) {
+      expect(SKILL_PATTERN.test(`skill${c}name`)).toBe(true);
+      expect(parseTask(`TASK: t\nSKILL: skill${c}name\nINSTRUCTIONS: go`).skill).toBe(
+        `skill${c}name`
+      );
+    }
+  });
+
+  test('the SKILL message does not claim "-" is the only punctuation allowed', () => {
+    expect(skillMessage('Bad Skill!')).not.toMatch(/digits and "-" only/);
+  });
+
+  // The matchField docstring claimed "indented prose" was recorded as an error. The
+  // canonical pattern is `^[ \t]*LABEL:`, so indentation is DELIBERATELY accepted
+  // (CLAUDE.md, "Field Label Rules"). The behaviour was right and the docstring was
+  // wrong; this pins both halves together so the next edit cannot reopen it.
+  describe('matchField docstring vs behaviour: indentation', () => {
+    test('an indented label parses and produces NO error', () => {
+      const result = parseTask(
+        ['    TASK: Indented', '\t\tREPO: jtpets/app', '  BRANCH: main', '  INSTRUCTIONS: go'].join(
+          '\n'
+        )
+      );
+      expect(result.description).toBe('Indented');
+      expect(result.repo).toBe('jtpets/app');
+      expect(result.errors).toEqual([]);
+    });
+
+    test('the docstring does not describe indentation as a non-canonical form', () => {
+      const source = fs.readFileSync(TASK_PARSER_PATH, 'utf8');
+      const start = source.indexOf('Match one field label');
+      expect(start).toBeGreaterThan(-1);
+      const docstring = source.slice(start, source.indexOf('const matchField', start));
+      // The exact phrase that was wrong. It listed indented prose alongside
+      // lowercase and mixed case as something "recorded as an error".
+      expect(docstring).not.toMatch(/lowercase, mixed case, or indented prose/);
+      // ...and the docstring must still say what IS an error, so removing the wrong
+      // clause cannot be "fixed" by deleting the explanation entirely.
+      expect(docstring).toMatch(/UPPERCASE/);
+    });
+
+    test('the two forms that ARE errors still are', () => {
+      expect(
+        parseTask('TASK: t\n  repo: jtpets/app\nINSTRUCTIONS: go').errors
+      ).toContain('REPO: label must be UPPERCASE at the start of its own line');
+      expect(parseTask('TASK: t\n  REPO:\nINSTRUCTIONS: go').errors).toContain(
+        'REPO: label is present but carries no value'
+      );
+    });
+  });
+
+  test('the REPO rejection message distinguishes the owner and name halves', () => {
+    // "jt.pets/app" is refused because OWNER_PATTERN admits no ".". The message must
+    // say so rather than listing "." as legal for the whole value.
+    const result = parseTask('TASK: t\nREPO: jt.pets/app\nINSTRUCTIONS: go');
+    const message = result.errors.find((e) => e.startsWith('REPO: rejected'));
+    expect(message).toBeDefined();
+    expect(result.repo).toBe('');
+    const ownerClause = message.slice(message.indexOf('owner uses'), message.indexOf('and name uses'));
+    expect(ownerClause).not.toContain('"."');
+    expect(ownerClause).not.toContain('"_"');
+    expect(message.slice(message.indexOf('and name uses'))).toContain('"."');
   });
 });

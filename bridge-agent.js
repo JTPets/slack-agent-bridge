@@ -33,7 +33,12 @@ require('dotenv').config();
  */
 
 const { WebClient } = require('@slack/web-api');
-const { execSync } = require('child_process');
+// LOGIC CHANGE 2026-09-14: `const { execSync } = require('child_process')` removed.
+// It was left behind when the git/clone lifecycle moved to lib/clone-lifecycle.js
+// (seam A) and had no remaining use in this file — a dead import of the one API in
+// the codebase that executes a shell command string. Keeping it around is an
+// invitation: the next `execSync(...)` written here would need no new require to
+// look at home. tests/no-shell-execution.test.js now fails on the import itself.
 const fs = require('fs');
 const path = require('path');
 
@@ -164,7 +169,7 @@ const { redact } = require('./lib/redact-secrets');
 
 // LOGIC CHANGE 2026-09-14: Extracted the git/clone lifecycle (cloneRepo,
 // cleanupDir, detectUndeliveredWork) into lib/clone-lifecycle.js — seam A in
-// docs/WIRING-AND-SEAMS.md. Pure fs/execSync helpers with no bridge state.
+// docs/WIRING-AND-SEAMS.md. Pure fs/execFileSync helpers with no bridge state.
 const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-lifecycle');
 
 // ---- Config ----
