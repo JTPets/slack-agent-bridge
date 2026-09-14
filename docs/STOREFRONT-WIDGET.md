@@ -66,27 +66,39 @@ A self-contained, mobile-responsive chat widget that:
 
 ## Running the Server
 
+> **Corrected 2026-09-14.** This section used to give `pm2 start/logs/restart`
+> commands. **There is no PM2 anywhere in this deployment** — the `jt-agent`
+> container has no process manager and `pm2` is not on its PATH (`CLAUDE.md` →
+> Tech Stack). Following those commands produced `pm2: not found`, which reads as
+> a broken machine rather than a stale document. SqTools, at the read-only `/repo`
+> mount, *is* PM2-managed; that is a different stack and a different repository.
+>
+> **Unverified: how, or whether, this server is deployed at all.** `bots/storefront.js`
+> is an entry point (`docs/WIRING-AND-SEAMS.md` §1) but the `jt-agent` container's
+> `command:` starts only `node bridge-agent.js`, and no compose service, cron entry or
+> npm script in this repository starts the storefront. Regenerate that claim:
+> `grep -rn "storefront" --include=*.json --include=*.yml . | grep -v node_modules`.
+> On the NAS: `grep -n storefront /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml`
+> and `crontab -l`. Until that is answered, only the direct command below is known
+> to work.
+
 ### Development
 
 ```bash
-# Direct execution
 node bots/storefront.js
-
-# With PM2
-pm2 start bots/storefront.js --name storefront-chat
 ```
 
 ### Production
 
+Run it the way every other process in this deployment runs: as a container command
+under `restart: unless-stopped`, or from the host. There is no supervisor inside the
+image.
+
 ```bash
-# Start with PM2
-pm2 start bots/storefront.js --name storefront-chat
+node bots/storefront.js
 
-# View logs
-pm2 logs storefront-chat
-
-# Restart
-pm2 restart storefront-chat
+# Logs, if it runs inside the jt-agent container:
+docker compose logs -f jt-agent
 ```
 
 ## Embedding the Widget
@@ -234,7 +246,7 @@ const STOREFRONT_AGENT_CONFIG = {
 
 ### No responses from agent
 - Verify Claude CLI is installed and configured
-- Check `pm2 logs storefront-chat` for errors
+- Check the process's own output for errors (`docker compose logs -f jt-agent` if it runs in the container)
 - Ensure `SLACK_BOT_TOKEN` is set (required for some functionality)
 
 ### Slack logging not working
