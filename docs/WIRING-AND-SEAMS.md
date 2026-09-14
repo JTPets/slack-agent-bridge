@@ -203,6 +203,23 @@ legacy migration, dedup + cleanup). Full suite green; `bridge-agent.js` 2209 →
   through `init({ bridgeChannel })`, so the module has no config/env coupling and
   `init()` can take temp-dir path overrides for testing.
 
+### Not a seam, but landed here — `lib/task-lock.js` (2026-09-14)
+Not an extraction from `bridge-agent.js`'s line ranges: the task lock was ~10 lines of
+inline `fs` calls in `processTask` plus an `fs.existsSync` probe in `auto-update.js`.
+It is listed here because it is the one module both entry points share, and §1's table
+says why that matters — `auto-update.js` runs as a **separate process**, so the lock is
+the only thing telling it a task is in flight.
+- **Owns:** `$WORK_DIR/.task-running` — `acquire`, `release`, `inspect`, `releaseIfStale`.
+- **Why it exists:** `processTask`'s `finally` does not run when the process is killed,
+  and a self-update restart is exactly that kill, so an orphaned lock was cleaned up by
+  nothing. That was survivable only because `waitForTaskCompletion()` gave up after 5
+  minutes and restarted anyway — which was itself the bug that killed long tasks.
+- **Callers:** `bridge-agent.js` (acquire/release around every task, plus a startup
+  orphan sweep) and `auto-update.js` (`evaluateTaskDeferral`, ahead of any git mutation).
+- **Guarded by:** `tests/task-lock.test.js` and `tests/auto-update-defer.test.js`;
+  `tests/smoke.test.js` loads it, which matters because the smoke suite is guard (a)
+  part 3 of the self-update and this module is on both entry points' critical path.
+
 ### Seam C — Built-in command router → `lib/ask-commands.js`  *(largest win)*
 - **Lines:** the 9-branch ladder inside `processConversation`, ~373 LOC (1285–1658):
   status, owner-tasks, create-channel, staff-tasks, bulletins, standup, approval

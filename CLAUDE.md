@@ -159,6 +159,8 @@ const POLL_INTERVAL = 5000;
 | `POLL_INTERVAL_MS` | Poll frequency in ms | `30000` |
 | `MAX_TURNS` | CC max turns per task | `50` |
 | `TASK_TIMEOUT_MS` | Hard kill timeout in ms | `600000` |
+| `TASK_LOCK_STALE_MS` | Age at which a task lock is treated as orphaned and released. Must exceed the longest a task can legitimately run. | `2 × TASK_TIMEOUT_MS + 600000` (30 min at defaults) |
+| `UPDATE_DEFER_ALERT_MS` | How long one self-update may be deferred before every cycle escalates to `#sqtools-ops` | `3600000` (60 min) |
 | `WORK_DIR` | Base dir for temp clones | `/tmp/bridge-agent` |
 | `REPOS` | Comma-separated repos for security-review | `jtpets/slack-agent-bridge,jtpets/SquareDashboardTool` |
 | `CLAUDE_RATE_LIMIT_PAUSE` | Initial pause duration (ms) when rate limit/bandwidth exhausted | `1800000` |
@@ -328,6 +330,12 @@ the exit — see `lib/update-verifier.js` and `checkForUpdates()` in `auto-updat
 A commit that fails (a) is recorded in `failedCommit` and not retried; the next commit on
 `main` deploys normally. Exit code is `0` — a clean intentional restart, not a crash.
 
+A fifth gate, added 2026-09-14, runs **before** all of these: the **deferral gate**
+(`evaluateTaskDeferral()`). Guards (a)-(d) stop the bridge restarting into code that
+cannot start; the deferral gate stops it restarting *out of* work that is still running.
+It sits ahead of `git reset --hard`/`git pull` so a deferred update mutates nothing.
+See "Task lock and self-update deferral" below.
+
 > **Why (a) runs the smoke suite, not just `node --check`:** `node --check` is a *syntax*
 > check — a commit that deletes a required file or adds a dependency missing from
 > `package.json` parses clean and would still brick the bridge. `npm run test:smoke`
@@ -495,6 +503,7 @@ slack-agent-bridge/
 │   ├── security-followup.js # Security finding → auto-task pipeline: parses findings, creates TASK messages
 │   ├── approval-queue.js # Manual approval queue for auto-generated tasks: queueTask, approveTask, rejectTask
 │   ├── task-decomposer.js # Automated task decomposition: analyzeComplexity, decomposeTask, findAgentForTask, subtask management
+│   ├── task-lock.js      # Sole owner of $WORK_DIR/.task-running: acquire/release plus the staleness rule that stops an orphaned lock freezing self-update
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update
 │   ├── update-verifier.js # Pre-restart gate for auto-update: node --check on entry points, restart plan (guard c)
@@ -562,6 +571,8 @@ slack-agent-bridge/
 │   ├── approval-queue.test.js   # Tests for lib/approval-queue.js (queueing, approval/rejection, commands)
 │   ├── update-verifier.test.js      # Tests for lib/update-verifier.js (entry-point syntax gate, planRestart)
 │   ├── auto-update-restart.test.js  # Tests for the exit-based self-update: one per guard (a)-(d)
+│   ├── task-lock.test.js            # Tests for lib/task-lock.js (acquire/release, staleness, legacy + unparseable lock formats)
+│   ├── auto-update-defer.test.js    # Tests the deferral gate: defers while a task holds the lock, releases a stale one, escalation bound
 │   ├── bridge-agent-scope.test.js   # AST scope guard: catches `X is not defined` in bridge-agent.js
 │   └── silent-drop-logging.test.js  # Tests for describeSkipReason + the poll loop's skip logging
 ├── docs/
@@ -730,8 +741,8 @@ and `auto-update.js` to prevent task interruption during updates.
 
 **Coordination flow:**
 1. When a TASK: message is found, it's enqueued before processing
-2. Auto-update checks both the queue and lock file before restarting
-3. If tasks are active, auto-update waits up to 5 minutes (30s intervals, 10 attempts)
+2. Auto-update checks both the queue and the task lock **before** pulling anything
+3. If tasks are active, auto-update **defers** — it pulls nothing and retries on the next `CHECK_INTERVAL_MS`
 4. On startup, any tasks with status "running" are marked as "interrupted"
 5. Completed/failed tasks are cleaned up after 24 hours
 
@@ -745,10 +756,69 @@ queue.cleanup();
 
 **Auto-update coordination:**
 ```javascript
-// Wait for queue to drain before restart
-await waitForTaskCompletion();
-// Checks: fs.existsSync(TASK_LOCK_FILE) AND checkTaskQueue().hasActive
+// Decide, don't wait. Returns { defer, reason, staleVerdicts, queue, lock }.
+const deferral = deps.evaluateTaskDeferral();
+if (deferral.defer) return;   // nothing pulled; next cycle retries
 ```
+
+### Task lock and self-update deferral
+
+**LOGIC CHANGE 2026-09-14.** The self-update cycle used to call
+`waitForTaskCompletion()`: poll the lock every 30s, up to 10 times, then **restart
+anyway**. `TASK_TIMEOUT_MS` defaults to 600000 (10 minutes) and a task that hits max
+turns retries once with doubled turns, so a task is permitted to run several times
+longer than auto-update was willing to wait. That was not a race that occasionally
+bit a long task — a task running longer than 5 minutes was *certain* to be killed.
+
+The lock is now owned by **`lib/task-lock.js`** and the wait is a **deferral**:
+
+| | Before | After |
+|---|---|---|
+| Gate runs | after `reset --hard` + `pull` + `npm install` | **before** any git mutation |
+| Task still running at the cap | restart anyway (task killed) | defer; pull nothing; retry next cycle |
+| Lock left by a killed task | never cleaned up by anything | detected and released, with a posted verdict |
+
+**Why a staleness rule is mandatory, not a nicety.** `processTask`'s `finally` cannot
+run when the process is killed — and a self-update restart is exactly that kill — so a
+lock left behind was previously cleaned up by nothing. Under the old 5-minute cap that
+only cost a delay. Removing the cap without an expiry would turn a task-killer into a
+permanent deploy freeze. Both halves ship together.
+
+**The staleness threshold** defaults to `2 × TASK_TIMEOUT_MS + 10 min` (30 minutes at
+defaults). The derivation: a task runs the LLM once and, on a max-turns hit, retries
+once, each invocation bounded by `TASK_TIMEOUT_MS`; the grace window covers Phase-3
+`npm test`, delivery detection and Slack posts. A lock older than that cannot belong to
+a live task, because a task that age has already been hard-killed by its own timeout.
+Override with `TASK_LOCK_STALE_MS`.
+
+**Process liveness is deliberately not a release criterion.** bridge-agent and
+auto-update are separate processes and this repo cannot prove they share a pid
+namespace; a wrong liveness read would release a live task's lock and destroy its work —
+the exact failure being fixed. The pid is recorded and reported for diagnosis only.
+
+**Two independent stale-lock releases**, both logged *and* posted to `#sqtools-ops` —
+there is no silent release:
+- **bridge-agent startup** clears any lock on disk. Sound because bridge-agent is the
+  lock's only writer and is single-instance here: if it is starting, no task of its own
+  can be running. This complements `recoverInterrupted()`, which repairs the *queue*
+  after a kill but never touched the *lock*.
+- **auto-update** ages a lock out by the threshold above. This is the backstop for the
+  case startup cannot see — a lock orphaned while the bridge keeps running.
+
+**Orphaned queue entries.** `recoverInterrupted()` only rewrites `running` entries, so a
+task killed between `enqueue()` and `dequeue()` stays `pending` forever. With no wait cap
+left, one such orphan would freeze deploys permanently, so `checkTaskQueue()` ignores
+entries older than the staleness threshold and reports how many. It does **not** rewrite
+them — `task-queue.json` is bridge-agent's file and auto-update only reads it.
+
+**How long can a deploy be deferred?** A deferral retries on the very next check interval;
+nothing is persisted that suppresses the commit (`failedCommit` is untouched), so it is a
+retry, not a skip. A **single** task can hold the lock for at most the staleness threshold
+before it is released out from under it. A back-to-back **succession** of healthy tasks
+can defer an update indefinitely — deliberately, because the alternative is killing live
+work. That case is bounded by visibility, not by a timer: once one update has been
+deferred continuously for `UPDATE_DEFER_ALERT_MS` (default 60 min), every subsequent cycle
+escalates to `#sqtools-ops`. The update is never forced.
 
 ### Task Decomposition
 

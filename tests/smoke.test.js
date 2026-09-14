@@ -265,6 +265,27 @@ describe('lib/ modules load without errors', () => {
         expect(typeof cloneLifecycle.detectUndeliveredWork).toBe('function');
     });
 
+    // LOGIC CHANGE 2026-09-14: lib/task-lock.js is on the critical path of BOTH
+    // entry points — bridge-agent.js acquires/releases the lock around every task
+    // and auto-update.js reads it to decide whether to defer a restart. A broken
+    // require here would brick the bridge, and this smoke suite is guard (a) part 3
+    // of the self-update, so it has to be the thing that catches it.
+    test('lib/task-lock.js loads and exports expected functions', () => {
+        const lock = require('../lib/task-lock');
+
+        expect(lock).toHaveProperty('acquire');
+        expect(lock).toHaveProperty('release');
+        expect(lock).toHaveProperty('inspect');
+        expect(lock).toHaveProperty('releaseIfStale');
+        expect(lock).toHaveProperty('defaultStaleAfterMs');
+
+        expect(typeof lock.acquire).toBe('function');
+        expect(typeof lock.release).toBe('function');
+        expect(typeof lock.inspect).toBe('function');
+        expect(typeof lock.releaseIfStale).toBe('function');
+        expect(typeof lock.defaultStaleAfterMs).toBe('function');
+    });
+
     test('lib/agent-registry.js loads and exports expected functions', () => {
         const agentRegistry = require('../lib/agent-registry');
 

@@ -27,6 +27,7 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { verifyEntryPoints, runSmokeTest, planRestart } = require('./lib/update-verifier');
+const taskLock = require('./lib/task-lock');
 
 // Configuration from environment variables
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
@@ -52,8 +53,22 @@ const RESTART_EXIT_CODE = 0;
 const WORK_DIR = process.env.WORK_DIR || '/tmp/bridge-agent';
 const TASK_LOCK_FILE = path.join(WORK_DIR, '.task-running');
 const TASK_QUEUE_FILE = path.join(WORK_DIR, 'task-queue.json');
-const TASK_WAIT_INTERVAL_MS = 30000; // 30 seconds between checks
-const TASK_WAIT_MAX_ATTEMPTS = 10;   // Max 10 attempts = 5 minutes max wait
+
+// LOGIC CHANGE 2026-09-14: Replaced the in-process "wait up to 5 minutes then
+// restart anyway" loop (TASK_WAIT_INTERVAL_MS / TASK_WAIT_MAX_ATTEMPTS) with a
+// deferral that returns and retries on the next check interval.
+//
+// The old loop capped its wait at 10 x 30s = 5 minutes and then restarted
+// regardless. TASK_TIMEOUT_MS defaults to 600000 (10 minutes) and a task that
+// hits max turns retries once, so a task is ALLOWED to run several times longer
+// than auto-update was willing to wait. The restart was not a race that
+// occasionally bit a long task - it was guaranteed to kill one. That is how a
+// long refactor died mid-run.
+//
+// Deferring instead of force-restarting is only safe because lib/task-lock.js
+// ages a lock out: a lock left behind by a killed task is detected and released
+// rather than blocking deploys forever. The two changes are one change.
+const DEFER_ALERT_AFTER_MS = parseInt(process.env.UPDATE_DEFER_ALERT_MS, 10) || 60 * 60 * 1000;
 
 // Initialize Slack client
 const slack = new WebClient(SLACK_BOT_TOKEN);
@@ -201,99 +216,151 @@ function npmInstall() {
 }
 
 // LOGIC CHANGE 2026-03-27: Wait for bridge-agent task to complete before restarting.
-// Checks for task lock file every 30 seconds, up to 10 times (5 min max).
-// This prevents interrupting a running task during auto-update.
 // LOGIC CHANGE 2026-04-01: Also checks task queue for pending/running tasks.
-// Queue is more reliable than lock file since it persists task state to disk.
+// LOGIC CHANGE 2026-09-14: The wait loop is gone; this is now a non-blocking
+// deferral check. See DEFER_ALERT_AFTER_MS above for why waiting-then-restarting
+// was the defect rather than the safeguard.
 
 /**
- * Check if task queue has active tasks (pending or running)
- * @returns {{ hasActive: boolean, pending: number, running: object|null }}
+ * Check if task queue has active tasks (pending or running).
+ *
+ * LOGIC CHANGE 2026-09-14: Entries older than the task-lock staleness threshold
+ * no longer count as active. `recoverInterrupted()` on bridge startup only
+ * rewrites "running" entries, so a task killed between `enqueue()` and
+ * `dequeue()` stays "pending" forever. Under the old 5-minute cap that merely
+ * delayed each update; now that a deferral has no cap, one such entry would
+ * freeze deploys permanently. Stale entries are reported, never rewritten -
+ * task-queue.json is bridge-agent's file and auto-update only reads it.
+ *
+ * @param {object} [options]
+ * @param {number} [options.staleAfterMs] Override staleness threshold (tests)
+ * @param {number} [options.now]          Override clock (tests)
+ * @returns {{ hasActive: boolean, pending: number, running: object|null, staleIgnored: number }}
  */
-function checkTaskQueue() {
+function checkTaskQueue({ staleAfterMs, now } = {}) {
+    const empty = { hasActive: false, pending: 0, running: null, staleIgnored: 0 };
     try {
         if (!fs.existsSync(TASK_QUEUE_FILE)) {
-            return { hasActive: false, pending: 0, running: null };
+            return empty;
         }
         const data = fs.readFileSync(TASK_QUEUE_FILE, 'utf8');
         if (!data || !data.trim()) {
-            return { hasActive: false, pending: 0, running: null };
+            return empty;
         }
         const queue = JSON.parse(data);
         if (!Array.isArray(queue)) {
-            return { hasActive: false, pending: 0, running: null };
+            return empty;
         }
 
-        const pending = queue.filter(t => t.status === 'pending');
-        const running = queue.find(t => t.status === 'running');
-        const hasActive = pending.length > 0 || running != null;
+        const threshold = Number.isFinite(staleAfterMs) && staleAfterMs > 0
+            ? staleAfterMs
+            : taskLock.defaultStaleAfterMs();
+        const clock = Number.isFinite(now) ? now : Date.now();
 
-        return { hasActive, pending: pending.length, running };
+        const isStale = (task, stampField) => {
+            const stamp = Date.parse(task[stampField]);
+            if (!Number.isFinite(stamp)) return false; // no usable stamp -> treat as live
+            return clock - stamp > threshold;
+        };
+
+        const allPending = queue.filter(t => t.status === 'pending');
+        const livePending = allPending.filter(t => !isStale(t, 'enqueuedAt'));
+
+        const allRunning = queue.filter(t => t.status === 'running');
+        const liveRunning = allRunning.filter(t => !isStale(t, 'startedAt'));
+
+        const staleIgnored = (allPending.length - livePending.length)
+            + (allRunning.length - liveRunning.length);
+
+        return {
+            hasActive: livePending.length > 0 || liveRunning.length > 0,
+            pending: livePending.length,
+            running: liveRunning[0] || null,
+            staleIgnored,
+        };
     } catch (err) {
         console.error('Failed to check task queue:', err.message);
-        return { hasActive: false, pending: 0, running: null };
+        return empty;
     }
 }
 
 /**
- * Wait for any running or pending task to complete
- * @returns {Promise<{ waited: boolean, attempts: number }>}
+ * Decide whether this update cycle must stand aside for a running task.
+ *
+ * Order matters. A stale lock is released FIRST, so a lock left behind by a
+ * killed task cannot make the check below defer forever. Anything released here
+ * is surfaced twice - logged by lib/task-lock.js and posted to #sqtools-ops by
+ * the caller. There is no silent release.
+ *
+ * On the bound: a deferral retries on the very next check interval because
+ * nothing is persisted to suppress it - the caller simply returns, and
+ * setInterval(checkForUpdates, CHECK_INTERVAL_MS) runs it again. A SINGLE task
+ * can hold the lock for at most the staleness threshold (default 30 min, see
+ * lib/task-lock.js) before it is released out from under it. A back-to-back
+ * SUCCESSION of healthy tasks can, however, defer an update indefinitely: that
+ * is deliberate, because the alternative is killing live work, which is the bug
+ * being fixed. It is bounded by visibility rather than by a timer - once a
+ * single update has been deferred continuously for DEFER_ALERT_AFTER_MS
+ * (default 60 min), every cycle escalates to #sqtools-ops so a deploy that is
+ * never landing cannot go unnoticed.
+ *
+ * @param {object} [options]
+ * @param {number} [options.staleAfterMs] Override staleness threshold (tests)
+ * @param {number} [options.now]          Override clock (tests)
+ * @returns {{ defer: boolean, reason: string|null, staleVerdicts: string[], queue: object, lock: object }}
  */
-async function waitForTaskCompletion() {
-    let attempts = 0;
+function evaluateTaskDeferral({ staleAfterMs, now } = {}) {
+    const staleVerdicts = [];
 
-    while (attempts < TASK_WAIT_MAX_ATTEMPTS) {
-        // Check both lock file and task queue for active tasks
-        const lockFileExists = fs.existsSync(TASK_LOCK_FILE);
-        const queueStatus = checkTaskQueue();
-
-        // If neither indicates active tasks, proceed
-        if (!lockFileExists && !queueStatus.hasActive) {
-            return { waited: attempts > 0, attempts };
-        }
-
-        // Task is running or pending, wait and retry
-        attempts++;
-
-        // Build status message
-        let taskInfo = '';
-        if (queueStatus.running) {
-            taskInfo = queueStatus.running.description || 'unknown';
-            if (queueStatus.pending > 0) {
-                taskInfo += ` (+${queueStatus.pending} pending)`;
-            }
-        } else if (lockFileExists) {
-            try {
-                taskInfo = fs.readFileSync(TASK_LOCK_FILE, 'utf8').split('\n')[2] || '';
-            } catch {
-                // Ignore read errors
-            }
-        } else if (queueStatus.pending > 0) {
-            taskInfo = `${queueStatus.pending} pending task(s)`;
-        }
-
-        console.log(`Task active (attempt ${attempts}/${TASK_WAIT_MAX_ATTEMPTS}). Task: ${taskInfo || 'unknown'}`);
-
-        if (attempts === 1) {
-            // Notify on first wait
-            const queueInfo = queueStatus.pending > 0
-                ? ` (${queueStatus.pending} pending in queue)`
-                : '';
-            await postToOps(`:hourglass_flowing_sand: Auto-update: waiting for running task to complete before restart...${queueInfo}`);
-        }
-
-        // Wait before checking again
-        await new Promise(resolve => setTimeout(resolve, TASK_WAIT_INTERVAL_MS));
+    const staleRelease = taskLock.releaseIfStale({
+        lockFile: TASK_LOCK_FILE,
+        staleAfterMs,
+        now,
+    });
+    if (staleRelease.verdict) {
+        staleVerdicts.push(staleRelease.verdict);
     }
 
-    // Max attempts reached, task still running
-    const finalStatus = checkTaskQueue();
-    console.log(`Max wait attempts (${TASK_WAIT_MAX_ATTEMPTS}) reached. Proceeding with restart.`);
-    const warningMsg = finalStatus.running
-        ? `:warning: Auto-update: max wait time reached. Restarting with running task: ${finalStatus.running.description || 'unknown'}`
-        : `:warning: Auto-update: max wait time reached. Restarting despite possible running task.`;
-    await postToOps(warningMsg);
-    return { waited: true, attempts };
+    // Re-read after a possible release so the decision uses current truth.
+    const lock = taskLock.inspect({ lockFile: TASK_LOCK_FILE, staleAfterMs, now });
+    const queue = checkTaskQueue({ staleAfterMs, now });
+
+    if (queue.staleIgnored > 0) {
+        const verdict =
+            `Ignored ${queue.staleIgnored} stale task-queue entr${queue.staleIgnored === 1 ? 'y' : 'ies'} ` +
+            `in ${TASK_QUEUE_FILE} when deciding whether to defer: older than the staleness limit, so they ` +
+            `cannot belong to a live task. They were NOT rewritten - task-queue.json belongs to bridge-agent, ` +
+            `whose recoverInterrupted() only repairs "running" entries. A "pending" entry orphaned by a kill ` +
+            `stays in the file and would otherwise block every future deploy.`;
+        console.warn(`[auto-update] ${verdict}`);
+        staleVerdicts.push(verdict);
+    }
+
+    if (lock.held && !lock.stale) {
+        const ageMin = Math.round((lock.ageMs || 0) / 60000);
+        return {
+            defer: true,
+            reason: `a task holds the lock (${lock.description || lock.msgTs || 'unknown task'}, running ${ageMin}m)`,
+            staleVerdicts,
+            queue,
+            lock,
+        };
+    }
+
+    if (queue.hasActive) {
+        const detail = queue.running
+            ? `running: ${queue.running.description || 'unknown'}`
+            : `${queue.pending} pending task(s)`;
+        return {
+            defer: true,
+            reason: `the task queue is not drained (${detail})`,
+            staleVerdicts,
+            queue,
+            lock,
+        };
+    }
+
+    return { defer: false, reason: null, staleVerdicts, queue, lock };
 }
 
 // LOGIC CHANGE 2026-09-13: restartPM2() deleted. `pm2` does not exist in the
@@ -359,13 +426,26 @@ function loadState() {
             return {
                 lastKnownCommit: data.lastKnownCommit || null,
                 restartedIntoCommit: data.restartedIntoCommit || null,
-                failedCommit: data.failedCommit || null
+                failedCommit: data.failedCommit || null,
+                // LOGIC CHANGE 2026-09-14: deferral bookkeeping. Durable so the
+                // "deferred for Nm" figure survives an auto-update restart and
+                // the escalation post is not reset to zero by one.
+                deferringSince: data.deferringSince || null,
+                deferNotifiedAt: data.deferNotifiedAt || null,
+                deferringCommit: data.deferringCommit || null
             };
         }
     } catch (error) {
         console.error('Failed to load state file:', error.message);
     }
-    return { lastKnownCommit: null, restartedIntoCommit: null, failedCommit: null };
+    return {
+        lastKnownCommit: null,
+        restartedIntoCommit: null,
+        failedCommit: null,
+        deferringSince: null,
+        deferNotifiedAt: null,
+        deferringCommit: null
+    };
 }
 
 /**
@@ -474,6 +554,75 @@ async function checkForUpdates(overrides = {}) {
 
         console.log(`Update available: ${localHead.substring(0, 7)} -> ${remoteHead.substring(0, 7)}`);
 
+        // ---- DEFERRAL GATE: never mutate the tree under a running task ----
+        // LOGIC CHANGE 2026-09-14: This check moved to BEFORE `git reset --hard`
+        // and `git pull`. It used to sit after them (and after verification),
+        // so even a correctly-deferred update had already rewritten the working
+        // tree beneath a task that was still executing. Deciding to stand aside
+        // after the destructive step is not standing aside.
+        const deferral = deps.evaluateTaskDeferral();
+
+        // A stale lock or an orphaned queue entry is released/ignored here, and
+        // that is never silent: log (in lib/task-lock.js) plus a post, every time.
+        for (const verdict of deferral.staleVerdicts) {
+            await deps.postToOps(`:unlock: Auto-update: ${verdict}`);
+        }
+
+        if (deferral.defer) {
+            const now = Date.now();
+            // The elapsed figure is per-commit. Without this, a commit deferred
+            // for 90m would hand its clock to the NEXT commit, which would then
+            // escalate immediately quoting an elapsed time that is not its own.
+            if (state.deferringCommit !== remoteHead) {
+                state.deferringCommit = remoteHead;
+                state.deferringSince = now;
+                state.deferNotifiedAt = null;
+            }
+            if (!state.deferringSince) {
+                state.deferringSince = now;
+            }
+            const deferredForMs = now - state.deferringSince;
+            const deferredMin = Math.round(deferredForMs / 60000);
+
+            console.log(
+                `Deferring update to ${remoteHead.substring(0, 7)}: ${deferral.reason}. ` +
+                `Deferred for ${deferredMin}m; retrying next check interval.`
+            );
+
+            // Post on the first deferral of this update, then only once past the
+            // escalation threshold, so a normal long task does not spam #sqtools-ops
+            // every CHECK_INTERVAL_MS.
+            const escalating = deferredForMs >= DEFER_ALERT_AFTER_MS;
+            if (!state.deferNotifiedAt) {
+                await deps.postToOps(
+                    `:hourglass_flowing_sand: Auto-update: holding ${remoteHead.substring(0, 7)} - ${deferral.reason}. ` +
+                    `Nothing has been pulled; retrying every ${Math.round(CHECK_INTERVAL_MS / 60000)}m until the task finishes.`
+                );
+                state.deferNotifiedAt = now;
+            } else if (escalating) {
+                await deps.postToOps(
+                    `:warning: Auto-update: ${remoteHead.substring(0, 7)} has been deferred for ${deferredMin}m ` +
+                    `(over the ${Math.round(DEFER_ALERT_AFTER_MS / 60000)}m alert threshold) - ${deferral.reason}. ` +
+                    `The update is NOT being forced: killing a live task is the failure this deferral exists to ` +
+                    `prevent. If no task should be running, check the lock at \`${TASK_LOCK_FILE}\` and the queue ` +
+                    `at \`${TASK_QUEUE_FILE}\`.`
+                );
+                state.deferNotifiedAt = now;
+            }
+
+            deps.saveState(state);
+            return;
+        }
+
+        // Cleared to proceed - forget any deferral history so the next one starts fresh.
+        if (state.deferringSince || state.deferNotifiedAt || state.deferringCommit) {
+            const heldMin = state.deferringSince ? Math.round((Date.now() - state.deferringSince) / 60000) : 0;
+            console.log(`Task lock clear after ${heldMin}m of deferral; proceeding with update`);
+            state.deferringSince = null;
+            state.deferNotifiedAt = null;
+            state.deferringCommit = null;
+        }
+
         // LOGIC CHANGE 2026-03-26: Added git reset --hard HEAD before pull to ensure any local
         // modifications (from npm install modifying package.json, or stray files) don't block the pull
         const resetResult = deps.gitResetHard();
@@ -577,13 +726,6 @@ async function checkForUpdates(overrides = {}) {
             return;
         }
 
-        // LOGIC CHANGE 2026-03-27: Wait for any running task to complete before restarting.
-        // Checks for task lock file every 30 seconds, up to 10 times (5 min max).
-        const waitResult = await deps.waitForTaskCompletion();
-        if (waitResult.waited) {
-            console.log(`Waited ${waitResult.attempts} attempts for task completion`);
-        }
-
         // ---- GUARD (b): state is durable BEFORE the exit ----
         // This is the exact bug the pm2 path had - it returned before saveState,
         // so lastKnownCommit never advanced. Exit-restart inherits it unless the
@@ -633,7 +775,7 @@ const DEFAULT_DEPS = {
     verifyEntryPoints,
     runSmokeTest,
     planRestart,
-    waitForTaskCompletion,
+    evaluateTaskDeferral,
     postToOps,
     exit: flushAndExit
 };
@@ -730,7 +872,7 @@ module.exports = {
     saveState,
     gitResetTo,
     checkTaskQueue,
-    waitForTaskCompletion,
+    evaluateTaskDeferral,
     RESTART_EXIT_CODE,
     DEFAULT_DEPS
 };

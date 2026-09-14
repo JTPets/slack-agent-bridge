@@ -88,7 +88,10 @@ function makeDeps(overrides = {}) {
             }
             return { exit: true, reason: 'ok' };
         }),
-        waitForTaskCompletion: jest.fn(async () => ({ waited: false, attempts: 0 })),
+        evaluateTaskDeferral: jest.fn(() => {
+            calls.push('evaluateTaskDeferral');
+            return { defer: false, reason: null, staleVerdicts: [], queue: {}, lock: {} };
+        }),
         postToOps: jest.fn(async (msg) => {
             calls.push('postToOps');
             posts.push(msg);
@@ -505,12 +508,35 @@ describe('guard (d): notify before exiting', () => {
 // ---------------------------------------------------------------------------
 
 describe('existing behaviour preserved', () => {
-    test('waits for a running task before exiting', async () => {
+    // LOGIC CHANGE 2026-09-14: This test used to assert
+    // `waitForTaskCompletion` was called once. That assertion encoded the
+    // defect: the function it pinned waited at most 10 x 30s = 5 minutes and
+    // then restarted REGARDLESS of whether the task had finished, while
+    // TASK_TIMEOUT_MS allows a task 10 minutes (doubled again on a max-turns
+    // retry). The suite was therefore green over a guaranteed task-killer.
+    // The gate is now `evaluateTaskDeferral`, which returns a decision instead
+    // of waiting; deferral behaviour is covered in tests/auto-update-defer.test.js.
+    test('consults the task-deferral gate before exiting', async () => {
         const deps = makeDeps();
 
         await autoUpdate.checkForUpdates(deps);
 
-        expect(deps.waitForTaskCompletion).toHaveBeenCalledTimes(1);
+        expect(deps.evaluateTaskDeferral).toHaveBeenCalledTimes(1);
+    });
+
+    // The gate must run BEFORE the destructive git steps. The old wait ran
+    // after reset/pull/npm install, so a deferral still rewrote the working
+    // tree beneath the task it was deferring for.
+    test('the deferral gate runs before reset --hard and pull', async () => {
+        const deps = makeDeps();
+
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.calls.indexOf('evaluateTaskDeferral')).toBeGreaterThanOrEqual(0);
+        expect(deps.calls.indexOf('evaluateTaskDeferral'))
+            .toBeLessThan(deps.calls.indexOf('gitResetHard'));
+        expect(deps.calls.indexOf('evaluateTaskDeferral'))
+            .toBeLessThan(deps.calls.indexOf('gitPull'));
     });
 
     test('a failed fetch reports and returns without touching the tree', async () => {
