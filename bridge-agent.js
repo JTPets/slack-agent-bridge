@@ -448,6 +448,16 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
   const llmProvider = resolveLlmProvider(agentConfig, agentConfig?.id || 'bridge');
 
   try {
+    // LOGIC CHANGE 2026-09-14: Refuse a task whose fields parseTask rejected before
+    // any work starts. parseTask validates REPO:/BRANCH:/SKILL: at the boundary and
+    // records rejections in task.errors instead of quietly dropping them; running
+    // the task anyway would clone the wrong repo, or run with no repo at all, and
+    // nobody would be told. Throwing here routes to this function's catch, which
+    // posts the reason to Slack and reacts with the failure emoji.
+    if (task.errors && task.errors.length > 0) {
+      throw new Error(`Task message rejected: ${task.errors.join('; ')}`);
+    }
+
     // LOGIC CHANGE 2026-03-27: Start heartbeat reactions (eyes -> cycling emojis).
     await heartbeat.start();
 

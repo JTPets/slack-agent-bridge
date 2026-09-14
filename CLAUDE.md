@@ -28,7 +28,7 @@ Node.js Slack polling agent that monitors Slack channels for task messages and e
 
 ### Security First
 - **NEVER log tokens** — Slack tokens, API keys, and secrets must never appear in logs or console output
-- **No eval/exec** — Never use `eval()` or `child_process.exec()`. Use `child_process.spawn()` only
+- **No eval/exec** — Never use `eval()`, `child_process.exec()` or `child_process.execSync()` with an interpolated value. Use `child_process.spawn()` (async) or `child_process.execFileSync()` (sync) with an **argv array** — those never involve a shell, so a metacharacter in an argument is just a character
 - **Sanitize all input** — Validate and sanitize any data from Slack before processing
 - **No hardcoded secrets** — All credentials via environment variables
 
@@ -483,11 +483,12 @@ slack-agent-bridge/
 │   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel, activateAgent
 │   ├── bulletin-board.js # Inter-agent communication: postBulletin, getBulletins, markRead, cleanupOldBulletins
 │   ├── config.js         # Environment variable loading, validation, and defaults
+│   ├── git-identifiers.js # Boundary validation for Slack-controlled REPO:/BRANCH: values (isValidRepo, isValidBranch, assertValid*)
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, gemini, ollama), fallback chain, startup validation
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
 │   ├── owner-tasks.js    # Owner task management: activation checklists, pending tasks, ACTION REQUIRED detection
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
-│   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork
+│   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo (execFileSync argv arrays, no shell), cleanupDir, detectUndeliveredWork
 │   ├── bridge-state.js    # State persistence (seam B): sole owner of .bridge-agent-state.json (per-channel poll cursors) and processed-tasks.json (task dedup); init, get/setLastChecked, isTaskProcessed, markTaskProcessed, cleanupProcessedTasks
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
@@ -544,7 +545,8 @@ slack-agent-bridge/
 │   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo, cleanupDir export surface)
 │   ├── bridge-state.test.js     # Tests for lib/bridge-state.js (poll cursors, legacy migration, processed-task dedup; temp-dir CRUD)
 │   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management, joinAgentChannels)
-│   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command)
+│   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command, label anchoring, field rejection)
+│   ├── git-identifiers.test.js  # Tests for lib/git-identifiers.js (repo/branch allowlists, injection payload rejection)
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
 │   ├── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
 │   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)
@@ -828,6 +830,39 @@ INSTRUCTIONS: What to do
 | BRANCH | No | main | Branch to clone from |
 | TURNS | No | 50 | Max LLM turns for this task (5-100) |
 | INSTRUCTIONS | Yes | - | Detailed instructions (can be multiline) |
+
+### Field Label Rules
+
+**LOGIC CHANGE 2026-09-14.** A field label is recognised only when it is
+**UPPERCASE** and at the **start of a line** (leading spaces or tabs are allowed).
+`TASK:`, `REPO:`, `BRANCH:`, `TURNS:`, `SKILL:` and `INSTRUCTIONS:` all follow this
+rule — the list lives in `FIELD_LABELS` in `lib/task-parser.js`.
+
+This replaces the 2026-04-01 case-insensitive labels. The old patterns were
+unanchored *and* case-insensitive, so prose matched: on 2026-09-13 the sentence
+fragment "repo: runWithFallback had" inside an INSTRUCTIONS body produced
+`git clone https://github.com/jtpets/runWithFallback had.git`.
+
+A label written in a non-canonical form (`repo:`, `Repo:`) is **not silently
+ignored** — it is reported and the whole task is refused, so a mis-typed label can
+never quietly downgrade a task to "no repo".
+
+### Field Value Rules
+
+`REPO:` and `BRANCH:` reach `git` and are validated at the boundary by
+`lib/git-identifiers.js`, then asserted again at the sink in `cloneRepo`. Values are
+**rejected, never sanitised** — stripping characters out of `jtpets/my;repo` would
+clone `jtpets/myrepo`, a different repository than was asked for, with nobody told.
+
+| Field | Accepted shape |
+|-------|----------------|
+| `REPO` | `owner/name`. Owner: 1-39 chars of `[A-Za-z0-9-]`, first and last alphanumeric. Name: 1-100 chars of `[A-Za-z0-9._-]`, no `..` |
+| `BRANCH` | 1-255 chars of `[A-Za-z0-9._/-]` starting alphanumeric, and git-ref-legal (no `..`, `//`, trailing `/` or `.`, no component starting `.` or ending `.lock`) |
+| `SKILL` | A single path segment: 1-64 chars of `[a-z0-9._-]` starting alphanumeric, no `..` (it indexes `skills/<skill>/SKILL.md`) |
+
+A rejected value is collected into `task.errors` by `parseTask`; `processTask`
+throws on a non-empty `task.errors`, which posts the reason to Slack and marks the
+message failed. No clone is attempted.
 
 ### TURNS Field
 • Controls how many LLM turns (API round-trips) the agent will execute for this task.

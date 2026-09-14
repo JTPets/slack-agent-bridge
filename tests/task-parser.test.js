@@ -9,6 +9,7 @@ const {
   isStatusQuery,
   isCreateChannelCommand,
   parseCreateChannelCommand,
+  FIELD_LABELS,
   DEFAULT_TURNS,
   MIN_TURNS,
   MAX_TURNS
@@ -173,9 +174,13 @@ INSTRUCTIONS: Fix it`;
     expect(result.raw).toBe('');
   });
 
-  // LOGIC CHANGE 2026-04-01: Tests for case-insensitive field parsing
-  describe('case-insensitive field parsing', () => {
-    test('parses lowercase task/repo/branch/instructions fields', () => {
+  // LOGIC CHANGE 2026-09-14: These three tests previously asserted that lowercase
+  // and mixed-case field labels parse (the 2026-04-01 mobile-typing convenience).
+  // That behaviour is what let `/REPO:\s*(.+?)/i` capture prose, so it is retired:
+  // labels are UPPERCASE and line-anchored, and a non-canonical label is REPORTED
+  // rather than dropped. The tests are flipped in the same change as the fix.
+  describe('field labels must be UPPERCASE and line-anchored', () => {
+    test('does not parse lowercase task/repo/branch/instructions fields', () => {
       const text = `task: Lowercase task
 repo: jtpets/my-app
 branch: feature/test
@@ -183,13 +188,28 @@ instructions: Do the work`;
 
       const result = parseTask(text);
 
-      expect(result.description).toBe('Lowercase task');
-      expect(result.repo).toBe('jtpets/my-app');
-      expect(result.branch).toBe('feature/test');
-      expect(result.instructions).toBe('Do the work');
+      expect(result.description).toBe('');
+      expect(result.repo).toBe('');
+      expect(result.branch).toBe('main');
+      expect(result.instructions).toBe('');
     });
 
-    test('parses mixed case field names', () => {
+    test('reports a lowercase label instead of silently ignoring it', () => {
+      const text = `task: Lowercase task
+repo: jtpets/my-app
+branch: feature/test
+instructions: Do the work`;
+
+      const result = parseTask(text);
+
+      // Every mis-cased label is named, so the operator is told what to fix.
+      expect(result.errors).toHaveLength(4);
+      for (const label of ['TASK', 'REPO', 'BRANCH', 'INSTRUCTIONS']) {
+        expect(result.errors.some((e) => e.startsWith(`${label}:`))).toBe(true);
+      }
+    });
+
+    test('does not parse mixed case field names', () => {
       const text = `Task: Mixed case task
 Repo: jtpets/mixed-repo
 Branch: dev
@@ -197,22 +217,187 @@ Instructions: Test mixed case`;
 
       const result = parseTask(text);
 
-      expect(result.description).toBe('Mixed case task');
-      expect(result.repo).toBe('jtpets/mixed-repo');
-      expect(result.branch).toBe('dev');
-      expect(result.instructions).toBe('Test mixed case');
+      expect(result.description).toBe('');
+      expect(result.repo).toBe('');
+      expect(result.branch).toBe('main');
+      expect(result.errors.length).toBeGreaterThan(0);
     });
 
-    test('parses lowercase turns and skill fields', () => {
-      const text = `task: Test task
+    test('does not parse lowercase turns and skill fields', () => {
+      const text = `TASK: Test task
 turns: 75
 skill: run-tests
-instructions: Run tests`;
+INSTRUCTIONS: Run tests`;
 
       const result = parseTask(text);
 
-      expect(result.turns).toBe(75);
-      expect(result.skill).toBe('run-tests');
+      expect(result.turns).toBe(DEFAULT_TURNS);
+      expect(result.skill).toBe('');
+      expect(result.errors.some((e) => e.startsWith('TURNS:'))).toBe(true);
+      expect(result.errors.some((e) => e.startsWith('SKILL:'))).toBe(true);
+    });
+
+    test('reports an empty-valued label as empty, not as mis-cased', () => {
+      const text = `TASK: Task with an empty repo line
+REPO:
+INSTRUCTIONS: Do the work`;
+
+      const result = parseTask(text);
+
+      expect(result.repo).toBe('');
+      expect(result.errors).toContain('REPO: label is present but carries no value');
+      expect(result.errors.some((e) => e.includes('UPPERCASE'))).toBe(false);
+    });
+
+    test('accepts a label indented with spaces or tabs', () => {
+      const text = ['  TASK: Indented task', '\tREPO: jtpets/my-app', '  INSTRUCTIONS: Go'].join(
+        '\n'
+      );
+
+      const result = parseTask(text);
+
+      expect(result.description).toBe('Indented task');
+      expect(result.repo).toBe('jtpets/my-app');
+      expect(result.errors).toEqual([]);
+    });
+  });
+
+  // LOGIC CHANGE 2026-09-14: Regression tests for the 2026-09-13 misparse — an
+  // unanchored REPO: pattern matched prose inside an INSTRUCTIONS body and the
+  // bridge ran `git clone https://github.com/jtpets/runWithFallback had.git`.
+  describe('anchoring: prose is not a field', () => {
+    test('does not treat a mid-sentence "repo:" in prose as the REPO field', () => {
+      const text = `TASK: Document the fallback chain
+INSTRUCTIONS: Explain that runWithFallback had zero non-test callers. The relevant repo: runWithFallback had no coverage until now.`;
+
+      const result = parseTask(text);
+
+      expect(result.repo).toBe('');
+      expect(result.errors).toEqual([]);
+    });
+
+    test('does not treat a mid-sentence "branch:" in prose as the BRANCH field', () => {
+      const text = `TASK: Explain git
+INSTRUCTIONS: Describe how a branch: feature/x is created from main.`;
+
+      const result = parseTask(text);
+
+      expect(result.branch).toBe('main');
+      expect(result.errors).toEqual([]);
+    });
+
+    test('the real header field still wins when prose mentions the label too', () => {
+      const text = `TASK: Fix the parser
+REPO: jtpets/slack-agent-bridge
+BRANCH: feature/parser
+INSTRUCTIONS: The old code had an unanchored repo: pattern and a branch: pattern.`;
+
+      const result = parseTask(text);
+
+      expect(result.repo).toBe('jtpets/slack-agent-bridge');
+      expect(result.branch).toBe('feature/parser');
+      expect(result.errors).toEqual([]);
+    });
+
+    test('does not treat "BRANCH GATE:" prose as the BRANCH field', () => {
+      const text = `TASK: Dispatch with a footer
+INSTRUCTIONS: Do the work.
+BRANCH GATE: work on a NEW branch off main.`;
+
+      const result = parseTask(text);
+
+      expect(result.branch).toBe('main');
+      expect(result.errors).toEqual([]);
+    });
+  });
+
+  // LOGIC CHANGE 2026-09-14: Boundary rejection for the confirmed command-injection
+  // chain (Slack text -> parseTask -> cloneRepo). Payloads are inert: they carry
+  // shell metacharacters but name no real command.
+  describe('boundary validation rejects crafted field values', () => {
+    test('rejects a crafted REPO rather than passing it to the clone', () => {
+      const text = `TASK: Crafted repo
+REPO: jtpets/repo;INERT_PAYLOAD_NOT_A_COMMAND
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.repo).toBe('');
+      expect(result.errors.some((e) => e.startsWith('REPO: rejected'))).toBe(true);
+    });
+
+    test('rejects rather than sanitises — the valid prefix is not salvaged', () => {
+      const text = `TASK: Crafted repo
+REPO: jtpets/repo;INERT_PAYLOAD_NOT_A_COMMAND
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      // Never "jtpets/repo": stripping the payload would clone a repository the
+      // operator did not name, and say nothing about it.
+      expect(result.repo).not.toBe('jtpets/repo');
+      expect(result.repo).toBe('');
+    });
+
+    test('rejects a crafted BRANCH rather than passing it to the clone', () => {
+      const text = `TASK: Crafted branch
+REPO: jtpets/slack-agent-bridge
+BRANCH: main;INERT_PAYLOAD_NOT_A_COMMAND
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.branch).toBe('main');
+      expect(result.errors.some((e) => e.startsWith('BRANCH: rejected'))).toBe(true);
+    });
+
+    test('rejects a BRANCH that would inject a git option', () => {
+      const text = `TASK: Crafted branch
+BRANCH: --upload-pack=INERT_PAYLOAD_NOT_A_COMMAND
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.branch).toBe('main');
+      expect(result.errors.some((e) => e.startsWith('BRANCH: rejected'))).toBe(true);
+    });
+
+    test('rejects a SKILL that would walk out of the clone directory', () => {
+      const text = `TASK: Crafted skill
+SKILL: ../../../etc/passwd
+INSTRUCTIONS: Do something`;
+
+      const result = parseTask(text);
+
+      expect(result.skill).toBe('');
+      expect(result.errors.some((e) => e.startsWith('SKILL: rejected'))).toBe(true);
+    });
+
+    test('a well-formed message produces no errors', () => {
+      const text = `TASK: Legitimate task
+REPO: JTPets/slack-agent-bridge
+BRANCH: claude/eager-bardeen-i45uwv
+TURNS: 100
+SKILL: security-fix
+INSTRUCTIONS: Do the work`;
+
+      const result = parseTask(text);
+
+      expect(result.errors).toEqual([]);
+      expect(result.repo).toBe('JTPets/slack-agent-bridge');
+      expect(result.branch).toBe('claude/eager-bardeen-i45uwv');
+      expect(result.turns).toBe(100);
+      expect(result.skill).toBe('security-fix');
+    });
+
+    test('every documented field label is enforced', () => {
+      // Enumerates the exported label list rather than restating it, so a new
+      // field cannot be added without this guard covering it.
+      expect(FIELD_LABELS).toEqual(['TASK', 'REPO', 'BRANCH', 'TURNS', 'SKILL', 'INSTRUCTIONS']);
+      for (const label of FIELD_LABELS) {
+        const result = parseTask(`${label.toLowerCase()}: value`);
+        expect(result.errors.some((e) => e.startsWith(`${label}:`))).toBe(true);
+      }
     });
   });
 
