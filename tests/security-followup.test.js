@@ -14,14 +14,29 @@ process.env.SLACK_BOT_TOKEN = 'xoxb-test-token';
 process.env.BRIDGE_CHANNEL_ID = 'C_BRIDGE_TEST';
 process.env.OPS_CHANNEL_ID = 'C_OPS_TEST';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const securityFollowup = require('../lib/security-followup');
 const approvalQueue = require('../lib/approval-queue');
 
 describe('security-followup', () => {
+    // LOGIC CHANGE 2026-09-14: isolate the approval queue into a per-suite temp file
+    // so this suite's clearQueue()/queueTask() writes never race the shared
+    // approval-queue.json against tests/approval-queue.test.js under parallel
+    // workers (WORK-TODO #19).
+    let tmpDir;
+
     beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'security-followup-test-'));
+        approvalQueue.init({ queueFile: path.join(tmpDir, 'approval-queue.json') });
         // Clear dedup map and approval queue before each test
         securityFollowup.clearDedupMap();
         approvalQueue.clearQueue();
+    });
+
+    afterEach(() => {
+        if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
     describe('parseFindings', () => {
