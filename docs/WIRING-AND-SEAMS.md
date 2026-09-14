@@ -177,7 +177,9 @@ three helpers. `tests/undelivered-work.test.js` was re-pointed at the module sou
 - **Lines:** was 459–610 (`cloneRepo`, `cleanupDir`, `detectUndeliveredWork`), ~152 LOC.
 - **Why first:** zero coupling to module state. Inputs are `(repo, branch, dir)` and a
   dir path; outputs are fs effects + a `{undelivered, reason}` object. Only external
-  refs are `fs`, `execSync`, `process.env.DEPLOY_KEY_PATH`.
+  refs are `fs`, `path`, `child_process.execFileSync`, `process.env.DEPLOY_KEY_PATH`.
+  (Was `execSync`; 2026-09-14 converted every git call in the module to an
+  `execFileSync` argv array — no function here builds a shell command string.)
 - **Already guarded:** `tests/undelivered-work.test.js` exercises `detectUndeliveredWork`
   and the finally-block gate — extraction is refactor-under-test.
 - **Caller left behind:** `processTask` calls all three; pass nothing new, they are pure.

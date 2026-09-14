@@ -17,7 +17,21 @@ const {
   assertValidRepo,
   assertValidBranch,
   describeValue,
+  describeCharset,
+  OWNER_PATTERN,
+  NAME_PATTERN,
+  BRANCH_PATTERN,
+  OWNER_PUNCTUATION,
+  NAME_PUNCTUATION,
+  BRANCH_PUNCTUATION,
 } = require('../lib/git-identifiers');
+
+// Every printable ASCII character that is neither a letter nor a digit. The
+// agreement tests below probe each pattern with ALL of them rather than with a
+// hand-picked list, so a pattern that silently starts accepting one is caught.
+const ASCII_PUNCTUATION = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).filter(
+  (c) => !/[A-Za-z0-9]/.test(c)
+);
 
 describe('isValidRepo', () => {
   test.each([
@@ -137,5 +151,81 @@ describe('describeValue', () => {
   test('handles non-string values without throwing', () => {
     expect(() => describeValue(undefined)).not.toThrow();
     expect(() => describeValue(null)).not.toThrow();
+  });
+});
+
+// LOGIC CHANGE 2026-09-14: Anti-drift guard for the rejection MESSAGES. These were
+// hand-written prose beside the patterns, and they had drifted: lib/task-parser.js
+// told the operator a REPO value could use "." and "_", while OWNER_PATTERN admits
+// neither — so "jt.pets/app" was refused by a message asserting it was legal, and
+// the only way to discover the real rule was to read the regex. A message that names
+// the wrong rule is worse than no message: it sends the operator to retry a value
+// that can never pass.
+//
+// The fix is structural, not editorial. Each message is now GENERATED from a
+// declared character list (OWNER_PUNCTUATION / NAME_PUNCTUATION / BRANCH_PUNCTUATION
+// and, in task-parser.js, SKILL_PUNCTUATION) via describeCharset(). These tests
+// close the remaining gap: they prove the declared list matches what the PATTERN
+// actually accepts. Change one without the other and this fails.
+describe('rejection messages agree with the patterns they enforce', () => {
+  /**
+   * Probe a pattern with every ASCII punctuation character and return the set it
+   * accepts in a non-leading, non-trailing position (the position every one of
+   * these patterns treats uniformly).
+   */
+  const acceptedPunctuation = (pattern) =>
+    ASCII_PUNCTUATION.filter((c) => pattern.test(`a${c}b`));
+
+  test.each([
+    ['OWNER_PATTERN', OWNER_PATTERN, OWNER_PUNCTUATION],
+    ['NAME_PATTERN', NAME_PATTERN, NAME_PUNCTUATION],
+    ['BRANCH_PATTERN', BRANCH_PATTERN, BRANCH_PUNCTUATION],
+  ])('%s accepts exactly the characters its declared list names', (_label, pattern, declared) => {
+    expect(acceptedPunctuation(pattern).sort()).toEqual([...declared].sort());
+  });
+
+  test('the REPO message names the OWNER rule, not the NAME rule, for the owner half', () => {
+    // The specific drift that existed: "." and "_" are legal in the NAME half only.
+    let message = '';
+    try {
+      assertValidRepo('jt.pets/app');
+    } catch (e) {
+      message = e.message;
+    }
+    expect(message).toContain('Rejected REPO value');
+    // The owner clause must NOT promise "." or "_" ...
+    const ownerClause = message.slice(message.indexOf('owner is'), message.indexOf('and name is'));
+    expect(ownerClause).not.toContain('"."');
+    expect(ownerClause).not.toContain('"_"');
+    // ... while the name clause still does, because NAME_PATTERN accepts them.
+    const nameClause = message.slice(message.indexOf('and name is'));
+    expect(nameClause).toContain('"."');
+    expect(nameClause).toContain('"_"');
+  });
+
+  test('the rejected value in the REPO message really is rejected by the predicate', () => {
+    // Guards against the inverse defect: a message that describes a stricter rule
+    // than the code enforces, so a legal value looks illegal.
+    expect(isValidRepo('jt.pets/app')).toBe(false);
+    expect(isValidRepo('jt_pets/app')).toBe(false);
+    expect(isValidRepo('jtpets/app.name_x')).toBe(true);
+  });
+
+  test('the BRANCH message names every rule isValidBranch enforces beyond the charset', () => {
+    let message = '';
+    try {
+      assertValidBranch('feature/../x');
+    } catch (e) {
+      message = e.message;
+    }
+    for (const rule of ['".."', '"//"', '".lock"']) {
+      expect(message).toContain(rule);
+    }
+  });
+
+  test('describeCharset renders a readable list for each arity', () => {
+    expect(describeCharset([])).toBe('letters and digits');
+    expect(describeCharset(['-'])).toBe('letters, digits and "-"');
+    expect(describeCharset(['.', '_', '-'])).toBe('letters, digits, ".", "_" and "-"');
   });
 });

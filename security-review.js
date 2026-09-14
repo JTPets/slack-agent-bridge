@@ -31,6 +31,7 @@ const path = require('path');
 const os = require('os');
 
 const { runLLM } = require('./lib/llm-runner');
+const { assertValidRepo } = require('./lib/git-identifiers');
 const bulletinBoard = require('./lib/bulletin-board');
 const securityFollowup = require('./lib/security-followup');
 const { config } = require('./lib/config');
@@ -137,12 +138,24 @@ function execCommand(command, args, options = {}) {
 
 /**
  * Clone a repository into a temp directory.
+ *
+ * LOGIC CHANGE 2026-09-14: `repo` is asserted here and `--` separates the
+ * positional arguments. execCommand already uses spawn with an argv array, so no
+ * shell was ever involved — but two gaps in the same class were still open:
+ * an entry in REPOS goes into a URL AND into the mkdtemp prefix in reviewRepo
+ * (via repo.replace('/', '-')), unvalidated; and without `--`, git's own option
+ * parser would read a positional beginning with "-" as a flag no matter how it
+ * arrived. REPOS is operator-set, not Slack-set, so this is the boundary half of
+ * the same closure, not a live defect. A rejected entry throws; main()'s per-repo
+ * catch records it and the nightly report names it, so one bad entry cannot
+ * silently skip a repo or take the whole review down.
  */
 async function cloneRepo(repo, tempDir) {
+    assertValidRepo(repo);
     const repoUrl = `https://github.com/${repo}.git`;
     console.log(`[security-review] Cloning ${repo}...`);
 
-    await execCommand('git', ['clone', '--depth', '100', repoUrl, tempDir]);
+    await execCommand('git', ['clone', '--depth', '100', '--', repoUrl, tempDir]);
     console.log(`[security-review] Cloned ${repo} to ${tempDir}`);
 }
 
@@ -231,6 +244,10 @@ async function reviewRepo(repo, skillPrompt) {
     let tempDir;
 
     try {
+        // LOGIC CHANGE 2026-09-14: Assert before the value is used to build a path.
+        // repo.replace('/', '-') replaces only the FIRST slash, so an entry like
+        // "a/../../tmp/x" would otherwise walk out of os.tmpdir() in the prefix.
+        assertValidRepo(repo);
         // Create temp directory
         tempDir = await fs.mkdtemp(path.join(os.tmpdir(), `security-review-${repo.replace('/', '-')}-`));
 

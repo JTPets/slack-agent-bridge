@@ -38,49 +38,98 @@ const CLONE_LIFECYCLE_PATH = path.join(__dirname, '..', 'lib', 'clone-lifecycle.
 const cloneLifecycleSource = fs.readFileSync(CLONE_LIFECYCLE_PATH, 'utf8');
 
 /**
- * detectUndeliveredWork uses the module-level `execSync`/`process`. Lift the
- * function out by source text and evaluate it against an injected execSync so its
- * real branching logic runs without shelling out to a real git remote.
+ * LOGIC CHANGE 2026-09-14: detectUndeliveredWork no longer builds shell command
+ * strings — it calls execFileSync with an argv array (see the module header for why
+ * the old "every argument is a literal or a SHA" justification did not hold). The
+ * harness had to change with it, and the change is not cosmetic: it used to inject a
+ * fake `execSync` and match on SUBSTRINGS OF A COMMAND STRING, which is the artifact
+ * being removed. It now injects a fake `execFileSync` and matches on ARGV ARRAYS, so
+ * these tests assert the shape the code actually produces.
+ *
+ * The function also closes over module-level `path` and `assertValidTargetDir` now,
+ * so the source lift injects those too.
  */
+const SHA_A = 'a'.repeat(40);
+const SHA_B = 'b'.repeat(40);
+
 const factory = (() => {
   const start = cloneLifecycleSource.indexOf('function detectUndeliveredWork(dir) {');
   expect(start).toBeGreaterThan(-1);
   const end = cloneLifecycleSource.indexOf('\n}\n', start) + 3;
   const body = cloneLifecycleSource.slice(start, end);
   // eslint-disable-next-line no-new-func
-  return new Function('execSync', 'process', `${body}\nreturn detectUndeliveredWork;`);
+  return new Function(
+    'execFileSync',
+    'process',
+    'assertValidTargetDir',
+    'SHA_PATTERN',
+    `${body}\nreturn detectUndeliveredWork;`
+  );
 })();
 
 /**
- * Build a fake execSync that answers the git commands detectUndeliveredWork runs,
- * driven by a scenario description.
+ * Build a fake execFileSync that answers the git argv arrays detectUndeliveredWork
+ * runs, driven by a scenario description.
+ *
+ * Every branch asserts the argv SHAPE it is answering, so a call that silently
+ * changed into a shell string (or grew a quoted format value again) would not be
+ * answered at all — it would fall through to the "unexpected git argv" throw.
  */
-function makeExecSync(scenario) {
-  return (cmd) => {
-    if (cmd.includes('rev-parse --is-inside-work-tree')) {
+function makeExecFileSync(scenario) {
+  return (bin, args) => {
+    expect(bin).toBe('git');
+    expect(Array.isArray(args)).toBe(true);
+    // No argv element may be a whole command line: that is what a shell string
+    // looks like after a regression.
+    for (const a of args) {
+      expect(typeof a).toBe('string');
+      expect(a).not.toMatch(/^git\s/);
+    }
+    const joined = args.join(' ');
+
+    if (joined === 'rev-parse --is-inside-work-tree') {
       if (!scenario.isRepo) throw new Error('not a git repository');
-      return 'true';
+      return Buffer.from('true');
     }
-    if (cmd.includes('status --porcelain')) {
+    if (joined === 'status --porcelain') {
       if (scenario.statusThrows) throw new Error('status failed');
-      return scenario.status || '';
+      return Buffer.from(scenario.status || '');
     }
-    if (cmd.includes('rev-parse HEAD')) return scenario.head || '';
-    if (cmd.includes('for-each-ref')) return (scenario.branchTips || []).join('\n');
-    if (cmd.includes('ls-remote')) {
+    if (joined === 'rev-parse HEAD') return Buffer.from(scenario.head || '');
+    if (args[0] === 'for-each-ref') {
+      // The format arg must be the BARE value. The single quotes it used to carry
+      // existed only to survive /bin/sh; with no shell git would emit them
+      // literally and every SHA comparison would silently fail to match.
+      expect(args).toEqual(['for-each-ref', '--format=%(objectname)', 'refs/heads']);
+      return Buffer.from((scenario.branchTips || []).join('\n'));
+    }
+    if (args[0] === 'ls-remote') {
       if (scenario.remoteUnreachable) throw new Error('could not read from remote');
-      return (scenario.remote || []).map((s) => `${s}\trefs/heads/x`).join('\n');
+      return Buffer.from(
+        (scenario.remote || []).map((s) => `${s}\trefs/heads/x`).join('\n')
+      );
     }
-    if (cmd.includes('log') && cmd.includes('--not --remotes')) {
+    if (args[0] === 'log') {
       if (scenario.logThrows) throw new Error('log failed');
-      return scenario.unpushed || '';
+      expect(args).toContain('--not');
+      expect(args).toContain('--remotes');
+      // Revisions are hex-asserted before they become arguments.
+      for (const a of args.slice(1)) {
+        if (!a.startsWith('--')) expect(a).toMatch(/^[0-9a-f]{40}$/);
+      }
+      return Buffer.from(scenario.unpushed || '');
     }
-    throw new Error('unexpected git command in test: ' + cmd);
+    throw new Error('unexpected git argv in test: ' + JSON.stringify(args));
   };
 }
 
 function detectWith(scenario) {
-  const detect = factory(makeExecSync(scenario), { env: {} });
+  const detect = factory(
+    makeExecFileSync(scenario),
+    { env: {} },
+    () => {},
+    /^[0-9a-f]{40}$/
+  );
   return detect('/fake/dir');
 }
 
@@ -89,9 +138,9 @@ describe('detectUndeliveredWork', () => {
     const result = detectWith({
       isRepo: true,
       status: '',
-      head: 'AAA',
-      branchTips: ['AAA'],
-      remote: ['AAA'],
+      head: SHA_A,
+      branchTips: [SHA_A],
+      remote: [SHA_A],
     });
     expect(result.undelivered).toBe(false);
   });
@@ -100,9 +149,9 @@ describe('detectUndeliveredWork', () => {
     const result = detectWith({
       isRepo: true,
       status: ' M bridge-agent.js',
-      head: 'AAA',
-      branchTips: ['AAA'],
-      remote: ['AAA'],
+      head: SHA_A,
+      branchTips: [SHA_A],
+      remote: [SHA_A],
     });
     expect(result.undelivered).toBe(true);
     expect(result.reason).toMatch(/uncommitted/i);
@@ -114,9 +163,9 @@ describe('detectUndeliveredWork', () => {
     const result = detectWith({
       isRepo: true,
       status: '',
-      head: 'BBB',
-      branchTips: ['BBB'],
-      remote: ['AAA'],
+      head: SHA_B,
+      branchTips: [SHA_B],
+      remote: [SHA_A],
     });
     expect(result.undelivered).toBe(true);
     expect(result.reason).toMatch(/not found on the remote/i);
@@ -130,9 +179,9 @@ describe('detectUndeliveredWork', () => {
     const result = detectWith({
       isRepo: true,
       status: '',
-      head: 'BBB', // pushed feature branch tip
-      branchTips: ['BBB', 'AAA'],
-      remote: ['AAA', 'BBB'], // remote now has both
+      head: SHA_B, // pushed feature branch tip
+      branchTips: [SHA_B, SHA_A],
+      remote: [SHA_A, SHA_B], // remote now has both
     });
     expect(result.undelivered).toBe(false);
   });
@@ -146,10 +195,10 @@ describe('detectUndeliveredWork', () => {
     const result = detectWith({
       isRepo: true,
       status: '',
-      head: 'BBB',
-      branchTips: ['BBB'],
+      head: SHA_B,
+      branchTips: [SHA_B],
       remoteUnreachable: true,
-      unpushed: 'BBB local work',
+      unpushed: `${SHA_B} local work`,
     });
     expect(result.undelivered).toBe(true);
     expect(result.reason).toMatch(/remote unreachable/i);
@@ -159,8 +208,8 @@ describe('detectUndeliveredWork', () => {
     const result = detectWith({
       isRepo: true,
       status: '',
-      head: 'AAA',
-      branchTips: ['AAA'],
+      head: SHA_A,
+      branchTips: [SHA_A],
       remoteUnreachable: true,
       unpushed: '',
     });
@@ -173,12 +222,58 @@ describe('detectUndeliveredWork', () => {
     expect(result.reason).toMatch(/unknown/i);
   });
 
-  test('the for-each-ref format is shell-quoted', () => {
-    // execSync runs through /bin/sh; an unquoted %(objectname) makes sh treat the
-    // parentheses as a subshell and the command fails, silently degrading every
-    // check to "delivery status unknown". Quoting is load-bearing, not cosmetic.
-    expect(cloneLifecycleSource).toMatch(/for-each-ref --format='%\(objectname\)' refs\/heads/);
-    expect(cloneLifecycleSource).not.toMatch(/for-each-ref --format=%\(objectname\) refs\/heads/);
+  // LOGIC CHANGE 2026-09-14: This test used to assert the OPPOSITE — that
+  // `--format='%(objectname)'` carried single quotes, because execSync ran through
+  // /bin/sh and unquoted parentheses were read as a subshell. With execFileSync
+  // there is no shell, so those quotes would be passed to git as part of the format
+  // string and it would emit literally-quoted SHAs, which match nothing on the
+  // remote and silently degrade every clone to "delivery status unknown". The
+  // assertion flips in the same change as the fix, and it previously encoded the
+  // shell-string behaviour that was the defect.
+  //
+  // Asserted BEHAVIOURALLY, on the argv that actually reaches git, not by grepping
+  // the source: the old source-text form matched this file's own comment about the
+  // quotes it was checking for, which is the precise way a text-scanning guard goes
+  // blind. makeExecFileSync's `toEqual` runs this check on every scenario; this test
+  // makes the single claim explicit and fails on its own.
+  test('the for-each-ref format reaches git as a bare value (there is no shell)', () => {
+    const seen = [];
+    const detect = factory(
+      (bin, args) => {
+        seen.push(args);
+        if (args[0] === 'for-each-ref') return Buffer.from(SHA_A);
+        if (args[0] === 'ls-remote') return Buffer.from(`${SHA_A}\trefs/heads/main`);
+        if (args[1] === '--is-inside-work-tree') return Buffer.from('true');
+        if (args[0] === 'status') return Buffer.from('');
+        return Buffer.from(SHA_A);
+      },
+      { env: {} },
+      () => {},
+      /^[0-9a-f]{40}$/
+    );
+    detect('/fake/dir');
+
+    const forEachRef = seen.find((a) => a[0] === 'for-each-ref');
+    expect(forEachRef).toEqual(['for-each-ref', '--format=%(objectname)', 'refs/heads']);
+    // Not "--format='%(objectname)'": with no shell those quotes would be part of
+    // the format and git would emit literally-quoted SHAs, matching nothing on the
+    // remote and degrading every clone to "delivery status unknown".
+    expect(forEachRef[1]).not.toContain("'");
+  });
+
+  test('an object name that is not a 40-hex SHA is never passed back to git', () => {
+    // "it came from git" was an assumption, not a check, and it was the load-bearing
+    // half of the old header's argument that a shell was safe here. If git returns
+    // something unexpected, preserve the clone rather than use it as an argument.
+    const result = detectWith({
+      isRepo: true,
+      status: '',
+      head: '--not-a-sha',
+      branchTips: ['--not-a-sha'],
+      remoteUnreachable: true,
+    });
+    expect(result.undelivered).toBe(true);
+    expect(result.reason).toMatch(/unreadable/i);
   });
 });
 

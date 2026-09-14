@@ -5,10 +5,13 @@
  * extracted from bridge-agent.js (seam A, docs/WIRING-AND-SEAMS.md).
  *
  * detectUndeliveredWork's branching classification is covered exhaustively by
- * tests/undelivered-work.test.js (which lifts it against an injected execSync).
- * This file covers the other two exported functions — cloneRepo and cleanupDir —
- * so every exported function has at least one test per the no-new-function rule,
- * and pins the module's export surface after the move.
+ * tests/undelivered-work.test.js (which lifts it against an injected execFileSync).
+ * This file covers the other exported functions — cloneRepo, cleanupDir and
+ * assertValidTargetDir — so every exported function has at least one test per the
+ * no-new-function rule, and pins the module's export surface after the move.
+ *
+ * The repo-wide "no shell-string execution" guard is tests/no-shell-execution.test.js.
+ * It is not here because the class is not scoped to this file.
  */
 
 'use strict';
@@ -24,6 +27,51 @@ describe('module export surface', () => {
     expect(typeof cloneLifecycle.cloneRepo).toBe('function');
     expect(typeof cloneLifecycle.cleanupDir).toBe('function');
     expect(typeof cloneLifecycle.detectUndeliveredWork).toBe('function');
+  });
+
+  test('exports assertValidTargetDir, the clone-target boundary check', () => {
+    expect(typeof cloneLifecycle.assertValidTargetDir).toBe('function');
+  });
+});
+
+// LOGIC CHANGE 2026-09-14: cloneRepo checked targetDir only for "non-empty string".
+// argv arrays defeat a SHELL; they do not defeat git's own option parser, so a path
+// beginning with "-" is still read by git as a flag.
+describe('assertValidTargetDir', () => {
+  const { assertValidTargetDir } = cloneLifecycle;
+
+  test.each([
+    ['/tmp/bridge-agent/task-1757800000-123456'],
+    ['/tmp/scratch-clone'],
+    ['/share/CACHEDEV1_DATA/jt-agent/work/task-x'],
+  ])('accepts the real scratch-clone shape %s', (dir) => {
+    expect(assertValidTargetDir(dir)).toBe(dir);
+  });
+
+  test.each([
+    ['empty string', ''],
+    ['whitespace only', '   '],
+    ['leading hyphen (git option injection)', '--upload-pack=INERT_PAYLOAD_NOT_A_COMMAND'],
+    ['short git option', '-c'],
+    ['relative path', 'scratch/clone'],
+    ['bare name', 'task-1'],
+    ['NUL byte', '/tmp/task\u0000evil'],
+  ])('rejects %s', (_label, dir) => {
+    expect(() => assertValidTargetDir(dir)).toThrow(/Rejected clone target directory/);
+  });
+
+  test.each([undefined, null, 42, {}, ['/tmp/x']])(
+    'rejects the non-string value %p',
+    (value) => {
+      expect(() => assertValidTargetDir(value)).toThrow(/Rejected clone target directory/);
+    }
+  );
+
+  test('rejects rather than sanitises — a bad path is never rewritten into a good one', () => {
+    // The git-identifiers.js rule applied to the third argument: stripping the "-"
+    // off "--upload-pack=x" would clone into a directory nobody named.
+    expect(() => assertValidTargetDir('--upload-pack=x')).toThrow();
+    expect(() => assertValidTargetDir('-x')).toThrow();
   });
 });
 
@@ -123,6 +171,9 @@ describe('cloneRepo command execution', () => {
       '1',
       '--branch',
       'feature/my-work',
+      // LOGIC CHANGE 2026-09-14: `--` ends option parsing, so git reads the two
+      // values after it as the url and the path even if one begins with "-".
+      '--',
       'https://github.com/JTPets/slack-agent-bridge.git',
       '/tmp/scratch-clone',
     ]);
@@ -190,6 +241,128 @@ describe('cloneRepo command execution', () => {
     expect(execFileSync).not.toHaveBeenCalled();
   });
 
+  // Injection vector 3: the targetDir argument. Unlike REPO and BRANCH this one has
+  // no parser in front of it — cloneRepo is the only check it ever gets.
+  test.each([
+    ['git option injection', '--upload-pack=INERT_PAYLOAD_NOT_A_COMMAND'],
+    ['short git option', '-c'],
+    ['relative path', 'scratch-clone'],
+    ['whitespace only', '  '],
+  ])('rejects a targetDir carrying %s without invoking git at all', (_label, dir) => {
+    const { mod, execFileSync, execSync } = loadWithMockedExec();
+    expect(() => mod.cloneRepo('jtpets/repo', 'main', dir)).toThrow(
+      /Rejected clone target directory/
+    );
+    expect(execFileSync).not.toHaveBeenCalled();
+    expect(execSync).not.toHaveBeenCalled();
+  });
+
+  // LOGIC CHANGE 2026-09-14: `--` is the second half of the option-injection fix.
+  // Validation rejects a flag-shaped value; `--` means git would not honour one even
+  // if the validation were ever relaxed. Belt and braces, deliberately.
+  test('passes -- before the positional url and path arguments', () => {
+    const { mod, execFileSync } = loadWithMockedExec();
+
+    mod.cloneRepo('JTPets/slack-agent-bridge', 'main', '/tmp/scratch-clone');
+
+    const [, args] = execFileSync.mock.calls[0];
+    const sep = args.indexOf('--');
+    expect(sep).toBeGreaterThan(-1);
+    // Everything after `--` is positional: the url, then the target path.
+    expect(args.slice(sep + 1)).toEqual([
+      'https://github.com/JTPets/slack-agent-bridge.git',
+      '/tmp/scratch-clone',
+    ]);
+    // ...and the branch value stays on the option side, attached to --branch.
+    expect(args.slice(0, sep)).toContain('--branch');
+  });
+
+  test('the main-branch fallback clone also passes --', () => {
+    let attempts = 0;
+    const { mod, execFileSync } = loadWithMockedExec((bin, args) => {
+      if (args[0] === 'clone') {
+        attempts += 1;
+        if (attempts === 1) throw new Error('Remote branch not found');
+      }
+      return Buffer.from('');
+    });
+
+    mod.cloneRepo('jtpets/repo', 'feature/x', '/tmp/scratch-clone');
+
+    const cloneCalls = execFileSync.mock.calls.filter((c) => c[1][0] === 'clone');
+    for (const call of cloneCalls) {
+      const sep = call[1].indexOf('--');
+      expect(sep).toBeGreaterThan(-1);
+      expect(call[1].slice(sep + 1)).toEqual([
+        'https://github.com/jtpets/repo.git',
+        '/tmp/scratch-clone',
+      ]);
+    }
+  });
+
+  // LOGIC CHANGE 2026-09-14: the quote-in-DEPLOY_KEY_PATH guard used to `return` out
+  // of cloneRepo. It is now a scoped else-if, so the function always runs to
+  // completion and the skip cannot silently swallow anything appended later.
+  describe('deploy key configuration', () => {
+    const KEY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'clone-lifecycle-key-'));
+
+    afterAll(() => {
+      fs.rmSync(KEY_DIR, { recursive: true, force: true });
+    });
+
+    const writeKey = (name) => {
+      const keyPath = path.join(KEY_DIR, name);
+      fs.writeFileSync(keyPath, 'NOT-A-REAL-KEY');
+      return keyPath;
+    };
+
+    test('configures push when the key path is clean', () => {
+      process.env.DEPLOY_KEY_PATH = writeKey('clean_key');
+      const { mod, execFileSync } = loadWithMockedExec();
+
+      mod.cloneRepo('jtpets/repo', 'main', '/tmp/scratch-clone');
+
+      const subcommands = execFileSync.mock.calls.map((c) => c[1].join(' '));
+      expect(subcommands.some((c) => c.includes('remote set-url'))).toBe(true);
+      expect(subcommands.some((c) => c.includes('core.sshCommand'))).toBe(true);
+      expect(subcommands.some((c) => c.includes('fetch'))).toBe(true);
+    });
+
+    test("a key path containing ' skips push config but still returns normally", () => {
+      // core.sshCommand is the one value git itself later hands to a shell, and the
+      // path is single-quoted inside it, so a path carrying ' is refused outright.
+      process.env.DEPLOY_KEY_PATH = writeKey("quo'te_key");
+      const { mod, execFileSync } = loadWithMockedExec();
+
+      expect(() =>
+        mod.cloneRepo('jtpets/repo', 'main', '/tmp/scratch-clone')
+      ).not.toThrow();
+
+      // The clone happened; nothing after it did.
+      const subcommands = execFileSync.mock.calls.map((c) => c[1].join(' '));
+      expect(subcommands.filter((c) => c.startsWith('clone'))).toHaveLength(1);
+      expect(subcommands.some((c) => c.includes('core.sshCommand'))).toBe(false);
+      expect(subcommands.some((c) => c.includes('remote set-url'))).toBe(false);
+    });
+
+    test('the quoted key path reaches core.sshCommand as a single argv element', () => {
+      const keyPath = writeKey('spaced key');
+      process.env.DEPLOY_KEY_PATH = keyPath;
+      const { mod, execFileSync } = loadWithMockedExec();
+
+      mod.cloneRepo('jtpets/repo', 'main', '/tmp/scratch-clone');
+
+      const configCall = execFileSync.mock.calls.find((c) =>
+        c[1].includes('core.sshCommand')
+      );
+      expect(configCall).toBeDefined();
+      const value = configCall[1][configCall[1].indexOf('core.sshCommand') + 1];
+      expect(value).toBe(
+        `ssh -i '${keyPath}' -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`
+      );
+    });
+  });
+
   test('rethrows a clone failure when the requested branch is already main', () => {
     const { mod } = loadWithMockedExec(() => {
       throw new Error('fatal: repository not found');
@@ -222,9 +395,11 @@ describe('cloneRepo command execution', () => {
   });
 });
 
-// This is the executable form of the "no shell-string execution remains in
-// cloneRepo" claim: it reads the function body out of the source and fails if a
-// shell-executing call reappears there, so the guarantee cannot silently regress.
+// LOGIC CHANGE 2026-09-14: The anti-reappearance guard for the INJECTION CLASS now
+// lives in tests/no-shell-execution.test.js, which scans every non-test JS file in
+// the repo. This suite was that guard, and its scope was one function — a new
+// execSync three lines below cloneRepo, or anywhere else in lib/, passed it. What
+// remains here is the module-specific half: cloneRepo's own preconditions.
 describe('cloneRepo contains no shell-string execution', () => {
   const clonePath = path.join(__dirname, '..', 'lib', 'clone-lifecycle.js');
   const source = fs.readFileSync(clonePath, 'utf8');
