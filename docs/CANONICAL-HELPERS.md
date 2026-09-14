@@ -340,6 +340,35 @@ is dead code (WORK-TODO **#17**, nothing starts it); it becomes one the day #17 
 
 ---
 
+## 13. Source scanning in the enumerating guards — **EQUIVALENT** (not filed)
+
+Added 2026-09-14 with `tests/test-gate-honesty.test.js`.
+
+```bash
+grep -rn "function stripComments\|function stripCommentsAndStrings\|function listSourceFiles" tests/*.js
+```
+
+| Site | What it blanks | Why |
+|------|----------------|-----|
+| `tests/no-shell-execution.test.js` `stripCommentsAndStrings` | comments, and optionally string CONTENTS | a call-site ban must not trip on prose or on a message naming the banned API |
+| `tests/test-gate-honesty.test.js` `stripComments` | comments only; strings left intact | the thing being detected (`'npm test'`) **is** a string literal, so blanking strings would make the scan match nothing |
+
+Three guards now walk the source tree from disk (`tests/no-shell-execution.test.js`,
+`tests/timezone-explicit.test.js`, `tests/test-gate-honesty.test.js`) and each carries
+its own `listSourceFiles`.
+
+**EQUIVALENT, not DIVERGENT:** the two strippers produce different output by design and
+neither is wrong. The duplication is the walk plus the comment-scanner, roughly 50 lines
+repeated across three test files.
+
+**Deliberately not extracted here.** A shared helper would live under `tests/helpers/`,
+and `tests/architecture-tree.test.js` enumerates `tests/*.js` non-recursively — so the
+helper would sit in a directory no guard covers, which is a worse property for a file
+that three guards depend on. Extracting it means widening that enumeration first. Filed
+as WORK-TODO #36 rather than done as a side effect of a different change.
+
+---
+
 ## Proposed extraction order
 
 Ranked by **how much divergence each concept currently carries**, not by how easy the

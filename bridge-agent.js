@@ -430,6 +430,12 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
   const startTime = Date.now();
   let taskDir = null;
   let taskSuccess = false;
+  // LOGIC CHANGE 2026-09-14: Phase 3 used to run a hardcoded `npm test` while Phase 1
+  // had already read the repo's own `scripts.test` into the plan and thrown it away.
+  // A repo whose test script is anything else had its declared suite ignored and a
+  // different command scored as its gate. Captured here because the plan is
+  // block-scoped inside the Phase-1 try and Phase 3 runs long after it.
+  let taskTestScript = 'npm test';
 
   // LOGIC CHANGE 2026-03-27: Create heartbeat for visual progress feedback.
   // Cycles through emojis while task runs. Wrapped in try/catch so heartbeat
@@ -559,6 +565,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
       try {
         const pipelineContext = reviewTask(task, taskDir);
         const pipelinePlan = createExecutionPlan(task, pipelineContext);
+        taskTestScript = pipelinePlan.testScript || taskTestScript;
 
         if (pipelinePlan.skip) {
           // Task already done - report and exit without running LLM
@@ -816,8 +823,27 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
     // Tests failing here means Claude didn't run them properly — report as "needs-fix".
     if (task.repo && taskDir && fs.existsSync(taskDir)) {
       try {
-        const validation = validateOutput(taskDir, { testScript: 'npm test' });
-        if (!validation.passed) {
+        const validation = validateOutput(taskDir, { testScript: taskTestScript });
+        const testRun = validation.testRun;
+
+        // LOGIC CHANGE 2026-09-14: three outcomes, not two, and none of them is
+        // silence. Previously a run that exited 0 without executing an assertion
+        // scored `passed: true` with `testsPassed: 0`, which fell through BOTH arms
+        // below and posted nothing at all - the gate reported a pass to its caller
+        // and reported nothing to a human. A gate that cannot say which assertions
+        // ran has not run (docs/EXECUTOR-CONTRACT.md section 4).
+        if (!validation.passed && testRun && !testRun.ran) {
+          // The runner never started, or nothing countable executed. This is not a
+          // test failure and must not be read as one.
+          await postToOps(
+            `:rotating_light: *Code review: the test gate DID NOT RUN.*\n` +
+            `Task: ${task.description}\n` +
+            `Command: \`${taskTestScript}\` — outcome: \`${testRun.outcome}\`\n` +
+            `${testRun.reason}\n` +
+            `\`\`\`\n${validation.testOutput.slice(-1200)}\n\`\`\`\n` +
+            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
+          );
+        } else if (!validation.passed) {
           await postToOps(
             `:warning: *Code review: tests failed after task completion.*\n` +
             `Task: ${task.description}\n` +
@@ -825,7 +851,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
             `\`\`\`\n${validation.testOutput.slice(-1500)}\n\`\`\`\n` +
             `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
           );
-        } else if (validation.testsPassed > 0) {
+        } else {
           await postToOps(
             `:white_check_mark: *Code review passed* — ${validation.testsPassed} tests passing.\n` +
             `Task: ${task.description}\n` +
