@@ -128,6 +128,57 @@ and the decomposer's `runLLM` call (`lib/task-decomposer.js:341`) is dead weight
 
 ---
 
+## 3a. The scheduled inbox check — rewired 2026-09-14
+
+**What it was.** `lib/agent-scheduler.js` fired the email-monitor agent's
+`check-inbox` cron (`*/30 9-21 * * *`, America/Toronto) by posting a prose TASK:
+message to channel `C0AQH3KC31S`. `bridge-agent.js`'s poll loop picked it up
+(allowed because `msg.user === BOT_USER_ID`), and — TASK: messages always execute as
+the **bridge** agent, never as the channel's agent (`bridge-agent.js:1704-1711`,
+`agentConfig` is bound once to `getAgent('bridge')` at `bridge-agent.js:194`) — built
+a no-REPO prompt of `bridge.system_prompt + "Check the email inbox and triage
+messages"` and handed it to an LLM running in `WORK_DIR`.
+
+That LLM had **no mailbox access of any kind**. `lib/integrations/gmail.js` had
+exactly one non-test caller in the whole repository — `morning-digest.js:368` — and
+this was not it. `lib/agent-context.js` injects real data for `secretary`,
+`security`, `jester`, `story-bot` and the three code agents; `email-monitor` falls to
+`buildGenericContext()` ("No specific data context available for this agent"), and
+that path is `processConversation` (ASK:) anyway, not `processTask`. There is no MCP
+server, connector, or Gmail tool anywhere in this repository.
+
+**What it is now.** `DETERMINISTIC_TASKS['check-inbox']` in `lib/agent-scheduler.js`
+runs `lib/email-check.js` → `runInboxCheck()`:
+
+| Step | Module | Notes |
+|------|--------|-------|
+| Window | `lib/email-check.js` `resolveWindow()` | `agents/email-monitor/memory/check-state.json` (`lastSuccessfulCheckAt`), capped at `EMAIL_CHECK_MAX_LOOKBACK_MS` |
+| Fetch | `lib/integrations/gmail.js` `fetchRecentEmails()` | messages.list + messages.get. **Read-only.** Returns `{ ok, emails, reason, error, listed, failed }` |
+| Filter | `lib/integrations/email-categorizer.js` `categorizeEmails()` | rules from `agents/email-monitor/memory/rules.json`, read per run by `loadRules()` |
+| Report | `slack.chat.postMessage` to `agent.channel` | Only on success |
+| Escalate | `lib/notify-owner.js` `taskFailed()` | `#sqtools-ops` post + CRITICAL owner notification |
+
+**Empty vs failed.** `getRecentEmails()` returned `[]` for an empty inbox, for
+missing credentials, and for an API error alike, and `morning-digest.js:363-378`
+skips its email section on an empty array — so an expired token produced a digest
+that read exactly like a quiet mailbox. `fetchRecentEmails()` never collapses those:
+`ok:false` with `reason` in `no_credentials` / `service_account_key_missing` /
+`list_failed` / `all_messages_failed`. `getRecentEmails()` still flattens to `[]` for
+its existing caller, so `morning-digest.js` is unchanged.
+
+`runInboxCheck()` statuses: `ok` (check ran; `fetched` may be 0), `not_configured`,
+`fetch_failed`, `categorize_failed`. Only `ok` posts a summary; every other status
+escalates to a human and writes **no** state, so the window is retried rather than
+lost.
+
+**Still unwired, by design:** no mailbox write of any kind. The email-monitor agent
+declares a `gmail-unsubscribe` permission in `agents/agents.json` and its retired
+prose template told the model to "process any safe unsubscribe requests" — nothing in
+this repository has ever implemented that, and the only OAuth scope requested is
+`gmail.readonly` (`lib/integrations/gmail.js:83`). See WORK-TODO #29.
+
+---
+
 ## 4. The LLM path — who gets failover, who gets one shot
 
 `runWithFallback` is the chain (try provider → on rate-limit/timeout/malformed, fall to

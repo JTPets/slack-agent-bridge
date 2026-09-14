@@ -132,6 +132,22 @@ The agent responds directly without cloning any repo.
 | `WORK_DIR` | `/tmp/bridge-agent` | Temp directory for clones |
 | `GITHUB_ORG` | - | Default org for short repo names |
 
+### Scheduled Inbox Check Variables
+
+The `check-inbox` job (email-monitor agent, `*/30 9-21 * * *`) fetches through
+`lib/integrations/gmail.js` and filters with `agents/email-monitor/memory/rules.json`.
+It is read-only — Gmail list/get only. A check that fails posts to `#sqtools-ops`
+**and** sends a CRITICAL owner notification; a check that finds nothing posts a
+"0 new messages" summary. The two are never confusable.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EMAIL_CHECK_MAX_LOOKBACK_MS` | `86400000` (24 h) | Ceiling on how far back a check looks when no successful check is recorded |
+| `EMAIL_CHECK_MAX_RESULTS` | `50` | Max messages fetched per check |
+
+Gmail credentials come from the Google OAuth/service-account variables below; with
+none configured the check reports `not_configured` as a **failure**, not an empty inbox.
+
 ### LLM Provider Variables
 
 | Variable | Default | Description |

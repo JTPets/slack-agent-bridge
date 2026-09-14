@@ -46,7 +46,10 @@ const {
     triggerTask,
     buildTaskMessage,
     getTaskTemplate,
+    getDeterministicTask,
+    runScheduledTask,
     TASK_TEMPLATES,
+    DETERMINISTIC_TASKS,
 } = require('../lib/agent-scheduler');
 
 describe('agent-scheduler', () => {
@@ -82,7 +85,6 @@ describe('agent-scheduler', () => {
                 'draft-weekly-posts',
                 'content-calendar',
                 'weekly-analytics',
-                'check-inbox',
             ];
 
             for (const task of expectedTasks) {
@@ -126,14 +128,6 @@ describe('agent-scheduler', () => {
         // "(scheduled by <agent>)" suffix. The check-inbox template hardcoded the
         // suffix in its own description while buildTaskMessage appends it to every
         // template, so production Slack showed it twice, every 30 minutes.
-        it('should not duplicate the scheduled-by suffix for check-inbox', () => {
-            const message = buildTaskMessage('email-monitor', 'check-inbox');
-            const firstLine = message.split('\n')[0];
-
-            expect(firstLine).toBe('TASK: Check and triage email inbox (scheduled by email-monitor)');
-            expect(firstLine.match(/\(scheduled by /g)).toHaveLength(1);
-        });
-
         it('should append the scheduled-by suffix exactly once for every template', () => {
             for (const taskName of Object.keys(TASK_TEMPLATES)) {
                 const firstLine = buildTaskMessage('some-agent', taskName).split('\n')[0];
@@ -148,6 +142,86 @@ describe('agent-scheduler', () => {
             for (const [taskName, template] of Object.entries(TASK_TEMPLATES)) {
                 expect(`${taskName}: ${template.description}`).not.toContain('scheduled by');
             }
+        });
+    });
+
+    // LOGIC CHANGE 2026-09-14: `check-inbox` moved out of TASK_TEMPLATES into
+    // DETERMINISTIC_TASKS. These guard the move and the class it belongs to.
+    describe('DETERMINISTIC_TASKS', () => {
+        it('routes check-inbox to a deterministic handler, not an LLM template', () => {
+            expect(getDeterministicTask('check-inbox')).toBeTruthy();
+            expect(typeof getDeterministicTask('check-inbox').run).toBe('function');
+            // The prose template is gone: nothing can dispatch "check the inbox"
+            // to a model that has no mailbox access.
+            expect(TASK_TEMPLATES['check-inbox']).toBeUndefined();
+            expect(buildTaskMessage('email-monitor', 'check-inbox')).toBeNull();
+        });
+
+        it('keeps the two registries disjoint', () => {
+            const overlap = Object.keys(DETERMINISTIC_TASKS)
+                .filter(name => Object.prototype.hasOwnProperty.call(TASK_TEMPLATES, name));
+            expect(overlap).toEqual([]);
+        });
+
+        // THE enumerating guard: every task name any agent schedules must resolve
+        // to a handler or a template. Before this, a scheduled task name that
+        // resolved to neither registered a cron job that logged "No template
+        // found" on every tick, forever, and did nothing else.
+        it('resolves every task name scheduled in agents.json', () => {
+            const agents = JSON.parse(fs.readFileSync(AGENTS_FILE, 'utf8'));
+            const scheduled = (Array.isArray(agents) ? agents : agents.agents)
+                .filter(a => a.schedule && a.schedule.task)
+                .map(a => ({ id: a.id, task: a.schedule.task }));
+
+            expect(scheduled.length).toBeGreaterThan(0);
+
+            const unresolved = scheduled.filter(
+                ({ task }) => !getDeterministicTask(task) && !getTaskTemplate(task)
+            );
+            expect(unresolved).toEqual([]);
+        });
+
+    });
+
+    describe('runScheduledTask', () => {
+        it('runs the deterministic handler and reports its verdict', async () => {
+            const agent = { id: 'email-monitor', channel: 'C_EMAIL' };
+            const handler = getDeterministicTask('check-inbox');
+            const spy = jest.spyOn(handler, 'run').mockResolvedValue({ ok: true, status: 'ok', fetched: 0 });
+
+            const outcome = await runScheduledTask(mockSlack, agent, 'check-inbox');
+
+            expect(spy).toHaveBeenCalled();
+            expect(outcome).toMatchObject({ success: true, deterministic: true });
+            expect(outcome.verdict.status).toBe('ok');
+            // A deterministic task must NOT post a TASK: message for an LLM.
+            const posted = mockSlack.chat.postMessage.mock.calls
+                .filter(([arg]) => typeof arg.text === 'string' && arg.text.startsWith('TASK:'));
+            expect(posted).toEqual([]);
+
+            spy.mockRestore();
+        });
+
+        it('reports failure when the handler verdict is not ok', async () => {
+            const agent = { id: 'email-monitor', channel: 'C_EMAIL' };
+            const handler = getDeterministicTask('check-inbox');
+            const spy = jest.spyOn(handler, 'run')
+                .mockResolvedValue({ ok: false, status: 'not_configured', error: 'no creds' });
+
+            const outcome = await runScheduledTask(mockSlack, agent, 'check-inbox');
+            expect(outcome.success).toBe(false);
+
+            spy.mockRestore();
+        });
+
+        it('still posts a TASK: message for template-backed tasks', async () => {
+            const agent = { id: 'secretary', channel: 'C_SEC' };
+            const outcome = await runScheduledTask(mockSlack, agent, 'morning-briefing');
+
+            expect(outcome).toMatchObject({ success: true, deterministic: false });
+            expect(mockSlack.chat.postMessage).toHaveBeenCalledWith(
+                expect.objectContaining({ channel: 'C_SEC', text: expect.stringContaining('TASK:') })
+            );
         });
     });
 
