@@ -15,11 +15,20 @@ process.env.BRIDGE_CHANNEL_ID = 'C_BRIDGE_TEST';
 process.env.OPS_CHANNEL_ID = 'C_OPS_TEST';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const approvalQueue = require('../lib/approval-queue');
 
 describe('approval-queue', () => {
+    // LOGIC CHANGE 2026-09-14: point the module at a per-suite temp file so this
+    // suite never shares approval-queue.json with tests/security-followup.test.js
+    // under jest's parallel workers (WORK-TODO #19). Without this the two suites
+    // raced the one live file and this suite failed a varying subset of assertions.
+    let tmpDir;
+
     beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'approval-queue-test-'));
+        approvalQueue.init({ queueFile: path.join(tmpDir, 'approval-queue.json') });
         // Clear queue before each test
         approvalQueue.clearQueue();
     });
@@ -27,6 +36,7 @@ describe('approval-queue', () => {
     afterEach(() => {
         // Clean up after tests
         approvalQueue.clearQueue();
+        if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
     describe('queueTask', () => {
@@ -474,6 +484,34 @@ describe('approval-queue', () => {
             expect(approvalQueue.getStats().pending).toBe(0);
             expect(approvalQueue.getStats().approved).toBe(0);
             expect(approvalQueue.getStats().rejected).toBe(0);
+        });
+    });
+
+    // Regression for WORK-TODO #19: writes must go to the init()-supplied path, not
+    // the module default. If init() were ignored (the pre-fix behaviour, when
+    // QUEUE_FILE was a const), writes would land on agents/shared/approval-queue.json
+    // and this suite would race tests/security-followup.test.js under parallel workers.
+    describe('init (path override)', () => {
+        test('queueTask writes to the init()-supplied file, not the default', () => {
+            const isolated = path.join(tmpDir, 'isolated-queue.json');
+            approvalQueue.init({ queueFile: isolated });
+            approvalQueue.clearQueue();
+
+            const result = approvalQueue.queueTask({
+                source: 'security-followup',
+                taskMessage: 'TASK: isolated',
+            });
+
+            expect(result.queued).toBe(true);
+            // The override file exists and holds the task...
+            expect(fs.existsSync(isolated)).toBe(true);
+            expect(JSON.parse(fs.readFileSync(isolated, 'utf8')).pending).toHaveLength(1);
+            // ...and the module default file was never touched by this write.
+            expect(isolated).not.toBe(approvalQueue.DEFAULT_QUEUE_FILE);
+        });
+
+        test('init returns module.exports for chaining', () => {
+            expect(approvalQueue.init({ queueFile: path.join(tmpDir, 'chain.json') })).toBe(approvalQueue);
         });
     });
 });

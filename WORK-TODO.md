@@ -479,6 +479,65 @@ still share it.
 **Effort:** Low.
 **Risk:** Low — additive; unset option preserves today's path exactly.
 
+**Fixed 2026-09-14 (branch `fix/approval-queue-path-override-19`):** `lib/approval-queue.js`
+now takes an `init({ queueFile })` override of the same shape `lib/bridge-state.js` uses —
+`QUEUE_FILE` became a `let` defaulting to `DEFAULT_QUEUE_FILE`, and `init` is a no-op for
+the two production callers (`bridge-agent.js`, `lib/security-followup.js`), which never
+call it. `tests/approval-queue.test.js` and `tests/security-followup.test.js` now
+`init({ queueFile })` a per-suite `os.tmpdir()` file in `beforeEach`. Reproduced the flake
+first (`for i in $(seq 8); do npx jest tests/approval-queue.test.js
+tests/security-followup.test.js tests/integration.test.js; done` → 8/8 failed, counts
+13/5/4/7/6/5/6/8), then re-ran the same command 10× after the fix → 10/10 clean (148
+tests each). Full suite green: 47 suites, 1776 tests. Regression: `init (path override)`
+in `tests/approval-queue.test.js` asserts a write lands on the override file and not on
+`DEFAULT_QUEUE_FILE`. See item #24 for the sibling class this surfaced.
+
+### 24. Four sibling modules resolve a shared writable path at module scope with no override — the same class as #19
+**Filed 2026-09-14, from the #19 fix.** The #19 dispatch asked whether the
+module-scope-const-writable-path shape is a class rather than one defect. It is.
+Regenerate the candidate list:
+```
+grep -rn "path.join(__dirname, '\.\.'" --include=*.js lib/ memory/ bots/ | grep -iv test
+```
+Splitting those by whether the path is **writable state** and whether an **override path
+exists**:
+
+| Module | Module-scope path | Writable? | Override path? |
+|--------|-------------------|-----------|----------------|
+| `lib/approval-queue.js` | `approval-queue.json` | yes | **now `init({queueFile})`** (#19) |
+| `lib/bridge-state.js` | poll cursors + processed-tasks | yes | `init({stateFile,…})` |
+| `lib/task-queue.js` | `task-queue.json` | yes | constructor arg |
+| `lib/llm-metrics.js` | `llm-metrics.json` | yes | `LLM_METRICS_FILE` env, read per-call |
+| `bots/storefront.js` | `delivery-quotes.json` | yes | `DELIVERY_QUOTES_FILE` env |
+| **`lib/bulletin-board.js`** | `bulletin.json` | yes | **none** |
+| **`lib/slack-client.js`** | `channel-map.json` | yes | **none** |
+| **`lib/staff-tasks.js`** | `staff-tasks-state.json` | yes | **none** |
+| **`lib/watercooler.js`** | `watercooler-state.json` | yes | **none** |
+
+The bottom four are the exact pre-fix shape of #19: a writable file resolved as a
+module-scope `const` with no `init`/arg/env override. Their tests confirm it — they
+operate on the **real** project file, not a temp copy: `tests/bulletin-board.test.js:12-19`
+unlinks the real `agents/shared/bulletin.json`; `tests/slack-client.test.js:532` builds a
+`tempDir` the module ignores (its own comment: "The actual CHANNEL_MAP_FILE path is inside
+the project"); `tests/staff-tasks.test.js:305` unlinks the real `staffTasks.TASKS_STATE_FILE`.
+
+**Why they do not flake today, and why that is not safety:** each of those four files is
+written by exactly **one** test suite, so nothing races it. #19 flaked only because *two*
+suites wrote `approval-queue.json` (`approval-queue.test.js` + `security-followup.test.js`).
+The defect is latent in the other four — the day a second writing suite appears for any of
+them (or two of these suites' production writers run under one test), the identical
+scheduling-dependent race returns. Not fixed here to keep the #19 change scoped; filed so
+the class is visible.
+
+**Fix:** give each of the four the `init({ file })` override `lib/bridge-state.js` /
+`lib/approval-queue.js` already model, and point their suites at `os.tmpdir()`. **The
+durable close is an enumerator, not four edits:** a test that walks `lib/` + `bots/`,
+flags any module exporting a writer whose target path has no override seam, and fails when
+a new one appears — the `tests/no-shell-execution.test.js` pattern applied to
+shared-mutable-path. Without it a fifth sibling lands unnoticed.
+**Priority:** P2 | **Effort:** Low per module; Medium for the enumerator.
+**Risk:** Low — additive overrides; unset option preserves each current path exactly.
+
 ### 20. `MAX_TURNS` names four different quantities, and the env var is dead config
 **Filed 2026-09-14.** Supersedes and extends the `MAX_TURNS` bullet in item 4b, which
 recorded two of the four.
