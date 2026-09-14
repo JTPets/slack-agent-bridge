@@ -605,7 +605,7 @@ slack-agent-bridge/
 │   ├── task-decomposer.js # Automated task decomposition: analyzeComplexity, decomposeTask, findAgentForTask, subtask management
 │   ├── task-lock.js      # Sole owner of $WORK_DIR/.task-running: acquire/release plus the staleness rule that stops an orphaned lock freezing self-update
 │   ├── task-parser.js    # Task message parsing and message type detection
-│   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update
+│   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update. markRunning() is the live `running` transition; dequeue() has no production caller
 │   ├── update-verifier.js # Pre-restart gate for auto-update: node --check on entry points, restart plan (guard c)
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
 │   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow
@@ -667,6 +667,7 @@ slack-agent-bridge/
 │   ├── bulletin-board.test.js   # Tests for lib/bulletin-board.js (inter-agent communication)
 │   ├── watercooler.test.js      # Tests for lib/watercooler.js (standup orchestration, agent flow)
 │   ├── task-queue.test.js       # Tests for lib/task-queue.js (queue persistence, auto-update coordination)
+│   ├── task-queue-lifecycle.test.js # THE guard that the LIVE task path drives the queue state machine: extracts the lifecycle from bridge-agent.js's source and replays it against a real queue (a module-only test cannot see an unreachable path)
 │   ├── task-decomposer.test.js  # Tests for lib/task-decomposer.js (complexity analysis, decomposition, agent routing)
 │   ├── security-followup.test.js # Tests for lib/security-followup.js (finding parsing, task generation)
 │   ├── approval-queue.test.js   # Tests for lib/approval-queue.js (queueing, approval/rejection, commands)
@@ -843,18 +844,49 @@ and `auto-update.js` to prevent task interruption during updates.
 - `running`: Task is currently being executed
 - `completed`: Task finished successfully
 - `failed`: Task failed with an error
-- `interrupted`: Task was interrupted by a restart
+- `interrupted`: Task was interrupted — by a kill the bridge did not survive
+  (recorded at the next startup by `recoverInterrupted()`), or by a child-process
+  kill it did survive (recorded immediately by `interrupt()`)
 
-**Coordination flow.** Steps 2 and 3 are **not live** — they are auto-update's half of
+**LOGIC CHANGE 2026-09-14: `running` is a state the live path actually enters.** Until
+now `dequeue()` was the *sole* writer of `running` and `startedAt`, and it had **zero
+non-test callers**: the live path went `enqueue` → `complete`/`fail` with no transition
+in between. Every completed entry therefore carried `startedAt: null`, and
+`recoverInterrupted()` returned `0` at every startup, unconditionally — a task killed
+mid-run was never marked interrupted, it stayed `pending` forever. `processTask` now
+calls **`markRunning(queueId)`** beside `taskLock.acquire()`, so the lock and the queue
+agree about what is running.
+
+- **`markRunning(id)`, not `dequeue()`.** The bridge already holds the id it enqueued;
+  `dequeue()` searches for "the first pending entry", which with two entries pending
+  starts the wrong one and strands it `running` until the staleness rule ages it out.
+  `dequeue()` remains as a queue-consumer API with no production caller, and delegates
+  to the same transition so the two cannot disagree.
+- **Status and `startedAt` are written together, never separately.** A `running` entry
+  with a null `startedAt` is load-bearing damage, not untidiness: `checkTaskQueue()`
+  treats an unparseable stamp as **live**, so such an entry would defer every future
+  deploy; and `formatStatusResponse()` would render `new Date(null)` as 1970 and report
+  the task as having started ~29 million minutes ago.
+
+**Coordination flow.** Steps 3 and 4 are **not live** — they are auto-update's half of
 the protocol, and `auto-update.js` is never started (see "Self-update — DESIGNED AND
-TESTED, NOT WIRED"). Steps 1, 4 and 5 run today, in `bridge-agent.js`. A manual
+TESTED, NOT WIRED"). Steps 1, 2, 5 and 6 run today, in `bridge-agent.js`. A manual
 `docker compose restart` respects none of this and will kill a running task.
 
 1. When a TASK: message is found, it's enqueued before processing **(live)**
-2. *(not live)* Auto-update checks both the queue and the task lock **before** pulling anything
-3. *(not live)* If tasks are active, auto-update **defers** — it pulls nothing and retries on the next `CHECK_INTERVAL_MS`
-4. On startup, any tasks with status "running" are marked as "interrupted" **(live)**
-5. Completed/failed tasks are cleaned up after 24 hours **(live)**
+2. `processTask` marks it `running` with a `startedAt` stamp as work begins **(live)**
+3. *(not live)* Auto-update checks both the queue and the task lock **before** pulling anything
+4. *(not live)* If tasks are active, auto-update **defers** — it pulls nothing and retries on the next `CHECK_INTERVAL_MS`
+5. On startup, any tasks with status "running" are marked as "interrupted" **(live — and
+   now reachable)**
+6. Completed/failed tasks are cleaned up after 24 hours **(live)**
+
+**An interrupted task is not reported to a human.** `recoverInterrupted()` writes the
+verdict to `task-queue.json` and logs a line to stdout; nothing posts it to Slack, and
+`formatStatusResponse()` surfaces it only if someone runs `ASK: what's queued` within
+the 24-hour retention window. Every other lifecycle event on this path — a stale lock
+release, a deferred update, a task failure — posts to `#sqtools-ops`. This one does not.
+Recorded as a finding, not fixed here.
 
 **Bridge-agent startup:**
 ```javascript
@@ -921,11 +953,14 @@ there is no silent release:
 - **auto-update** ages a lock out by the threshold above. This is the backstop for the
   case startup cannot see — a lock orphaned while the bridge keeps running.
 
-**Orphaned queue entries.** `recoverInterrupted()` only rewrites `running` entries, so a
-task killed between `enqueue()` and `dequeue()` stays `pending` forever. With no wait cap
-left, one such orphan would freeze deploys permanently, so `checkTaskQueue()` ignores
-entries older than the staleness threshold and reports how many. It does **not** rewrite
-them — `task-queue.json` is bridge-agent's file and auto-update only reads it.
+**Orphaned queue entries.** `recoverInterrupted()` only rewrites `running` entries. Until
+2026-09-14 *nothing* wrote `running`, so a task killed at any point stayed `pending`
+forever and this age cutoff was carrying the whole weight. With `markRunning()` wired in,
+the window in which a kill leaves a `pending` orphan is now just the gap between
+`enqueue()` (poll loop) and `markRunning()` (top of `processTask`) — but the cutoff stays,
+because that gap is real and one orphan would freeze deploys permanently. `checkTaskQueue()`
+ignores entries older than the staleness threshold and reports how many. It does **not**
+rewrite them — `task-queue.json` is bridge-agent's file and auto-update only reads it.
 
 **How long can a deploy be deferred?** A deferral retries on the very next check interval;
 nothing is persisted that suppresses the commit (`failedCommit` is untouched), so it is a

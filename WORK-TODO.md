@@ -289,66 +289,6 @@ reporting and tests.
 
 ---
 
-### 18. The task queue never enters `running`, so crash recovery can never fire
-**Filed 2026-09-14.** Owner-observed live; verified here, and the repo evidence is
-stronger than the observation.
-
-**Problem:** `dequeue()` (`lib/task-queue.js:142`) is the **sole** writer of
-`STATUS.RUNNING` and `startedAt` (`:150-151`). It has **zero non-test callers in the
-entire repo.**
-Regenerate: `grep -rn "dequeue" --include=*.js . | grep -v node_modules`
-→ every hit is `tests/task-queue.test.js` (18 calls), one comment in
-`tests/auto-update-defer.test.js`, one comment in `auto-update.js:230`, and the definition
-itself. Nothing in production ever calls it.
-
-The live task path goes straight from `pending` to terminal: `bridge-agent.js:1671`
-`queue.enqueue({…})`, then `:756` `complete(queueId, …)` or `:897` `fail(queueId, …)`.
-There is no transition in between. Owner-observed: live queue entries show
-`startedAt: null` on tasks that reached `completed`.
-
-**Consequence:** `recoverInterrupted()` (`lib/task-queue.js:206`) rewrites **only**
-`STATUS.RUNNING` entries. With nothing ever marked running, it returns `0` on every
-startup, unconditionally — `bridge-agent.js:1908` calls it and it is a guaranteed no-op.
-A task killed mid-run is never marked `interrupted`. It stays `pending` indefinitely:
-counted by `getQueueDepth`, preserved by `cleanup`, retried by nothing, reported to nobody.
-
-**This is the foundation the autonomous-queue design rests on, and it has never worked.**
-It is also the interaction that `auto-update.js:228-234` already documents as a hazard
-("a task killed between `enqueue()` and `dequeue()` stays 'pending' forever") and works
-around with an age cutoff — the workaround is load-bearing because the transition it
-compensates for does not exist. The 2026-09-14 deferral gate's staleness rule is
-therefore carrying more weight than its own docs assume.
-
-**A green suite that sanctions the defect.** `tests/task-queue.test.js` exercises
-`dequeue()` 18 times and asserts the full `pending → running → completed/interrupted`
-lifecycle. Every assertion passes. The suite is testing a state machine that production
-never drives. Per the repo's own rule, a test that encodes behaviour the running system
-does not have is part of the defect, not evidence against it.
-
-**Not affected — the lock does work.** `bridge-agent.js` writes and removes
-`$WORK_DIR/.task-running` around the task (owner-observed live, and `lib/task-lock.js` is
-its sole owner). The lock and the queue are independent; only the queue is broken.
-
-**Also stale on this path:** `recoverInterrupted()` stamps
-`error: 'Task interrupted (PM2 restart or crash)'` (`lib/task-queue.js:216`). PM2 does not
-exist in this deployment (P3 #12). Fix the string in the same change.
-
-**Fix:** call `dequeue()` — or a narrower `markRunning(queueId)` — at the point
-`processTask` begins work, so `enqueue` → `running` → `complete`/`fail` is the real path.
-Prefer marking the *known* `queueId` over `dequeue()`'s "find the first pending", because
-the bridge already holds the id and `dequeue()`'s search would pick the wrong entry if two
-were ever pending. Then add a regression test asserting `startedAt !== null` on a completed
-task and that `recoverInterrupted()` returns non-zero after a simulated kill — the second
-assertion is what would have caught this.
-**Effort:** Low.
-**Risk:** Low-Medium — it makes `hasActiveTasks()` (`lib/task-queue.js:251` counts
-`PENDING` *or* `RUNNING`) true for a window where it is currently true anyway via
-`PENDING`, so the deferral gate's behaviour is unchanged; but re-check
-`evaluateTaskDeferral()` against the new state shape before landing, since that gate is
-what stops a self-update killing live work.
-
----
-
 ### 2. Per-agent LLM provider lives only in tracked `agents.json`; on-box edits are silently discarded
 **Problem:** An agent's provider comes from `agentConfig.llm_provider`, read straight
 from `agents/agents.json` (`bridge-agent.js:713`, `bridge-agent.js:746`). `lib/config.js`
@@ -429,6 +369,63 @@ the list of what remains unreachable. Regenerate the figure with the grep in Ste
   deferred to John — not executed by this task.**
 **Effort:** Low for the doc fixes; Medium for standing up the infra repo + secrets store.
 **Risk:** None to the running process (documentation + read-only inventory only).
+
+### 22. An interrupted task reaches no human
+**Filed 2026-09-14, from the #18 fix.** Now that `recoverInterrupted()` can actually
+fire, the thing it records goes nowhere a person will see. It writes `interrupted` into
+`task-queue.json` and logs one stdout line
+(`bridge-agent.js`: `Recovered N interrupted task(s) from queue`); nothing posts to
+Slack. Every *other* lifecycle event on this path does post to `#sqtools-ops` — a stale
+lock release, a deferred update, a task failure, an undelivered scratch clone. This one
+does not, so the observable is "the task just never answered".
+
+It is visible only via `ASK: what's queued` (`formatStatusResponse` → `getRecentCompleted`),
+which a human has to think to run, and only inside the 24-hour `COMPLETED_RETENTION_MS`
+window before `cleanup()` removes the row.
+
+Regenerate: `grep -n "recoverInterrupted" bridge-agent.js` → one call site at startup,
+its result logged and never posted. Compare with the lock's own release path a few lines
+below, which builds a verdict string and posts it.
+
+**Fix:** post a `#sqtools-ops` line when `recoverInterrupted()` returns non-zero, naming
+the task description and its source message link (both are already on the queue row).
+Deliberately *not* done in the #18 change, which was scoped to making the state machine
+real; reporting it is a separate decision about noise.
+**Priority:** P2 | **Effort:** Low.
+
+---
+
+### 23. A task killed mid-run is re-read and re-run on the next poll
+**Filed 2026-09-14, from the #18 fix.** Both message-dedup guards are written only
+*after* a task completes, so neither survives a kill:
+- `markTaskProcessed(msg.ts)` (`bridge-agent.js`, poll loop) runs **after**
+  `await currentTaskPromise`.
+- the `done`/`failed` reaction `alreadyProcessed()` looks for is added by
+  `heartbeat.stop()`, which runs in `processTask`'s `finally` — and a `finally` does not
+  run when the process is killed. The reactions present *during* a task are
+  `eyes`/`hourglass_flowing_sand`/`gear`, none of which `alreadyProcessed()` matches
+  (`lib/task-parser.js:435-440`, `lib/heartbeat.js`).
+
+So a task that kills the bridge is re-read from the channel on the next poll and run
+again — on the same input, with the same result. `restart: unless-stopped` makes that a
+loop. The queue is **not** the loop's source: `recoverInterrupted()` writes a *terminal*
+`interrupted` state, never back to `pending`, and `enqueue()` dedups by `msgTs` so no
+second row is created.
+
+Regenerate: `grep -n "markTaskProcessed\|alreadyProcessed" bridge-agent.js` and
+`grep -n "EMOJI_DONE\|EMOJI_FAILED" lib/task-parser.js lib/heartbeat.js`.
+
+**Partially mitigated by #18's fix, not closed by it:** `_startRunning()` in
+`lib/task-queue.js` now bumps `attempts` and preserves `previousStatus`/`previousError`
+on a re-attempt, so the interruption verdict survives the re-run and the repetition is at
+least *recorded*. Nothing acts on that count.
+
+**Fix:** mark the message processed (or add the reaction) *before* the LLM is invoked
+rather than after, or refuse a task whose queue row shows `attempts` over a threshold.
+The first is the smaller change and closes the loop; the second is the safety net.
+**Priority:** P2 | **Effort:** Low-Medium.
+
+---
 
 ### 19. `tests/approval-queue.test.js` flakes under parallel workers — a green suite that can lie
 **Filed 2026-09-14.** Owner-observed at roughly 1 run in 6. **Reproduced in this checkout,
@@ -755,7 +752,7 @@ This revision: **2026-09-14** (see "Filed 2026-09-14" below).
 - No helpers/utilities map or owning-doc rule → **P2 #11**.
 - `DEPLOY_KEY_PATH` read but undocumented → **P2, new item** (added 2026-09-13, later same day).
 - Nothing starts `auto-update.js`; merged code never reaches the running process → **P1 #17** (2026-09-14).
-- The task queue never enters `running`, so `recoverInterrupted()` is a guaranteed no-op → **P1 #18** (2026-09-14).
+- ~~The task queue never enters `running`, so `recoverInterrupted()` is a guaranteed no-op~~ → **P1 #18, DONE 2026-09-14**.
 - `tests/approval-queue.test.js` races a hardcoded shared file under parallel workers → **P2 #19** (2026-09-14).
 - `MAX_TURNS` names four quantities and the env var reaches nothing → **P2 #20** (2026-09-14).
 - `already_in_channel` boot noise, emitted by the SDK not by this repo → **P3 #21** (2026-09-14).
@@ -772,10 +769,12 @@ container-side half is owner-supplied and labelled as such in each item, because
 |----------|------|------|
 | **#17** | Nothing starts `auto-update.js` — merged code does not reach the running process | P1, ranked first |
 | **#3** (amended, not re-filed) | story-bot is scheduled into a channel it is not in — weekly silent failure | P1 |
-| **#18** | The task queue never enters `running`, so crash recovery can never fire | P1 |
+| **#18** | ~~The task queue never enters `running`, so crash recovery can never fire~~ — **DONE 2026-09-14** | P1 |
 | **#19** | `tests/approval-queue.test.js` flakes under parallel workers | P2 |
 | **#20** | `MAX_TURNS` names four quantities; the env var is dead config | P2 |
 | **#21** | `already_in_channel` warns five times per boot | P3 |
+| **#22** | An interrupted task reaches no human (filed from the #18 fix) | P2 |
+| **#23** | A task killed mid-run is re-read and re-run on the next poll (filed from the #18 fix) | P2 |
 
 **Two existing items were amended rather than duplicated**, per the repo's
 anti-duplication rule:
@@ -803,7 +802,10 @@ against the code, not inherited:
 - **The task-queue finding is stronger than "no transition between".** `dequeue()` — the
   sole writer of `RUNNING` — has **zero non-test callers in the repo**. It is fully
   exercised by `tests/task-queue.test.js` and never called in production: a green suite
-  asserting a state machine the running system does not drive. (#18)
+  asserting a state machine the running system does not drive. (#18 — closed
+  2026-09-14: `markRunning()` wired into `processTask`; the enumerating guard is
+  `tests/task-queue-lifecycle.test.js`, which extracts the lifecycle from
+  bridge-agent.js's source rather than calling the module.)
 - **`already_in_channel` is not logged by this repo.** `lib/slack-client.js:397-402`
   treats it as success and `continue`s without logging, so patching that catch block fixes
   nothing; the line comes from the Slack SDK's default logger on a 200-with-warning

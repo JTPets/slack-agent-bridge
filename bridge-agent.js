@@ -443,6 +443,27 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
     );
   }
 
+  // LOGIC CHANGE 2026-09-14: Mark the queue entry RUNNING here, beside the lock.
+  // The lock and the queue both answer "is a task running?" and were out of step:
+  // the lock was written around the task, but the queue went straight from
+  // `pending` to `completed`/`failed` with no transition in between, because
+  // dequeue() - the only writer of STATUS.RUNNING - had no production caller. Every
+  // completed entry therefore carried `startedAt: null`, and recoverInterrupted()
+  // returned 0 at every startup, so a task killed mid-run was never recorded as
+  // interrupted. See WORK-TODO P1 #18.
+  //
+  // markRunning(queueId), not dequeue(): the id is already known here, and
+  // dequeue()'s "first pending entry" search would pick the wrong entry whenever a
+  // second one is pending. Best effort, like the lock - a queue write that fails
+  // must not stop the work; but it is logged, never swallowed.
+  if (queueId) {
+    try {
+      taskQueue.getQueue().markRunning(queueId);
+    } catch (queueErr) {
+      console.error('[bridge-agent] Queue markRunning failed:', queueErr.message);
+    }
+  }
+
   // LOGIC CHANGE 2026-03-26: Track task in memory for history/analytics.
   // Memory errors are logged but never crash task execution.
   let memoryTaskId = null;
@@ -733,8 +754,23 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
           console.error('[bridge-agent] Memory completeTask failed:', memErr.message);
         }
       }
-      // LOGIC CHANGE 2026-04-01: Queue status for interrupted tasks will be recovered on next startup
-      // by recoverInterrupted() which marks all "running" tasks as "interrupted".
+      // LOGIC CHANGE 2026-09-14: Record the interruption in the queue HERE. The
+      // comment this replaces said startup recovery would handle it - but this
+      // branch runs in a process that is still alive and may never restart:
+      // `interrupted` is set by lib/llm-runner.js for any `code === null` child
+      // exit, which includes the TASK_TIMEOUT_MS hard kill. Now that the entry is
+      // actually RUNNING by this point, leaving it would strand a phantom in-flight
+      // task - reported by getRunning() forever, never expired by cleanup() (which
+      // keeps every RUNNING entry), and counted as live work by auto-update's
+      // deferral gate. recoverInterrupted() remains the backstop for the case this
+      // cannot reach: the bridge process itself being killed.
+      if (queueId) {
+        try {
+          taskQueue.getQueue().interrupt(queueId, `Task interrupted${signalNote} after ${elapsed}s (likely container restart)`);
+        } catch (queueErr) {
+          console.error('[bridge-agent] Queue interrupt failed:', queueErr.message);
+        }
+      }
       return;
     }
 
