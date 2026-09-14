@@ -18,7 +18,7 @@
     "phase_1_complete": [
       "Bridge agent core functionality",
       "Task parsing and execution",
-      "Auto-update daemon",
+      "Auto-update daemon (BUILT AND TESTED, NOT RUNNING — nothing starts auto-update.js; deploys are a manual `docker compose restart jt-agent`. Verified 2026-09-14, WORK-TODO #17. Never assume pushed code is live.)",
       "Morning digest",
       "Security review cron",
       "Tiered memory system",

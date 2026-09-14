@@ -207,9 +207,17 @@ a **named placeholder**. "Safe to commit" = repo; "Off-box encrypted" = never in
   "ACTION REQUIRED … move from `npm install` to `npm ci`" is **already done** on the
   box. The doc is stale on this point.
 - **The compose service starts only `node bridge-agent.js`.** `auto-update.js` is **not
-  launched by the `jt-agent` service.** How the self-update daemon runs (separate
-  service? host cron? not running?) is **undetermined** — see Step 6. This is
-  load-bearing for rebuild: without it, self-deploy does not happen.
+  launched by the `jt-agent` service.** This is load-bearing for rebuild: without it,
+  self-deploy does not happen.
+  - **Resolved repo-side, 2026-09-14:** nothing in the repository starts it either — no
+    npm script (`test`, `test:smoke`, `validate` only), no spawn or fork, no compose
+    file, Procfile or systemd unit. Combined with the compose finding above, **the
+    self-update daemon does not run at all**; deploys are a manual
+    `docker compose restart jt-agent`. A host cron or a second compose service remains
+    the only unchecked possibility and must be ruled out **on the NAS**
+    (`crontab -l`, and `grep -n "auto-update" /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml`).
+    Tracked as WORK-TODO item #17; corrected across `CLAUDE.md`, `README.md`,
+    `docs/AGENTS.md` and `docs/WIRING-AND-SEAMS.md`.
 - **Timezone mismatch.** Compose sets `TZ: America/New_York` (and the live env agrees),
   but CLAUDE.md and the app documentation say **America/Toronto**. Same UTC offset, but a
   different zone id than documented. Flag for reconciliation.
