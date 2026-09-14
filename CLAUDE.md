@@ -733,7 +733,7 @@ slack-agent-bridge/
 ├── CLAUDE.md             # Project rules and documentation (this file)
 ├── README.md             # Project overview
 ├── COMMANDMENTS.md       # Non-negotiable rules, prepended to every task prompt
-├── WORK-TODO.md          # The backlog: flat, one ### heading per item, closed items purged
+├── WORK-TODO.md          # The backlog: flat, one ### heading per OPEN item, stable numeric IDs never reused, closed items purged (git history + the `Closes <ID>` commit body are the record), index regenerated from the headings. Counts are commands, not figures: `grep -cE '^### [0-9]+[a-z]?\. ' WORK-TODO.md`
 ├── .gitattributes        # Line-ending normalization (* text=auto eol=lf) - stops CRLF corruption
 └── .gitignore            # Git ignore rules (node_modules, .env, .claude-home/, *.bak, etc.)
 ```
