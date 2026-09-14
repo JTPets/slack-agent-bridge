@@ -213,7 +213,13 @@ describe('bridge-agent startup and Phase 3 report their failures', () => {
         const wc = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'watercooler.js'), 'utf8');
         const i = wc.indexOf('[watercooler] Warnings:');
         expect(i).toBeGreaterThan(-1);
-        expect(wc.slice(i, i + 700)).toMatch(/sendDM\(/);
+        // Bounded at the `} else {` that opens the OUTRIGHT-FAILURE branch, not by a
+        // character count. A fixed window of 700 reached into that branch and matched
+        // its sendDM, so the assertion passed against the pre-change source — a guard
+        // that is green before the fix is not a guard.
+        const elseAt = wc.indexOf('} else {', i);
+        expect(elseAt).toBeGreaterThan(i);
+        expect(wc.slice(i, elseAt)).toMatch(/sendDM\(/);
     });
 });
 

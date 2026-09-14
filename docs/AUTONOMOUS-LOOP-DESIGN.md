@@ -260,6 +260,13 @@ that knew a branch had merged could not tell whether the merged code was running
 landing regardless — each closes a real defect on its own — but they are prerequisites,
 not the thing.
 
+Filed as `WORK-TODO.md` **#39** (completed vs. landed) with the evidence and the
+regeneration commands above. The compounding gap is **#17**'s final section. A third
+constraint found while tracing this — `TASK:` messages always execute as the bridge
+agent, so a scheduled agent's persona and provider never apply to its own task — is
+**#38**, and it blocks any version of this loop in which different agents do different
+work.
+
 ---
 
 ## 5. Failure paths and their destinations

@@ -14,22 +14,21 @@
  * under an install that omitted development dependencies. `npm test` printed
  * "sh: 1: jest: not found" and exited 127 having executed ZERO assertions, and the
  * reviewer reported "Tests failed (1 failed, 0 passed)" — a sentence describing a
- * failing assertion that does not exist. Everyone who read it read a tooling
- * hiccup. Reproduce in any checkout with no node_modules: `npm test; echo $?`.
+ * failing assertion that does not exist, which everyone read as a tooling hiccup.
+ * Reproduce in any checkout with no node_modules: `npm test; echo $?` -> 127.
  *
- * TWO DIRECTIONS, because either alone is half a guard:
- *   1. CLASSIFICATION — lib/test-verdict.js distinguishes an absent runner, a
+ * Two directions, because either alone is half a guard:
+ *   1. CLASSIFICATION — lib/test-verdict.js tells apart an absent runner, a
  *      non-zero exit before any assertion, a fully skipped suite, a timeout and a
- *      genuine pass. Asserted case by case below, each with the real runner output.
- *   2. ENUMERATION — every non-test .js file in the repo that invokes a test
- *      command routes its result through that classifier. Enumerated from disk, so
- *      a new invocation site is covered when it is added, not when somebody
- *      remembers to list it here.
+ *      real pass. Asserted case by case against real runner output.
+ *   2. ENUMERATION — every non-test .js file that invokes a test command routes the
+ *      result through that classifier. Walked from disk, so a new site is covered
+ *      when it is added, not when somebody remembers to list it here.
  *
  * Comments are stripped before scanning; string literals are NOT, because the
  * command being invoked IS a string literal. That is the opposite choice from
- * tests/no-shell-execution.test.js's call-site scan, and it is deliberate — see
- * docs/CANONICAL-HELPERS.md, which records that the two scanners are separate.
+ * tests/no-shell-execution.test.js's call-site scan, and deliberate — see
+ * docs/CANONICAL-HELPERS.md section 13 (and WORK-TODO #36 on extracting the walk).
  */
 
 const fs = require('fs');
@@ -48,13 +47,10 @@ const IMPORTS_CLASSIFIER = /require\(['"][./]*[\w/.-]*test-verdict['"]\)/;
 
 /**
  * Modules that route a test run through the classifier: the classifier itself, and
- * anything requiring it directly.
- *
- * One hop, deliberately. A file that invokes a test command satisfies the rule by
- * classifying the result itself OR by handing the run to a module that does -
- * bridge-agent.js names the script and delegates the run to validateOutput(). A
- * second hop would make the rule mean almost nothing; zero hops would force every
- * caller to import a module it does not use.
+ * anything requiring it directly. One hop, deliberately: a caller satisfies the rule
+ * by classifying the result itself OR by handing the run to a module that does
+ * (bridge-agent.js names the script and delegates to validateOutput). Two hops would
+ * make the rule mean almost nothing; zero would force an unused import on callers.
  *
  * @param {string[]} files - Repo-relative paths
  * @returns {Set<string>} Module basenames without .js
@@ -86,9 +82,7 @@ function reachesClassifier(code, classifiers) {
 }
 
 /**
- * Every non-test .js file in the repo, enumerated from disk.
- *
- * Reproduce from the shell with:
+ * Every non-test .js file in the repo, enumerated from disk. Reproduce with:
  *   find . -name '*.js' -not -path './node_modules/*' -not -path './.git/*' \
  *          -not -path './tests/*' -not -path './coverage/*' | sort
  *
@@ -111,8 +105,8 @@ function listSourceFiles(dir = REPO_ROOT, out = []) {
 }
 
 /**
- * Blank out comments, preserving line structure so a reported line still points at
- * real code. String literals are left intact on purpose (see the module header).
+ * Blank out comments, preserving line structure. String literals are left intact on
+ * purpose (see the module header).
  *
  * @param {string} src
  * @returns {string}
@@ -158,10 +152,9 @@ function stripComments(src) {
 }
 
 /**
- * Does this source invoke a test command?
- *
- * Matches the shapes a test command actually takes here: an `npm test` / `npm run
- * test*` string, a bare runner name in an argv array, or a `testScript` value.
+ * Does this source invoke a test command? Matches the shapes one actually takes here:
+ * an `npm test` / `npm run test*` string, a bare runner name, an argv array, or a
+ * `testScript` value.
  *
  * @param {string} code - Comment-stripped source
  * @returns {string[]} The matched fragments (empty when none).
