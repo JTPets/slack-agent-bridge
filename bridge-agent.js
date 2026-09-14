@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-// LOGIC CHANGE 2026-03-27: Load .env file on startup so PM2 restarts retain env vars
+// LOGIC CHANGE 2026-03-27: Load .env file on startup so a restarted process retains
+// its env vars. LOGIC CHANGE 2026-09-14: was "so PM2 restarts retain env vars" - the
+// reason is unchanged, the supervisor named was not this one. The `jt-agent` container
+// has no pm2; it restarts via the container runtime's `restart: unless-stopped`.
 require('dotenv').config();
 
 /**
@@ -15,8 +18,11 @@ require('dotenv').config();
  *   BRANCH: main (optional, default: main)
  *   INSTRUCTIONS: What to do
  *
- * Run with PM2:
- *   pm2 start bridge-agent.js --name bridge-agent
+ * Run:
+ *   node bridge-agent.js
+ * In the deployment this is the container's `command:` - there is no process manager
+ * inside the `jt-agent` image. A restart is `docker compose restart jt-agent` on the
+ * NAS (`up -d --force-recreate` for an .env change). See CLAUDE.md -> Commands.
  *
  * Required env vars:
  *   SLACK_BOT_TOKEN     xoxb- token
@@ -147,8 +153,12 @@ const watercooler = require('./lib/watercooler');
 const { reviewTask, createExecutionPlan, buildPrompt, validateOutput } = require('./lib/code-review-pipeline');
 
 // LOGIC CHANGE 2026-04-01: Added task-queue module for persistent task queueing.
-// Tasks are queued on disk before execution, allowing auto-update to wait for
-// queue to drain before restarting PM2. Prevents task interruption during updates.
+// Tasks are queued on disk before execution, so auto-update can see in-flight work
+// and defer rather than restart into it.
+// LOGIC CHANGE 2026-09-14: PM2 removed from this comment's prose (it read "before
+// restarting PM2"). Same removal as lib/task-queue.js's header: naming a supervisor
+// this deployment does not have described a mechanism that does not exist. The
+// auto-update half is also not live - nothing starts auto-update.js.
 const taskQueue = require('./lib/task-queue');
 const taskLock = require('./lib/task-lock');
 
@@ -402,7 +412,8 @@ function msgLink(ts, channel = BRIDGE_CHANNEL) {
 
 // LOGIC CHANGE 2026-03-27: Task lock file path for coordination with auto-update.js.
 // Created at task start, deleted in finally block. Auto-update waits for this file
-// to be removed before restarting PM2 to avoid interrupting running tasks.
+// to be removed before restarting, to avoid interrupting running tasks.
+// LOGIC CHANGE 2026-09-14: "restarting PM2" -> "restarting". There is no pm2 here.
 // LOGIC CHANGE 2026-09-14: The file is now owned by lib/task-lock.js, which adds
 // the staleness rule this lock never had. A `finally` does not run when the
 // process is killed - which is exactly what a self-update does - so a lock left
@@ -428,7 +439,8 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
 
   // LOGIC CHANGE 2026-03-27: Create task lock file to signal to auto-update.js
   // that a task is running. Auto-update will wait for this file to be removed
-  // before restarting PM2 to avoid interrupting running tasks.
+  // before restarting, to avoid interrupting running tasks.
+  // LOGIC CHANGE 2026-09-14: "restarting PM2" -> "restarting". There is no pm2 here.
   // Best effort: a task that cannot write its lock still runs. A missing lock
   // risks an interrupting restart, which beats refusing to do the work at all.
   const lockResult = taskLock.acquire({
@@ -1914,8 +1926,10 @@ function buildChannelsToPoll() {
 console.log('[bridge-agent] Starting v2');
 
 // LOGIC CHANGE 2026-03-27: Rate limit state is in-memory only — never persisted
-// to disk. The variable is initialised at declaration so every PM2 restart
+// to disk. The variable is initialised at declaration so every restart
 // automatically gives the bot a fresh start with no stale pause state.
+// LOGIC CHANGE 2026-09-14: "every PM2 restart" -> "every restart". There is no pm2
+// here; the container restarts under `restart: unless-stopped`.
 // No memory.updateContext/loadContext calls needed here.
 console.log('[bridge-agent] Startup: rate limit state is in-memory only, cleared on every restart');
 

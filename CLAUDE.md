@@ -27,7 +27,24 @@ Node.js Slack polling agent that monitors Slack channels for task messages and e
 - **Runtime**: Node.js 18+
 - **Slack SDK**: @slack/web-api ^7.0.0
 - **Process supervisor**: the container runtime (`restart: unless-stopped`). There is no PM2 and no process manager inside the `jt-agent` image.
-- **Timezone**: America/Toronto
+- **Timezone**: `America/Toronto`, named **explicitly at every site** — the code does
+  not depend on the process timezone. No file reads `process.env.TZ`; every
+  `toLocale*String` call passes `timeZone: 'America/Toronto'` and the cron registrar
+  passes `timezone: 'America/Toronto'` (`lib/agent-scheduler.js:224`). The one
+  deliberate exception is `lib/llm-metrics.js`, which buckets by UTC so a day key is
+  stable across a DST transition.
+
+  **The `jt-agent` container sets `TZ: America/New_York`** in its compose
+  `environment:` block (owner-supplied; regenerate on the NAS with
+  `grep -n "TZ:" /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml`, and see
+  `docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 0). This documentation previously said
+  only "America/Toronto", which read as a claim about the deployment and was wrong
+  about it. The deployment is not changed by this repo and does not need to be: the two
+  zones share an offset and a DST rule, and — the part that actually matters — nothing
+  reads `TZ`, so the container value reaches no behaviour. **What keeps that true is a
+  test, not this paragraph:** `tests/timezone-explicit.test.js` enumerates every source
+  file from disk and fails when a new date-format or cron site omits its zone, or when
+  anything starts reading `process.env.TZ`.
 
 ---
 
@@ -588,18 +605,23 @@ slack-agent-bridge/
 │           └── rules.json        # Email categorization rules (urgent, important, vendor_deal, newsletter, spam)
 ├── lib/
 │   ├── agent-context.js  # Agent context builder: injects real data into ASK prompts to prevent hallucination
+│   ├── agent-scheduler.js # Cron registrar for agents' proactive schedules: startScheduler reads each agent's `schedule` from agents.json and registers a node-cron job (timezone America/Toronto) that posts a TASK message built from TASK_TEMPLATES to that agent's channel; stopScheduler/getActiveJobs/triggerTask manage them. Registers on `schedule` + `channel` only — it never checks `status: "planned"` (WORK-TODO #3)
 │   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel, activateAgent
 │   ├── bulletin-board.js # Inter-agent communication: postBulletin, getBulletins, markRead, cleanupOldBulletins
+│   ├── bulletin-watcher.js # Event-driven fan-out for the bulletin board: processBulletin finds agents whose agents.json `watches.bulletin_types` includes the posted type and posts an ASK notification to each one's channel, rate-limited to one trigger per agent per RATE_LIMIT_MS (5 min)
 │   ├── config.js         # Environment variable loading, validation, and defaults
+│   ├── heartbeat.js      # Per-task progress reactions on the source Slack message: createHeartbeat().start() adds :eyes: then cycles HEARTBEAT_EMOJIS every 30s; .stop(success) clears them and adds the terminal :white_check_mark:/:x: (null = none, the rate-limit case). Every Slack call is try/caught — a heartbeat failure can never fail a task
 │   ├── git-identifiers.js # Boundary validation for Slack-controlled REPO:/BRANCH: values (isValidRepo, isValidBranch, assertValid*); *_PUNCTUATION + describeCharset() generate the rejection messages from the same character lists the patterns use
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, gemini, ollama), fallback chain, startup validation
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
 │   ├── owner-tasks.js    # Owner task management: activation checklists, pending tasks, ACTION REQUIRED detection
+│   ├── notify-owner.js   # Owner notification layer, the single path for owner-facing messages: init() injects the Slack client/owner id/ops channel; notifyOwner routes by PRIORITY (CRITICAL -> the secretary agent's channel when active, else a direct DM; HIGH -> logged for a digest that does not exist yet; LOW -> logged only) plus taskFailed/taskCompleted/actionRequired/rateLimitHit/rateLimitCleared. Redacts via lib/redact-secrets.js before anything leaves
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
 │   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork, assertValidTargetDir. Every git call is an execFileSync argv array — no function here builds a shell command string
 │   ├── bridge-state.js    # State persistence (seam B): sole owner of .bridge-agent-state.json (per-channel poll cursors) and processed-tasks.json (task dedup); init, get/setLastChecked, isTaskProcessed, markTaskProcessed, cleanupProcessedTasks
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
+│   ├── redact-secrets.js # Secret scrubber for any string bound for Slack or the logs: redact() applies value-driven scrubbing (the live value of every env var whose NAME matches SENSITIVE_NAME, so a token is caught whatever its shape) then pattern-driven scrubbing (Slack/Anthropic/Google/GitHub tokens, PEM private keys, OAuth refresh tokens, bearer headers). Exists because spawned-LLM stderr was surfaced verbatim to #sqtools-ops
 │   ├── security-followup.js # Security finding → auto-task pipeline: parses findings, creates TASK messages
 │   ├── approval-queue.js # Manual approval queue for auto-generated tasks: queueTask, approveTask, rejectTask
 │   ├── task-decomposer.js # Automated task decomposition: analyzeComplexity, decomposeTask, findAgentForTask, subtask management
@@ -614,8 +636,10 @@ slack-agent-bridge/
 │   └── integrations/
 │       ├── google-calendar.js  # Google Calendar API integration for fetching events (today, tomorrow, yesterday)
 │       ├── gmail.js            # Gmail API integration: getRecentEmails, getEmailById, getEmailHeaders (read-only)
+│       ├── catalog-search.js   # Fuse.js fuzzy search over the loaded product catalog for storefront chat: initCatalog builds the index, searchCatalog queries it (weighted name/description/category/variation keys)
 │       ├── email-categorizer.js # Email categorization by sender/subject patterns (vendor_deal, customer, newsletter, etc.)
 │       ├── email-sanitizer.js  # Email content sanitization: prompt injection protection for LLM-bound content
+│       ├── square-catalog.js   # Square Catalog API loader with a local cache file: loadCatalog serves from CATALOG_CACHE_FILE while it is younger than CATALOG_CACHE_TTL_MS, otherwise fetches from Square when SQUARE_ACCESS_TOKEN is set; refreshCatalog/getCatalogStatus/clearCache
 │       ├── holidays.js         # Canadian public holidays (Nager.Date API) and pet awareness dates
 │       └── httpsms.js          # httpSMS API wrapper: sendSMS, getMessages, registerWebhook (free SMS via Android)
 ├── memory/
@@ -642,29 +666,40 @@ slack-agent-bridge/
 ├── tests/
 │   ├── smoke.test.js            # Smoke tests: module loading, dotenv checks, export verification
 │   ├── integration.test.js      # Integration tests: critical paths, wiring, no circular deps
+│   ├── bug-fixes.test.js        # Regression tests for named past defects: rate-limit false positives, memory-file corruption resilience, null exit code = interrupted, stale working memory, addTask on corrupted tasks.json
 │   ├── agent-context.test.js    # Tests for lib/agent-context.js (anti-hallucination, secretary context)
+│   ├── agent-scheduler.test.js  # Tests for lib/agent-scheduler.js (schedule registration, task templates, cron validation)
 │   ├── agent-registry.test.js   # Tests for lib/agent-registry.js (includes activation helpers)
 │   ├── config.test.js           # Tests for lib/config.js
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
 │   ├── memory-tiers.test.js     # Tests for lib/memory-tiers.js (TTL, auto-promote, cleanup)
 │   ├── message-detection.test.js # Tests for isTaskMessage/isConversationMessage
 │   ├── owner-tasks.test.js      # Tests for lib/owner-tasks.js (checklists, pending tasks)
+│   ├── notify-owner.test.js     # Tests for lib/notify-owner.js (priority routing, secretary-vs-DM fallback, redaction)
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
+│   ├── heartbeat.test.js        # Tests for lib/heartbeat.js (emoji cycle, terminal reaction, failures never propagate)
 │   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
 │   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo argv/`--` separators, assertValidTargetDir rejections, deploy-key paths, cleanupDir, export surface)
+│   ├── undelivered-work.test.js # Tests for detectUndeliveredWork + processTask's delivery-gated cleanup (the regression guard for the three tasks lost to unconditional cleanup)
 │   ├── bridge-state.test.js     # Tests for lib/bridge-state.js (poll cursors, legacy migration, processed-task dedup; temp-dir CRUD)
 │   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management, joinAgentChannels)
+│   ├── multi-channel-routing.test.js # Tests for multi-channel polling and agent routing (buildChannelsToPoll, per-channel cursors, TASK vs ASK routing)
 │   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command, label anchoring, field rejection)
 │   ├── git-identifiers.test.js  # Tests for lib/git-identifiers.js (repo/branch allowlists, injection payload rejection, message-vs-pattern agreement probed over every ASCII punctuation character)
 │   ├── no-shell-execution.test.js # THE enumerating guard for the command-injection class: scans every non-test .js file in the repo for execSync/exec/shell:true and for shell APIs imported from child_process
+│   ├── architecture-tree.test.js # THE enumerating guard for THIS tree: every .js file under lib/, lib/integrations/, bots/, scripts/, memory/, tests/ and every top-level entry point must appear in the Architecture block below, and every basename in the block must exist on disk
+│   ├── timezone-explicit.test.js # THE enumerating guard for the "no dependence on the process timezone" class: every non-test .js file must name timeZone/timezone at each toLocale*String, Intl.DateTimeFormat and cron.schedule call, and nothing may read process.env.TZ
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
+│   ├── catalog-search.test.js   # Tests for lib/integrations/catalog-search.js (fuzzy matching: exact, partial, misspelling, no-match)
 │   ├── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
 │   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)
 │   ├── email-categorizer.test.js # Tests for lib/integrations/email-categorizer.js (categorization, rules)
 │   ├── email-rate-limiter.test.js # Tests for lib/email-rate-limiter.js (sliding window, cooldown, flood protection)
+│   ├── email-sanitizer.test.js  # Tests for lib/integrations/email-sanitizer.js (prompt-injection detection and stripping)
 │   ├── llm-metrics.test.js      # Tests for lib/llm-metrics.js (verdict recording, getStats, retention)
 │   ├── staff-tasks.test.js      # Tests for lib/staff-tasks.js (assignments, escalations, daily tasks)
 │   ├── bulletin-board.test.js   # Tests for lib/bulletin-board.js (inter-agent communication)
+│   ├── bulletin-watcher.test.js # Tests for lib/bulletin-watcher.js (watcher matching, ASK fan-out, per-agent rate limiting)
 │   ├── watercooler.test.js      # Tests for lib/watercooler.js (standup orchestration, agent flow)
 │   ├── task-queue.test.js       # Tests for lib/task-queue.js (queue persistence, auto-update coordination)
 │   ├── task-queue-lifecycle.test.js # THE guard that the LIVE task path drives the queue state machine: extracts the lifecycle from bridge-agent.js's source and replays it against a real queue (a module-only test cannot see an unreachable path)
@@ -673,6 +708,7 @@ slack-agent-bridge/
 │   ├── approval-queue.test.js   # Tests for lib/approval-queue.js (queueing, approval/rejection, commands)
 │   ├── update-verifier.test.js      # Tests for lib/update-verifier.js (entry-point syntax gate, planRestart)
 │   ├── auto-update-restart.test.js  # Tests for the exit-based self-update: one per guard (a)-(d)
+│   ├── redact-secrets.test.js   # Tests for lib/redact-secrets.js (value-driven and pattern-driven scrubbing)
 │   ├── task-lock.test.js            # Tests for lib/task-lock.js (acquire/release, staleness, legacy + unparseable lock formats)
 │   ├── auto-update-defer.test.js    # Tests the deferral gate: defers while a task holds the lock, releases a stale one, escalation bound
 │   ├── bridge-agent-scope.test.js   # AST scope guard: catches `X is not defined` in bridge-agent.js

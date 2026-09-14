@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// LOGIC CHANGE 2026-03-27: Load .env file on startup so PM2 restarts retain env vars
+// LOGIC CHANGE 2026-03-27: Load .env file on startup so a restarted process retains
+// its env vars. LOGIC CHANGE 2026-09-14: was "so PM2 restarts retain env vars"; the
+// reason stands, the supervisor named is not this one (there is no pm2 here).
 require('dotenv').config();
 
 /**

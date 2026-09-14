@@ -29,6 +29,179 @@ migration left the only copy of several artifacts on the NAS.
 
 ---
 
+## Step 0 — Deployment topology, and the three consequences that follow from it
+
+**Added 2026-09-14.** Steps 1-6 below inventory *configuration*. This step states the
+**shape of the deployment** — one container, two mounts, one env file — because three
+load-bearing consequences follow from that shape alone, and none of them was written
+down anywhere in this repository before now.
+
+Every row is labelled **repository-verified** (regenerable from a checkout, command
+given) or **owner-supplied** (established on the NAS on 2026-09-14; the regenerating
+command is given but can only be run on the box). Nothing here is inferred from memory.
+
+| Fact | Label | Regenerate with |
+|---|---|---|
+| One service: image `node:20`, `container_name: jt-agent`, `user: "1000:100"`, `working_dir: /bridge`, `restart: unless-stopped` | **owner-supplied** | `cat /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml` (on the NAS) — captured verbatim in the Appendix of this document |
+| Start command: `sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"` | **owner-supplied** | same file, `command:` line |
+| Mount 1: `/share/CACHEDEV1_DATA/jt-agent` → `/bridge`, **read-write** | **owner-supplied** | same file, `volumes:` |
+| Mount 2: `/share/CACHEDEV1_DATA/sqtools/app` → `/repo`, **read-only** | **owner-supplied** | same file, `volumes:`; confirmed from inside the container in Step 1 |
+| Environment comes from an `env_file` on the host (`/share/CACHEDEV1_DATA/jt-agent/.env`) | **owner-supplied** | same file, `env_file:` |
+| Compose `environment:` sets `TZ: America/New_York` | **owner-supplied** | same file, `environment:` |
+| No code in this repo reads `process.env.TZ`; every date-format and cron site pins `America/Toronto` explicitly | **repository-verified** | `npx jest tests/timezone-explicit.test.js` (the enumerator); one-off: `grep -rn "env\.TZ" --include=*.js . \| grep -v node_modules` → nothing |
+| Scratch clones live under `WORK_DIR`, default `/tmp/bridge-agent` | **repository-verified** | `grep -rn "WORK_DIR" lib/config.js lib/task-lock.js lib/task-queue.js bridge-agent.js auto-update.js` → `lib/config.js:41` is the default; four siblings repeat the same literal |
+| `/tmp/bridge-agent` is **not** either mount, so it is container-local storage | **derived** (owner-supplied compose × repository-verified default) | the two rows above |
+| `docker-compose.yml` is **untracked and not gitignored** | **repository-verified** | `git ls-files \| grep -i compose` → nothing; `git check-ignore -v docker-compose.yml` → no match (exit 1) |
+| Nothing in this repo runs `git clean`; `auto-update.js` runs `git reset --hard HEAD`, which does **not** remove untracked files | **repository-verified** | `grep -rn "git clean\|'clean'" --include=*.js . \| grep -v node_modules` → nothing; `grep -n "reset', '--hard" auto-update.js` → `:170`, `:191` |
+
+---
+
+### Consequence 1 — the deploy directory and the repository working tree are the same files
+
+`/bridge` is a bind mount of `/share/CACHEDEV1_DATA/jt-agent`, and that host directory
+**is the git checkout** the container runs (Step 2 and Step 5 item 2). There is no copy
+step between "the repo" and "the deployment": a commit made inside the container at
+`/bridge` is a commit in the live deployment tree, and an edit there changes the code
+that runs at the next restart.
+
+`docker-compose.yml` — the file that defines the deployment — sits **inside that same
+working tree**, untracked and, unlike `.env`, **not covered by `.gitignore`** (verified
+above). So:
+
+- `git status` in the deploy directory reports it as an untracked file, every time.
+- **`git clean -fd` in the deploy directory deletes it.** That is the "one clean command
+  from being lost" case, and it is the ordinary command someone reaches for to tidy an
+  untracked tree. (`git reset --hard HEAD`, which `auto-update.js` runs at
+  `auto-update.js:170`, does *not* touch untracked files — this is the one destructive
+  path, and nothing in this repo takes it.)
+
+**Rebuild path for the compose file, and where it is recorded:** the file is reproduced
+**verbatim in the Appendix of this document**, and its fields are restated as step 3 of
+the Step 5 rebuild path. That copy — in this repository, on GitHub — is the only copy
+that is not on the NAS. To rebuild: write the Appendix block to
+`/share/CACHEDEV1_DATA/jt-agent/docker-compose.yml`, substituting the host paths if the
+share layout differs, then `docker compose up -d`. Everything else it needs (`.env`,
+the deploy key) is covered by Step 5 items 4 and 5.
+
+**Not fixed here, filed instead:** adding `docker-compose.yml` to `.gitignore` would put
+it out of `git clean -fd`'s reach (which skips ignored files without `-x`) at the cost of
+nothing. It is a one-line repository change with a deployment-shaped consequence, so it
+is filed as a WORK-TODO item rather than taken unilaterally.
+
+---
+
+### Consequence 2 — the preserved scratch clone does not survive a container recreation
+
+This one is a silent data-loss path *inside a feature written to prevent silent data
+loss*, so it is stated in full.
+
+**What the feature does** (repository-verified, `lib/clone-lifecycle.js:237-330`,
+called from `bridge-agent.js:964-981`): before deleting a task's scratch clone,
+`detectUndeliveredWork(dir)` classifies it. A clone with uncommitted changes, or with
+local commits that `git ls-remote origin` does not show on the remote, or whose delivery
+state cannot be read at all, is **kept** — `cleanupDir` is not called — and an alert goes
+to `#sqtools-ops` naming the directory so the commits can be recovered and pushed by
+hand. On any uncertainty it errs toward preserving. It exists because three tasks' work
+was destroyed by unconditional cleanup on 2026-09-13.
+
+**Where it keeps them:** `path.join(WORK_DIR, 'task-<msg.ts>')`, `WORK_DIR` defaulting to
+`/tmp/bridge-agent` (`lib/config.js:41`, used at `bridge-agent.js:503-508`).
+
+**Why the deployment defeats it:** `/tmp/bridge-agent` is not `/bridge` and not `/repo`.
+It is in the container's own writable layer, which is a property of the *container*, not
+of the image or the mounts. Therefore:
+
+| Operation | Preserved clone survives? |
+|---|---|
+| `docker compose restart jt-agent` (the documented deploy step) | **yes** — the same container is restarted, its writable layer is intact |
+| `docker compose up -d --force-recreate jt-agent` (**required for any `.env` change**) | **no** — a new container is created and the old layer is discarded |
+| `docker compose down` / `up`, an image change, a host or Docker daemon restart that recreates the container, a container prune | **no** |
+
+The second row is the finding. `CLAUDE.md` and `docs/EXECUTOR-CONTRACT.md` both instruct
+`--force-recreate` for an environment change, so the *documented* operational procedure is
+one of the operations that destroys preserved work — with no warning, because the alert
+that named the directory was posted hours or days earlier and nothing re-checks it.
+
+**A second, weaker failure that is live today regardless of restarts:** the alert posts a
+**container-internal** path (`/tmp/bridge-agent/task-…`). That path does not exist on the
+NAS host — `/tmp` is not bind-mounted — so an owner reading the alert on their phone
+cannot `cd` to it. Recovery requires `docker exec -it jt-agent sh` first, and the alert
+does not say so.
+
+**Not fixed here**, because the fix is a deployment change (bind-mount `WORK_DIR`, or
+point `WORK_DIR` at a path under `/bridge`) and this repository cannot make deployment
+changes — the compose file is off-repo (Step 6). Filed as a WORK-TODO item with this
+evidence. Note the repository-side half of a fix *is* available and is named in that
+item: the alert can state the recovery command and the durability caveat, and
+`WORK_DIR`'s default can be documented as needing to be a mounted path.
+
+**Unverified:** whether the live `/bridge/.env` sets `WORK_DIR` to something other than
+the default. Step 2 records that the live env sets 31 keys but not which. Regenerate on
+the NAS: `grep -c . /share/CACHEDEV1_DATA/jt-agent/.env` and
+`grep -n "^WORK_DIR=" /share/CACHEDEV1_DATA/jt-agent/.env` (names only — never print the
+file). If it points somewhere under `/bridge`, consequence 2 does not apply and the item
+should be closed with that output as the evidence.
+
+---
+
+### Consequence 3 — the blast radius of every task this system runs
+
+There are two mounts and they are not symmetrical.
+
+**`/repo` is read-only, and that is a real boundary.** The SqTools application tree —
+PRODUCTION, money and customer PII — is mounted `:ro`. A task executor with a shell
+inside this container cannot write to it. Not "is asked not to": cannot. That mount flag
+is the reason a bridge-side compromise, a prompt injection, or a plainly mistaken task
+cannot damage SqTools. **It must never be made read-write.**
+
+**`/bridge` is read-write, and there is no equivalent boundary.** Tasks run through the
+Claude Code CLI with `--dangerously-skip-permissions` (`CLAUDE.md` → Security), which is
+a shell. That shell runs as `uid 1000:100`, the owner of the bind-mounted deploy
+directory. So a task executor can, today, write to:
+
+- **`/bridge/.env`** — every live credential the system holds: the Slack bot token, the
+  Gemini key, the Google OAuth trio and refresh token, the Square access token, the
+  httpSMS key. Readable *and* writable.
+- **`/bridge/.deploy_key`** — the private key with push access to this repository
+  (`DEPLOY_KEY_PATH`, default `/bridge/.deploy_key`).
+- **`/bridge/docker-compose.yml`** — the file that defines the container, its mounts
+  (including the `:ro` flag on `/repo`), and its start command.
+- **`/bridge/agents/agents.json`, `/bridge/COMMANDMENTS.md`, `/bridge/CLAUDE.md`** — the
+  registry and the instruction files that shape every subsequent task.
+- **`/bridge/.git`** — the git repository the deployment runs from, and `/bridge`'s
+  working tree, which is the code that loads at the next restart.
+- **`/bridge/.claude-home/`** — `HOME` for the container, holding the Claude Code CLI's
+  live OAuth credential.
+
+That is the blast radius of every task. It is not hypothetical and it is not new — it has
+been the case since the container was built. What was missing is anyone writing it down.
+
+**The mitigations that actually exist** (`CLAUDE.md` → Security): the `ALLOWED_USER_IDS`
+allowlist on who may submit a task, the per-task turn cap and `TASK_TIMEOUT_MS`, GitHub
+branch protection on `main`, and the executor contract's rule that work happens in a
+scratch clone under `WORK_DIR` and never in the live tree. Note what that list is: an
+*authorisation* boundary on the input side and a *convention* on the executor side.
+There is no containment boundary on the `/bridge` side comparable to `:ro` on `/repo`.
+
+**Consequences for how tasks are reviewed, stated plainly for both audiences:**
+
+- *For an executor:* you are in a scratch clone under `WORK_DIR`, but you are not
+  sandboxed out of `/bridge`. `cd /bridge` works. Nothing stops you; the rule that you do
+  not touch it is a rule, not a wall. `docs/EXECUTOR-CONTRACT.md` §7 carries this.
+- *For a reviewer:* a task that can be induced to run one wrong shell command in the live
+  tree can exfiltrate every credential the system holds and rewrite the code that runs
+  next. Instructions that reach the executor from outside the dispatch — a security
+  finding's text, an email body, a Slack message, a repository file — are the injection
+  surface. That is why auto-generated tasks go through the approval queue rather than
+  executing directly (`CLAUDE.md` → "Why approval queue exists"), and why that queue is
+  load-bearing rather than procedural.
+
+**Recorded, not fixed.** Narrowing this is a deployment change (a separate unprivileged
+uid for task execution, a read-only `/bridge` with a writable sub-path, or running tasks
+in a child container), and the compose file belongs to no repository today (Step 6).
+
+---
+
 ## Step 1 — Filesystem reach (established before anything else)
 
 | Target | Verdict | How verified |
@@ -218,9 +391,18 @@ a **named placeholder**. "Safe to commit" = repo; "Off-box encrypted" = never in
     (`crontab -l`, and `grep -n "auto-update" /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml`).
     Tracked as WORK-TODO item #17; corrected across `CLAUDE.md`, `README.md`,
     `docs/AGENTS.md` and `docs/WIRING-AND-SEAMS.md`.
-- **Timezone mismatch.** Compose sets `TZ: America/New_York` (and the live env agrees),
-  but CLAUDE.md and the app documentation say **America/Toronto**. Same UTC offset, but a
-  different zone id than documented. Flag for reconciliation.
+- **Timezone mismatch — RESOLVED 2026-09-14, in the documentation.** Compose sets
+  `TZ: America/New_York` (and the live env agrees), while CLAUDE.md said
+  **America/Toronto**. The reconciliation went to the documentation, not the
+  deployment, because **no code reads `process.env.TZ`**: every `toLocale*String` call
+  passes `timeZone: 'America/Toronto'` and `lib/agent-scheduler.js:224` passes
+  `timezone: 'America/Toronto'` to `cron.schedule`, so the container's value reaches no
+  behaviour (the two zones also share an offset and DST rule, which is why the
+  disagreement was invisible). `CLAUDE.md` → Tech Stack now states both values and which
+  one the code depends on. The property is held by an enumerator, not by prose:
+  `tests/timezone-explicit.test.js` fails when a new date-format or cron site omits its
+  zone, or when anything begins reading `process.env.TZ`. Regenerate:
+  `npx jest tests/timezone-explicit.test.js`.
 - **`/repo` is the read-only SqTools mount** and contains `ecosystem.config.js` (a PM2
   config) — consistent with COMMANDMENT 11 (SqTools is PM2-managed production; the bridge
   is not).

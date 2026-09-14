@@ -159,7 +159,22 @@ stop.
   clone under `WORK_DIR` (default `/tmp/bridge-agent`). It is not the deployed checkout
   and it is not the NAS. Work that is committed but never pushed is preserved and
   alerted on (`detectUndeliveredWork`, `lib/clone-lifecycle.js`) — but preserved in a
-  temp directory, so **push**.
+  temp directory **in the container's own writable layer**, which a container
+  *recreation* (`docker compose up -d --force-recreate`, required for any `.env` change)
+  discards. The preservation feature does not survive that. So **push**; a preserved
+  clone is a last resort with an expiry you do not control.
+- **You are not sandboxed out of the live tree — you are only asked to stay out of it.**
+  The container bind-mounts the NAS deploy directory at `/bridge` **read-write**, and
+  that directory *is* the git checkout the bridge runs. Tasks execute through a shell
+  running as its owner (`uid 1000:100`), so `/bridge/.env` (every live credential),
+  `/bridge/.deploy_key`, `/bridge/docker-compose.yml`, `/bridge/agents/agents.json`,
+  `/bridge/CLAUDE.md`, `/bridge/COMMANDMENTS.md` and `/bridge/.git` are all writable
+  from a task. Nothing stops you: the rule that you do not touch them is a rule, not a
+  wall. **Do not read, write, or `cd` into `/bridge`.** The one real boundary in this
+  deployment is the *other* mount — SqTools at `/repo`, mounted **read-only**, which is
+  why a bridge-side mistake cannot damage production. Never propose making it writable.
+  Full write-up, with what is verified and what is owner-supplied:
+  `docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 0, consequences 2 and 3.
 - **`BRANCH:` is the branch to clone *from*, not one to create.** To create a branch,
   clone `main` and `git checkout -b` in the instructions.
 - **Deploys are manual, and merging deploys nothing.** Nothing starts `auto-update.js`.

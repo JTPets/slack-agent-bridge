@@ -34,9 +34,14 @@ have / uncertain ROI
 
 ### 17. Nothing starts `auto-update.js` — merged code does not reach the running process
 **Filed 2026-09-14.** *Originally filed on the unmerged branch
-`claude/ecstatic-dijkstra-8joyou` (commit `b749d97`), which is not on `main`; carried here
-so the item and the `#17` references across the docs resolve. If that branch merges, this
-is the same item — reconcile, do not keep two.*
+`claude/ecstatic-dijkstra-8joyou` (commit `b749d97`); carried here so the item and the
+`#17` references across the docs resolve, with the standing instruction "if that branch
+merges, this is the same item — reconcile, do not keep two."* **That branch merged and the
+file did carry two, until 2026-09-14:** two `### 17.` headings, ~59 lines apart, describing
+the same item at two different dates. The older copy has been deleted and its one unique
+paragraph folded in above. Regenerate the check:
+`grep -n "^### " WORK-TODO.md | awk -F'[.#]' '{print $4}' | sort | uniq -d` — and more
+simply, `grep -c "^### 17\." WORK-TODO.md` must be `1`.
 
 **Status 2026-09-14: documentation corrected, deploy path unchanged.** The false claims
 are fixed (see below); the gap itself is open and is the owner's decision.
@@ -58,6 +63,11 @@ and `crontab -l` (a host cron is the last unchecked way it could be started).
 **Impact, observed not theorised (owner, 2026-09-14):** three branches merged to `main`
 and pushed while the container had been up 11 hours; it kept running the code it loaded at
 start. A manual `docker compose restart` was what actually deployed them.
+
+**Why this outranks everything else in P1** (carried from the duplicate copy of this
+item, reconciled 2026-09-14): every other item in this file is fixed by merging a commit,
+and merging a commit is exactly the step that is not connected to the running process.
+This is the deploy path itself.
 
 **It would not start cleanly today either (verified here).** `validateConfig()`
 (`auto-update.js:803-823`) hard-fails when `LOCAL_REPO_DIR` does not exist, and the
@@ -104,6 +114,71 @@ observable.
 **Effort:** Low for the commit-report; Low–Medium to wire the daemon (off-repo either way).
 **Risk:** Wiring it is Medium — it arms a self-restarting daemon whose guards have never
 run outside tests, and whose startup config is currently wrong.
+
+---
+
+### 25. The preserved scratch clone does not survive a container recreation — silent data loss inside the feature that prevents silent data loss
+**Filed 2026-09-14,** from the deployment-topology capture. Full write-up with the
+topology it depends on: [`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md)
+→ Step 0, consequence 2.
+
+**What the feature promises.** `detectUndeliveredWork(dir)` (`lib/clone-lifecycle.js:237-330`,
+called from `bridge-agent.js:964-981`) refuses to delete a scratch clone that holds
+uncommitted changes, or local commits `git ls-remote origin` does not show on the remote,
+or whose delivery state cannot be read. It keeps the clone and posts its path to
+`#sqtools-ops` so the work can be recovered and pushed by hand. It exists because three
+tasks' work was destroyed by unconditional cleanup on 2026-09-13. `docs/EXECUTOR-CONTRACT.md`
+§7 tells every executor it is there.
+
+**What the deployment does to it.** Clones live under `WORK_DIR`, default
+`/tmp/bridge-agent` (`lib/config.js:41`, used at `bridge-agent.js:503-508`). That path is
+neither bind mount — the compose mounts only `…/jt-agent → /bridge` and
+`…/sqtools/app → /repo:ro` — so it is in the container's own writable layer:
+
+| Operation | Preserved clone survives? |
+|---|---|
+| `docker compose restart jt-agent` (the documented deploy step) | yes — same container, same layer |
+| `docker compose up -d --force-recreate jt-agent` (**required for any `.env` change**) | **no** |
+| `down`/`up`, an image change, a container prune, a daemon restart that recreates it | **no** |
+
+Row 2 is the defect: `CLAUDE.md` and `docs/EXECUTOR-CONTRACT.md` both *instruct*
+`--force-recreate` for an environment change, so the documented operational procedure
+destroys preserved work, with no warning, days after the alert that named it.
+
+**Second mechanism, live today regardless of restarts.** The alert posts a
+container-internal path. `/tmp` is not mounted, so `/tmp/bridge-agent/task-…` does not
+exist on the NAS host: an owner reading the alert cannot `cd` there. Recovery needs
+`docker exec -it jt-agent sh` first, and the alert does not say so.
+
+**Regenerate:**
+```bash
+# repo side — the default and its consumers
+grep -rn "WORK_DIR" lib/config.js bridge-agent.js lib/task-lock.js lib/task-queue.js auto-update.js
+grep -n "detectUndeliveredWork" -A 20 bridge-agent.js     # the alert text and the path it posts
+# NAS side — the mounts, and whether .env overrides the default
+grep -n "volumes" -A 3 /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml
+grep -n "^WORK_DIR=" /share/CACHEDEV1_DATA/jt-agent/.env   # names only — never print the file
+```
+
+**Unverified:** whether the live `/bridge/.env` sets `WORK_DIR`. If it already points
+somewhere under `/bridge`, the durability half of this item is closed and that grep's
+output is the evidence. The path-in-the-alert half stands either way.
+
+**Fix — two halves, only one of which this repo can land.**
+1. *Off-repo (the real fix, and not ours):* put `WORK_DIR` on a mount. Either add a volume
+   for it or set `WORK_DIR` to a path under `/bridge` in the live `.env`. Note the second
+   also drops the preserved clone into the live git working tree, so it wants a gitignored
+   subdirectory, not the repo root. Deployment change; the compose file belongs to no
+   repository today (item #4b, Step 6).
+2. *Repo side (available now):* say the true thing in the alert — that the clone lives in
+   container-local storage, that it is lost on a container recreation, and the
+   `docker exec` needed to reach it. A regression test on the alert text is the close.
+   Do **not** "fix" this by making cleanup delete the clone anyway.
+
+**Priority:** P1 — it is the silent-data-loss class, which is the top of this file's
+ranking axis, and the loss is of work a human was told had been saved for them.
+**Effort:** Low for half 2; Low for half 1 but it is the owner's to make.
+**Risk:** Low — half 2 is message text plus a test.
 
 ---
 
@@ -159,65 +234,6 @@ only in that clone and cleanup erased them. **Three tasks were lost this way.**
   `tests/undelivered-work.test.js` (classifier + the finally-block gate).
 
 Documented in `CLAUDE.md` → "Scratch Clone Lifecycle".
-
----
-
-### 17. Nothing starts `auto-update.js` — merged code does not reach the running process
-**Filed 2026-09-14.** Owner-verified live against the running container; the repo-side
-half is verified here.
-
-**Problem (repo-side, verifiable from this checkout):** no file in this repo starts
-`auto-update.js`. `package.json` has three scripts (`test`, `test:smoke`, `validate`) and
-none of them is it; `bridge-agent.js` never spawns or forks it. Every in-repo mention is a
-comment or a doc.
-Regenerate: `grep -rn "auto-update" --include=*.js --include=*.json . | grep -v node_modules | grep -v '^./tests/'`
-→ comments and `auto-update.js`'s own body only. `node -e "console.log(Object.keys(require('./package.json').scripts))"`
-→ `[ 'test', 'test:smoke', 'validate' ]`.
-
-**Problem (off-repo, owner-supplied — NOT verifiable from this checkout):** the live
-compose runs one command,
-`sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"`
-(`docker-compose.yml:17` on the NAS). The compose file is deliberately untracked, so this
-is an unverified lead from here. Regenerate **on the NAS**:
-`grep -n "command\|entrypoint\|auto-update" /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml`
-
-**Impact, observed not theorised (owner, 2026-09-14):** three branches merged to `main`
-and pushed while the container had been up 11 hours; it kept running the code it loaded at
-start. The command-injection sink, the task-lock wait cap, and the shell-execution class
-closure all sat on disk unloaded for hours. A manual `docker compose restart` was what
-actually deployed them.
-
-**Why this outranks everything else in P1:** every other item in this file is fixed by
-merging a commit, and merging a commit is exactly the step that is not connected to the
-running process. This is the deploy path itself.
-
-**The documentation is fiction until this is settled.** `auto-update.js` exists, is
-covered by `tests/auto-update-restart.test.js` and `tests/update-verifier.test.js`, and is
-described in `CLAUDE.md` ("Self-update (how the bridge deploys itself)", "Task lock and
-self-update deferral") and in this file (P3 #12) as running every `CHECK_INTERVAL_MS`.
-The four restart guards and the 2026-09-14 deferral gate all describe a process that is
-not started. A green test suite for an unstarted daemon is the verification-integrity
-failure class, not a passing gate.
-
-**Two viable shapes — the choice is John's, not this file's:**
-- **(a) Wire it in:** the compose command starts `auto-update.js` alongside (or instead of
-  supervising) `bridge-agent.js`. Everything already written stays true. Note the exit-based
-  restart (`process.exit(0)` under `restart: unless-stopped`) assumes the *container* dies
-  on exit, so which process the container's PID 1 is matters — a backgrounded updater whose
-  exit does not stop PID 1 restarts nothing.
-- **(b) Declare manual restart the deploy:** then `auto-update.js` and its whole guard
-  apparatus are dead code, and `CLAUDE.md` + this file must say so rather than describing it
-  as live.
-
-**Either way, one thing is needed that does not exist today: a way to answer "is the
-running process on `main`?"** Nothing in the repo or on the box reports the deployed
-commit. Until it does, "merged" and "deployed" are unrelated facts and no one is told when
-they diverge. This is the scheduled-job-with-no-liveness-check class applied to the deploy
-itself.
-**Effort:** Low for (b) (doc-only) or for a commit-reporting heartbeat; Low-Medium for (a).
-**Risk:** (a) is Medium — it arms a self-restarting daemon that has never actually run in
-this deployment; its guards have never been exercised outside tests. Land the
-deployed-commit report *first* so the first real self-update is observable.
 
 ---
 
@@ -424,6 +440,97 @@ least *recorded*. Nothing acts on that count.
 rather than after, or refuse a task whose queue row shows `attempts` over a threshold.
 The first is the smaller change and closes the loop; the second is the safety net.
 **Priority:** P2 | **Effort:** Low-Medium.
+
+---
+
+### 26. `docker-compose.yml` is untracked **and** unignored in the live working tree — `git clean -fd` deletes the deployment definition
+**Filed 2026-09-14,** from the deployment-topology capture
+([`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) → Step 0,
+consequence 1).
+
+**Problem.** `/bridge` is a bind mount of the NAS deploy directory and that directory *is*
+the git checkout the bridge runs, so `docker-compose.yml` sits inside a git working tree.
+It is not tracked and — unlike `.env`, `.deploy_key*` and the state files — it is not in
+`.gitignore` either. Verified from this checkout:
+```bash
+git ls-files | grep -i compose          # -> nothing (untracked)
+git check-ignore -v docker-compose.yml  # -> no match, exit 1 (not ignored)
+```
+So `git status` in the deploy directory reports it as untracked clutter every time, and
+`git clean -fd` — the ordinary command for clearing untracked clutter — deletes the only
+copy on the box of the file that defines the deployment. `git reset --hard HEAD`, which
+`auto-update.js:170`/`:191` runs, does *not* touch untracked files, and nothing in this
+repo runs `git clean` (`grep -rn "git clean" --include=*.js . | grep -v node_modules` →
+nothing). The exposure is a human at a prompt, not an automated path.
+
+**Recoverability today, and where it is written down.** The file is reproduced verbatim in
+the Appendix of `docs/CONFIG-SURFACE-AND-REBUILD.md`, and its fields are restated as step 3
+of that document's Step 5 rebuild path. That copy is in this repository, on GitHub — the
+only copy not on the NAS. Losing the file is therefore recoverable, which is why this is
+P2 and not P1.
+
+**Fix.** Add `docker-compose.yml` to `.gitignore`. `git clean -fd` skips ignored files
+without `-x`, so one line moves it out of reach, and it stops appearing as untracked noise
+in `git status` on the box. Not taken unilaterally in the topology commit: it is a
+one-line repository change whose only purpose is a deployment-side consequence, so it is
+the owner's call. The stronger version — commit a `docker-compose.example.yml` with host
+paths as placeholders, as Step 5 item 3 already proposes — makes the rebuild path a file
+rather than a prose appendix; both are cheap and they are not exclusive.
+
+**Priority:** P2 | **Effort:** Low (one line) | **Risk:** None to the running process.
+
+---
+
+### 27. A task has write access to the entire live deployment, including every credential — recorded, undecided
+**Filed 2026-09-14,** from the deployment-topology capture
+([`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) → Step 0,
+consequence 3, which carries the full list).
+
+**Not a new exposure and not a regression** — this has been true since the container was
+built. It is filed because it was the blast radius of every task this system runs and it
+was written down nowhere, so no one was weighing it when deciding what a task may do.
+
+**The asymmetry.** `/repo` (SqTools — PRODUCTION, money and customer PII) is mounted
+read-only. That is a real containment boundary and the reason a bridge-side compromise,
+a prompt injection, or a plainly wrong task cannot damage that system. **It must never be
+made read-write.** `/bridge` has no equivalent: it is read-write, tasks run through the
+Claude Code CLI with `--dangerously-skip-permissions` (a shell) as the mount's owner
+(`uid 1000:100`), so a task can write `/bridge/.env` (the Slack token, the Gemini key, the
+Google OAuth trio and refresh token, the Square access token, the httpSMS key),
+`/bridge/.deploy_key`, `/bridge/docker-compose.yml` (including the `:ro` flag on `/repo`),
+`/bridge/agents/agents.json`, `/bridge/CLAUDE.md`, `/bridge/COMMANDMENTS.md`,
+`/bridge/.git` and `/bridge/.claude-home/` (the CLI's live OAuth credential).
+
+**What exists today is an authorisation boundary and a convention, not containment:**
+`ALLOWED_USER_IDS` on who may submit a task, the approval queue for anything
+auto-generated, the turn cap and `TASK_TIMEOUT_MS`, branch protection on `main`, and the
+executor-contract rule that work happens in a scratch clone. The first group decides *who*
+may start a task; none of it constrains what a started task can reach.
+
+**Stated where both audiences look (done 2026-09-14):** `docs/EXECUTOR-CONTRACT.md` §7
+now says plainly that an executor is not sandboxed out of `/bridge`, only asked to stay
+out, and lists what is writable; Step 0 consequence 3 carries the reviewer-facing version
+and the reason the approval queue is load-bearing rather than procedural.
+
+**Open — the owner's decision, not this file's.** Narrowing it is a deployment change and
+the compose file belongs to no repository today (item #4b, Step 6). The shapes, unranked:
+run tasks as a second uid that does not own the deploy directory; mount `/bridge`
+read-only with a writable sub-path for state and `WORK_DIR` (interacts with item #25);
+run tasks in a child container. Each costs something and one of them may be the right
+answer; **accepting the risk explicitly is also a valid outcome** and is better than the
+current state, which is that it was never considered.
+
+**Regenerate** (on the NAS — not reachable from a checkout):
+```bash
+grep -n "volumes\|user\|working_dir" -A 3 /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml
+docker exec -u 1000:100 jt-agent sh -c 'ls -la /bridge/.env /bridge/.deploy_key; touch /repo/.wtest 2>&1'
+```
+The second confirms both halves at once: readable/writable on the left, permission denied
+on the right.
+
+**Priority:** P2 | **Effort:** Low to accept and record; Medium to narrow.
+**Risk:** Changing it is Medium — every narrowing shape can break task execution or the
+push path; none of it should be attempted without a way to verify the bridge still runs.
 
 ---
 
@@ -815,6 +922,12 @@ This revision: **2026-09-14** (see "Filed 2026-09-14" below).
 - `tests/approval-queue.test.js` races a hardcoded shared file under parallel workers → **P2 #19** (2026-09-14).
 - `MAX_TURNS` names four quantities and the env var reaches nothing → **P2 #20** (2026-09-14).
 - `already_in_channel` boot noise, emitted by the SDK not by this repo → **P3 #21** (2026-09-14).
+- The preserved scratch clone lives in container-local `/tmp` and is destroyed by the
+  `--force-recreate` the docs themselves prescribe → **P1 #25** (2026-09-14).
+- `docker-compose.yml` is untracked *and* unignored in the live working tree, so
+  `git clean -fd` deletes it → **P2 #26** (2026-09-14).
+- A task can write the whole live deployment, credentials included; `/repo:ro` is the
+  only real boundary → **P2 #27**, recorded not decided (2026-09-14).
 - `context.json` is seeded, tracked, and the only write target of `addPermanent()` — which has **no production caller** today (`grep -rn addPermanent` finds only `lib/`, `memory/`, and tests). So it is seed-only in practice. If a production caller of `addPermanent('bridge', …)` is ever added it will dirty the tracked `agents/bridge/memory/context.json` and hit the same silent-reset failure as item #2. Track together, not separately.
 
 ### Filed 2026-09-14 — from a live check against the running container
@@ -834,6 +947,9 @@ container-side half is owner-supplied and labelled as such in each item, because
 | **#21** | `already_in_channel` warns five times per boot | P3 |
 | **#22** | An interrupted task reaches no human (filed from the #18 fix) | P2 |
 | **#23** | A task killed mid-run is re-read and re-run on the next poll (filed from the #18 fix) | P2 |
+| **#25** | The preserved scratch clone does not survive a container recreation (filed 2026-09-14 from the topology capture) | P1 |
+| **#26** | `docker-compose.yml` is untracked and unignored in the live tree — `git clean -fd` deletes it | P2 |
+| **#27** | A task has write access to the whole live deployment; `/repo:ro` is the only containment boundary | P2 |
 
 **Two existing items were amended rather than duplicated**, per the repo's
 anti-duplication rule:
@@ -910,7 +1026,46 @@ the defect is not.)
   having cloned and pushed over the deploy key, but the container internals themselves
   are not observable from inside the repo.
 
-*Last updated: 2026-09-14 — six findings from a live container check filed as #17-#21,
-item #3 amended in place and re-ranked, item #4b's superseded bullets cross-referenced.
+### Filed 2026-09-14 (later the same day) — from the deployment-topology capture
+
+Three items (**#25**, **#26**, **#27**), all following from one fact nothing in this
+repository had written down: the deployment is a single container with two asymmetric
+mounts — `/bridge` read-write over the deploy directory (which *is* this git checkout),
+`/repo` read-only over SqTools — and scratch clones in neither. The topology is now
+recorded, fact by fact and labelled repository-verified or owner-supplied, in
+[`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) → Step 0.
+
+**Housekeeping in the same pass:** this file carried **two `### 17.` headings**, ~59 lines
+apart, describing the same item at two different dates — the older copy arrived when
+`claude/ecstatic-dijkstra-8joyou` merged, and the newer copy had explicitly instructed
+"reconcile, do not keep two". Reconciled: the older copy is deleted and its one unique
+paragraph ("Why this outranks everything else in P1") folded into the survivor. Regenerate
+the check: `grep -c "^### 17\." WORK-TODO.md` must be `1`.
+
+**Where this revision corrects the dispatch it was filed from.** The dispatch's third
+defect — the recovery reason string naming a process manager this deployment does not use
+— **was already fixed on `main`** before this work started. At HEAD,
+`INTERRUPTED_ON_STARTUP_REASON` (`lib/task-queue.js:52-54`) reads "Task interrupted: the
+bridge process did not survive to record an outcome (container restart or crash)", changed
+in `6454fb0` and guarded by `tests/task-queue-lifecycle.test.js:223`. What was *not* done
+was the dispatch's second half — the same stale name survived in twelve other places, all
+of them present-tense claims about how this deployment runs, including runnable `pm2`
+instructions in `docs/STOREFRONT-WIDGET.md` and two modules pointing an operator at
+"pm2 logs" for output that goes somewhere else. Those are fixed; dated historical records
+of the pm2 → `process.exit(0)` change are deliberately kept.
+
+**Two enumerators added, because a rule that is only prose gets broken silently:**
+`tests/timezone-explicit.test.js` (no source file may read `process.env.TZ`; every
+date-format and cron site names its zone) and `tests/architecture-tree.test.js` (every
+source file appears in CLAUDE.md's Architecture block, and every file the block names
+exists — the second direction is what catches a removal). The architecture guard was
+written because seventeen files were missing from that tree, five of them modules
+`bridge-agent.js` `require`s directly.
+
+*Last updated: 2026-09-14 (later the same day) — topology capture: #25, #26, #27 filed;
+the duplicated #17 reconciled to one heading; the timezone, architecture-tree and stale
+process-manager defects fixed with two new enumerating guards.
+Earlier on 2026-09-14: six findings from a live container check filed as #17-#21, item #3
+amended in place and re-ranked, item #4b's superseded bullets cross-referenced.
 Previous revision: 2026-09-13 (later same day — scratch-clone fix landed, `DEPLOY_KEY_PATH`
 gap added, item #10 counts refreshed); previous full revision: 2026-04-05.*
