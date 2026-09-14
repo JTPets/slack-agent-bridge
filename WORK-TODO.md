@@ -160,6 +160,32 @@ polling-specific.
 
 ## P2 — Real gaps, no risk to the running process
 
+### 4b. Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14
+**Source:** Pi→NAS migration; config-surface inventory task.
+**Evidence:** [`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) —
+full env-var inventory (56 code-read keys + 1 dynamic pattern vs 33 in `.env.example` vs
+31 in the live `/bridge/.env`), classification, defaults comparison, a rebuild draft, and
+the list of what remains unreachable. Regenerate the figure with the grep in Step 2.
+**Findings needing a decision (John):**
+- **25 keys the code reads that `.env.example` never documents** (List A), several of
+  them credentials. A rebuilder working from the example alone misses them. → update
+  `.env.example`.
+- **`MAX_TURNS` names two different quantities** — a *default* (50, `config.js:34` /
+  `llm-runner.js:172`) and a *ceiling* (100, `task-parser.js:56`). Confirmed. Not a value
+  conflict, but a name footgun → rename the parser constant to `TURNS_CEILING`.
+- **Live `/bridge/.env` carries 7 keys no bridge code reads** (`PM2_PROCESS_NAME` +
+  six `*_CHANNEL_ID`), documented by no repo file. `PM2_PROCESS_NAME` contradicts the
+  code's "PM2 is gone" invariant.
+- **CLAUDE.md is stale:** the live compose already runs `npm ci` (the doc's "ACTION
+  REQUIRED" is done); `auto-update.js` is not started by the `jt-agent` service (self-update
+  wiring undetermined); compose `TZ` is `America/New_York`, docs say `America/Toronto`.
+- **Cross-stack infra (3 compose files, host crontab, Tailscale, 3 deploy keys) is owned
+  by no app repo.** Proposal: a dedicated infra repo owns the runbook; an encrypted
+  off-box secrets store (`sops`/`age` or a hosted manager) holds credentials. **Decisions
+  deferred to John — not executed by this task.**
+**Effort:** Low for the doc fixes; Medium for standing up the infra repo + secrets store.
+**Risk:** None to the running process (documentation + read-only inventory only).
+
 ### 5. Mid-task `ask_on_slack` capability
 **Source:** tomeraitz/claude-slack-bridge
 **Problem:** Tasks run fully autonomously. If the model needs a decision mid-run it
