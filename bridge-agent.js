@@ -222,13 +222,23 @@ if (!fs.existsSync(WORK_DIR)) {
 
 // ---- State persistence ----
 
-const STATE_FILE = path.join(__dirname, '.bridge-agent-state.json');
-let isRunning = false;
+// LOGIC CHANGE 2026-09-14: Extracted file-backed state persistence into
+// lib/bridge-state.js — seam B in docs/WIRING-AND-SEAMS.md. That module is the
+// single owner of .bridge-agent-state.json (per-channel poll cursors) and
+// agents/shared/processed-tasks.json (task-dedup timestamps); bridge-agent now
+// reaches both only through the exported accessors. init() loads both files and
+// is handed BRIDGE_CHANNEL so it can migrate the legacy single-channel format.
+const bridgeState = require('./lib/bridge-state');
+bridgeState.init({ bridgeChannel: BRIDGE_CHANNEL });
+const {
+  getLastChecked,
+  setLastChecked,
+  isTaskProcessed,
+  markTaskProcessed,
+  cleanupProcessedTasks,
+} = bridgeState;
 
-// LOGIC CHANGE 2026-03-27: Changed from single lastChecked to per-channel lastChecked map.
-// Each channel has its own timestamp to track which messages have been processed.
-// Format: { channelId: timestamp, ... }
-let channelLastChecked = loadState();
+let isRunning = false;
 
 // LOGIC CHANGE 2026-03-27: Added graceful shutdown support.
 // shuttingDown: flag to stop processing new tasks on SIGTERM/SIGINT
@@ -253,103 +263,6 @@ let rateLimitState = {
   retryCount: 0,
   failedTask: null,
 };
-
-// LOGIC CHANGE 2026-03-28: Task deduplication via processed-tasks.json.
-// Prevents re-processing old messages after bot restarts. Stores message timestamps
-// (not IDs) to survive PM2 restarts. Gitignored, local-only file.
-const PROCESSED_TASKS_FILE = path.join(__dirname, 'agents', 'shared', 'processed-tasks.json');
-let processedTaskTimestamps = loadProcessedTasks();
-
-function loadProcessedTasks() {
-  try {
-    const data = fs.readFileSync(PROCESSED_TASKS_FILE, 'utf8');
-    if (!data || !data.trim()) return {};
-    const parsed = JSON.parse(data);
-    if (typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    return parsed;
-  } catch (err) {
-    if (err.code === 'ENOENT') return {};
-    console.warn('[bridge-agent] processed-tasks.json corrupted, resetting');
-    return {};
-  }
-}
-
-function saveProcessedTasks() {
-  try {
-    const dir = path.dirname(PROCESSED_TASKS_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(PROCESSED_TASKS_FILE, JSON.stringify(processedTaskTimestamps, null, 2), 'utf8');
-  } catch (err) {
-    console.error('[bridge-agent] Failed to save processed-tasks.json:', err.message);
-  }
-}
-
-function isTaskProcessed(ts) {
-  return Object.prototype.hasOwnProperty.call(processedTaskTimestamps, ts);
-}
-
-function markTaskProcessed(ts) {
-  processedTaskTimestamps[ts] = Date.now();
-  saveProcessedTasks();
-}
-
-function cleanupProcessedTasks() {
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  let removed = 0;
-  for (const [ts, processedAt] of Object.entries(processedTaskTimestamps)) {
-    if (processedAt < sevenDaysAgo) {
-      delete processedTaskTimestamps[ts];
-      removed++;
-    }
-  }
-  if (removed > 0) {
-    saveProcessedTasks();
-    console.log(`[bridge-agent] Cleaned up ${removed} old processed task entries`);
-  }
-}
-
-// LOGIC CHANGE 2026-03-27: Updated loadState to support per-channel timestamps.
-// Returns an object mapping channelId -> lastChecked timestamp.
-// Migrates legacy single-channel format ({ lastChecked: ts }) to multi-channel format.
-function loadState() {
-  try {
-    const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-    // Legacy format: { lastChecked: "timestamp" }
-    // New format: { channels: { channelId: "timestamp", ... } }
-    if (data.channels) {
-      return data.channels;
-    }
-    // Migrate legacy format: assign old timestamp to bridge channel
-    if (data.lastChecked) {
-      return { [BRIDGE_CHANNEL]: data.lastChecked };
-    }
-    return {};
-  } catch {
-    return {};
-  }
-}
-
-// LOGIC CHANGE 2026-03-27: Updated saveState to save per-channel timestamps.
-// Saves the entire channelLastChecked object to disk.
-function saveState() {
-  try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ channels: channelLastChecked }), 'utf8');
-  } catch (err) {
-    console.error('[bridge-agent] Failed to save state:', err.message);
-  }
-}
-
-// LOGIC CHANGE 2026-03-27: Helper to get lastChecked timestamp for a channel.
-// Returns '0' if channel has never been polled.
-function getLastChecked(channelId) {
-  return channelLastChecked[channelId] || '0';
-}
-
-// LOGIC CHANGE 2026-03-27: Helper to update lastChecked timestamp for a channel.
-function setLastChecked(channelId, ts) {
-  channelLastChecked[channelId] = ts;
-  saveState();
-}
 
 // LOGIC CHANGE 2026-03-26: Check if currently paused due to rate limit.
 function isRateLimitPaused() {

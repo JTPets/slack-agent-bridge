@@ -182,16 +182,26 @@ three helpers. `tests/undelivered-work.test.js` was re-pointed at the module sou
   and the finally-block gate — extraction is refactor-under-test.
 - **Caller left behind:** `processTask` calls all three; pass nothing new, they are pure.
 
-### Seam B — State persistence → `lib/bridge-state.js`
-- **Lines:** 218–347, ~130 LOC (processed-tasks CRUD, `loadState`/`saveState`,
+### Seam B — State persistence → `lib/bridge-state.js`  — DONE 2026-09-14
+Extracted into `lib/bridge-state.js`; `bridge-agent.js` now `require`s it, calls
+`bridgeState.init({ bridgeChannel: BRIDGE_CHANNEL })` once at startup, and destructures
+the five accessors it uses (`getLastChecked`, `setLastChecked`, `isTaskProcessed`,
+`markTaskProcessed`, `cleanupProcessedTasks`). The module is the single owner of both
+files; the two mutable maps (`channelLastChecked`, `processedTaskTimestamps`) are no
+longer module state in bridge-agent. `tests/bridge-state.test.js` added (temp-dir CRUD,
+legacy migration, dedup + cleanup). Full suite green; `bridge-agent.js` 2209 → 1979 LOC.
+- **Lines:** was 218–347, ~130 LOC (processed-tasks CRUD, `loadState`/`saveState`,
   `getLastChecked`/`setLastChecked`, `cleanupProcessedTasks`).
 - **Why:** file-backed, deterministic, no Slack/LLM. The one shared mutable is
   `channelLastChecked` / `processedTaskTimestamps` — export accessors, keep the module
   as the single owner of both files.
-- **Watch:** `STATE_FILE`/`PROCESSED_TASKS_FILE` paths are `__dirname`-relative; keep
-  them anchored to repo root, not the new module's dir.
-- **New tests required:** none exist for these today — a moved function still "ships,"
-  but per the no-new-function rule add a temp-dir CRUD test on extraction.
+- **Paths anchored to repo root:** `STATE_FILE`/`PROCESSED_TASKS_FILE` were
+  `__dirname`-relative at repo root; the module resolves them via
+  `path.join(__dirname, '..')` so they stay put after the move to `lib/`.
+- **`loadState` migration dependency:** the legacy single-channel → multi-channel
+  migration needed `BRIDGE_CHANNEL` (a closure var in bridge-agent). It is now passed
+  through `init({ bridgeChannel })`, so the module has no config/env coupling and
+  `init()` can take temp-dir path overrides for testing.
 
 ### Seam C — Built-in command router → `lib/ask-commands.js`  *(largest win)*
 - **Lines:** the 9-branch ladder inside `processConversation`, ~373 LOC (1285–1658):
