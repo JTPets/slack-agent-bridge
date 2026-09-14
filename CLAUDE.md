@@ -27,7 +27,24 @@ Node.js Slack polling agent that monitors Slack channels for task messages and e
 - **Runtime**: Node.js 18+
 - **Slack SDK**: @slack/web-api ^7.0.0
 - **Process supervisor**: the container runtime (`restart: unless-stopped`). There is no PM2 and no process manager inside the `jt-agent` image.
-- **Timezone**: America/Toronto
+- **Timezone**: `America/Toronto`, named **explicitly at every site** — the code does
+  not depend on the process timezone. No file reads `process.env.TZ`; every
+  `toLocale*String` call passes `timeZone: 'America/Toronto'` and the cron registrar
+  passes `timezone: 'America/Toronto'` (`lib/agent-scheduler.js:224`). The one
+  deliberate exception is `lib/llm-metrics.js`, which buckets by UTC so a day key is
+  stable across a DST transition.
+
+  **The `jt-agent` container sets `TZ: America/New_York`** in its compose
+  `environment:` block (owner-supplied; regenerate on the NAS with
+  `grep -n "TZ:" /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml`, and see
+  `docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 0). This documentation previously said
+  only "America/Toronto", which read as a claim about the deployment and was wrong
+  about it. The deployment is not changed by this repo and does not need to be: the two
+  zones share an offset and a DST rule, and — the part that actually matters — nothing
+  reads `TZ`, so the container value reaches no behaviour. **What keeps that true is a
+  test, not this paragraph:** `tests/timezone-explicit.test.js` enumerates every source
+  file from disk and fails when a new date-format or cron site omits its zone, or when
+  anything starts reading `process.env.TZ`.
 
 ---
 
@@ -657,6 +674,7 @@ slack-agent-bridge/
 │   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command, label anchoring, field rejection)
 │   ├── git-identifiers.test.js  # Tests for lib/git-identifiers.js (repo/branch allowlists, injection payload rejection, message-vs-pattern agreement probed over every ASCII punctuation character)
 │   ├── no-shell-execution.test.js # THE enumerating guard for the command-injection class: scans every non-test .js file in the repo for execSync/exec/shell:true and for shell APIs imported from child_process
+│   ├── timezone-explicit.test.js # THE enumerating guard for the "no dependence on the process timezone" class: every non-test .js file must name timeZone/timezone at each toLocale*String, Intl.DateTimeFormat and cron.schedule call, and nothing may read process.env.TZ
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
 │   ├── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
 │   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)
