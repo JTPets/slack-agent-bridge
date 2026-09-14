@@ -28,7 +28,7 @@ Node.js Slack polling agent that monitors Slack channels for task messages and e
 
 ### Security First
 - **NEVER log tokens** — Slack tokens, API keys, and secrets must never appear in logs or console output
-- **No eval/exec** — Never use `eval()` or `child_process.exec()`. Use `child_process.spawn()` only
+- **No eval/exec** — Never use `eval()`, `child_process.exec()` or `child_process.execSync()` with an interpolated value. Use `child_process.spawn()` (async) or `child_process.execFileSync()` (sync) with an **argv array** — those never involve a shell, so a metacharacter in an argument is just a character
 - **Sanitize all input** — Validate and sanitize any data from Slack before processing
 - **No hardcoded secrets** — All credentials via environment variables
 
@@ -159,6 +159,8 @@ const POLL_INTERVAL = 5000;
 | `POLL_INTERVAL_MS` | Poll frequency in ms | `30000` |
 | `MAX_TURNS` | CC max turns per task | `50` |
 | `TASK_TIMEOUT_MS` | Hard kill timeout in ms | `600000` |
+| `TASK_LOCK_STALE_MS` | Age at which a task lock is treated as orphaned and released. Must exceed the longest a task can legitimately run. | `2 × TASK_TIMEOUT_MS + 600000` (30 min at defaults) |
+| `UPDATE_DEFER_ALERT_MS` | How long one self-update may be deferred before every cycle escalates to `#sqtools-ops` | `3600000` (60 min) |
 | `WORK_DIR` | Base dir for temp clones | `/tmp/bridge-agent` |
 | `REPOS` | Comma-separated repos for security-review | `jtpets/slack-agent-bridge,jtpets/SquareDashboardTool` |
 | `CLAUDE_RATE_LIMIT_PAUSE` | Initial pause duration (ms) when rate limit/bandwidth exhausted | `1800000` |
@@ -328,6 +330,12 @@ the exit — see `lib/update-verifier.js` and `checkForUpdates()` in `auto-updat
 A commit that fails (a) is recorded in `failedCommit` and not retried; the next commit on
 `main` deploys normally. Exit code is `0` — a clean intentional restart, not a crash.
 
+A fifth gate, added 2026-09-14, runs **before** all of these: the **deferral gate**
+(`evaluateTaskDeferral()`). Guards (a)-(d) stop the bridge restarting into code that
+cannot start; the deferral gate stops it restarting *out of* work that is still running.
+It sits ahead of `git reset --hard`/`git pull` so a deferred update mutates nothing.
+See "Task lock and self-update deferral" below.
+
 > **Why (a) runs the smoke suite, not just `node --check`:** `node --check` is a *syntax*
 > check — a commit that deletes a required file or adds a dependency missing from
 > `package.json` parses clean and would still brick the bridge. `npm run test:smoke`
@@ -483,15 +491,19 @@ slack-agent-bridge/
 │   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel, activateAgent
 │   ├── bulletin-board.js # Inter-agent communication: postBulletin, getBulletins, markRead, cleanupOldBulletins
 │   ├── config.js         # Environment variable loading, validation, and defaults
+│   ├── git-identifiers.js # Boundary validation for Slack-controlled REPO:/BRANCH: values (isValidRepo, isValidBranch, assertValid*)
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, gemini, ollama), fallback chain, startup validation
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
 │   ├── owner-tasks.js    # Owner task management: activation checklists, pending tasks, ACTION REQUIRED detection
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
+│   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo (execFileSync argv arrays, no shell), cleanupDir, detectUndeliveredWork
+│   ├── bridge-state.js    # State persistence (seam B): sole owner of .bridge-agent-state.json (per-channel poll cursors) and processed-tasks.json (task dedup); init, get/setLastChecked, isTaskProcessed, markTaskProcessed, cleanupProcessedTasks
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
 │   ├── security-followup.js # Security finding → auto-task pipeline: parses findings, creates TASK messages
 │   ├── approval-queue.js # Manual approval queue for auto-generated tasks: queueTask, approveTask, rejectTask
 │   ├── task-decomposer.js # Automated task decomposition: analyzeComplexity, decomposeTask, findAgentForTask, subtask management
+│   ├── task-lock.js      # Sole owner of $WORK_DIR/.task-running: acquire/release plus the staleness rule that stops an orphaned lock freezing self-update
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update
 │   ├── update-verifier.js # Pre-restart gate for auto-update: node --check on entry points, restart plan (guard c)
@@ -539,8 +551,11 @@ slack-agent-bridge/
 │   ├── owner-tasks.test.js      # Tests for lib/owner-tasks.js (checklists, pending tasks)
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
 │   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
+│   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo, cleanupDir export surface)
+│   ├── bridge-state.test.js     # Tests for lib/bridge-state.js (poll cursors, legacy migration, processed-task dedup; temp-dir CRUD)
 │   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management, joinAgentChannels)
-│   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command)
+│   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command, label anchoring, field rejection)
+│   ├── git-identifiers.test.js  # Tests for lib/git-identifiers.js (repo/branch allowlists, injection payload rejection)
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
 │   ├── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
 │   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)
@@ -556,6 +571,8 @@ slack-agent-bridge/
 │   ├── approval-queue.test.js   # Tests for lib/approval-queue.js (queueing, approval/rejection, commands)
 │   ├── update-verifier.test.js      # Tests for lib/update-verifier.js (entry-point syntax gate, planRestart)
 │   ├── auto-update-restart.test.js  # Tests for the exit-based self-update: one per guard (a)-(d)
+│   ├── task-lock.test.js            # Tests for lib/task-lock.js (acquire/release, staleness, legacy + unparseable lock formats)
+│   ├── auto-update-defer.test.js    # Tests the deferral gate: defers while a task holds the lock, releases a stale one, escalation bound
 │   ├── bridge-agent-scope.test.js   # AST scope guard: catches `X is not defined` in bridge-agent.js
 │   └── silent-drop-logging.test.js  # Tests for describeSkipReason + the poll loop's skip logging
 ├── docs/
@@ -672,6 +689,32 @@ When a task has a REPO field, `bridge-agent.js` runs a 3-phase pipeline via `lib
 - Entries older than 7 days cleaned up on startup
 - Prevents re-processing old messages after container restarts
 
+### Scratch Clone Lifecycle
+
+Each repo task is executed in a fresh scratch clone under `WORK_DIR`
+(`cloneRepo`, configured to push via the deploy key). `processTask`'s `finally`
+block used to delete that clone unconditionally — so when a push never landed
+(a READ-ONLY clone, or a failed push), the agent's commits lived only in the
+clone and cleanup erased them. Three tasks were lost this way.
+
+**Cleanup now gates on delivery.** `detectUndeliveredWork(dir)` in
+`lib/clone-lifecycle.js` (called from `processTask` in `bridge-agent.js`)
+classifies the clone before `cleanupDir` runs:
+
+- **Uncommitted changes** (`git status --porcelain` non-empty) → undelivered.
+- **Local commits absent from the remote** → undelivered. Delivery is checked by
+  matching local branch/HEAD tip SHAs against `git ls-remote origin`, *not*
+  `git log --not --remotes`: scratch clones use `--single-branch`, whose fetch
+  refspec never creates a local `origin/feature/*` tracking ref, so a pushed
+  feature branch would otherwise look unpushed. ls-remote asks the remote directly.
+- **Remote unreachable** (e.g. a READ-ONLY clone) → preserve if any local commits
+  exist, else clean up. On any uncertainty the function errs toward preserving.
+
+An undelivered clone is **kept** (not deleted) and an alert is posted to
+`#sqtools-ops` with its path so the work can be recovered and pushed manually.
+Delivered clones (clean tree, tips on the remote — the normal success case, and
+research/audit tasks that make no commits) are cleaned up as before.
+
 ### Channel Auto-Join
 
 On every startup, `slackClient.joinAgentChannels(channelsToPoll)` is called to join all
@@ -698,8 +741,8 @@ and `auto-update.js` to prevent task interruption during updates.
 
 **Coordination flow:**
 1. When a TASK: message is found, it's enqueued before processing
-2. Auto-update checks both the queue and lock file before restarting
-3. If tasks are active, auto-update waits up to 5 minutes (30s intervals, 10 attempts)
+2. Auto-update checks both the queue and the task lock **before** pulling anything
+3. If tasks are active, auto-update **defers** — it pulls nothing and retries on the next `CHECK_INTERVAL_MS`
 4. On startup, any tasks with status "running" are marked as "interrupted"
 5. Completed/failed tasks are cleaned up after 24 hours
 
@@ -713,10 +756,69 @@ queue.cleanup();
 
 **Auto-update coordination:**
 ```javascript
-// Wait for queue to drain before restart
-await waitForTaskCompletion();
-// Checks: fs.existsSync(TASK_LOCK_FILE) AND checkTaskQueue().hasActive
+// Decide, don't wait. Returns { defer, reason, staleVerdicts, queue, lock }.
+const deferral = deps.evaluateTaskDeferral();
+if (deferral.defer) return;   // nothing pulled; next cycle retries
 ```
+
+### Task lock and self-update deferral
+
+**LOGIC CHANGE 2026-09-14.** The self-update cycle used to call
+`waitForTaskCompletion()`: poll the lock every 30s, up to 10 times, then **restart
+anyway**. `TASK_TIMEOUT_MS` defaults to 600000 (10 minutes) and a task that hits max
+turns retries once with doubled turns, so a task is permitted to run several times
+longer than auto-update was willing to wait. That was not a race that occasionally
+bit a long task — a task running longer than 5 minutes was *certain* to be killed.
+
+The lock is now owned by **`lib/task-lock.js`** and the wait is a **deferral**:
+
+| | Before | After |
+|---|---|---|
+| Gate runs | after `reset --hard` + `pull` + `npm install` | **before** any git mutation |
+| Task still running at the cap | restart anyway (task killed) | defer; pull nothing; retry next cycle |
+| Lock left by a killed task | never cleaned up by anything | detected and released, with a posted verdict |
+
+**Why a staleness rule is mandatory, not a nicety.** `processTask`'s `finally` cannot
+run when the process is killed — and a self-update restart is exactly that kill — so a
+lock left behind was previously cleaned up by nothing. Under the old 5-minute cap that
+only cost a delay. Removing the cap without an expiry would turn a task-killer into a
+permanent deploy freeze. Both halves ship together.
+
+**The staleness threshold** defaults to `2 × TASK_TIMEOUT_MS + 10 min` (30 minutes at
+defaults). The derivation: a task runs the LLM once and, on a max-turns hit, retries
+once, each invocation bounded by `TASK_TIMEOUT_MS`; the grace window covers Phase-3
+`npm test`, delivery detection and Slack posts. A lock older than that cannot belong to
+a live task, because a task that age has already been hard-killed by its own timeout.
+Override with `TASK_LOCK_STALE_MS`.
+
+**Process liveness is deliberately not a release criterion.** bridge-agent and
+auto-update are separate processes and this repo cannot prove they share a pid
+namespace; a wrong liveness read would release a live task's lock and destroy its work —
+the exact failure being fixed. The pid is recorded and reported for diagnosis only.
+
+**Two independent stale-lock releases**, both logged *and* posted to `#sqtools-ops` —
+there is no silent release:
+- **bridge-agent startup** clears any lock on disk. Sound because bridge-agent is the
+  lock's only writer and is single-instance here: if it is starting, no task of its own
+  can be running. This complements `recoverInterrupted()`, which repairs the *queue*
+  after a kill but never touched the *lock*.
+- **auto-update** ages a lock out by the threshold above. This is the backstop for the
+  case startup cannot see — a lock orphaned while the bridge keeps running.
+
+**Orphaned queue entries.** `recoverInterrupted()` only rewrites `running` entries, so a
+task killed between `enqueue()` and `dequeue()` stays `pending` forever. With no wait cap
+left, one such orphan would freeze deploys permanently, so `checkTaskQueue()` ignores
+entries older than the staleness threshold and reports how many. It does **not** rewrite
+them — `task-queue.json` is bridge-agent's file and auto-update only reads it.
+
+**How long can a deploy be deferred?** A deferral retries on the very next check interval;
+nothing is persisted that suppresses the commit (`failedCommit` is untouched), so it is a
+retry, not a skip. A **single** task can hold the lock for at most the staleness threshold
+before it is released out from under it. A back-to-back **succession** of healthy tasks
+can defer an update indefinitely — deliberately, because the alternative is killing live
+work. That case is bounded by visibility, not by a timer: once one update has been
+deferred continuously for `UPDATE_DEFER_ALERT_MS` (default 60 min), every subsequent cycle
+escalates to `#sqtools-ops`. The update is never forced.
 
 ### Task Decomposition
 
@@ -798,6 +900,39 @@ INSTRUCTIONS: What to do
 | BRANCH | No | main | Branch to clone from |
 | TURNS | No | 50 | Max LLM turns for this task (5-100) |
 | INSTRUCTIONS | Yes | - | Detailed instructions (can be multiline) |
+
+### Field Label Rules
+
+**LOGIC CHANGE 2026-09-14.** A field label is recognised only when it is
+**UPPERCASE** and at the **start of a line** (leading spaces or tabs are allowed).
+`TASK:`, `REPO:`, `BRANCH:`, `TURNS:`, `SKILL:` and `INSTRUCTIONS:` all follow this
+rule — the list lives in `FIELD_LABELS` in `lib/task-parser.js`.
+
+This replaces the 2026-04-01 case-insensitive labels. The old patterns were
+unanchored *and* case-insensitive, so prose matched: on 2026-09-13 the sentence
+fragment "repo: runWithFallback had" inside an INSTRUCTIONS body produced
+`git clone https://github.com/jtpets/runWithFallback had.git`.
+
+A label written in a non-canonical form (`repo:`, `Repo:`) is **not silently
+ignored** — it is reported and the whole task is refused, so a mis-typed label can
+never quietly downgrade a task to "no repo".
+
+### Field Value Rules
+
+`REPO:` and `BRANCH:` reach `git` and are validated at the boundary by
+`lib/git-identifiers.js`, then asserted again at the sink in `cloneRepo`. Values are
+**rejected, never sanitised** — stripping characters out of `jtpets/my;repo` would
+clone `jtpets/myrepo`, a different repository than was asked for, with nobody told.
+
+| Field | Accepted shape |
+|-------|----------------|
+| `REPO` | `owner/name`. Owner: 1-39 chars of `[A-Za-z0-9-]`, first and last alphanumeric. Name: 1-100 chars of `[A-Za-z0-9._-]`, no `..` |
+| `BRANCH` | 1-255 chars of `[A-Za-z0-9._/-]` starting alphanumeric, and git-ref-legal (no `..`, `//`, trailing `/` or `.`, no component starting `.` or ending `.lock`) |
+| `SKILL` | A single path segment: 1-64 chars of `[a-z0-9._-]` starting alphanumeric, no `..` (it indexes `skills/<skill>/SKILL.md`) |
+
+A rejected value is collected into `task.errors` by `parseTask`; `processTask`
+throws on a non-empty `task.errors`, which posts the reason to Slack and marks the
+message failed. No clone is attempted.
 
 ### TURNS Field
 • Controls how many LLM turns (API round-trips) the agent will execute for this task.

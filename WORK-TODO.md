@@ -50,6 +50,35 @@ the event loop open.
 
 ---
 
+### ~~Scratch clone cleanup destroyed undelivered work~~ — DONE 2026-09-13 (later same day)
+This defect class was not in the list when this file was first revised earlier on
+2026-09-13; it landed the same afternoon and is recorded here for the trail. It was a
+**silent data-loss** bug, the worst category by the ranking axis above (silently corrupt
+state), so it would have opened as P1 had it survived to the next revision.
+
+**Was:** `processTask`'s `finally` block deleted the scratch clone unconditionally. When
+a push never landed — a READ-ONLY clone, or a failed push — the agent's commits lived
+only in that clone and cleanup erased them. **Three tasks were lost this way.**
+
+**Fixed (two parts):**
+- **Pushable by construction** — `cloneRepo` now re-points `origin` at the SSH remote and
+  sets `core.sshCommand` to the deploy key, then verifies with a `fetch`, so a clone is
+  deliverable before any work starts (`bridge-agent.js:485-500`; LOGIC CHANGE 2026-09-13).
+  Missing key → the clone is logged READ-ONLY rather than silently un-pushable. Task
+  completed 2026-09-13 21:43.
+- **Cleanup gates on delivery** — `detectUndeliveredWork(dir)` (`bridge-agent.js:528`)
+  classifies the clone before `cleanupDir` (`bridge-agent.js:1132`): uncommitted changes
+  or local commits absent from the remote → **kept**, with a `#sqtools-ops` alert carrying
+  the path; delivered/clean clones → deleted as before. Delivery is checked with
+  `git ls-remote origin`, not `git log --not --remotes`, because `--single-branch` clones
+  never create an `origin/feature/*` tracking ref (`bridge-agent.js:518-527`). Commit
+  `2a6bbcb`, task completed 2026-09-13 23:27. Regression tests:
+  `tests/undelivered-work.test.js` (classifier + the finally-block gate).
+
+Documented in `CLAUDE.md` → "Scratch Clone Lifecycle".
+
+---
+
 ### 2. Per-agent LLM provider lives only in tracked `agents.json`; on-box edits are silently discarded
 **Problem:** An agent's provider comes from `agentConfig.llm_provider`, read straight
 from `agents/agents.json` (`bridge-agent.js:713`, `bridge-agent.js:746`). `lib/config.js`
@@ -179,12 +208,14 @@ timestamps and outcomes.
 ### 10. Split the god-files that break the repo's own 300-line rule
 **Problem:** The repo enforces a 300-line-per-file rule (`lib/validate.js:18`,
 `MAX_LINES = 300`) but 59 `.js` files exceed it, including the two most load-bearing:
-`bridge-agent.js` at 2040 lines and `lib/llm-runner.js` at 1020. Behaviour keeps getting
-re-derived inline in files too big to hold in one read.
+`bridge-agent.js` at **2210** lines and `lib/llm-runner.js` at **1103**. Behaviour keeps
+getting re-derived inline in files too big to hold in one read. Both figures grew since
+this file's first 2026-09-13 revision (2040 / 1020) — the scratch-clone fix alone added
+~170 lines to `bridge-agent.js`, so the god-file is getting *worse*, not holding steady.
 Regenerate the count and the list: `node lib/validate.js` (Check 2 prints every
 offending file and its line count; exits 1 while any exist). (The task CONTEXT said "58";
-the current figure is 59 — the rule counts `split('\n').length`, which is why
-`bridge-agent.js` reads as 2040 here and 2039 under `wc -l`.)
+the count is 59 — the rule counts `split('\n').length`, which is why `bridge-agent.js`
+reads one line higher than `wc -l`.)
 **Fix:** carve cohesive modules out of `bridge-agent.js` first (command handlers, poll
 loop, task pipeline are the natural seams). Each extraction must keep
 `node -e "require('./bridge-agent.js')"` green (the CLAUDE.md refactor rule).
@@ -201,6 +232,19 @@ because nothing points to it.
 **Fix:** add a `docs/HELPERS.md` mapping each `lib/*.js` to its responsibility (the
 `CLAUDE.md` Architecture block is a starting inventory), and a CLAUDE.md rule that a new
 file names its owning doc. Doc-and-convention only.
+**Effort:** Low.
+
+### New (2026-09-13) — `DEPLOY_KEY_PATH` is read but undocumented
+**Problem:** The scratch-clone push fix reads a new env var,
+`process.env.DEPLOY_KEY_PATH || "/bridge/.deploy_key"` (`bridge-agent.js:487`), but it
+was never added to `CLAUDE.md`'s Environment Variables section or `.env.example`
+(`grep -rn DEPLOY_KEY_PATH CLAUDE.md .env.example` → nothing). This violates the repo's
+own env-var rule ("When adding a new env var to code you MUST … update the Environment
+Variables section in this CLAUDE.md"). The default path is container-specific
+(`/bridge/…`), so an operator on a different layout has no signposted way to point it at
+their key — the clone silently falls back to READ-ONLY and pushes fail.
+**Fix:** document `DEPLOY_KEY_PATH` (description + default `/bridge/.deploy_key`) in the
+`CLAUDE.md` Optional env table and in `.env.example`. Doc-only.
 **Effort:** Low.
 
 ### Reconcile — per-agent memory: entry caps vs. the tiering that already landed
@@ -283,6 +327,15 @@ Previous revision: **2026-04-05**. This revision: **2026-09-13**.
 | `agents/*/memory/` never gitignored | Ignore-all-with-seed-allowlist rule in place (`.gitignore:31-36`). |
 | No lockfile | `package-lock.json` is committed (`git ls-files package-lock.json`). |
 | `npm run validate` hanging forever | `validate.js` now `process.exit(0)`s after the load check and has a 30s spawn timeout (`lib/validate.js:26-69`). |
+| Scratch-clone cleanup deleted undelivered work (3 tasks lost) | Two-part fix landed later on 2026-09-13: clones are pushable by construction (`cloneRepo`, `bridge-agent.js:485-500`) and cleanup gates on `detectUndeliveredWork` (`bridge-agent.js:528`, `:1132`; commit `2a6bbcb`). Tests: `tests/undelivered-work.test.js`. Full write-up under P1 above. |
+
+### Landed later on 2026-09-13 (after this file's first revision that day)
+- ~~Scratch-clone cleanup destroyed undelivered work~~ → **DONE** (pushable-by-construction
+  clone + delivery-gated cleanup; see the DONE block under P1 and the defects table above).
+- New gap surfaced by that fix: `DEPLOY_KEY_PATH` is read in code but undocumented →
+  **P2, new item** (see "New (2026-09-13)" under P2).
+- File-count figures for item #10 refreshed: `bridge-agent.js` 2040 → 2210,
+  `lib/llm-runner.js` 1020 → 1103 (the clone fix added ~170 lines to `bridge-agent.js`).
 
 ### Still open, and none of it was in the old file (now ranked above)
 - ~~Syntax-only deploy gate + the jest open-handle hang that blocks the smoke gate~~ → **P1 #1, DONE 2026-09-13**.
@@ -290,6 +343,7 @@ Previous revision: **2026-04-05**. This revision: **2026-09-13**.
 - Scheduler ignores `planned` status; story-bot's cron would fire → **P1 #3**.
 - 59 files over the 300-line rule → **P2 #10**.
 - No helpers/utilities map or owning-doc rule → **P2 #11**.
+- `DEPLOY_KEY_PATH` read but undocumented → **P2, new item** (added 2026-09-13, later same day).
 - `context.json` is seeded, tracked, and the only write target of `addPermanent()` — which has **no production caller** today (`grep -rn addPermanent` finds only `lib/`, `memory/`, and tests). So it is seed-only in practice. If a production caller of `addPermanent('bridge', …)` is ever added it will dirty the tracked `agents/bridge/memory/context.json` and hit the same silent-reset failure as item #2. Track together, not separately.
 
 ### Corrected, not deleted
@@ -317,4 +371,5 @@ Previous revision: **2026-04-05**. This revision: **2026-09-13**.
   having cloned and pushed over the deploy key, but the container internals themselves
   are not observable from inside the repo.
 
-*Last updated: 2026-09-13 (previous: 2026-04-05)*
+*Last updated: 2026-09-13 (later same day — scratch-clone fix landed, `DEPLOY_KEY_PATH`
+gap added, item #10 counts refreshed; previous full revision: 2026-04-05)*

@@ -145,6 +145,7 @@ const { reviewTask, createExecutionPlan, buildPrompt, validateOutput } = require
 // Tasks are queued on disk before execution, allowing auto-update to wait for
 // queue to drain before restarting PM2. Prevents task interruption during updates.
 const taskQueue = require('./lib/task-queue');
+const taskLock = require('./lib/task-lock');
 
 // LOGIC CHANGE 2026-03-28: Added agent-context module for injecting real data into ASK prompts.
 // Prevents hallucination by giving agents (especially secretary) actual calendar events,
@@ -160,6 +161,11 @@ const approvalQueue = require('./lib/approval-queue');
 // or the logs. Guards the stderr-surfacing path (a child process's stderr could
 // echo live tokens) and every #sqtools-ops post via postToOps().
 const { redact } = require('./lib/redact-secrets');
+
+// LOGIC CHANGE 2026-09-14: Extracted the git/clone lifecycle (cloneRepo,
+// cleanupDir, detectUndeliveredWork) into lib/clone-lifecycle.js — seam A in
+// docs/WIRING-AND-SEAMS.md. Pure fs/execSync helpers with no bridge state.
+const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-lifecycle');
 
 // ---- Config ----
 
@@ -217,13 +223,23 @@ if (!fs.existsSync(WORK_DIR)) {
 
 // ---- State persistence ----
 
-const STATE_FILE = path.join(__dirname, '.bridge-agent-state.json');
-let isRunning = false;
+// LOGIC CHANGE 2026-09-14: Extracted file-backed state persistence into
+// lib/bridge-state.js — seam B in docs/WIRING-AND-SEAMS.md. That module is the
+// single owner of .bridge-agent-state.json (per-channel poll cursors) and
+// agents/shared/processed-tasks.json (task-dedup timestamps); bridge-agent now
+// reaches both only through the exported accessors. init() loads both files and
+// is handed BRIDGE_CHANNEL so it can migrate the legacy single-channel format.
+const bridgeState = require('./lib/bridge-state');
+bridgeState.init({ bridgeChannel: BRIDGE_CHANNEL });
+const {
+  getLastChecked,
+  setLastChecked,
+  isTaskProcessed,
+  markTaskProcessed,
+  cleanupProcessedTasks,
+} = bridgeState;
 
-// LOGIC CHANGE 2026-03-27: Changed from single lastChecked to per-channel lastChecked map.
-// Each channel has its own timestamp to track which messages have been processed.
-// Format: { channelId: timestamp, ... }
-let channelLastChecked = loadState();
+let isRunning = false;
 
 // LOGIC CHANGE 2026-03-27: Added graceful shutdown support.
 // shuttingDown: flag to stop processing new tasks on SIGTERM/SIGINT
@@ -248,103 +264,6 @@ let rateLimitState = {
   retryCount: 0,
   failedTask: null,
 };
-
-// LOGIC CHANGE 2026-03-28: Task deduplication via processed-tasks.json.
-// Prevents re-processing old messages after bot restarts. Stores message timestamps
-// (not IDs) to survive PM2 restarts. Gitignored, local-only file.
-const PROCESSED_TASKS_FILE = path.join(__dirname, 'agents', 'shared', 'processed-tasks.json');
-let processedTaskTimestamps = loadProcessedTasks();
-
-function loadProcessedTasks() {
-  try {
-    const data = fs.readFileSync(PROCESSED_TASKS_FILE, 'utf8');
-    if (!data || !data.trim()) return {};
-    const parsed = JSON.parse(data);
-    if (typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    return parsed;
-  } catch (err) {
-    if (err.code === 'ENOENT') return {};
-    console.warn('[bridge-agent] processed-tasks.json corrupted, resetting');
-    return {};
-  }
-}
-
-function saveProcessedTasks() {
-  try {
-    const dir = path.dirname(PROCESSED_TASKS_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(PROCESSED_TASKS_FILE, JSON.stringify(processedTaskTimestamps, null, 2), 'utf8');
-  } catch (err) {
-    console.error('[bridge-agent] Failed to save processed-tasks.json:', err.message);
-  }
-}
-
-function isTaskProcessed(ts) {
-  return Object.prototype.hasOwnProperty.call(processedTaskTimestamps, ts);
-}
-
-function markTaskProcessed(ts) {
-  processedTaskTimestamps[ts] = Date.now();
-  saveProcessedTasks();
-}
-
-function cleanupProcessedTasks() {
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  let removed = 0;
-  for (const [ts, processedAt] of Object.entries(processedTaskTimestamps)) {
-    if (processedAt < sevenDaysAgo) {
-      delete processedTaskTimestamps[ts];
-      removed++;
-    }
-  }
-  if (removed > 0) {
-    saveProcessedTasks();
-    console.log(`[bridge-agent] Cleaned up ${removed} old processed task entries`);
-  }
-}
-
-// LOGIC CHANGE 2026-03-27: Updated loadState to support per-channel timestamps.
-// Returns an object mapping channelId -> lastChecked timestamp.
-// Migrates legacy single-channel format ({ lastChecked: ts }) to multi-channel format.
-function loadState() {
-  try {
-    const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-    // Legacy format: { lastChecked: "timestamp" }
-    // New format: { channels: { channelId: "timestamp", ... } }
-    if (data.channels) {
-      return data.channels;
-    }
-    // Migrate legacy format: assign old timestamp to bridge channel
-    if (data.lastChecked) {
-      return { [BRIDGE_CHANNEL]: data.lastChecked };
-    }
-    return {};
-  } catch {
-    return {};
-  }
-}
-
-// LOGIC CHANGE 2026-03-27: Updated saveState to save per-channel timestamps.
-// Saves the entire channelLastChecked object to disk.
-function saveState() {
-  try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ channels: channelLastChecked }), 'utf8');
-  } catch (err) {
-    console.error('[bridge-agent] Failed to save state:', err.message);
-  }
-}
-
-// LOGIC CHANGE 2026-03-27: Helper to get lastChecked timestamp for a channel.
-// Returns '0' if channel has never been polled.
-function getLastChecked(channelId) {
-  return channelLastChecked[channelId] || '0';
-}
-
-// LOGIC CHANGE 2026-03-27: Helper to update lastChecked timestamp for a channel.
-function setLastChecked(channelId, ts) {
-  channelLastChecked[channelId] = ts;
-  saveState();
-}
 
 // LOGIC CHANGE 2026-03-26: Check if currently paused due to rate limit.
 function isRateLimitPaused() {
@@ -457,57 +376,8 @@ async function postToOps(text) {
 // Functions moved to lib/task-parser.js: parseTask, isTaskMessage, isConversationMessage, alreadyProcessed
 
 // ---- Git helpers ----
-
-// LOGIC CHANGE 2026-03-26: Added try/catch with fallback to main branch when
-// specified branch is not found. Cleans up partial clone before retrying.
-function cloneRepo(repo, branch, targetDir) {
-  const url = `https://github.com/${repo}.git`;
-  console.log(`[bridge-agent] Cloning ${url} (branch: ${branch}) -> ${targetDir}`);
-  try {
-    execSync(`git clone --depth 1 --branch ${branch} ${url} ${targetDir}`, {
-      stdio: 'pipe',
-      timeout: 60000,
-    });
-  } catch (err) {
-    if (branch !== 'main') {
-      console.warn(`[bridge-agent] Branch ${branch} not found, falling back to main`);
-      // Clean up any partial clone before retrying
-      fs.rmSync(targetDir, { recursive: true, force: true });
-      execSync(`git clone --depth 1 --branch main ${url} ${targetDir}`, {
-        stdio: 'pipe',
-        timeout: 60000,
-      });
-    } else {
-      throw err;
-    }
-  }
-
-  // LOGIC CHANGE 2026-09-13: Configure the clone to push via the deploy key.
-  // Without this the clone is read-only and finished work cannot be delivered;
-  // three tasks committed locally and were deleted by cleanup.
-  const keyPath = process.env.DEPLOY_KEY_PATH || "/bridge/.deploy_key";
-  if (fs.existsSync(keyPath)) {
-    try {
-      execSync(`git -C ${targetDir} remote set-url origin git@github.com:${repo}.git`, {stdio:"pipe"});
-      execSync(`git -C ${targetDir} config core.sshCommand "ssh -i ${keyPath} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"`, {stdio:"pipe"});
-      execSync(`git -C ${targetDir} fetch origin`, {stdio:"pipe", timeout:60000});
-      console.log("[bridge-agent] Clone configured for push via deploy key (fetch verified)");
-    } catch (e) {
-      console.warn("[bridge-agent] Push config failed, clone is READ-ONLY:", e.message);
-    }
-  } else {
-    console.warn(`[bridge-agent] No deploy key at ${keyPath} - clone is READ-ONLY, pushes will fail`);
-  }
-}
-
-function cleanupDir(dir) {
-  try {
-    fs.rmSync(dir, { recursive: true, force: true });
-    console.log(`[bridge-agent] Cleaned up ${dir}`);
-  } catch (err) {
-    console.error(`[bridge-agent] Cleanup failed for ${dir}:`, err.message);
-  }
-}
+// LOGIC CHANGE 2026-09-14: cloneRepo, cleanupDir, and detectUndeliveredWork moved
+// to lib/clone-lifecycle.js (seam A). They are imported at the top of this file.
 
 // ---- Formatting ----
 
@@ -528,7 +398,12 @@ function msgLink(ts, channel = BRIDGE_CHANNEL) {
 // LOGIC CHANGE 2026-03-27: Task lock file path for coordination with auto-update.js.
 // Created at task start, deleted in finally block. Auto-update waits for this file
 // to be removed before restarting PM2 to avoid interrupting running tasks.
-const TASK_LOCK_FILE = path.join(WORK_DIR, '.task-running');
+// LOGIC CHANGE 2026-09-14: The file is now owned by lib/task-lock.js, which adds
+// the staleness rule this lock never had. A `finally` does not run when the
+// process is killed - which is exactly what a self-update does - so a lock left
+// behind by a killed task was previously never cleaned up by anything. The path
+// stays here because it is passed to the module; the read/write/expiry logic does not.
+const TASK_LOCK_FILE = taskLock.DEFAULT_LOCK_FILE;
 
 // LOGIC CHANGE 2026-03-27: Added sourceChannel parameter for multi-channel support.
 // Tasks can be submitted from any agent channel but always execute with bridge agent.
@@ -549,12 +424,18 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
   // LOGIC CHANGE 2026-03-27: Create task lock file to signal to auto-update.js
   // that a task is running. Auto-update will wait for this file to be removed
   // before restarting PM2 to avoid interrupting running tasks.
-  try {
-    fs.writeFileSync(TASK_LOCK_FILE, `${msg.ts}\n${Date.now()}\n${task.description || 'no description'}`, 'utf8');
-    console.log(`[bridge-agent] Created task lock file: ${TASK_LOCK_FILE}`);
-  } catch (lockErr) {
-    console.error('[bridge-agent] Failed to create task lock file:', lockErr.message);
-    // Continue anyway - lock file is best effort coordination
+  // Best effort: a task that cannot write its lock still runs. A missing lock
+  // risks an interrupting restart, which beats refusing to do the work at all.
+  const lockResult = taskLock.acquire({
+    msgTs: msg.ts,
+    description: task.description,
+    lockFile: TASK_LOCK_FILE,
+  });
+  if (!lockResult.acquired) {
+    console.error(
+      `[bridge-agent] Running without a task lock (${lockResult.error}) - ` +
+      `a self-update during this task will not defer for it`
+    );
   }
 
   // LOGIC CHANGE 2026-03-26: Track task in memory for history/analytics.
@@ -579,6 +460,16 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
   const llmProvider = resolveLlmProvider(agentConfig, agentConfig?.id || 'bridge');
 
   try {
+    // LOGIC CHANGE 2026-09-14: Refuse a task whose fields parseTask rejected before
+    // any work starts. parseTask validates REPO:/BRANCH:/SKILL: at the boundary and
+    // records rejections in task.errors instead of quietly dropping them; running
+    // the task anyway would clone the wrong repo, or run with no repo at all, and
+    // nobody would be told. Throwing here routes to this function's catch, which
+    // posts the reason to Slack and reacts with the failure emoji.
+    if (task.errors && task.errors.length > 0) {
+      throw new Error(`Task message rejected: ${task.errors.join('; ')}`);
+    }
+
     // LOGIC CHANGE 2026-03-27: Start heartbeat reactions (eyes -> cycling emojis).
     await heartbeat.start();
 
@@ -1022,8 +913,31 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
       console.error('[bridge-agent] Heartbeat cleanup failed:', heartbeatErr.message);
     }
 
+    // LOGIC CHANGE 2026-09-13: Only clean up the scratch clone once its work has
+    // been delivered (pushed to the remote). Deleting a clone that still holds
+    // uncommitted changes or unpushed commits silently destroys finished work —
+    // the failure that lost three tasks before the deploy key was wired. When
+    // work is undelivered, preserve the clone and alert #sqtools-ops so it can be
+    // recovered and pushed manually, rather than deleting it.
     if (taskDir && fs.existsSync(taskDir)) {
-      cleanupDir(taskDir);
+      const delivery = detectUndeliveredWork(taskDir);
+      if (delivery.undelivered) {
+        console.warn(`[bridge-agent] Preserving scratch clone ${taskDir} — ${delivery.reason}`);
+        try {
+          await postToOps(
+            `:warning: *Scratch clone preserved — undelivered work.*\n` +
+            `Task: ${task.description}\n` +
+            `Reason: ${delivery.reason}\n` +
+            `Location: \`${taskDir}\`\n` +
+            `The clone was NOT deleted so the work can be recovered and pushed manually.\n` +
+            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
+          );
+        } catch (postErr) {
+          console.error('[bridge-agent] Failed to post undelivered-work alert:', postErr.message);
+        }
+      } else {
+        cleanupDir(taskDir);
+      }
     }
 
     // LOGIC CHANGE 2026-03-27: Clear working memory at end of each task to prevent
@@ -1035,14 +949,17 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
     }
 
     // LOGIC CHANGE 2026-03-27: Remove task lock file to signal task completion.
-    // Auto-update.js waits for this file to be removed before restarting PM2.
-    try {
-      if (fs.existsSync(TASK_LOCK_FILE)) {
-        fs.unlinkSync(TASK_LOCK_FILE);
-        console.log(`[bridge-agent] Removed task lock file: ${TASK_LOCK_FILE}`);
-      }
-    } catch (unlinkErr) {
-      console.error('[bridge-agent] Failed to remove task lock file:', unlinkErr.message);
+    // Auto-update.js waits for this file to be removed before restarting.
+    // LOGIC CHANGE 2026-09-14: Delegated to lib/task-lock.js, which logs the
+    // release and reports a failed unlink rather than swallowing it. A lock that
+    // survives this block is now aged out by the staleness rule instead of
+    // blocking every future deploy.
+    const releaseResult = taskLock.release(TASK_LOCK_FILE);
+    if (releaseResult.existed && !releaseResult.released) {
+      console.error(
+        `[bridge-agent] Task lock ${TASK_LOCK_FILE} could not be removed ` +
+        `(${releaseResult.error}); it will be aged out by the staleness rule`
+      );
     }
   }
 }
@@ -1997,6 +1914,40 @@ try {
   }
 } catch (queueErr) {
   console.error('[bridge-agent] Task queue startup failed:', queueErr.message);
+}
+
+// LOGIC CHANGE 2026-09-14: Clear a task lock left behind by the previous process.
+// recoverInterrupted() above repairs the QUEUE after a kill, but nothing repaired
+// the LOCK - processTask's `finally` cannot run when the process is killed, which
+// is precisely what a self-update restart does. The orphan then made auto-update
+// think a task was running forever.
+//
+// Clearing it here is sound because bridge-agent is the lock's only writer and is
+// single-instance in this deployment (one `jt-agent` container): if this process is
+// starting, no task of its own can be running, so any lock on disk is an orphan.
+// The staleness rule in lib/task-lock.js is the backstop for the case this cannot
+// see - a lock orphaned while the bridge keeps running.
+//
+// Surfaced, never silent: logged here and posted to #sqtools-ops.
+try {
+  const orphan = taskLock.inspect({ lockFile: TASK_LOCK_FILE });
+  if (orphan.held) {
+    const ageMin = Math.round((orphan.ageMs || 0) / 60000);
+    const who = orphan.description || orphan.msgTs || 'unknown task';
+    const cleared = taskLock.release(TASK_LOCK_FILE);
+    const verdict = cleared.released
+      ? `Cleared an orphaned task lock at startup: "${who}" had held \`${TASK_LOCK_FILE}\` for ${ageMin}m. ` +
+        `Its task did not survive the restart, so the lock could not be released by the task itself. ` +
+        `Self-update is no longer blocked by it.`
+      : `Found an orphaned task lock at \`${TASK_LOCK_FILE}\` ("${who}", ${ageMin}m) but could NOT remove it ` +
+        `(${cleared.error}). Self-update stays blocked until it ages out or is removed by hand.`;
+    console.warn(`[bridge-agent] ${verdict}`);
+    postToOps(`:unlock: ${verdict}`).catch(postErr => {
+      console.error('[bridge-agent] Failed to post orphaned-lock notice:', postErr.message);
+    });
+  }
+} catch (lockErr) {
+  console.error('[bridge-agent] Startup task-lock check failed:', lockErr.message);
 }
 
 // LOGIC CHANGE 2026-03-28: Clean up processed-tasks entries older than 7 days on startup.

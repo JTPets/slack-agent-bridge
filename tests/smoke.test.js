@@ -154,6 +154,30 @@ describe('lib/ modules load without errors', () => {
 
         expect(typeof taskParser.parseTask).toBe('function');
         expect(typeof taskParser.isTaskMessage).toBe('function');
+
+        // LOGIC CHANGE 2026-09-14: FIELD_LABELS is the canonical list of task
+        // message field labels; the anchoring guard test enumerates it.
+        expect(taskParser).toHaveProperty('FIELD_LABELS');
+        expect(Array.isArray(taskParser.FIELD_LABELS)).toBe(true);
+    });
+
+    // LOGIC CHANGE 2026-09-14: lib/git-identifiers.js is the boundary validator for
+    // the Slack-controlled REPO:/BRANCH: values. It is required by both
+    // lib/task-parser.js and lib/clone-lifecycle.js, so a broken require here would
+    // take the whole task path down — exactly what the smoke suite exists to catch.
+    test('lib/git-identifiers.js loads and exports expected functions', () => {
+        const gitIdentifiers = require('../lib/git-identifiers');
+
+        expect(gitIdentifiers).toHaveProperty('isValidRepo');
+        expect(gitIdentifiers).toHaveProperty('isValidBranch');
+        expect(gitIdentifiers).toHaveProperty('assertValidRepo');
+        expect(gitIdentifiers).toHaveProperty('assertValidBranch');
+        expect(gitIdentifiers).toHaveProperty('describeValue');
+
+        expect(typeof gitIdentifiers.isValidRepo).toBe('function');
+        expect(typeof gitIdentifiers.isValidBranch).toBe('function');
+        expect(typeof gitIdentifiers.assertValidRepo).toBe('function');
+        expect(typeof gitIdentifiers.assertValidBranch).toBe('function');
     });
 
     test('lib/llm-runner.js loads and exports expected functions', () => {
@@ -227,6 +251,39 @@ describe('lib/ modules load without errors', () => {
         expect(typeof pipeline.buildPrompt).toBe('function');
         expect(typeof pipeline.validateOutput).toBe('function');
         expect(typeof pipeline.runCommand).toBe('function');
+    });
+
+    test('lib/clone-lifecycle.js loads and exports expected functions', () => {
+        const cloneLifecycle = require('../lib/clone-lifecycle');
+
+        expect(cloneLifecycle).toHaveProperty('cloneRepo');
+        expect(cloneLifecycle).toHaveProperty('cleanupDir');
+        expect(cloneLifecycle).toHaveProperty('detectUndeliveredWork');
+
+        expect(typeof cloneLifecycle.cloneRepo).toBe('function');
+        expect(typeof cloneLifecycle.cleanupDir).toBe('function');
+        expect(typeof cloneLifecycle.detectUndeliveredWork).toBe('function');
+    });
+
+    // LOGIC CHANGE 2026-09-14: lib/task-lock.js is on the critical path of BOTH
+    // entry points — bridge-agent.js acquires/releases the lock around every task
+    // and auto-update.js reads it to decide whether to defer a restart. A broken
+    // require here would brick the bridge, and this smoke suite is guard (a) part 3
+    // of the self-update, so it has to be the thing that catches it.
+    test('lib/task-lock.js loads and exports expected functions', () => {
+        const lock = require('../lib/task-lock');
+
+        expect(lock).toHaveProperty('acquire');
+        expect(lock).toHaveProperty('release');
+        expect(lock).toHaveProperty('inspect');
+        expect(lock).toHaveProperty('releaseIfStale');
+        expect(lock).toHaveProperty('defaultStaleAfterMs');
+
+        expect(typeof lock.acquire).toBe('function');
+        expect(typeof lock.release).toBe('function');
+        expect(typeof lock.inspect).toBe('function');
+        expect(typeof lock.releaseIfStale).toBe('function');
+        expect(typeof lock.defaultStaleAfterMs).toBe('function');
     });
 
     test('lib/agent-registry.js loads and exports expected functions', () => {

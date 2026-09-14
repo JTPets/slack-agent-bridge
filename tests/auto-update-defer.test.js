@@ -1,0 +1,356 @@
+/**
+ * tests/auto-update-defer.test.js
+ *
+ * Tests the deferral gate in auto-update.js: a self-update must stand aside
+ * while a task is running, and must NOT be blocked forever by a lock a killed
+ * task left behind.
+ *
+ * Why this file exists
+ * --------------------
+ * The previous behaviour was `waitForTaskCompletion()`: poll the lock every 30s
+ * up to 10 times, then restart ANYWAY. TASK_TIMEOUT_MS defaults to 10 minutes
+ * and a max-turns task retries once, so a task is permitted to run far longer
+ * than the 5-minute cap. The restart was not an unlucky race — it was certain to
+ * kill a long task. A long refactor died that way.
+ *
+ * These tests assert the DECISION (did it pull? did it exit?), not a real
+ * restart, for the same reason tests/auto-update-restart.test.js does.
+ *
+ * Both of the first two tests fail against the old implementation:
+ *   - "defers ... while a task holds the lock" — the old code pulled and exited.
+ *   - "does not mutate the working tree" — the old wait ran AFTER reset/pull.
+ */
+
+'use strict';
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+// WORK_DIR is read at module load to build TASK_LOCK_FILE / TASK_QUEUE_FILE,
+// so it has to be set before auto-update.js is required. The original is
+// captured and restored in afterAll: jest runs several test files per worker
+// process, so leaking this would hand another suite our (deleted) temp dir.
+const originalWorkDir = process.env.WORK_DIR;
+const WORK_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-update-defer-'));
+process.env.WORK_DIR = WORK_DIR;
+
+const LOCK_FILE = path.join(WORK_DIR, '.task-running');
+const QUEUE_FILE = path.join(WORK_DIR, 'task-queue.json');
+
+const autoUpdate = require('../auto-update');
+const taskLock = require('../lib/task-lock');
+
+const PREV_HEAD = 'aaaaaaa1111111111111111111111111111111aa';
+const NEW_HEAD = 'bbbbbbb2222222222222222222222222222222bb';
+
+/**
+ * Dependency bag whose happy path ends in a restart. `evaluateTaskDeferral` is
+ * deliberately NOT faked — it is the code under test, and it reads the real
+ * lock/queue files in the temp WORK_DIR above.
+ */
+function makeDeps(overrides = {}) {
+    const calls = [];
+    const posts = [];
+    const savedStates = [];
+    let state = {
+        lastKnownCommit: PREV_HEAD,
+        restartedIntoCommit: null,
+        failedCommit: null,
+        deferringSince: null,
+        deferNotifiedAt: null,
+    };
+
+    let pulled = false;
+
+    const deps = {
+        calls,
+        posts,
+        savedStates,
+        getState: () => state,
+        setState: (s) => { state = s; },
+
+        loadState: jest.fn(() => ({ ...state })),
+        saveState: jest.fn((s) => {
+            calls.push('saveState');
+            savedStates.push({ ...s });
+            state = { ...s };
+            return { success: true };
+        }),
+        gitFetch: jest.fn(() => ({ success: true })),
+        getLocalHead: jest.fn(() => (pulled ? NEW_HEAD : PREV_HEAD)),
+        getRemoteHead: jest.fn(() => NEW_HEAD),
+        getCommitMessage: jest.fn(() => 'some commit'),
+        gitResetHard: jest.fn(() => {
+            calls.push('gitResetHard');
+            return { success: true };
+        }),
+        gitResetTo: jest.fn(() => {
+            calls.push('gitResetTo');
+            return { success: true };
+        }),
+        gitPull: jest.fn(() => {
+            calls.push('gitPull');
+            pulled = true;
+            return { success: true };
+        }),
+        npmInstall: jest.fn(() => {
+            calls.push('npmInstall');
+            return { success: true };
+        }),
+        verifyEntryPoints: jest.fn(() => {
+            calls.push('verifyEntryPoints');
+            return { ok: true, checked: ['bridge-agent.js'], missing: [], failures: [] };
+        }),
+        runSmokeTest: jest.fn(() => {
+            calls.push('runSmokeTest');
+            return { ok: true };
+        }),
+        planRestart: jest.fn(() => {
+            calls.push('planRestart');
+            return { exit: true, reason: 'ok' };
+        }),
+        evaluateTaskDeferral: autoUpdate.evaluateTaskDeferral,
+        postToOps: jest.fn(async (msg) => {
+            calls.push('postToOps');
+            posts.push(msg);
+        }),
+        exit: jest.fn(async () => {
+            calls.push('exit');
+        }),
+    };
+
+    return Object.assign(deps, overrides);
+}
+
+function writeQueue(entries) {
+    fs.writeFileSync(QUEUE_FILE, JSON.stringify(entries, null, 2), 'utf8');
+}
+
+let logSpy;
+let warnSpy;
+let errorSpy;
+
+beforeEach(() => {
+    logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    fs.rmSync(LOCK_FILE, { force: true });
+    fs.rmSync(QUEUE_FILE, { force: true });
+});
+
+afterEach(() => {
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+    jest.clearAllMocks();
+});
+
+afterAll(() => {
+    fs.rmSync(WORK_DIR, { recursive: true, force: true });
+    if (originalWorkDir === undefined) {
+        delete process.env.WORK_DIR;
+    } else {
+        process.env.WORK_DIR = originalWorkDir;
+    }
+});
+
+describe('deferral while a task holds the lock', () => {
+    // THE regression. Under the old waitForTaskCompletion() this test fails:
+    // the old code waited 5 minutes and then exited regardless.
+    test('defers instead of restarting while a task holds the lock', async () => {
+        taskLock.acquire({ msgTs: '1.1', description: 'long refactor', lockFile: LOCK_FILE });
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.exit).not.toHaveBeenCalled();
+        expect(deps.calls).not.toContain('exit');
+
+        // The lock is untouched — a fresh lock is never released.
+        expect(fs.existsSync(LOCK_FILE)).toBe(true);
+    });
+
+    // The deferral must happen BEFORE the destructive git steps. The old code
+    // ran reset --hard + pull + npm install first and only then waited, so the
+    // tree was already rewritten beneath the running task.
+    test('does not mutate the working tree while deferring', async () => {
+        taskLock.acquire({ msgTs: '1.2', description: 'long refactor', lockFile: LOCK_FILE });
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.gitResetHard).not.toHaveBeenCalled();
+        expect(deps.gitPull).not.toHaveBeenCalled();
+        expect(deps.npmInstall).not.toHaveBeenCalled();
+    });
+
+    test('announces the deferral to ops rather than deferring silently', async () => {
+        taskLock.acquire({ msgTs: '1.3', description: 'long refactor', lockFile: LOCK_FILE });
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.posts.join('\n')).toMatch(/holding/i);
+        expect(deps.posts.join('\n')).toMatch(/long refactor/);
+    });
+
+    // "Deferred" must mean "retried next cycle", not "skipped". Nothing is
+    // persisted that would suppress the commit, so the next tick picks it up.
+    test('a deferred update proceeds on the next cycle once the lock clears', async () => {
+        taskLock.acquire({ msgTs: '1.4', description: 'long refactor', lockFile: LOCK_FILE });
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+        expect(deps.exit).not.toHaveBeenCalled();
+
+        // The commit was NOT recorded as failed — that is what would make it skip forever.
+        expect(deps.getState().failedCommit).toBeNull();
+
+        // Task finishes, releasing its lock. Next cycle:
+        taskLock.release(LOCK_FILE);
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.gitPull).toHaveBeenCalled();
+        expect(deps.exit).toHaveBeenCalledWith(autoUpdate.RESTART_EXIT_CODE);
+    });
+});
+
+describe('a stale lock must not deadlock the deploy', () => {
+    // The opposite failure mode: a lock left behind by a killed task must be
+    // released, announced, and the update must proceed in the SAME cycle.
+    test('releases a stale lock, surfaces it, and still updates', async () => {
+        taskLock.acquire({ msgTs: '2.1', description: 'task killed by a restart', lockFile: LOCK_FILE });
+
+        // Backdate the lock well past the staleness threshold.
+        const ancient = Date.now() - (taskLock.defaultStaleAfterMs() + 60 * 60 * 1000);
+        fs.writeFileSync(LOCK_FILE, JSON.stringify({
+            msgTs: '2.1',
+            description: 'task killed by a restart',
+            pid: 424242,
+            startedAt: ancient,
+        }), 'utf8');
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+
+        // Released, not waited on.
+        expect(fs.existsSync(LOCK_FILE)).toBe(false);
+
+        // Surfaced, not silent.
+        expect(deps.posts.join('\n')).toMatch(/stale task lock/i);
+        expect(deps.posts.join('\n')).toMatch(/task killed by a restart/);
+
+        // And the deploy went through in the same cycle.
+        expect(deps.exit).toHaveBeenCalledWith(autoUpdate.RESTART_EXIT_CODE);
+    });
+});
+
+describe('task queue deferral', () => {
+    test('defers while the queue holds a live running task', async () => {
+        writeQueue([{
+            id: 'q1',
+            status: 'running',
+            description: 'queued work',
+            enqueuedAt: new Date().toISOString(),
+            startedAt: new Date().toISOString(),
+        }]);
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.exit).not.toHaveBeenCalled();
+        expect(deps.gitPull).not.toHaveBeenCalled();
+    });
+
+    // recoverInterrupted() only repairs "running" entries, so a task killed
+    // between enqueue() and dequeue() stays "pending" forever. With no wait cap
+    // left, one such orphan would freeze deploys permanently.
+    test('an orphaned pending entry is ignored, surfaced, and does not block', async () => {
+        const ancient = new Date(Date.now() - (taskLock.defaultStaleAfterMs() + 60 * 60 * 1000)).toISOString();
+        writeQueue([{
+            id: 'q2',
+            status: 'pending',
+            description: 'never dequeued',
+            enqueuedAt: ancient,
+            startedAt: null,
+        }]);
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.posts.join('\n')).toMatch(/stale task-queue entr/i);
+        expect(deps.exit).toHaveBeenCalledWith(autoUpdate.RESTART_EXIT_CODE);
+    });
+
+    test('a fresh pending entry still defers', async () => {
+        writeQueue([{
+            id: 'q3',
+            status: 'pending',
+            description: 'waiting its turn',
+            enqueuedAt: new Date().toISOString(),
+            startedAt: null,
+        }]);
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.exit).not.toHaveBeenCalled();
+    });
+});
+
+describe('deferral escalation bound', () => {
+    // A succession of healthy tasks can defer indefinitely by design — killing
+    // live work is the bug being fixed. The bound is visibility: past the alert
+    // threshold, EVERY cycle escalates.
+    test('escalates to ops once a deferral passes the alert threshold', async () => {
+        taskLock.acquire({ msgTs: '3.1', description: 'endless work', lockFile: LOCK_FILE });
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+        const firstPostCount = deps.posts.length;
+        expect(firstPostCount).toBeGreaterThan(0);
+
+        // Second cycle, still deferred, still recent: no new post (no spam).
+        await autoUpdate.checkForUpdates(deps);
+        expect(deps.posts.length).toBe(firstPostCount);
+
+        // Backdate the deferral start past the alert threshold.
+        const state = deps.getState();
+        deps.setState({ ...state, deferringSince: Date.now() - (2 * 60 * 60 * 1000) });
+
+        await autoUpdate.checkForUpdates(deps);
+        const escalations = deps.posts.filter(p => /deferred for \d+m/i.test(p));
+        expect(escalations.length).toBeGreaterThan(0);
+        expect(escalations.join('\n')).toMatch(/NOT being forced/);
+    });
+
+    // The elapsed figure is per-commit. A new commit must not inherit the
+    // previous one's clock and escalate immediately quoting someone else's time.
+    test('a new commit restarts the deferral clock instead of inheriting it', async () => {
+        taskLock.acquire({ msgTs: '3.2', description: 'endless work', lockFile: LOCK_FILE });
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+
+        // Pretend this commit has been deferred for two hours.
+        const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000);
+        deps.setState({ ...deps.getState(), deferringSince: twoHoursAgo });
+
+        // A DIFFERENT commit lands.
+        const OTHER_HEAD = 'ccccccc3333333333333333333333333333333cc';
+        deps.getRemoteHead.mockReturnValue(OTHER_HEAD);
+
+        const postsBefore = deps.posts.length;
+        await autoUpdate.checkForUpdates(deps);
+
+        const state = deps.getState();
+        expect(state.deferringCommit).toBe(OTHER_HEAD);
+        expect(state.deferringSince).toBeGreaterThan(twoHoursAgo);
+
+        // It announces the new commit as a fresh hold, not as a 120m escalation.
+        const newPosts = deps.posts.slice(postsBefore).join('\n');
+        expect(newPosts).toMatch(/holding/i);
+        expect(newPosts).not.toMatch(/deferred for 1[0-9][0-9]m/);
+    });
+});
