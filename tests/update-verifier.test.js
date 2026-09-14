@@ -145,21 +145,56 @@ describe('verifyEntryPoints', () => {
 describe('runSmokeTest (guard a, part 3)', () => {
     // The runner is injected so these are hermetic - they never actually spawn
     // `npm run test:smoke`. They pin the contract auto-update.js relies on:
-    // a non-zero exit or a timeout is a FAILURE, and only status 0 is a pass.
-    test('status 0 is the only pass', () => {
+    // a non-zero exit, a timeout, an absent runner, or a run with no assertions is a
+    // FAILURE, and a pass requires status 0 AND a positive assertion count.
+    //
+    // LOGIC CHANGE 2026-09-14: the first test here previously read
+    //   test('status 0 is the only pass', ...) with run: () => ({ status: 0 })
+    // and asserted ok === true. That ENCODED THE DEFECT this change removes: a smoke
+    // run that exits 0 having printed nothing executed no assertions, and scoring it
+    // a pass is guard (a) of the self-update arming a container restart on zero
+    // evidence. Flipped, with the honest case added beside it.
+    test('status 0 with no assertion count is NOT a pass', () => {
         const result = runSmokeTest({ repoDir: '/repo', run: () => ({ status: 0 }) });
+        expect(result.ok).toBe(false);
+        expect(result.outcome).toBe('no_assertions');
+        expect(result.ranAssertions).toBe(false);
+    });
+
+    test('status 0 with assertions counted is a pass', () => {
+        const result = runSmokeTest({
+            repoDir: '/repo',
+            run: () => ({ status: 0, stdout: 'Tests:       12 passed, 12 total\n', stderr: '' }),
+        });
         expect(result.ok).toBe(true);
+        expect(result.assertions).toBe(12);
     });
 
     test('a non-zero exit is a failure and keeps the tail of the output', () => {
-        const longTail = 'x'.repeat(2000) + 'FAILING ASSERTION HERE';
+        const longTail = 'x'.repeat(2000) + '\nTests:       1 failed, 3 passed, 4 total\n';
         const result = runSmokeTest({
             repoDir: '/repo',
             run: () => ({ status: 1, stderr: longTail, stdout: '' }),
         });
         expect(result.ok).toBe(false);
-        expect(result.error).toMatch(/FAILING ASSERTION HERE/);
-        expect(result.error.length).toBeLessThanOrEqual(800);
+        expect(result.outcome).toBe('failed');
+        expect(result.ranAssertions).toBe(true);
+        expect(result.error).toMatch(/1 failed, 3 passed/);
+        // The output tail is still bounded at 800; the classified reason is prepended
+        // to it, so the whole string is a little longer than the tail alone.
+        expect(result.error.length).toBeLessThanOrEqual(1200);
+    });
+
+    test('an absent runner is reported as absence, not as a test failure', () => {
+        // The observed case: `npm test` under an install that omitted devDependencies.
+        const result = runSmokeTest({
+            repoDir: '/repo',
+            run: () => ({ status: 127, stderr: 'sh: 1: jest: not found\n', stdout: '' }),
+        });
+        expect(result.ok).toBe(false);
+        expect(result.outcome).toBe('runner_absent');
+        expect(result.ranAssertions).toBe(false);
+        expect(result.error).toMatch(/could not be started/i);
     });
 
     test('a timeout (ETIMEDOUT) is scored as a failure, never a pass', () => {

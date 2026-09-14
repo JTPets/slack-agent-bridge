@@ -618,12 +618,14 @@ slack-agent-bridge/
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, gemini, ollama), fallback chain, startup validation
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
 │   ├── owner-tasks.js    # Owner task management: activation checklists, pending tasks, ACTION REQUIRED detection
-│   ├── notify-owner.js   # Owner notification layer, the single path for owner-facing messages: init() injects the Slack client/owner id/ops channel; notifyOwner routes by PRIORITY (CRITICAL -> the secretary agent's channel when active, else a direct DM; HIGH -> logged for a digest that does not exist yet; LOW -> logged only) plus taskFailed/taskCompleted/actionRequired/rateLimitHit/rateLimitCleared. Redacts via lib/redact-secrets.js before anything leaves
+│   ├── notify-owner.js   # Owner notification layer, the single path for owner-facing messages: init() injects the Slack client/owner id/ops channel; notifyOps posts an operational failure to #sqtools-ops (redacted) so a lib module never needs a fourth postToOps; notifyOwner routes by PRIORITY (CRITICAL -> the secretary agent's channel when active, else a direct DM; HIGH -> logged for a digest that does not exist yet; LOW -> logged only) plus taskFailed/taskCompleted/actionRequired/rateLimitHit/rateLimitCleared. Redacts via lib/redact-secrets.js before anything leaves
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
 │   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork, assertValidTargetDir. Every git call is an execFileSync argv array — no function here builds a shell command string
 │   ├── bridge-state.js    # State persistence (seam B): sole owner of .bridge-agent-state.json (per-channel poll cursors) and processed-tasks.json (task dedup); init, get/setLastChecked, isTaskProcessed, markTaskProcessed, cleanupProcessedTasks
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
+│   ├── review-findings.js # Structured findings for the Phase-3 verdict: a closed RULES catalogue of stable rule identifiers with severities, makeFinding (ruleId + file + line, prose GENERATED from those fields), buildVerdict, sameFinding/findRecurrence (comparison is by ruleId only — a fix that moves the same defect to another file has not converged), nextAction (the D5 generation cap and the D6 recurrence stop) and describeSpawnedTask (the lineage a spawned fix task must carry). Nothing spawns tasks; this is the contract, made executable
+│   ├── test-verdict.js   # THE honest classifier for a test-command run: classifyTestRun distinguishes passed / failed / runner_absent / no_assertions / timed_out / not_run, and a pass requires exit 0 AND a positive parsed assertion count. A fully skipped suite, a command that exits 0 printing nothing, and `jest: not found` are each a failed gate, never a pass. Every test invocation in the repo routes through it (tests/test-gate-honesty.test.js)
 │   ├── redact-secrets.js # Secret scrubber for any string bound for Slack or the logs: redact() applies value-driven scrubbing (the live value of every env var whose NAME matches SENSITIVE_NAME, so a token is caught whatever its shape) then pattern-driven scrubbing (Slack/Anthropic/Google/GitHub tokens, PEM private keys, OAuth refresh tokens, bearer headers). Exists because spawned-LLM stderr was surfaced verbatim to #sqtools-ops
 │   ├── security-followup.js # Security finding → auto-task pipeline: parses findings, creates TASK messages
 │   ├── approval-queue.js # Manual approval queue for auto-generated tasks: queueTask, approveTask, rejectTask
@@ -699,6 +701,7 @@ slack-agent-bridge/
 │   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)
 │   ├── email-categorizer.test.js # Tests for lib/integrations/email-categorizer.js (categorization, rules)
 │   ├── email-check.test.js      # Tests for lib/email-check.js: THE guard that an empty inbox and a failed check are distinguishable, that a failure escalates to a human, and that the module names no Gmail mutation API
+│   ├── failure-visibility.test.js # THE guard that a terminal failure reaches a human and not only a container log: notifyOps posts and redacts, a scheduled job rejected with not_in_channel escalates, a rejected bulletin notification escalates, and bridge-agent's startup/Phase-3 handlers post rather than swallow
 │   ├── email-rate-limiter.test.js # Tests for lib/email-rate-limiter.js (sliding window, cooldown, flood protection)
 │   ├── email-sanitizer.test.js  # Tests for lib/integrations/email-sanitizer.js (prompt-injection detection and stripping)
 │   ├── llm-metrics.test.js      # Tests for lib/llm-metrics.js (verdict recording, getStats, retention)
@@ -714,6 +717,8 @@ slack-agent-bridge/
 │   ├── update-verifier.test.js      # Tests for lib/update-verifier.js (entry-point syntax gate, planRestart)
 │   ├── auto-update-restart.test.js  # Tests for the exit-based self-update: one per guard (a)-(d)
 │   ├── redact-secrets.test.js   # Tests for lib/redact-secrets.js (value-driven and pattern-driven scrubbing)
+│   ├── review-findings.test.js  # Tests for lib/review-findings.js and validateOutput's verdict. THE guard that recurrence is answered by rule identifier and not by prose: it asserts two renderings of one rule are different strings AND the same finding
+│   ├── test-gate-honesty.test.js # THE enumerating guard for "a test invocation that can report a pass without running assertions": classification case-by-case against real runner output, plus a disk walk asserting every test-command site routes through lib/test-verdict.js, with negative controls
 │   ├── task-lock.test.js            # Tests for lib/task-lock.js (acquire/release, staleness, legacy + unparseable lock formats)
 │   ├── auto-update-defer.test.js    # Tests the deferral gate: defers while a task holds the lock, releases a stale one, escalation bound
 │   ├── bridge-agent-scope.test.js   # AST scope guard: catches `X is not defined` in bridge-agent.js
@@ -721,6 +726,7 @@ slack-agent-bridge/
 ├── docs/
 │   ├── EXECUTOR-CONTRACT.md # THE standing contract every dispatched executor reads first
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
+│   ├── AUTONOMOUS-LOOP-DESIGN.md # THE design of record for the closed task loop: dispatch -> work -> review -> merge on green -> suite against main -> next. Owner-made decisions with their reasoning (merge gate, post-merge suite, halt-don't-heal, bounded rework lineage, preemption), plus the four prerequisites — the fourth (merge-state knowledge) does not exist, which is why nothing is wired
 │   ├── CANONICAL-HELPERS.md # THE map of behaviour implemented in more than one place: every site with file:line, each pair marked IDENTICAL / EQUIVALENT / DIVERGENT, and the proposed extraction order. A DIVERGENT row is a defect and carries a WORK-TODO number
 │   ├── WIRING-AND-SEAMS.md  # Entry points, what is actually wired, bridge-agent.js extraction seams
 │   ├── CONFIG-SURFACE-AND-REBUILD.md # Config surface inventory and the rebuild path

@@ -430,6 +430,12 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
   const startTime = Date.now();
   let taskDir = null;
   let taskSuccess = false;
+  // LOGIC CHANGE 2026-09-14: Phase 3 used to run a hardcoded `npm test` while Phase 1
+  // had already read the repo's own `scripts.test` into the plan and thrown it away.
+  // A repo whose test script is anything else had its declared suite ignored and a
+  // different command scored as its gate. Captured here because the plan is
+  // block-scoped inside the Phase-1 try and Phase 3 runs long after it.
+  let taskTestScript = 'npm test';
 
   // LOGIC CHANGE 2026-03-27: Create heartbeat for visual progress feedback.
   // Cycles through emojis while task runs. Wrapped in try/catch so heartbeat
@@ -559,6 +565,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
       try {
         const pipelineContext = reviewTask(task, taskDir);
         const pipelinePlan = createExecutionPlan(task, pipelineContext);
+        taskTestScript = pipelinePlan.testScript || taskTestScript;
 
         if (pipelinePlan.skip) {
           // Task already done - report and exit without running LLM
@@ -816,8 +823,27 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
     // Tests failing here means Claude didn't run them properly — report as "needs-fix".
     if (task.repo && taskDir && fs.existsSync(taskDir)) {
       try {
-        const validation = validateOutput(taskDir, { testScript: 'npm test' });
-        if (!validation.passed) {
+        const validation = validateOutput(taskDir, { testScript: taskTestScript });
+        const testRun = validation.testRun;
+
+        // LOGIC CHANGE 2026-09-14: three outcomes, not two, and none of them is
+        // silence. Previously a run that exited 0 without executing an assertion
+        // scored `passed: true` with `testsPassed: 0`, which fell through BOTH arms
+        // below and posted nothing at all - the gate reported a pass to its caller
+        // and reported nothing to a human. A gate that cannot say which assertions
+        // ran has not run (docs/EXECUTOR-CONTRACT.md section 4).
+        if (!validation.passed && testRun && !testRun.ran) {
+          // The runner never started, or nothing countable executed. This is not a
+          // test failure and must not be read as one.
+          await postToOps(
+            `:rotating_light: *Code review: the test gate DID NOT RUN.*\n` +
+            `Task: ${task.description}\n` +
+            `Command: \`${taskTestScript}\` — outcome: \`${testRun.outcome}\`\n` +
+            `${testRun.reason}\n` +
+            `\`\`\`\n${validation.testOutput.slice(-1200)}\n\`\`\`\n` +
+            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
+          );
+        } else if (!validation.passed) {
           await postToOps(
             `:warning: *Code review: tests failed after task completion.*\n` +
             `Task: ${task.description}\n` +
@@ -825,7 +851,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
             `\`\`\`\n${validation.testOutput.slice(-1500)}\n\`\`\`\n` +
             `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
           );
-        } else if (validation.testsPassed > 0) {
+        } else {
           await postToOps(
             `:white_check_mark: *Code review passed* — ${validation.testsPassed} tests passing.\n` +
             `Task: ${task.description}\n` +
@@ -840,6 +866,16 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
         }
       } catch (validErr) {
         console.error('[bridge-agent] Phase 3 validation error:', validErr.message);
+        // LOGIC CHANGE 2026-09-14: a review that could not run is not a review that
+        // passed. Previously this swallowed the throw and the task reported success
+        // with no gate having been applied at all.
+        await postToOps(
+          `:rotating_light: *Code review did not complete* — the gate threw before reaching a verdict.\n` +
+          `Task: ${task.description}\n${validErr.message}\n` +
+          `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
+        ).catch(postErr => {
+          console.error('[bridge-agent] Could not post Phase 3 failure:', postErr.message);
+        });
       }
     }
 
@@ -1958,6 +1994,22 @@ try {
   const interruptedCount = queue.recoverInterrupted();
   if (interruptedCount > 0) {
     console.log(`[bridge-agent] Recovered ${interruptedCount} interrupted task(s) from queue`);
+    // LOGIC CHANGE 2026-09-14: post it. Every OTHER lifecycle event on this path
+    // already posts to #sqtools-ops - a stale lock release, a deferred update, a
+    // task failure, an undelivered scratch clone. This one wrote `interrupted` into
+    // task-queue.json, logged one line, and stopped: the observable for the person
+    // who submitted the task was "it never answered". WORK-TODO #22.
+    postToOps(
+      `:warning: *${interruptedCount} task(s) were interrupted by a restart.*\n` +
+      queue.getRecentCompleted(10)
+        .filter(t => t.status === 'interrupted')
+        .slice(0, 5)
+        .map(t => `• ${t.description}${t.repo ? ` (${t.repo})` : ''}${t.msgTs && t.channelId ? ` — <${msgLink(t.msgTs, t.channelId)}|source>` : ''}`)
+        .join('\n') +
+      '\nThey were not retried. Re-submit any that still matter.'
+    ).catch(postErr => {
+      console.error('[bridge-agent] Could not post interrupted-task report:', postErr.message);
+    });
   }
   const cleanedCount = queue.cleanup();
   if (cleanedCount > 0) {
@@ -1969,6 +2021,10 @@ try {
   }
 } catch (queueErr) {
   console.error('[bridge-agent] Task queue startup failed:', queueErr.message);
+  // LOGIC CHANGE 2026-09-14: the queue is how a killed task is ever noticed. If it
+  // fails to load, nothing downstream will report that it is not working.
+  postToOps(`:x: *Task queue failed to start:* ${queueErr.message}\nInterrupted-task recovery and queue status are unavailable this session.`)
+    .catch(postErr => console.error('[bridge-agent] Could not post queue startup failure:', postErr.message));
 }
 
 // LOGIC CHANGE 2026-09-14: Clear a task lock left behind by the previous process.

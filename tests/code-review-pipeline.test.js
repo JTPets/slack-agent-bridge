@@ -306,10 +306,16 @@ describe('code-review-pipeline', () => {
 
     // ---- validateOutput ----
     describe('validateOutput', () => {
-        it('should return passed: true with zero counts when tests cannot be run', () => {
-            // tmpDir has no package.json, npm test will fail but we handle gracefully
+        // LOGIC CHANGE 2026-09-14: this test was titled "should return passed: true
+        // with zero counts when tests cannot be run". Its body never asserted that,
+        // but the title stated the defect as the expectation: a run that could not
+        // execute anything is NOT a pass. Retitled, and the real expectation added.
+        it('should return a non-passing result with the required fields when tests cannot be run', () => {
+            // tmpDir has no package.json, so the test command cannot run at all.
             const plan = { testScript: 'npm test' };
             const result = validateOutput(tmpDir, plan);
+            expect(result.passed).toBe(false);
+            expect(result.testRun.ran).toBe(false);
             // Should not throw, returned object should have required fields
             expect(result).toHaveProperty('passed');
             expect(result).toHaveProperty('testsPassed');
@@ -336,17 +342,35 @@ describe('code-review-pipeline', () => {
             // Create a fake repo with a committed file containing console.log
             const repoDir = makeTempRepo();
             try {
+                const { spawnSync } = require('child_process');
+                // LOGIC CHANGE 2026-09-14: a seed commit, so HEAD~1 exists. Without it
+                // the `git diff HEAD~1 HEAD` fallback errored, changedFiles came back
+                // empty, and the console.log check this test is named for never ran -
+                // which is why the assertion below used to be hedged to "may or may
+                // not trigger". A test that asserts nothing is not a test.
+                fs.writeFileSync(path.join(repoDir, 'seed.txt'), 'seed\n');
+                spawnSync('git', ['add', '.'], { cwd: repoDir });
+                spawnSync('git', ['commit', '-m', 'seed'], { cwd: repoDir });
+
                 // Create a JS file with console.log
                 fs.writeFileSync(path.join(repoDir, 'lib.js'), '// LOGIC CHANGE 2026-03-28: test\nconsole.log("debug");\n');
-                const { spawnSync } = require('child_process');
                 spawnSync('git', ['add', '.'], { cwd: repoDir });
                 spawnSync('git', ['commit', '-m', 'add lib'], { cwd: repoDir });
 
-                const plan = { testScript: 'true' }; // Use 'true' command to simulate passing tests
+                // LOGIC CHANGE 2026-09-14: the comment here used to read "Use 'true'
+                // command to simulate passing tests". `true` exits 0 having executed
+                // zero assertions, and treating that as a passing suite is precisely
+                // the defect lib/test-verdict.js now refuses. It is still used here
+                // because this test is about the console.log check and needs the test
+                // step out of the way - but it is asserted to be a NON-pass, so the
+                // belief cannot creep back in.
+                const plan = { testScript: 'true' };
                 const result = validateOutput(repoDir, plan);
+                expect(result.testRun.outcome).toBe('no_assertions');
+                expect(result.passed).toBe(false);
                 // console.log warning should be present
                 const hasConsoleLogWarning = result.warnings.some(w => w.includes('console.log'));
-                // It may or may not trigger depending on git diff output - just verify no crash
+                expect(hasConsoleLogWarning).toBe(true);
                 expect(Array.isArray(result.warnings)).toBe(true);
             } finally {
                 try {

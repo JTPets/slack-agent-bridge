@@ -98,6 +98,7 @@ failure without that comparison.
 | Every executable file has `require('dotenv').config()` first; every lib module loads | `tests/smoke.test.js` |
 | No unbound identifier in `bridge-agent.js` (catches `X is not defined` that unit tests miss) | `tests/bridge-agent-scope.test.js` |
 | The LLM fallback chain is actually wired in, and no circular deps | `tests/integration.test.js` |
+| No test invocation can report a pass without assertions having run: an absent runner, a non-zero exit before any assertion, a timeout and a fully skipped suite are each distinguishable from a pass, and every invocation site routes through `lib/test-verdict.js` | `tests/test-gate-honesty.test.js` |
 | No `.js` file over 300 lines; `bridge-agent.js` actually loads | `npm run validate` (`lib/validate.js`) |
 
 **On argv arrays and `git`:** an argv array defeats a *shell*, not `git`'s option

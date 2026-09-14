@@ -134,8 +134,14 @@ and the decomposer's `runLLM` call (`lib/task-decomposer.js:341`) is dead weight
 `check-inbox` cron (`*/30 9-21 * * *`, America/Toronto) by posting a prose TASK:
 message to channel `C0AQH3KC31S`. `bridge-agent.js`'s poll loop picked it up
 (allowed because `msg.user === BOT_USER_ID`), and — TASK: messages always execute as
-the **bridge** agent, never as the channel's agent (`bridge-agent.js:1704-1711`,
-`agentConfig` is bound once to `getAgent('bridge')` at `bridge-agent.js:194`) — built
+the **bridge** agent, never as the channel's agent (**re-cited at HEAD 2026-09-14**:
+the routing is `bridge-agent.js:1768` for `processTask` versus `:1792`/`:1812` for
+`processConversation`; the previously cited range `:1704-1711` had drifted into the
+body of `processConversation`. `agentConfig` is bound once to `getAgent('bridge')` at
+`bridge-agent.js:194`, which still resolves. Regenerate with
+`grep -n "agentConfig = getAgent('bridge')\|processTask(msg, channelId\|processConversation(msg, channelId" bridge-agent.js`.
+This is now filed as **WORK-TODO #38** — it is not an email-path quirk, it is the rule
+for every scheduled agent) — built
 a no-REPO prompt of `bridge.system_prompt + "Check the email inbox and triage
 messages"` and handed it to an LLM running in `WORK_DIR`.
 

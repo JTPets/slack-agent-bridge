@@ -33,8 +33,13 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
-At the 2026-09-14 reconciliation those print **31** open items — 4 P1, 21 P2, 6 P3 — and
-no duplicates.
+At the 2026-09-14 reconciliation those print **36** open items — 4 P1, 25 P2, 7 P3 — and
+no duplicates. (Was 31 — 4/21/6 — before #36-#40 were filed on 2026-09-14 from the
+autonomous-loop design work.)
+
+The index anchors follow GitHub's slugger: lowercase, drop punctuation **except**
+hyphen and underscore, spaces to hyphens. Four entries (#5, #20, #21, #34) previously
+dropped the underscore too and were therefore broken links; regenerating fixed them.
 
 ## Index
 
@@ -47,7 +52,7 @@ no duplicates.
 - **#3** — [The scheduler never checks `planned` status — CONFIRMED FIRING LIVE 2026-09-14](#3-the-scheduler-never-checks-planned-status--confirmed-firing-live-2026-09-14)
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 
-**P2 — real gaps, no risk to the running process** (21)
+**P2 — real gaps, no risk to the running process** (25)
 
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
@@ -57,29 +62,33 @@ no duplicates.
 - **#26** — [`docker-compose.yml` is untracked **and** unignored in the live working tree — `git clean -fd` deletes the deployment definition](#26-docker-composeyml-is-untracked-and-unignored-in-the-live-working-tree--git-clean--fd-deletes-the-deployment-definition)
 - **#27** — [A task has write access to the entire live deployment, including every credential — recorded, undecided](#27-a-task-has-write-access-to-the-entire-live-deployment-including-every-credential--recorded-undecided)
 - **#24** — [Four sibling modules resolve a shared writable path at module scope with no override — the same class as #19](#24-four-sibling-modules-resolve-a-shared-writable-path-at-module-scope-with-no-override--the-same-class-as-19)
-- **#20** — [`MAX_TURNS` names four different quantities, and the env var is dead config](#20-maxturns-names-four-different-quantities-and-the-env-var-is-dead-config)
+- **#20** — [`MAX_TURNS` names four different quantities, and the env var is dead config](#20-max_turns-names-four-different-quantities-and-the-env-var-is-dead-config)
 - **#33** — [A UTC day key is used as the store's day, so evening staff tasks are filed against tomorrow](#33-a-utc-day-key-is-used-as-the-stores-day-so-evening-staff-tasks-are-filed-against-tomorrow)
 - **#32** — [One bulletin timestamp, three renderings — and the path every agent's prompt uses emits none](#32-one-bulletin-timestamp-three-renderings--and-the-path-every-agents-prompt-uses-emits-none)
 - **#28** — [The email rules file declares two categories the categorizer never reads, and using the file disables three it does](#28-the-email-rules-file-declares-two-categories-the-categorizer-never-reads-and-using-the-file-disables-three-it-does)
-- **#34** — [`DEPLOY_KEY_PATH` is read but undocumented](#34-deploykeypath-is-read-but-undocumented)
+- **#34** — [`DEPLOY_KEY_PATH` is read but undocumented](#34-deploy_key_path-is-read-but-undocumented)
 - **#35** — [Per-agent memory has TTL and decay but no max-entries cap](#35-per-agent-memory-has-ttl-and-decay-but-no-max-entries-cap)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
 - **#11** — [A helpers/utilities map and an owning-doc rule](#11-a-helpersutilities-map-and-an-owning-doc-rule)
-- **#5** — [Mid-task `ask_on_slack` capability](#5-mid-task-askonslack-capability)
+- **#5** — [Mid-task `ask_on_slack` capability](#5-mid-task-ask_on_slack-capability)
 - **#6** — [Structured task result format](#6-structured-task-result-format)
 - **#7** — [Task timeout escalation tiers](#7-task-timeout-escalation-tiers)
 - **#8** — [Surface deduplication in status](#8-surface-deduplication-in-status)
 - **#9** — [`ASK: task history [n]` command](#9-ask-task-history-n-command)
+- **#38** — [`TASK:` is always executed as the bridge agent, so a scheduled agent's persona and provider never apply to its own task](#38-task-is-always-executed-as-the-bridge-agent-so-a-scheduled-agents-persona-and-provider-never-apply-to-its-own-task)
+- **#39** — [The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged](#39-the-queue-cannot-tell-a-completed-task-from-a-landed-one--nothing-here-knows-whether-a-branch-merged)
+- **#40** — [Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout](#40-uncommitted-edits-in-the-live-deployment-tree--reported-not-verifiable-from-a-checkout)
+- **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
 
-**P3 — nice to have / uncertain ROI** (6)
+**P3 — nice to have / uncertain ROI** (7)
 
-- **#21** — [`already_in_channel` warns five times per boot — and the obvious fix is in the wrong place](#21-alreadyinchannel-warns-five-times-per-boot--and-the-obvious-fix-is-in-the-wrong-place)
+- **#36** — [Three enumerating guards each carry their own source-tree walker, and `tests/` subdirectories are enumerated by none of them](#36-three-enumerating-guards-each-carry-their-own-source-tree-walker-and-tests-subdirectories-are-enumerated-by-none-of-them)
+- **#21** — [`already_in_channel` warns five times per boot — and the obvious fix is in the wrong place](#21-already_in_channel-warns-five-times-per-boot--and-the-obvious-fix-is-in-the-wrong-place)
 - **#29** — [`gmail-unsubscribe` is a declared agent permission that no code implements](#29-gmail-unsubscribe-is-a-declared-agent-permission-that-no-code-implements)
 - **#13** — [MCP server wrapper](#13-mcp-server-wrapper)
 - **#14** — [Watercooler retro → LinkedIn draft](#14-watercooler-retro--linkedin-draft)
 - **#15** — [Task complexity auto-scaling TURNS](#15-task-complexity-auto-scaling-turns)
 - **#16** — [Channel-per-task archive mode](#16-channel-per-task-archive-mode)
-
 ---
 
 ## P1 — Protects or unblocks the live deployment
@@ -1006,7 +1015,193 @@ timestamps and outcomes.
 
 ---
 
+### 38. `TASK:` is always executed as the bridge agent, so a scheduled agent's persona and provider never apply to its own task
+**Filed 2026-09-14,** from tracing what a scheduled agent job actually runs.
+
+**Verified at HEAD, not inferred.** `agentConfig` is bound **once, at module scope**, to
+the bridge agent and never rebound:
+```bash
+grep -n "agentConfig = getAgent('bridge')" bridge-agent.js          # -> :194
+grep -n "processTask(msg, channelId\|processConversation(msg, channelId" bridge-agent.js
+```
+The second command shows the asymmetry that is the whole item:
+
+| Path | Call | Agent used |
+|---|---|---|
+| `TASK:` | `processTask(msg, channelId, queuedTask.id)` | **module-scope `agentConfig`** — always `bridge` |
+| `ASK:` | `processConversation(msg, channelId, channelAgentConfig)` | the channel's own agent |
+
+So inside `processTask` the `system_prompt`, the `llm_provider`, the `llm_model` and the
+`agentId` on the metrics verdict all come from the **bridge** record, whatever channel the
+message arrived in and whichever agent the scheduler was firing for.
+
+**Why this is filed rather than fixed.** It is load-bearing in both directions and the
+repository already relies on it: `resolveLlmProvider(agentConfig, agentConfig?.id ||
+'bridge')` at `bridge-agent.js:498` and `:670` reads the module-scope record deliberately,
+and there is a comment saying so. Changing it changes which provider every scheduled task
+bills to and which system prompt shapes it — that is a behaviour decision, not a bug fix.
+
+**What it blocks, which is why it is not P3.** Any design in which different agents do
+different work. The email-monitor case is the proof and is already fixed *around* this
+rather than through it: the scheduler now runs `check-inbox` as deterministic code
+(`DETERMINISTIC_TASKS`, `lib/agent-scheduler.js`) precisely because routing it through a
+`TASK:` message got the bridge's prompt and no mailbox access. Every future "agent X does
+Y on a schedule" hits the same wall, and the deterministic-handler escape hatch does not
+scale to work that genuinely needs an LLM with that agent's persona.
+
+**Partly recorded already, nowhere as an item.** A comment at `bridge-agent.js:676-686`
+states it, and `docs/WIRING-AND-SEAMS.md` section 3a states it in the specific context of
+the email path. Neither is findable by someone designing a new agent.
+**Note on the existing citation:** section 3a cites `bridge-agent.js:1704-1711` for the
+routing; at HEAD those lines are inside `processConversation`, and the routing is at
+`:1768` / `:1792`. Corrected in the same change that files this.
+
+**Fix (not chosen here):** pass the channel's agent into `processTask` as
+`processConversation` already does, and decide explicitly whether the prompt, the provider
+and the metrics `agentId` each follow the channel or stay on the bridge. They are three
+separate decisions and conflating them is how this got missed.
+**Priority:** P2 | **Effort:** Medium | **Status:** open
+
+---
+
+### 39. The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged
+**Filed 2026-09-14,** from the autonomous-loop design
+([`docs/AUTONOMOUS-LOOP-DESIGN.md`](docs/AUTONOMOUS-LOOP-DESIGN.md) section 4, part five).
+
+**Verified at HEAD.** The queue row is created with exactly these fields and no others:
+```bash
+grep -n "const queuedTask = {" -A 14 lib/task-queue.js
+# -> id, msgTs, channelId, text, description, repo, status, enqueuedAt, startedAt,
+#    completedAt, error
+grep -rniE "merged|landed|pull_?request|isMerged" --include='*.js' lib/ bridge-agent.js | grep -v node_modules
+# -> nothing about merges; the only hits are the word "branch" used for control flow
+```
+There is no branch field, no commit field and no merge field anywhere in the queue or its
+callers. A task reaches `completed` when the executor's process exits successfully, which
+says the work was **done**, not that it **landed**.
+
+**Why that matters beyond tidiness.** `formatStatusResponse` answers `ASK: what's queued`
+from these rows, so "completed" in Slack means "the agent stopped", and an executor that
+committed without pushing, or pushed a branch nobody merged, reports identically to one
+whose work is on `main`. `detectUndeliveredWork` (`lib/clone-lifecycle.js`) catches the
+*unpushed* case and alerts — but a pushed, unmerged branch is delivered by its definition
+and correct by it, and is still not landed.
+
+**It blocks the loop outright.** Decisions D1, D2 and D7 of the loop design all turn on
+"has this merged?": the merge gate, the post-merge suite run against `main`, and the
+preemption of queued work by a fix task about *merged* code. None can be built on a
+completed/landed distinction that does not exist.
+
+**Compounded by, but separate from, #17.** #17 records that nothing can answer which
+commit the running process is on. That is "merged vs deployed"; this is "completed vs
+merged". Both would have to be answerable for a loop to close, and neither is.
+
+**Fix (shape, not chosen):** record the branch and head SHA on the queue row when the task
+pushes, then resolve merge state from the remote. Whatever does the resolving must ask the
+remote, not the scratch clone — `detectUndeliveredWork`'s own comment explains why
+(`--single-branch` clones have no `origin/feature/*` ref, so a local-only check reads a
+pushed branch as unpushed).
+**Priority:** P2 | **Effort:** Medium | **Status:** open
+
+---
+
+### 40. Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout
+**Filed 2026-09-14.** **Owner-supplied claim; this repository cannot confirm it.** Filed
+with that label rather than as a repo fact, because `/bridge` is off-repo.
+
+**The claim:** the live deployment tree carries uncommitted working-tree edits, which
+therefore exist in exactly one place.
+
+**What IS verifiable from here, and makes the claim credible rather than idle:**
+- `/bridge` is a bind mount of the NAS deploy directory and **that directory is the git
+  checkout the container runs** — there is no copy step between "the repo" and "the
+  deployment" (`docs/CONFIG-SURFACE-AND-REBUILD.md` -> Step 0, consequence 1).
+- Tasks run through a shell as the directory's owner (`uid 1000:100`) with
+  `--dangerously-skip-permissions`, so anything in that tree is writable from a task
+  (same document, consequence 3). Nothing prevents an edit landing there.
+- `auto-update.js` runs `git reset --hard HEAD` before each pull
+  (`grep -n "reset', '--hard" auto-update.js` -> `:170`, `:191`). **That discards exactly
+  this class of edit.** It is inert today only because nothing starts that daemon (#17) —
+  so answering #17 by starting the daemon would destroy these edits on the first cycle.
+- The adjacent, already-filed instance is #26: `docker-compose.yml` is untracked **and**
+  unignored in that same tree.
+
+**Regenerate on the NAS** (the only place this is answerable):
+```bash
+cd /share/CACHEDEV1_DATA/jt-agent && git status --porcelain && git stash list
+git diff --stat            # what the edits actually are
+git log --oneline -1       # and what commit the tree is on
+```
+`git status --porcelain` printing nothing but `?? docker-compose.yml` closes this item as
+"only #26 applies". Any ` M ` line is the finding, and each such file needs deciding:
+commit it, or record why it is deliberately local.
+
+**Sequencing that matters:** this must be answered **before** #17 is resolved by starting
+`auto-update.js`, not after.
+**Priority:** P2 | **Effort:** Low (one command on the box, then a decision per file) | **Status:** open — blocked on an owner check
+
+---
+
+### 37. `notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success
+**Filed 2026-09-14,** from the failure-path enumeration
+([`docs/AUTONOMOUS-LOOP-DESIGN.md`](docs/AUTONOMOUS-LOOP-DESIGN.md) section 5).
+
+**Verified at HEAD:** `grep -n "PRIORITY.HIGH" -A 4 lib/notify-owner.js` — the HIGH branch
+logs `[notify-owner] High priority (for digest):` and `return true`. No digest consumes
+it: `grep -rn "digest" lib/notify-owner.js morning-digest.js | grep -i "notify-owner"`
+finds no reader.
+
+So a caller asking for a HIGH notification receives a **success return value** and the
+owner receives nothing. That is worse than an unimplemented feature — it is a reporting
+path that silently does not report while telling its caller it did, which is the same
+class as the test gate returning green with no assertions (closed in the part-three
+change).
+
+**Not fixed in the part-four change, deliberately:** the fix is either to build the digest
+or to collapse HIGH into a `notifyOps()` post, and that is a decision about how much
+traffic the owner wants in `#sqtools-ops`, not a bug fix an executor should make alone.
+Whichever is chosen, `PRIORITY.HIGH` must stop returning `true` for a message it dropped.
+**Priority:** P2 | **Effort:** Low | **Status:** open — owner decides digest vs. ops post
+
+---
+
 ## P3 — Nice to have / uncertain ROI
+
+### 36. Three enumerating guards each carry their own source-tree walker, and `tests/` subdirectories are enumerated by none of them
+**Filed 2026-09-14,** from `docs/CANONICAL-HELPERS.md` section 13.
+
+```bash
+grep -rn "function stripComments\|function stripCommentsAndStrings\|function listSourceFiles" tests/*.js
+```
+`tests/no-shell-execution.test.js`, `tests/timezone-explicit.test.js` and
+`tests/test-gate-honesty.test.js` each walk the source tree from disk and each carries its
+own copy — roughly 50 lines repeated three times. Marked **EQUIVALENT**, not DIVERGENT: the
+two comment scanners differ deliberately (the shell guard blanks string *contents* so prose
+naming a banned API does not trip it; the test-gate guard must leave strings intact because
+the thing it detects, `'npm test'`, **is** a string literal).
+
+**Why it was not extracted when the third copy landed.** The helper would live under
+`tests/helpers/`, and `tests/architecture-tree.test.js` enumerates `tests/*.js`
+**non-recursively** (`TRACKED_DIRS` + a flat `readdirSync`). A file three guards depend on
+would sit in a directory no guard covers. Extraction therefore means widening that
+enumeration first, which is the actual work and is why this is an item rather than a
+side effect of the change that noticed it.
+
+**Fix:** widen `tests/architecture-tree.test.js` to walk `tests/` recursively, then extract
+`listSourceFiles` and both stripper variants into `tests/helpers/source-scan.js`, keeping
+the two stripping modes as an explicit option rather than merging them.
+
+**It has a concrete cost already.** `tests/test-gate-honesty.test.js` is **364 lines** and
+is the **one file this branch newly pushed over the repo's 300-line rule** — `npm run validate`
+goes 63 -> 64 over-limit files (`npm run validate 2>&1 | grep -cE '^  - '`, compared against
+`1533d85`). Roughly 120 of those lines are the walker and the comment scanner, so this
+extraction takes the file back under the limit. Trimming prose instead would cost the
+reasoning that makes the guard maintainable, and doing the extraction inside the change
+that added the third copy would have meant editing two other guards as a side effect —
+which is why it is an item.
+**Priority:** P3 | **Effort:** Low | **Status:** open
+
+---
 
 ### 21. `already_in_channel` warns five times per boot — and the obvious fix is in the wrong place
 **Filed 2026-09-14.** `joinAgentChannels` (`lib/slack-client.js:385`) calls
@@ -1141,6 +1336,15 @@ What survives from it, because it is not recoverable from a commit message:
   the ~1-in-6 flake rate once reported for the retired #19 are owner-supplied and not
   checkable from a clone. Each is named at its item with the command that regenerates it on
   the box.
+
+*Updated 2026-09-14: five items filed (#36-#40) from the autonomous-loop design work —
+#38 (`TASK:` always runs as the bridge agent), #39 (the queue cannot tell completed from
+landed), #40 (uncommitted edits in the live deployment tree — owner-verifiable only),
+#37 (`PRIORITY.HIGH` drops the message and returns success) and #36 (three guards, three
+copies of the source walker). The claim that nothing can answer which commit the running
+process is on was checked against HEAD and is **already filed**, inside #17 — recorded
+here as checked, not duplicated as a new item. Index regenerated from the headings, which
+also repaired four anchors that had dropped an underscore.*
 
 *Last reconciled 2026-09-14: six closed entries purged (#1, #2, #12, #19, the 2026-09-13
 scratch-clone entry, and the retired-#18 references), the two unnumbered items given stable
