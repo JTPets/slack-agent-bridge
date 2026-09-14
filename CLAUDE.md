@@ -721,6 +721,7 @@ slack-agent-bridge/
 ├── docs/
 │   ├── EXECUTOR-CONTRACT.md # THE standing contract every dispatched executor reads first
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
+│   ├── CANONICAL-HELPERS.md # THE map of behaviour implemented in more than one place: every site with file:line, each pair marked IDENTICAL / EQUIVALENT / DIVERGENT, and the proposed extraction order. A DIVERGENT row is a defect and carries a WORK-TODO number
 │   ├── WIRING-AND-SEAMS.md  # Entry points, what is actually wired, bridge-agent.js extraction seams
 │   ├── CONFIG-SURFACE-AND-REBUILD.md # Config surface inventory and the rebuild path
 │   ├── COURIER-INTAKE.md    # Courier intake page and delivery quote API documentation
