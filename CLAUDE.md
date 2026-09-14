@@ -721,6 +721,7 @@ slack-agent-bridge/
 ├── docs/
 │   ├── EXECUTOR-CONTRACT.md # THE standing contract every dispatched executor reads first
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
+│   ├── AUTONOMOUS-LOOP-DESIGN.md # THE design of record for the closed task loop: dispatch -> work -> review -> merge on green -> suite against main -> next. Owner-made decisions with their reasoning (merge gate, post-merge suite, halt-don't-heal, bounded rework lineage, preemption), plus the four prerequisites — the fourth (merge-state knowledge) does not exist, which is why nothing is wired
 │   ├── CANONICAL-HELPERS.md # THE map of behaviour implemented in more than one place: every site with file:line, each pair marked IDENTICAL / EQUIVALENT / DIVERGENT, and the proposed extraction order. A DIVERGENT row is a defect and carries a WORK-TODO number
 │   ├── WIRING-AND-SEAMS.md  # Entry points, what is actually wired, bridge-agent.js extraction seams
 │   ├── CONFIG-SURFACE-AND-REBUILD.md # Config surface inventory and the rebuild path
