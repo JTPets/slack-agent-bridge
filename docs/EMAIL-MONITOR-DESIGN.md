@@ -22,8 +22,17 @@ Categories are defined in `agents/email-monitor/memory/rules.json`:
 |----------|--------|-------------|
 | `urgent` | `notify_immediately` | Time-sensitive emails posted to Slack immediately |
 | `important` | `include_in_digest` | Important emails summarized in daily digest |
+| `vendor_deal` | `push_to_secretary` | Vendor pricing deals; also posts a bulletin the Secretary watches |
 | `newsletter` | `ignore` | Marketing/newsletters skipped; can auto-unsubscribe |
 | `spam` | `ignore` | Spam and unwanted emails |
+
+`categorizeEmail()` (`lib/integrations/email-categorizer.js`) walks these categories in
+**declared (insertion) order** and returns the first whose `keywords` **or** `senders`
+match — so the order above is the precedence, and `action`/`priority` are read from the
+file. Every declared category is honoured; a category whose resolved action is
+`push_to_secretary` also posts a bulletin typed by the category name. (Before 2026-09-14
+the categorizer was a hardcoded if-chain that never read `urgent`/`important` — WORK-TODO
+#28.)
 
 ## Unsubscribe Capability
 
