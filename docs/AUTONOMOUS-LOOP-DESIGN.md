@@ -264,4 +264,64 @@ not the thing.
 
 ## 5. Failure paths and their destinations
 
-*(Written in the part-four change; see the commit that adds this section.)*
+Written 2026-09-14 (part four). **The unit here is a *terminal* failure path** — one
+where an operation's overall outcome is a failure and nothing downstream reports it.
+That is deliberately not "every `catch`": most of the ~290 `console.error` sites in this
+repository are best-effort sub-steps inside an operation whose *own* result is reported
+(a memory write that fails inside `processTask`, which still posts its task verdict).
+Counting those would produce a long list in which the eight that matter are invisible.
+
+Regenerate the candidate set:
+
+```bash
+# every error-log site, by file
+for f in $(find . -name '*.js' -not -path './node_modules/*' -not -path './.git/*' \
+                  -not -path './tests/*' -not -path './coverage/*' | sort); do
+  n=$(grep -cE "console\.(error|warn)\(" "$f"); [ "$n" -gt 0 ] && printf "%4d  %s\n" "$n" "$f";
+done
+# the terminal handlers: outermost catch of a scheduled, startup or background operation
+grep -n "recoverInterrupted\|Task queue startup failed\|Phase 3 validation error" bridge-agent.js
+grep -n "failed: \|Failed to notify\|Job NOT registered" lib/agent-scheduler.js lib/bulletin-watcher.js
+```
+
+### Wired in this change — the destination was not a judgement call
+
+Every one of these goes to `#sqtools-ops`, because that is where *every other*
+lifecycle event on the same paths already goes: a stale lock release, a deferred
+update, a task failure, an undelivered scratch clone. Routing them anywhere else would
+have been the novel decision, not routing them there.
+
+| Failure | Who should learn | Route now | Was |
+|---|---|---|---|
+| A task found `interrupted` at startup | whoever submitted it | `#sqtools-ops`, naming each task and linking its source message | one `console.log`; visible only to someone who thought to run `ASK: what's queued` inside the 24 h retention window (WORK-TODO #22) |
+| The task queue failing to load at startup | owner | `#sqtools-ops` | `console.error`. The queue is *how* a killed task is ever noticed, so its own failure disabled the noticing |
+| A scheduled job whose post is rejected (`not_in_channel`) | owner | `#sqtools-ops`, naming the agent, the cron, the channel and the remedy | `console.error`. **The live instance**: story-bot, every Friday |
+| A bulletin notification rejected by Slack | owner | `#sqtools-ops`, one post per rejected agent | `console.error` plus a `result.errors` array that its only production caller discards |
+| The scheduler refusing to register a job (unknown task name) | owner | `#sqtools-ops` at startup, listing every refusal | `console.error` at startup — a scheduled capability that silently does not exist |
+| A Phase-3 review that throws before reaching a verdict | owner | `#sqtools-ops` | swallowed; the task then reported success with **no gate applied at all** |
+| A review whose test gate did not run | owner | `#sqtools-ops` (part three) | scored a pass and posted nothing |
+| A watercooler standup that "succeeded" with dropped contributions | owner | DM, listing each problem | `console.log`. Indistinguishable in Slack from an agent having nothing to say |
+
+The mechanism is `notifyOps()` in `lib/notify-owner.js` — added rather than a fourth
+`postToOps`, so `docs/CANONICAL-HELPERS.md` section 1 / WORK-TODO #30 does not get
+worse. It redacts, which `notifyChannel` alone does not. Guarded by
+`tests/failure-visibility.test.js`.
+
+**Not fixed, and deliberately:** story-bot's channel membership, and the
+scheduled-set-vs-joined-set disagreement that produces it. That is WORK-TODO #3, and
+the membership is the owner's to set. What is fixed is that the failure is no longer
+invisible.
+
+### Proposed and stopped — the destination IS a judgement call
+
+Each of these is a real gap. None is wired, because "who should learn about it" has more
+than one defensible answer and the wrong one is noise that trains the owner to ignore
+the channel.
+
+| Failure | The question |
+|---|---|
+| `notifyOwner(msg, PRIORITY.HIGH)` | **It goes nowhere.** `lib/notify-owner.js` logs it "for digest" and returns `true` — and no digest consumes it. A caller asking for a HIGH notification gets a success return and no notification. Filed as WORK-TODO #37. The fix is either to build the digest or to collapse HIGH into an ops post, and that is a decision about volume, not a bug fix |
+| An LLM call that fell back to a secondary provider | Recorded by `lib/llm-metrics.js` and answerable on demand. Should a *single* fallback interrupt anyone, or only a rate crossing a threshold? A threshold needs a number the owner picks |
+| A per-agent context build failing (`lib/agent-context.js`, 11 sites) | Degrades an ASK answer rather than failing it. Reporting each one is plausibly a post per conversation |
+| An agent with a schedule but `channel: null` (`jester`, active) | Its weekly job silently never arms. Startup ops post, or a weekly digest? This is WORK-TODO #3 part 2 and belongs with that item's fix, not bolted on here |
+| `lib/integrations/*` fetch failures (gmail, calendar, holidays, square) | Some already escalate through their caller (`lib/email-check.js` does). The rest are read-through caches where a stale read is the designed behaviour. Which of those is a failure worth a human is per-integration |

@@ -93,7 +93,18 @@ async function main() {
         if (result.success) {
             console.log(`[watercooler] ${typeConfig.name} completed: ${result.messagesPosted} messages posted`);
             if (result.errors.length > 0) {
+                // LOGIC CHANGE 2026-09-14: a partial failure was logged and nothing
+                // else. A standup that "succeeded" while an agent's contribution was
+                // dropped looks identical, from Slack, to one where that agent had
+                // nothing to say. Same class as the scheduler's `not_in_channel`.
                 console.log(`[watercooler] Warnings: ${result.errors.join(', ')}`);
+                await sendDM(
+                    OWNER_USER_ID,
+                    `:warning: ${typeConfig.name} completed with ${result.errors.length} problem(s), ` +
+                    `${result.messagesPosted} message(s) posted:\n${result.errors.map(e => `• ${e}`).join('\n')}`
+                ).catch(dmErr => {
+                    console.error('[watercooler] Could not report partial failure:', dmErr.message);
+                });
             }
         } else {
             console.error(`[watercooler] ${typeConfig.name} failed:`, result.errors.join(', '));

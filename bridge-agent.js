@@ -866,6 +866,16 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
         }
       } catch (validErr) {
         console.error('[bridge-agent] Phase 3 validation error:', validErr.message);
+        // LOGIC CHANGE 2026-09-14: a review that could not run is not a review that
+        // passed. Previously this swallowed the throw and the task reported success
+        // with no gate having been applied at all.
+        await postToOps(
+          `:rotating_light: *Code review did not complete* — the gate threw before reaching a verdict.\n` +
+          `Task: ${task.description}\n${validErr.message}\n` +
+          `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
+        ).catch(postErr => {
+          console.error('[bridge-agent] Could not post Phase 3 failure:', postErr.message);
+        });
       }
     }
 
@@ -1984,6 +1994,22 @@ try {
   const interruptedCount = queue.recoverInterrupted();
   if (interruptedCount > 0) {
     console.log(`[bridge-agent] Recovered ${interruptedCount} interrupted task(s) from queue`);
+    // LOGIC CHANGE 2026-09-14: post it. Every OTHER lifecycle event on this path
+    // already posts to #sqtools-ops - a stale lock release, a deferred update, a
+    // task failure, an undelivered scratch clone. This one wrote `interrupted` into
+    // task-queue.json, logged one line, and stopped: the observable for the person
+    // who submitted the task was "it never answered". WORK-TODO #22.
+    postToOps(
+      `:warning: *${interruptedCount} task(s) were interrupted by a restart.*\n` +
+      queue.getRecentCompleted(10)
+        .filter(t => t.status === 'interrupted')
+        .slice(0, 5)
+        .map(t => `• ${t.description}${t.repo ? ` (${t.repo})` : ''}${t.msgTs && t.channelId ? ` — <${msgLink(t.msgTs, t.channelId)}|source>` : ''}`)
+        .join('\n') +
+      '\nThey were not retried. Re-submit any that still matter.'
+    ).catch(postErr => {
+      console.error('[bridge-agent] Could not post interrupted-task report:', postErr.message);
+    });
   }
   const cleanedCount = queue.cleanup();
   if (cleanedCount > 0) {
@@ -1995,6 +2021,10 @@ try {
   }
 } catch (queueErr) {
   console.error('[bridge-agent] Task queue startup failed:', queueErr.message);
+  // LOGIC CHANGE 2026-09-14: the queue is how a killed task is ever noticed. If it
+  // fails to load, nothing downstream will report that it is not working.
+  postToOps(`:x: *Task queue failed to start:* ${queueErr.message}\nInterrupted-task recovery and queue status are unavailable this session.`)
+    .catch(postErr => console.error('[bridge-agent] Could not post queue startup failure:', postErr.message));
 }
 
 // LOGIC CHANGE 2026-09-14: Clear a task lock left behind by the previous process.

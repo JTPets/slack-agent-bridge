@@ -618,7 +618,7 @@ slack-agent-bridge/
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, gemini, ollama), fallback chain, startup validation
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
 │   ├── owner-tasks.js    # Owner task management: activation checklists, pending tasks, ACTION REQUIRED detection
-│   ├── notify-owner.js   # Owner notification layer, the single path for owner-facing messages: init() injects the Slack client/owner id/ops channel; notifyOwner routes by PRIORITY (CRITICAL -> the secretary agent's channel when active, else a direct DM; HIGH -> logged for a digest that does not exist yet; LOW -> logged only) plus taskFailed/taskCompleted/actionRequired/rateLimitHit/rateLimitCleared. Redacts via lib/redact-secrets.js before anything leaves
+│   ├── notify-owner.js   # Owner notification layer, the single path for owner-facing messages: init() injects the Slack client/owner id/ops channel; notifyOps posts an operational failure to #sqtools-ops (redacted) so a lib module never needs a fourth postToOps; notifyOwner routes by PRIORITY (CRITICAL -> the secretary agent's channel when active, else a direct DM; HIGH -> logged for a digest that does not exist yet; LOW -> logged only) plus taskFailed/taskCompleted/actionRequired/rateLimitHit/rateLimitCleared. Redacts via lib/redact-secrets.js before anything leaves
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
 │   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork, assertValidTargetDir. Every git call is an execFileSync argv array — no function here builds a shell command string
 │   ├── bridge-state.js    # State persistence (seam B): sole owner of .bridge-agent-state.json (per-channel poll cursors) and processed-tasks.json (task dedup); init, get/setLastChecked, isTaskProcessed, markTaskProcessed, cleanupProcessedTasks
@@ -701,6 +701,7 @@ slack-agent-bridge/
 │   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)
 │   ├── email-categorizer.test.js # Tests for lib/integrations/email-categorizer.js (categorization, rules)
 │   ├── email-check.test.js      # Tests for lib/email-check.js: THE guard that an empty inbox and a failed check are distinguishable, that a failure escalates to a human, and that the module names no Gmail mutation API
+│   ├── failure-visibility.test.js # THE guard that a terminal failure reaches a human and not only a container log: notifyOps posts and redacts, a scheduled job rejected with not_in_channel escalates, a rejected bulletin notification escalates, and bridge-agent's startup/Phase-3 handlers post rather than swallow
 │   ├── email-rate-limiter.test.js # Tests for lib/email-rate-limiter.js (sliding window, cooldown, flood protection)
 │   ├── email-sanitizer.test.js  # Tests for lib/integrations/email-sanitizer.js (prompt-injection detection and stripping)
 │   ├── llm-metrics.test.js      # Tests for lib/llm-metrics.js (verdict recording, getStats, retention)
