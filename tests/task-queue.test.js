@@ -4,6 +4,19 @@
  * tests/task-queue.test.js
  *
  * Unit tests for lib/task-queue.js
+ *
+ * LOGIC CHANGE 2026-09-14: This suite previously encoded the defect it should have
+ * caught (WORK-TODO P1 #18). 16 of its 39 tests — 38 of its 77 assertions — reach
+ * the `running` state via `dequeue()`, which had ZERO non-test callers: the state
+ * machine they certify is one production never drove. They are kept and are now
+ * genuinely load-bearing, because `dequeue()` and the new `markRunning()` share one
+ * transition (`_startRunning`). But a module-level test cannot prove the live path
+ * uses it — `tests/task-queue-lifecycle.test.js` extracts the lifecycle from
+ * bridge-agent.js's source and replays it, which is the check that was missing.
+ *
+ * The `recoverInterrupted` assertion below previously pinned the string
+ * 'PM2 restart'. There is no PM2 in this deployment; the assertion sanctioned a
+ * reason naming a supervisor that does not exist, and is flipped here.
  */
 
 const fs = require('fs');
@@ -21,6 +34,7 @@ describe('task-queue', () => {
     let hasActiveTasks;
     let getQueueStatus;
     let STATUS;
+    let INTERRUPTED_ON_STARTUP_REASON;
 
     beforeAll(() => {
         // Create temp directory for tests
@@ -37,6 +51,7 @@ describe('task-queue', () => {
         hasActiveTasks = taskQueue.hasActiveTasks;
         getQueueStatus = taskQueue.getQueueStatus;
         STATUS = taskQueue.STATUS;
+        INTERRUPTED_ON_STARTUP_REASON = taskQueue.INTERRUPTED_ON_STARTUP_REASON;
     });
 
     afterAll(() => {
@@ -159,6 +174,62 @@ describe('task-queue', () => {
             });
         });
 
+        describe('markRunning', () => {
+            it('marks the known id running and stamps startedAt with it', () => {
+                const queue = new TaskQueue(queueFile);
+                const queued = queue.enqueue({ msgTs: '1.1', channelId: 'C1', text: 'T1', description: 'Known' });
+
+                const running = queue.markRunning(queued.id);
+
+                expect(running.status).toBe(STATUS.RUNNING);
+                expect(running.startedAt).not.toBeNull();
+                expect(Number.isFinite(Date.parse(running.startedAt))).toBe(true);
+            });
+
+            it('marks the entry it was given, not merely the first pending one', () => {
+                // This is why the live path uses markRunning(id) rather than
+                // dequeue(): with two entries pending, dequeue()'s search would
+                // start the wrong one and strand it running forever.
+                const queue = new TaskQueue(queueFile);
+                const first = queue.enqueue({ msgTs: '1.1', channelId: 'C1', text: 'T1', description: 'First' });
+                const second = queue.enqueue({ msgTs: '2.2', channelId: 'C1', text: 'T2', description: 'Second' });
+
+                queue.markRunning(second.id);
+
+                expect(queue.getRunning().id).toBe(second.id);
+                expect(queue.getPending().map(t => t.id)).toEqual([first.id]);
+            });
+
+            it('returns null for an unknown id without throwing', () => {
+                const queue = new TaskQueue(queueFile);
+                expect(queue.markRunning('nonexistent')).toBeNull();
+            });
+        });
+
+        describe('interrupt', () => {
+            it('moves a running task to a terminal interrupted state', () => {
+                const queue = new TaskQueue(queueFile);
+                const queued = queue.enqueue({ msgTs: '1.1', channelId: 'C1', text: 'T1', description: 'Killed child' });
+                queue.markRunning(queued.id);
+
+                queue.interrupt(queued.id, 'Task interrupted (SIGTERM) after 12s');
+
+                const row = queue.getRecentCompleted(1)[0];
+                expect(row.status).toBe(STATUS.INTERRUPTED);
+                expect(row.completedAt).not.toBeNull();
+                expect(row.error).toBe('Task interrupted (SIGTERM) after 12s');
+                // No phantom in-flight task: cleanup() never expires a RUNNING entry,
+                // so leaving one here would block deploys until the staleness rule.
+                expect(queue.getRunning()).toBeNull();
+                expect(queue.getActiveCount()).toBe(0);
+            });
+
+            it('handles an unknown id gracefully', () => {
+                const queue = new TaskQueue(queueFile);
+                expect(() => queue.interrupt('nonexistent', 'why')).not.toThrow();
+            });
+        });
+
         describe('complete', () => {
             it('marks task as completed', () => {
                 const queue = new TaskQueue(queueFile);
@@ -207,7 +278,8 @@ describe('task-queue', () => {
 
                 const recent = queue.getRecentCompleted(1);
                 expect(recent[0].status).toBe(STATUS.INTERRUPTED);
-                expect(recent[0].error).toContain('PM2 restart');
+                expect(recent[0].error).toBe(INTERRUPTED_ON_STARTUP_REASON);
+                expect(recent[0].error).not.toMatch(/pm2/i);
             });
 
             it('returns 0 when no running tasks', () => {
