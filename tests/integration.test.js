@@ -508,3 +508,82 @@ describe('LLM fallback is actually wired in', () => {
         }
     });
 });
+
+// LOGIC CHANGE 2026-09-14: parseTask now requires UPPERCASE, line-anchored labels.
+// Three modules in this repo GENERATE task messages that parseTask then reads back.
+// If a generator drifts from the parser's rules, auto-generated tasks silently lose
+// their repo or instructions — so the round trip is pinned here rather than assumed.
+describe('generated task messages round-trip through parseTask', () => {
+    const { parseTask } = require('../lib/task-parser');
+
+    test('task-decomposer subtask messages parse with no rejected fields', () => {
+        const { formatSubtaskAsMessage } = require('../lib/task-decomposer');
+
+        const message = formatSubtaskAsMessage(
+            {
+                id: 'subtask-1',
+                description: 'Add the missing test',
+                repo: 'jtpets/slack-agent-bridge',
+                branch: 'feature/subtask',
+                skill: 'run-tests',
+                instructions: 'Write the test and run npm test.',
+                dependsOn: [],
+            },
+            {}
+        );
+
+        const parsed = parseTask(message);
+
+        expect(parsed.errors).toEqual([]);
+        expect(parsed.repo).toBe('jtpets/slack-agent-bridge');
+        expect(parsed.branch).toBe('feature/subtask');
+        expect(parsed.skill).toBe('run-tests');
+        expect(parsed.description).toContain('Add the missing test');
+        expect(parsed.instructions).toContain('npm test');
+    });
+
+    test('security-followup remediation messages parse with no rejected fields', () => {
+        const securityFollowup = require('../lib/security-followup');
+
+        const message = securityFollowup.buildTaskMessage(
+            'jtpets/slack-agent-bridge',
+            'lib/example.js',
+            [
+                {
+                    severity: 'HIGH',
+                    issue: 'Example finding',
+                    file: 'lib/example.js',
+                    line: 42,
+                    fix: 'Do the safe thing',
+                },
+            ]
+        );
+
+        const parsed = parseTask(message);
+
+        expect(parsed.errors).toEqual([]);
+        expect(parsed.repo).toBe('jtpets/slack-agent-bridge');
+        expect(parsed.skill).toBe('security-fix');
+        expect(parsed.instructions).toContain('Example finding');
+    });
+
+    test('every agent-scheduler task template parses with no rejected fields', () => {
+        const scheduler = require('../lib/agent-scheduler');
+
+        // Enumerate the real template list rather than restating it, so a template
+        // added later is covered by this guard automatically.
+        const templateNames = Object.keys(scheduler.TASK_TEMPLATES);
+        expect(templateNames.length).toBeGreaterThan(0);
+
+        for (const name of templateNames) {
+            const message = scheduler.buildTaskMessage('secretary', name);
+            expect(message).not.toBeNull();
+
+            const parsed = parseTask(message);
+
+            expect(parsed.errors).toEqual([]);
+            expect(parsed.description).not.toBe('');
+            expect(parsed.instructions).not.toBe('');
+        }
+    });
+});

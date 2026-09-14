@@ -154,6 +154,30 @@ describe('lib/ modules load without errors', () => {
 
         expect(typeof taskParser.parseTask).toBe('function');
         expect(typeof taskParser.isTaskMessage).toBe('function');
+
+        // LOGIC CHANGE 2026-09-14: FIELD_LABELS is the canonical list of task
+        // message field labels; the anchoring guard test enumerates it.
+        expect(taskParser).toHaveProperty('FIELD_LABELS');
+        expect(Array.isArray(taskParser.FIELD_LABELS)).toBe(true);
+    });
+
+    // LOGIC CHANGE 2026-09-14: lib/git-identifiers.js is the boundary validator for
+    // the Slack-controlled REPO:/BRANCH: values. It is required by both
+    // lib/task-parser.js and lib/clone-lifecycle.js, so a broken require here would
+    // take the whole task path down — exactly what the smoke suite exists to catch.
+    test('lib/git-identifiers.js loads and exports expected functions', () => {
+        const gitIdentifiers = require('../lib/git-identifiers');
+
+        expect(gitIdentifiers).toHaveProperty('isValidRepo');
+        expect(gitIdentifiers).toHaveProperty('isValidBranch');
+        expect(gitIdentifiers).toHaveProperty('assertValidRepo');
+        expect(gitIdentifiers).toHaveProperty('assertValidBranch');
+        expect(gitIdentifiers).toHaveProperty('describeValue');
+
+        expect(typeof gitIdentifiers.isValidRepo).toBe('function');
+        expect(typeof gitIdentifiers.isValidBranch).toBe('function');
+        expect(typeof gitIdentifiers.assertValidRepo).toBe('function');
+        expect(typeof gitIdentifiers.assertValidBranch).toBe('function');
     });
 
     test('lib/llm-runner.js loads and exports expected functions', () => {
