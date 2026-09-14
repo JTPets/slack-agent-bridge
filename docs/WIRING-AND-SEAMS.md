@@ -23,6 +23,20 @@ was removed.
 
 ---
 
+## 0. Where the deployment topology lives
+
+This document maps wiring **inside** the repository. The shape of the machine it runs
+on — one `jt-agent` container, `/bridge` bind-mounted **read-write** over the deploy
+directory (which *is* this git checkout), `/repo` mounted **read-only** over SqTools,
+scratch clones in container-local `/tmp` — is captured in
+[`CONFIG-SURFACE-AND-REBUILD.md` → Step 0](CONFIG-SURFACE-AND-REBUILD.md), with each
+fact labelled repository-verified or owner-supplied. Read it before reasoning about
+where a process can write; two of its three consequences (the scratch clone that does
+not survive a container recreation, and the read-write live tree) change what an
+"entry point" can reach.
+
+---
+
 ## 1. Entry points (processes that actually start)
 
 Six files are *shaped* like process entry points. Everything else is a library reached
