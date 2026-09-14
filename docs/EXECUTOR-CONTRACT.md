@@ -126,6 +126,10 @@ that maps it and update that document **in the same change**.
 - `CLAUDE.md` — architecture tree, env vars, operational rules. It is the source of
   truth; **if it is wrong, fix it.**
 - `docs/WIRING-AND-SEAMS.md` — entry points, what is actually wired, extraction seams.
+- `docs/CANONICAL-HELPERS.md` — behaviour implemented in more than one place, with the
+  canonical implementation named where one exists. **Before re-deriving shared behaviour
+  inline** (a Slack post wrapper, a timestamp format, a day key, a JSON state read,
+  a rate-limit test), check this map and call the canonical helper, or say why not.
 - `docs/CONFIG-SURFACE-AND-REBUILD.md` — config surface and the rebuild path.
 - `README.md` — env var tables and the user-facing summary.
 - `WORK-TODO.md` — the backlog. Flat, one `###` heading per item, closed items purged.

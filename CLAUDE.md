@@ -211,6 +211,8 @@ const POLL_INTERVAL = 5000;
 | `EMAIL_RATE_LIMIT_EMAILS_PER_WINDOW` | Max emails to process per rate limit window | `50` |
 | `EMAIL_RATE_LIMIT_BULLETINS_PER_WINDOW` | Max bulletins to post per rate limit window | `10` |
 | `EMAIL_RATE_LIMIT_SLACK_PER_WINDOW` | Max Slack messages to post per rate limit window | `20` |
+| `EMAIL_CHECK_MAX_LOOKBACK_MS` | Ceiling on how far back a scheduled inbox check looks when no successful check is recorded | `86400000` (24 h) |
+| `EMAIL_CHECK_MAX_RESULTS` | Max messages fetched per scheduled inbox check | `50` |
 | `EMAIL_RATE_LIMIT_WINDOW_MS` | Rate limit sliding window size in ms | `300000` (5 min) |
 | `EMAIL_RATE_LIMIT_COOLDOWN_MS` | Cooldown period after hitting rate limit | `60000` (1 min) |
 | `OLLAMA_MODEL` | Model for the ollama provider. **No default** — ollama calls fail their precondition check without it. | - |
@@ -602,10 +604,11 @@ slack-agent-bridge/
 │   │       └── .gitkeep          # Placeholder for memory files
 │   └── email-monitor/
 │       └── memory/       # Email Monitor's memory directory
-│           └── rules.json        # Email categorization rules (urgent, important, vendor_deal, newsletter, spam)
+│           ├── rules.json        # Email categorization rules. Operator-editable; read on every check by emailCategorizer.loadRules(). NOTE: the `urgent` and `important` categories in this file are never consulted by categorizeEmail() — see WORK-TODO #28
+│           └── check-state.json  # Last successful inbox-check timestamp (created at runtime, gitignored)
 ├── lib/
 │   ├── agent-context.js  # Agent context builder: injects real data into ASK prompts to prevent hallucination
-│   ├── agent-scheduler.js # Cron registrar for agents' proactive schedules: startScheduler reads each agent's `schedule` from agents.json and registers a node-cron job (timezone America/Toronto) that posts a TASK message built from TASK_TEMPLATES to that agent's channel; stopScheduler/getActiveJobs/triggerTask manage them. Registers on `schedule` + `channel` only — it never checks `status: "planned"` (WORK-TODO #3)
+│   ├── agent-scheduler.js # Cron registrar for agents' proactive schedules: startScheduler reads each agent's `schedule` from agents.json and registers a node-cron job (timezone America/Toronto) that posts a TASK message built from TASK_TEMPLATES to that agent's channel; stopScheduler/getActiveJobs/triggerTask manage them. Registers on `schedule` + `channel` only — it never checks `status: "planned"` (WORK-TODO #3). A task name in `DETERMINISTIC_TASKS` runs code instead of posting a TASK message (`check-inbox` -> `lib/email-check.js`); a name in neither registry is now REFUSED at registration instead of registering a job that could never do anything
 │   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel, activateAgent
 │   ├── bulletin-board.js # Inter-agent communication: postBulletin, getBulletins, markRead, cleanupOldBulletins
 │   ├── bulletin-watcher.js # Event-driven fan-out for the bulletin board: processBulletin finds agents whose agents.json `watches.bulletin_types` includes the posted type and posts an ASK notification to each one's channel, rate-limited to one trigger per agent per RATE_LIMIT_MS (5 min)
@@ -631,6 +634,7 @@ slack-agent-bridge/
 │   ├── update-verifier.js # Pre-restart gate for auto-update: node --check on entry points, restart plan (guard c)
 │   ├── validate.js       # Pre-commit validation: checks bridge-agent.js loads and file line counts
 │   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow
+│   ├── email-check.js    # Deterministic scheduled inbox check: runInboxCheck fetches via lib/integrations/gmail.js (fetchRecentEmails), filters with lib/integrations/email-categorizer.js against agents/email-monitor/memory/rules.json, posts the summary to the email-monitor channel and escalates every failure through notify-owner. Read-only: Gmail list/get only. An empty inbox and a failed check are different statuses, reported differently
 │   ├── email-rate-limiter.js # Rate limiting for email-to-Slack pipeline: sliding window, cooldown, flood protection
 │   ├── llm-metrics.js    # LLM provider verdict counter: recordVerdict, getStats (fallback visibility)
 │   └── integrations/
@@ -694,6 +698,7 @@ slack-agent-bridge/
 │   ├── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
 │   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)
 │   ├── email-categorizer.test.js # Tests for lib/integrations/email-categorizer.js (categorization, rules)
+│   ├── email-check.test.js      # Tests for lib/email-check.js: THE guard that an empty inbox and a failed check are distinguishable, that a failure escalates to a human, and that the module names no Gmail mutation API
 │   ├── email-rate-limiter.test.js # Tests for lib/email-rate-limiter.js (sliding window, cooldown, flood protection)
 │   ├── email-sanitizer.test.js  # Tests for lib/integrations/email-sanitizer.js (prompt-injection detection and stripping)
 │   ├── llm-metrics.test.js      # Tests for lib/llm-metrics.js (verdict recording, getStats, retention)
@@ -716,6 +721,7 @@ slack-agent-bridge/
 ├── docs/
 │   ├── EXECUTOR-CONTRACT.md # THE standing contract every dispatched executor reads first
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
+│   ├── CANONICAL-HELPERS.md # THE map of behaviour implemented in more than one place: every site with file:line, each pair marked IDENTICAL / EQUIVALENT / DIVERGENT, and the proposed extraction order. A DIVERGENT row is a defect and carries a WORK-TODO number
 │   ├── WIRING-AND-SEAMS.md  # Entry points, what is actually wired, bridge-agent.js extraction seams
 │   ├── CONFIG-SURFACE-AND-REBUILD.md # Config surface inventory and the rebuild path
 │   ├── COURIER-INTAKE.md    # Courier intake page and delivery quote API documentation
@@ -727,7 +733,7 @@ slack-agent-bridge/
 ├── CLAUDE.md             # Project rules and documentation (this file)
 ├── README.md             # Project overview
 ├── COMMANDMENTS.md       # Non-negotiable rules, prepended to every task prompt
-├── WORK-TODO.md          # The backlog: flat, one ### heading per item, closed items purged
+├── WORK-TODO.md          # The backlog: flat, one ### heading per OPEN item, stable numeric IDs never reused, closed items purged (git history + the `Closes <ID>` commit body are the record), index regenerated from the headings. Counts are commands, not figures: `grep -cE '^### [0-9]+[a-z]?\. ' WORK-TODO.md`
 ├── .gitattributes        # Line-ending normalization (* text=auto eol=lf) - stops CRLF corruption
 └── .gitignore            # Git ignore rules (node_modules, .env, .claude-home/, *.bak, etc.)
 ```
