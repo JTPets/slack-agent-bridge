@@ -9,6 +9,7 @@
     "validate": "node lib/validate.js"
   },
   "dependencies": {
+    "@slack/socket-mode": "^3.0.1",
     "@slack/web-api": "^7.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",

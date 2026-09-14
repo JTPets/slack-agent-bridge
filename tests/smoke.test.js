@@ -286,6 +286,25 @@ describe('lib/ modules load without errors', () => {
         expect(typeof lock.defaultStaleAfterMs).toBe('function');
     });
 
+    // LOGIC CHANGE 2026-09-14: lib/slack-socket.js is required by bridge-agent.js at
+    // module load. It must load even when Socket Mode is entirely unconfigured — the
+    // dependency is required lazily inside startSocketMode() precisely so that a
+    // missing or broken @slack/socket-mode cannot stop the bridge from starting, and
+    // this smoke suite is where that would show up first.
+    test('lib/slack-socket.js loads and exports expected functions', () => {
+        const slackSocket = require('../lib/slack-socket');
+
+        expect(slackSocket).toHaveProperty('startSocketMode');
+        expect(slackSocket).toHaveProperty('readAppTokenConfig');
+        expect(slackSocket).toHaveProperty('readDownAlertMs');
+        expect(slackSocket).toHaveProperty('defaultClientFactory');
+
+        expect(typeof slackSocket.startSocketMode).toBe('function');
+        expect(typeof slackSocket.readAppTokenConfig).toBe('function');
+        expect(typeof slackSocket.readDownAlertMs).toBe('function');
+        expect(typeof slackSocket.defaultClientFactory).toBe('function');
+    });
+
     test('lib/agent-registry.js loads and exports expected functions', () => {
         const agentRegistry = require('../lib/agent-registry');
 

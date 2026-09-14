@@ -66,6 +66,15 @@ divergence: a Slack outage aborts a security review but not an auto-update cycle
 redact, so adopting it as-is would *remove* protection from `bridge-agent`. The
 canonical version has to be `notifyChannel` **with** redaction moved into it.
 
+**Added 2026-09-14 — `lib/slack-socket.js` adds no row here, deliberately.** It reports
+every Socket Mode condition (unconfigured, bad token shape, missing dependency, failed
+handshake, an outage that has not recovered, a recovery) through
+`lib/notify-owner.js` `notifyOps`, which already redacts before delegating to
+`notifyChannel`. It defines no `postToOps` of its own and calls `chat.postMessage`
+nowhere, so the count above is unchanged — confirm with the second command in this
+section. A fourth divergent `postToOps` was the obvious way to write that module and
+would have made #30 worse.
+
 ## 2. Slack DM — **DIVERGENT** (same defect, WORK-TODO #30)
 
 ```bash

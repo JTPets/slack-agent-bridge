@@ -437,6 +437,42 @@ is itself the finding: cross-stack infra is currently unowned and lives only on 
 
 ---
 
+## Addendum 2026-09-14 — two new config keys: `SLACK_APP_TOKEN`, `SOCKET_MODE_DOWN_ALERT_MS`
+
+Appended rather than merged into the Step 2/3/4 tables above: those are a dated snapshot
+of the surface as it stood when this was filed, and the figures in them carry their own
+regeneration commands. Re-run those commands and the new keys appear; edit the frozen
+counts in place and the snapshot stops being one.
+
+| Key | Classification | Default | Read at |
+|---|---|---|---|
+| `SLACK_APP_TOKEN` | **Credential** — Slack app-level token (`xapp-`). Treat exactly like `SLACK_BOT_TOKEN`: off-box, encrypted, never printed. | unset (Socket Mode off) | `lib/slack-socket.js` `readAppTokenConfig()` |
+| `SOCKET_MODE_DOWN_ALERT_MS` | Behavioural | `300000` (5 min) | `lib/slack-socket.js` `readDownAlertMs()` |
+
+**Both are documented in `.env.example`, so neither joins List A.** Regenerate that
+comparison with the Step 2 command.
+
+**Redaction is already covered, and was before this change:** `SENSITIVE_NAME` in
+`lib/redact-secrets.js:24` matches on `TOKEN`, so the live value is value-scrubbed by
+name, and `lib/redact-secrets.js:35` carries an `xapp-` pattern as a second layer. No
+change to that module was needed — confirm with
+`grep -n "xapp-\|SENSITIVE_NAME" lib/redact-secrets.js`.
+
+**Rebuild impact (Step 5).** `SLACK_APP_TOKEN` is a new item for the off-box credential
+copy. It cannot be regenerated from any repository or from the NAS: it is issued by the
+Slack app configuration (Basic Information -> App-Level Tokens, scope `connections:write`),
+and losing it means issuing a new one there. Its absence degrades **only** slash commands
+— the bridge starts and polls normally without it — so it does not belong in the
+minimum set needed to bring the bridge back up.
+
+**Owner action, unverifiable from this repository:** Socket Mode must be enabled in the
+Slack app (Settings -> Socket Mode) for the token to connect at all. Nothing in a checkout
+can confirm whether it is. Adding the key to `.env` needs
+`docker compose up -d --force-recreate jt-agent` — Consequence 2 above applies: that
+operation discards any preserved scratch clone.
+
+---
+
 ## Proposals (decisions for John — this task does not execute them)
 
 **Where a permanent runbook should live:** a **new dedicated infra repository** (e.g.
