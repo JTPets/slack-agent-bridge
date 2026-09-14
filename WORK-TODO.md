@@ -24,6 +24,81 @@ have / uncertain ROI
 
 ## P1 — Protects or unblocks the live deployment
 
+### 17. Nothing starts `auto-update.js` — merged code does not reach the running process
+**Filed 2026-09-14.** *Originally filed on the unmerged branch
+`claude/ecstatic-dijkstra-8joyou` (commit `b749d97`), which is not on `main`; carried here
+so the item and the `#17` references across the docs resolve. If that branch merges, this
+is the same item — reconcile, do not keep two.*
+
+**Status 2026-09-14: documentation corrected, deploy path unchanged.** The false claims
+are fixed (see below); the gap itself is open and is the owner's decision.
+
+**Problem (repo-side, verified from this checkout):** no file in this repo starts
+`auto-update.js`. Regenerate:
+- `node -e "console.log(Object.keys(require('./package.json').scripts))"` → `[ 'test', 'test:smoke', 'validate' ]` — none of them runs it.
+- `grep -rn "auto-update" --include=*.js --include=*.json . | grep -v node_modules | grep -v package-lock | grep -v '^./tests/'` → comments, doc prose, and `auto-update.js`'s own body only. Nothing spawns or forks it.
+- The repo carries no compose file, Procfile, systemd unit or supervisor config.
+
+**Problem (off-repo, owner-supplied — NOT verifiable from a checkout):** the live compose
+runs `sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"`
+(`docker-compose.yml:17` on the NAS). The compose file is deliberately untracked. A check
+run from inside the container independently recorded "the compose service starts only
+`node bridge-agent.js`" (`docs/CONFIG-SURFACE-AND-REBUILD.md`, Step 5). Regenerate **on
+the NAS**: `grep -n "command\|entrypoint\|auto-update" /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml`
+and `crontab -l` (a host cron is the last unchecked way it could be started).
+
+**Impact, observed not theorised (owner, 2026-09-14):** three branches merged to `main`
+and pushed while the container had been up 11 hours; it kept running the code it loaded at
+start. A manual `docker compose restart` was what actually deployed them.
+
+**It would not start cleanly today either (verified here).** `validateConfig()`
+(`auto-update.js:803-823`) hard-fails when `LOCAL_REPO_DIR` does not exist, and the
+default is the dead Pi path `/home/jtpets/jt-agent` (`auto-update.js:40`). Observed:
+`node auto-update.js` with no `LOCAL_REPO_DIR` exits **1**. Under `restart:
+unless-stopped` that is a restart loop — so `LOCAL_REPO_DIR` must be set *before*
+anything starts this daemon. Whether the live `.env` sets it is unverified from here.
+
+**A green suite for an unstarted daemon.** `tests/auto-update-restart.test.js`,
+`tests/auto-update-defer.test.js` and `tests/update-verifier.test.js` pass (62 tests) by
+injecting a dependency bag into `checkForUpdates()`. `main()` and `validateConfig()` are
+neither exported nor exercised, so the startup path that fails above is untested. This is
+the verification-integrity class, not a passing gate.
+
+**Done 2026-09-14 — the documentation no longer claims this works.** Corrected in
+`CLAUDE.md` (self-update section retitled "DESIGNED AND TESTED, NOT WIRED" with the
+evidence; deploy-command block; task-queue coordination steps marked not-live; task-lock
+deferral section), `README.md` (feature bullet, architecture diagram, Auto-Update
+section), `docs/WIRING-AND-SEAMS.md` (entry-point table and the task-lock seam),
+`docs/AGENTS.md` (**agent-facing** — the "Auto-Deploy … restarts PM2 process" step was
+false in both halves), `agents/bridge/memory/context.json` (**agent-facing**),
+`COMMANDMENTS.md` (commandment 11 named a non-existent auto-update process), and
+`docs/CONFIG-SURFACE-AND-REBUILD.md` (Step 5 "undetermined" → resolved repo-side).
+Regenerate the claim list:
+```bash
+grep -rniE "self-updat|self-deploy|deploys itself|restarts itself|updates itself|auto-update(r| daemon| detects)|deploy_policy|CHECK_INTERVAL_MS|polls its own git" \
+     --include=*.md --include=*.json . | grep -v node_modules | grep -v package-lock
+```
+
+**Still open — the owner's decision, stated not decided.** The two shapes (start the
+daemon / declare manual restart the deploy), a third (push-triggered restart), and their
+costs are written up in `CLAUDE.md` → "Two open questions". **This repo cannot implement
+any of them**: the compose file is untracked and off-repo, and belongs to no repository
+today (`docs/CONFIG-SURFACE-AND-REBUILD.md`, Step 6).
+
+**The independent requirement: nothing can answer "is the running process on `main`?"**
+Not the repo, not the container, not Slack. "Merged" and "deployed" are unrelated facts
+and nobody is told when they diverge — the 11-hour gap was found by a person noticing.
+Whatever reports it must be the *running* process (a boot line to `#sqtools-ops`, an
+`ASK: version`, a heartbeat field, a state file); anything computed from the working tree
+at query time answers a different question and would have read "current" throughout that
+gap. Land this **before** arming any self-restart, so the first real self-update is
+observable.
+**Effort:** Low for the commit-report; Low–Medium to wire the daemon (off-repo either way).
+**Risk:** Wiring it is Medium — it arms a self-restarting daemon whose guards have never
+run outside tests, and whose startup config is currently wrong.
+
+---
+
 ### 1. ~~Make the deploy gate a real load check, not just a syntax check~~ — DONE 2026-09-13
 **Was:** The bridge deploys itself by exiting; the container's `restart: unless-stopped`
 policy re-runs `npm install && node bridge-agent.js` (`auto-update.js:8-13`). Guard (a)

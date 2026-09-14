@@ -327,7 +327,7 @@ Agents can be configured with different workflow modes based on their production
 |-------|--------|-------------|
 | `workflow` | `direct-to-main`, `branch-and-pr` | How changes are committed |
 | `merge_policy` | `auto`, `owner-approval-required` | Who can merge PRs |
-| `deploy_policy` | `auto-update`, `manual` | How deploys happen |
+| `deploy_policy` | `auto-update`, `manual` | How deploys happen. **Both values mean manual today** — see the warning under "Non-Production Repo Rules". No code reads this field (`grep -rn "deploy_policy" --include=*.js .` returns only test fixtures); it is declarative. |
 | `branch_prefix` | `agent/` | Prefix for feature branches |
 | `production` | `true`, `false` | Whether repo is production |
 | `target_repo` | `org/repo` | Target repo for agent |
@@ -342,8 +342,13 @@ Agents with `production: true` MUST use feature branches and never push to main:
 4. **Notification**: Agent posts PR link to #sqtools-ops and DMs owner
 5. **Review**: Owner reviews the PR manually
 6. **Merge**: Owner merges after approval
-7. **Deploy**: Owner runs deploy on Pi:
+7. **Deploy**: Owner deploys manually. **The command below is stale and unverified** —
+   it names the Raspberry Pi, which is dead; SqTools now runs on the QNAP NAS. It is
+   left rather than guessed at because SqTools' deploy path is owned by
+   `jtpets/SquareDashboardTool`, not by this repo, and cannot be verified from here.
+   Confirm against that repo before following it.
    ```bash
+   # STALE — Pi-era. Verify before use.
    git pull origin main && npm test && pm2 restart server
    ```
 
@@ -353,7 +358,15 @@ Agents with `production: false` can push directly to main:
 
 1. **Direct Commit**: Agent commits changes to main
 2. **Push**: Agent pushes to main
-3. **Auto-Deploy**: Auto-updater detects changes and restarts PM2 process
+3. **Deploy**: **manual.** The owner runs `docker compose restart jt-agent` on the NAS.
+
+> ⚠️ **Agents: do not assume your pushed code is running.** This step used to read
+> "Auto-Deploy: Auto-updater detects changes and restarts PM2 process". Both halves were
+> false: there is no PM2 on this host, and `auto-update.js` is never started, so nothing
+> detects your push. A merge to `main` reaches the running bridge only when a human
+> restarts the container. Never report a change as deployed, and never verify a fix
+> against the live bridge's behaviour, on the strength of having pushed it.
+> Verified 2026-09-14; tracked as WORK-TODO item #17.
 
 ### Prompt Override for Production Repos
 

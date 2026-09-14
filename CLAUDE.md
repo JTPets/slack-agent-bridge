@@ -1,5 +1,12 @@
 # CLAUDE.md - Slack Agent Bridge
 
+> ## Executors: read [`docs/EXECUTOR-CONTRACT.md`](docs/EXECUTOR-CONTRACT.md) first
+>
+> It is the standing contract for every task dispatched to this repository — the branch
+> gate, what counts as proof, when `Closes` is allowed, and the bridge-specific
+> operational facts. Read it **in full** before anything else in this file, and confirm
+> the read in your report. A dispatch may add to it; nothing waives it.
+
 ## Project Overview
 
 Node.js Slack polling agent that monitors Slack channels for task messages and executes them via Claude Code CLI. No database, no frontend, no multi-tenant.
@@ -313,10 +320,48 @@ Tune `MemoryMax` to the model actually pulled — it must be below `(total RAM -
 ### Auto-update vars
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `LOCAL_REPO_DIR` | Path to local repo, as seen by the auto-update process | `/home/jtpets/jt-agent` (stale Pi default — set explicitly) |
+| `LOCAL_REPO_DIR` | Path to local repo, as seen by the auto-update process. **Load-bearing:** `validateConfig()` exits 1 if the path does not exist, and the default below is the dead Pi path — so an unset value is a hard startup failure, not a fallback. | `/home/jtpets/jt-agent` (stale Pi default — set explicitly) |
 | `CHECK_INTERVAL_MS` | Git poll frequency | `300000` |
 
-### Self-update (how the bridge deploys itself)
+### Self-update — DESIGNED AND TESTED, **NOT WIRED** (verified 2026-09-14)
+
+> **How the bridge actually deploys today: a human restarts the container.**
+> `auto-update.js` is never started, so nothing in this section describes running
+> behaviour. Merging to `main` changes nothing about the running process until
+> someone runs `docker compose restart jt-agent` (or `up -d --force-recreate` for an
+> `.env` change) on the NAS.
+>
+> **Evidence (repo-side, regenerable from any checkout):**
+> - No npm script starts it — `node -e "console.log(Object.keys(require('./package.json').scripts))"` → `[ 'test', 'test:smoke', 'validate' ]`.
+> - Nothing spawns or forks it — `grep -rn "auto-update" --include=*.js --include=*.json . | grep -v node_modules | grep -v package-lock | grep -v '^./tests/'` returns only comments, doc prose, and `auto-update.js`'s own body.
+> - The repo contains no compose file, Procfile, systemd unit or supervisor config of any kind.
+>
+> **Evidence (container-side):** a check run from inside the `jt-agent` container
+> recorded that the compose service's `command:` starts `node bridge-agent.js` only —
+> see `docs/CONFIG-SURFACE-AND-REBUILD.md` Step 5 ("The compose service starts only
+> `node bridge-agent.js`"). The compose file itself is untracked and off-repo, so from
+> a checkout that remains an unverified lead; re-check on the NAS with
+> `grep -n "command\|entrypoint\|auto-update" /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml`.
+>
+> **It would also fail to start today if launched unchanged.** `validateConfig()`
+> (`auto-update.js:803-823`) hard-fails when `LOCAL_REPO_DIR` does not exist, and the
+> default is the dead Raspberry Pi path `/home/jtpets/jt-agent` (`auto-update.js:40`).
+> Observed: `node auto-update.js` with no `LOCAL_REPO_DIR` set prints
+> `LOCAL_REPO_DIR does not exist: /home/jtpets/jt-agent` and exits **1**. Whether the
+> live `.env` sets it is not knowable from this repo. Note the shape of that failure:
+> exit 1 under `restart: unless-stopped` is a restart loop, so wiring this in without
+> setting `LOCAL_REPO_DIR` first trades a silent no-deploy for a crash-looping service.
+>
+> **The guard suites are green and prove nothing about the deployment.**
+> `tests/auto-update-restart.test.js`, `tests/auto-update-defer.test.js` and
+> `tests/update-verifier.test.js` pass (62 tests) by injecting a dependency bag into
+> `checkForUpdates()`. Neither `main()` nor `validateConfig()` is exported or exercised,
+> so the startup path that fails above is untested. A green suite for a daemon that is
+> never started is a verification-integrity failure, not a passing gate.
+>
+> **The design below is kept, not deleted** — it is correct about what the code does,
+> and it is what shape (a) in `WORK-TODO.md` item **#17** would make live. Read every
+> sentence in it as "would, once started", not "does".
 
 **There is no `PM2_PROCESS_NAME`.** `auto-update.js` used to run
 `pm2 restart $PM2_PROCESS_NAME` after a successful pull. The `jt-agent` container has no
@@ -327,7 +372,9 @@ The restart is now **`process.exit(0)`**. The container runs with
 `restart: unless-stopped`, so the supervisor re-runs `npm install && node bridge-agent.js`
 — exiting *is* the restart. Nothing configures this; there is no branch knob either.
 auto-update tracks `main` deliberately (single-operator repo; a hand-moved deploy branch
-would just go stale), which means **merging to `main` deploys within `CHECK_INTERVAL_MS`.**
+would just go stale), which *would* mean **merging to `main` deploys within
+`CHECK_INTERVAL_MS`** — once the daemon is started. It is not. Merging to `main` deploys
+nothing today; see the banner at the top of this section.
 
 Self-updating is the point of a code agent, but `unless-stopped` turns a commit that
 cannot start into an endless restart loop with no shell to fix it from. Four guards gate
@@ -357,6 +404,41 @@ See "Task lock and self-update deferral" below.
 > `SMOKE_TEST_TIMEOUT_MS` (< `CHECK_INTERVAL_MS`), so a wedged smoke run reverts rather
 > than hanging the update loop. It became wireable once the jest open handle at
 > `bots/storefront.js` (an un-`.unref()`'d module-scope `setInterval`) was fixed.
+
+#### Two open questions (stated, not decided — owner's call)
+
+These are separate problems. The second is the real requirement and it does not depend
+on how the first is answered.
+
+**1. What would make merged code reach the running process?** Three shapes exist; none
+is chosen here, and none is implemented by this repo.
+
+| Shape | What changes | What it costs |
+|-------|--------------|---------------|
+| Start the daemon | The compose `command:` runs `auto-update.js` alongside `bridge-agent.js`. Everything documented above becomes true. | `LOCAL_REPO_DIR` must be set first or it exits 1 into a restart loop. The exit-restart assumes the *container* dies on exit, so which process is PID 1 decides whether an exit restarts anything — a backgrounded updater whose exit leaves PID 1 alive restarts nothing. Its guards have never run outside tests. |
+| Push-triggered restart | A GitHub Action or webhook restarts the container on merge to `main`. | Needs an inbound path to the NAS and a credential to hold; the deploy decision moves off-box. |
+| Keep manual, say so | `auto-update.js`, `lib/update-verifier.js`, the deferral gate and their 62 tests become acknowledged dead code. | Deploys stay a human step that is easy to forget — which is the failure already observed. The docs are now honest about this either way. |
+
+Whatever is chosen, the compose file is untracked and off-repo, so **this repo cannot
+make any of them true.** That is itself the finding: the deploy path belongs to no
+repository today (`docs/CONFIG-SURFACE-AND-REBUILD.md`, Step 6).
+
+**2. What would make "is the running process on current `main`?" answerable at all?**
+**Nothing today can answer it.** Not the repo, not the container, not Slack. "Merged"
+and "deployed" are unrelated facts and no one is told when they diverge — the observed
+11-hour gap was found by a person noticing, not by the system reporting.
+
+Answering it needs the running process to state the commit it loaded, somewhere a human
+or an agent can read without shell access to the NAS. Anything that does that would do:
+a boot line to `#sqtools-ops`, an `ASK: version` built-in, a field on the existing
+heartbeat, a written state file. The requirement is only that the *running* process is
+the one reporting — a value read from the repo working tree or from `git rev-parse` at
+query time answers a different question and would have shown "current" throughout the
+11-hour gap.
+
+This is the scheduled-job-with-no-liveness-check class applied to the deploy itself, and
+it is worth landing **before** any self-restart is armed: the first real self-update
+should be observable while it happens.
 
 ### httpSMS integration (Primary SMS)
 | Variable | Description | Default |
@@ -405,7 +487,12 @@ docker compose restart jt-agent
 docker compose logs -f jt-agent
 
 # PM2 does not exist on this host and no longer appears anywhere in the code.
-# The bridge restarts itself by exiting; the container supervisor does the rest.
+#
+# DEPLOYING A MERGE IS A MANUAL STEP. Nothing starts auto-update.js, so merging to
+# main does not reach the running process. `docker compose restart jt-agent` is what
+# deploys. An .env change needs `up -d --force-recreate`, not `restart` — restart
+# reuses the existing container and its baked-in environment.
+# See "Self-update — DESIGNED AND TESTED, NOT WIRED" above.
 
 # Cron jobs. <repo> is the repo path as the cron host sees it; on the NAS the
 # host path is /share/CACHEDEV1_DATA/jt-agent, and the in-container path differs.
@@ -590,7 +677,10 @@ slack-agent-bridge/
 │   ├── bridge-agent-scope.test.js   # AST scope guard: catches `X is not defined` in bridge-agent.js
 │   └── silent-drop-logging.test.js  # Tests for describeSkipReason + the poll loop's skip logging
 ├── docs/
+│   ├── EXECUTOR-CONTRACT.md # THE standing contract every dispatched executor reads first
 │   ├── AGENTS.md            # Agent registry and memory tier documentation
+│   ├── WIRING-AND-SEAMS.md  # Entry points, what is actually wired, bridge-agent.js extraction seams
+│   ├── CONFIG-SURFACE-AND-REBUILD.md # Config surface inventory and the rebuild path
 │   ├── COURIER-INTAKE.md    # Courier intake page and delivery quote API documentation
 │   ├── INTEGRATION-SPEC.md  # SqTools API integration specification and security requirements
 │   ├── SMS-INTEGRATION.md    # SMS integration spec: httpSMS (primary), Twilio (fallback/voice)
@@ -599,6 +689,8 @@ slack-agent-bridge/
 ├── package.json          # Dependencies and npm scripts
 ├── CLAUDE.md             # Project rules and documentation (this file)
 ├── README.md             # Project overview
+├── COMMANDMENTS.md       # Non-negotiable rules, prepended to every task prompt
+├── WORK-TODO.md          # The backlog: flat, one ### heading per item, closed items purged
 ├── .gitattributes        # Line-ending normalization (* text=auto eol=lf) - stops CRLF corruption
 └── .gitignore            # Git ignore rules (node_modules, .env, .claude-home/, *.bak, etc.)
 ```
@@ -753,12 +845,16 @@ and `auto-update.js` to prevent task interruption during updates.
 - `failed`: Task failed with an error
 - `interrupted`: Task was interrupted by a restart
 
-**Coordination flow:**
-1. When a TASK: message is found, it's enqueued before processing
-2. Auto-update checks both the queue and the task lock **before** pulling anything
-3. If tasks are active, auto-update **defers** — it pulls nothing and retries on the next `CHECK_INTERVAL_MS`
-4. On startup, any tasks with status "running" are marked as "interrupted"
-5. Completed/failed tasks are cleaned up after 24 hours
+**Coordination flow.** Steps 2 and 3 are **not live** — they are auto-update's half of
+the protocol, and `auto-update.js` is never started (see "Self-update — DESIGNED AND
+TESTED, NOT WIRED"). Steps 1, 4 and 5 run today, in `bridge-agent.js`. A manual
+`docker compose restart` respects none of this and will kill a running task.
+
+1. When a TASK: message is found, it's enqueued before processing **(live)**
+2. *(not live)* Auto-update checks both the queue and the task lock **before** pulling anything
+3. *(not live)* If tasks are active, auto-update **defers** — it pulls nothing and retries on the next `CHECK_INTERVAL_MS`
+4. On startup, any tasks with status "running" are marked as "interrupted" **(live)**
+5. Completed/failed tasks are cleaned up after 24 hours **(live)**
 
 **Bridge-agent startup:**
 ```javascript
@@ -776,6 +872,12 @@ if (deferral.defer) return;   // nothing pulled; next cycle retries
 ```
 
 ### Task lock and self-update deferral
+
+> **Half of this is not live.** The deferral gate lives in `auto-update.js`, which is
+> never started — so nothing currently defers a deploy for a running task, because
+> nothing currently deploys. What *is* live is the lock itself: `bridge-agent.js`
+> acquires and releases it, and clears a stale one on startup. Read the auto-update
+> half as design. See "Self-update — DESIGNED AND TESTED, NOT WIRED".
 
 **LOGIC CHANGE 2026-09-14.** The self-update cycle used to call
 `waitForTaskCompletion()`: poll the lock every 30s, up to 10 times, then **restart

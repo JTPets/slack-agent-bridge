@@ -8,7 +8,9 @@ A Slack bot that executes coding tasks via Claude Code CLI—post a task, get a 
 - Clones GitHub repos, runs Claude Code CLI with your instructions
 - Commits and pushes changes automatically
 - Supports conversational mode for quick questions (ASK prefix)
-- Self-updates from git — pulls, verifies, then exits so the container supervisor restarts it
+- Ships a self-update daemon (`auto-update.js`) that would pull, verify, and exit so the
+  container supervisor restarts it — **but nothing starts it, so deploys are manual.**
+  See [Auto-Update](#auto-update).
 
 ## Architecture
 
@@ -29,9 +31,9 @@ A Slack bot that executes coding tasks via Claude Code CLI—post a task, get a 
 ┌───────────────────────────────────────────────────────────────────┐
 │                       BRIDGE AGENT (Node.js)                       │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐ │
-│  │ Task Parser  │  │ Memory Mgr   │  │ Auto-Updater             │ │
-│  │ - validates  │  │ - history    │  │ - git pull               │ │
-│  │ - extracts   │  │ - context    │  │ - verify, then exit(0)   │ │
+│  │ Task Parser  │  │ Memory Mgr   │  │ Auto-Updater  NOT WIRED  │ │
+│  │ - validates  │  │ - history    │  │ - nothing starts it      │ │
+│  │ - extracts   │  │ - context    │  │ - deploys are manual     │ │
 │  └──────┬───────┘  └──────────────┘  └──────────────────────────┘ │
 │         │                                                          │
 │         ▼                                                          │
@@ -162,21 +164,42 @@ resource fencing for a local Ollama server.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LOCAL_REPO_DIR` | `/home/jtpets/jt-agent` | Path to the agent's own repo (stale default — set explicitly) |
+| `LOCAL_REPO_DIR` | `/home/jtpets/jt-agent` | Path to the agent's own repo. **Load-bearing:** `validateConfig()` exits 1 when the path does not exist, and this default is the dead Pi path — so unset is a hard startup failure, not a fallback. Set it explicitly before anything starts this daemon. |
 | `CHECK_INTERVAL_MS` | `300000` | Git poll interval (5 min) |
 
 ## Auto-Update
 
-The agent polls its own git repo every 5 minutes. When new commits land on `main` it
-pulls them, verifies them, and then **exits with code 0**. The `jt-agent` container runs
-with `restart: unless-stopped`, so the supervisor re-runs
+> ### ⚠️ Not wired. Deploys are manual. (verified 2026-09-14)
+>
+> `auto-update.js` exists, is fully implemented, and has 62 passing tests — and
+> **nothing starts it.** No npm script runs it (`npm run` shows only `test`,
+> `test:smoke`, `validate`), nothing in the code spawns or forks it, and the repo has no
+> compose file, Procfile or systemd unit. A check from inside the live container found
+> the compose service's `command:` starts `node bridge-agent.js` only
+> (`docs/CONFIG-SURFACE-AND-REBUILD.md`, Step 5).
+>
+> **What this means in practice:** merging to `main` does not change the running
+> process. A human running `docker compose restart jt-agent` on the NAS is the deploy.
+> Commits can and do sit merged-but-unloaded for hours.
+>
+> **It would not start cleanly today either:** `validateConfig()` exits 1 when
+> `LOCAL_REPO_DIR` does not exist, and the default is the dead Raspberry Pi path
+> `/home/jtpets/jt-agent`. Under `restart: unless-stopped` that exit code is a restart
+> loop, so `LOCAL_REPO_DIR` must be set correctly *before* anything starts this daemon.
+>
+> The rest of this section describes the design accurately. Read it as "would, once
+> started". Tracked as **WORK-TODO item #17**.
+
+The agent is *designed* to poll its own git repo every 5 minutes. When new commits land
+on `main` it pulls them, verifies them, and then **exits with code 0**. The `jt-agent`
+container runs with `restart: unless-stopped`, so the supervisor re-runs
 `npm install && node bridge-agent.js` — exiting *is* the restart. There is no process
 manager inside the container and no env var configures this.
 
 It tracks `main` deliberately: this is a single-operator repo, and a deploy branch that
-has to be moved by hand would only go stale. **So merging to `main` deploys within
-`CHECK_INTERVAL_MS`**, and the verification below is what stands between a bad merge and
-a container that restarts into failure forever with no shell to fix it from.
+has to be moved by hand would only go stale. So merging to `main` *would* deploy within
+`CHECK_INTERVAL_MS` — once started — and the verification below is what stands between a
+bad merge and a container that restarts into failure forever with no shell to fix it from.
 
 Four guards gate the exit:
 

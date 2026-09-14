@@ -1,5 +1,10 @@
 # Wiring map & bridge-agent.js extraction seams
 
+> **Working on this repo?** Read [`EXECUTOR-CONTRACT.md`](EXECUTOR-CONTRACT.md) first —
+> the branch gate, the blast-radius rule, what counts as proof, and the tests that
+> enforce each convention. This document tells you *where* the seams are; the contract
+> tells you what a change to one has to satisfy before it ships.
+
 Two questions this doc answers, from the code as it actually runs on 2026-09-13,
 not from the architecture wish-list:
 
@@ -20,13 +25,19 @@ was removed.
 
 ## 1. Entry points (processes that actually start)
 
-Six files are process entry points. Everything else is a library reached only by
-being `require`d from one of these (or from a test).
+Six files are *shaped* like process entry points. Everything else is a library reached
+only by being `require`d from one of these (or from a test).
+
+**"Entry point" is a property of the file, not proof that anything starts it.**
+`auto-update.js` is the standing counter-example: it has a shebang, a `main()`, and a
+`setInterval` loop, and no launcher anywhere — so the whole self-deploy path, guards and
+all, is dead code in this deployment. When adding a row here, say what starts it and how
+that is checkable, not just that it could be started.
 
 | Entry point | How it starts | Role |
 |-------------|---------------|------|
 | `bridge-agent.js` | `node bridge-agent.js` (container `command:`) | The bridge: polls Slack, runs tasks, handles ASK commands |
-| `auto-update.js` | `node auto-update.js` (separate container process) | Git-poll → verify → `process.exit(0)` self-deploy |
+| `auto-update.js` | **Nothing starts it** (verified 2026-09-14) | Git-poll → verify → `process.exit(0)` self-deploy — *designed, tested, not running* |
 | `morning-digest.js` | cron `0 8 * * *` | Daily digest DM |
 | `security-review.js` | cron `0 1 * * *` | Nightly commit audit |
 | `scripts/watercooler.js` | cron (Mon 8:30 / Fri 17:00) + manual | Multi-agent standup |
@@ -209,8 +220,14 @@ legacy migration, dedup + cleanup). Full suite green; `bridge-agent.js` 2209 →
 Not an extraction from `bridge-agent.js`'s line ranges: the task lock was ~10 lines of
 inline `fs` calls in `processTask` plus an `fs.existsSync` probe in `auto-update.js`.
 It is listed here because it is the one module both entry points share, and §1's table
-says why that matters — `auto-update.js` runs as a **separate process**, so the lock is
-the only thing telling it a task is in flight.
+says why that matters — `auto-update.js` is designed to run as a **separate process**, so
+the lock is the only thing that would tell it a task is in flight.
+
+> **Live today: only the `bridge-agent.js` half.** `auto-update.js` is never started
+> (§1), so `evaluateTaskDeferral` has no live caller and nothing currently protects a
+> running task from a deploy. The deploy today is a manual `docker compose restart`,
+> which ignores the lock entirely and kills the task. That is the gap, not a safeguard.
+
 - **Owns:** `$WORK_DIR/.task-running` — `acquire`, `release`, `inspect`, `releaseIfStale`.
 - **Why it exists:** `processTask`'s `finally` does not run when the process is killed,
   and a self-update restart is exactly that kill, so an orphaned lock was cleaned up by
