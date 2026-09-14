@@ -487,6 +487,7 @@ slack-agent-bridge/
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
 │   ├── owner-tasks.js    # Owner task management: activation checklists, pending tasks, ACTION REQUIRED detection
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
+│   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
 │   ├── security-followup.js # Security finding → auto-task pipeline: parses findings, creates TASK messages
@@ -539,6 +540,7 @@ slack-agent-bridge/
 │   ├── owner-tasks.test.js      # Tests for lib/owner-tasks.js (checklists, pending tasks)
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
 │   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
+│   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo, cleanupDir export surface)
 │   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management, joinAgentChannels)
 │   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command)
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
@@ -681,7 +683,8 @@ block used to delete that clone unconditionally — so when a push never landed
 clone and cleanup erased them. Three tasks were lost this way.
 
 **Cleanup now gates on delivery.** `detectUndeliveredWork(dir)` in
-`bridge-agent.js` classifies the clone before `cleanupDir` runs:
+`lib/clone-lifecycle.js` (called from `processTask` in `bridge-agent.js`)
+classifies the clone before `cleanupDir` runs:
 
 - **Uncommitted changes** (`git status --porcelain` non-empty) → undelivered.
 - **Local commits absent from the remote** → undelivered. Delivery is checked by

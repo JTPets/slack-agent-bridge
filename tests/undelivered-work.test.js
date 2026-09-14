@@ -26,18 +26,27 @@ const fs = require('fs');
 const path = require('path');
 
 const BRIDGE_AGENT_PATH = path.join(__dirname, '..', 'bridge-agent.js');
+// bridge-agent.js still owns the finally block that gates cleanup on the delivery
+// check (the "cleanup gating wiring" suite below asserts against it), so its source
+// is still read here.
 const source = fs.readFileSync(BRIDGE_AGENT_PATH, 'utf8');
 
+// LOGIC CHANGE 2026-09-14: detectUndeliveredWork moved to lib/clone-lifecycle.js
+// (seam A). Its source-text lift now reads from the extracted module rather than
+// bridge-agent.js, but the classification behaviour it exercises is unchanged.
+const CLONE_LIFECYCLE_PATH = path.join(__dirname, '..', 'lib', 'clone-lifecycle.js');
+const cloneLifecycleSource = fs.readFileSync(CLONE_LIFECYCLE_PATH, 'utf8');
+
 /**
- * detectUndeliveredWork is defined inside bridge-agent.js, which exports nothing
- * and starts a poll loop on require. Lift the function out by source text and
- * evaluate it against an injected execSync so its real branching logic runs.
+ * detectUndeliveredWork uses the module-level `execSync`/`process`. Lift the
+ * function out by source text and evaluate it against an injected execSync so its
+ * real branching logic runs without shelling out to a real git remote.
  */
 const factory = (() => {
-  const start = source.indexOf('function detectUndeliveredWork(dir) {');
+  const start = cloneLifecycleSource.indexOf('function detectUndeliveredWork(dir) {');
   expect(start).toBeGreaterThan(-1);
-  const end = source.indexOf('\n}\n', start) + 3;
-  const body = source.slice(start, end);
+  const end = cloneLifecycleSource.indexOf('\n}\n', start) + 3;
+  const body = cloneLifecycleSource.slice(start, end);
   // eslint-disable-next-line no-new-func
   return new Function('execSync', 'process', `${body}\nreturn detectUndeliveredWork;`);
 })();
@@ -168,8 +177,8 @@ describe('detectUndeliveredWork', () => {
     // execSync runs through /bin/sh; an unquoted %(objectname) makes sh treat the
     // parentheses as a subshell and the command fails, silently degrading every
     // check to "delivery status unknown". Quoting is load-bearing, not cosmetic.
-    expect(source).toMatch(/for-each-ref --format='%\(objectname\)' refs\/heads/);
-    expect(source).not.toMatch(/for-each-ref --format=%\(objectname\) refs\/heads/);
+    expect(cloneLifecycleSource).toMatch(/for-each-ref --format='%\(objectname\)' refs\/heads/);
+    expect(cloneLifecycleSource).not.toMatch(/for-each-ref --format=%\(objectname\) refs\/heads/);
   });
 });
 

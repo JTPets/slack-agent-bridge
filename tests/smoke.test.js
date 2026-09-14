@@ -229,6 +229,18 @@ describe('lib/ modules load without errors', () => {
         expect(typeof pipeline.runCommand).toBe('function');
     });
 
+    test('lib/clone-lifecycle.js loads and exports expected functions', () => {
+        const cloneLifecycle = require('../lib/clone-lifecycle');
+
+        expect(cloneLifecycle).toHaveProperty('cloneRepo');
+        expect(cloneLifecycle).toHaveProperty('cleanupDir');
+        expect(cloneLifecycle).toHaveProperty('detectUndeliveredWork');
+
+        expect(typeof cloneLifecycle.cloneRepo).toBe('function');
+        expect(typeof cloneLifecycle.cleanupDir).toBe('function');
+        expect(typeof cloneLifecycle.detectUndeliveredWork).toBe('function');
+    });
+
     test('lib/agent-registry.js loads and exports expected functions', () => {
         const agentRegistry = require('../lib/agent-registry');
 

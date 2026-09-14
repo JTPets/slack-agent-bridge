@@ -170,8 +170,11 @@ because each extraction must keep `node -e "require('./bridge-agent.js')"` green
 (the CLAUDE.md refactor rule) and pass `tests/bridge-agent-scope.test.js` (the AST
 `X is not defined` guard). Do them in this order; each is independently shippable.
 
-### Seam A — Git/clone lifecycle → `lib/clone-lifecycle.js`  *(start here)*
-- **Lines:** 459–610 (`cloneRepo`, `cleanupDir`, `detectUndeliveredWork`), ~152 LOC.
+### Seam A — Git/clone lifecycle → `lib/clone-lifecycle.js`  — DONE 2026-09-14
+Extracted verbatim into `lib/clone-lifecycle.js`; `bridge-agent.js` now imports the
+three helpers. `tests/undelivered-work.test.js` was re-pointed at the module source and
+`tests/clone-lifecycle.test.js` added for `cloneRepo`/`cleanupDir`. Full suite green.
+- **Lines:** was 459–610 (`cloneRepo`, `cleanupDir`, `detectUndeliveredWork`), ~152 LOC.
 - **Why first:** zero coupling to module state. Inputs are `(repo, branch, dir)` and a
   dir path; outputs are fs effects + a `{undelivered, reason}` object. Only external
   refs are `fs`, `execSync`, `process.env.DEPLOY_KEY_PATH`.
