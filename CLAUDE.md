@@ -624,6 +624,7 @@ slack-agent-bridge/
 │   ├── bridge-state.js    # State persistence (seam B): sole owner of .bridge-agent-state.json (per-channel poll cursors) and processed-tasks.json (task dedup); init, get/setLastChecked, isTaskProcessed, markTaskProcessed, cleanupProcessedTasks
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
+│   ├── review-findings.js # Structured findings for the Phase-3 verdict: a closed RULES catalogue of stable rule identifiers with severities, makeFinding (ruleId + file + line, prose GENERATED from those fields), buildVerdict, sameFinding/findRecurrence (comparison is by ruleId only — a fix that moves the same defect to another file has not converged), nextAction (the D5 generation cap and the D6 recurrence stop) and describeSpawnedTask (the lineage a spawned fix task must carry). Nothing spawns tasks; this is the contract, made executable
 │   ├── redact-secrets.js # Secret scrubber for any string bound for Slack or the logs: redact() applies value-driven scrubbing (the live value of every env var whose NAME matches SENSITIVE_NAME, so a token is caught whatever its shape) then pattern-driven scrubbing (Slack/Anthropic/Google/GitHub tokens, PEM private keys, OAuth refresh tokens, bearer headers). Exists because spawned-LLM stderr was surfaced verbatim to #sqtools-ops
 │   ├── security-followup.js # Security finding → auto-task pipeline: parses findings, creates TASK messages
 │   ├── approval-queue.js # Manual approval queue for auto-generated tasks: queueTask, approveTask, rejectTask
@@ -714,6 +715,7 @@ slack-agent-bridge/
 │   ├── update-verifier.test.js      # Tests for lib/update-verifier.js (entry-point syntax gate, planRestart)
 │   ├── auto-update-restart.test.js  # Tests for the exit-based self-update: one per guard (a)-(d)
 │   ├── redact-secrets.test.js   # Tests for lib/redact-secrets.js (value-driven and pattern-driven scrubbing)
+│   ├── review-findings.test.js  # Tests for lib/review-findings.js and validateOutput's verdict. THE guard that recurrence is answered by rule identifier and not by prose: it asserts two renderings of one rule are different strings AND the same finding
 │   ├── task-lock.test.js            # Tests for lib/task-lock.js (acquire/release, staleness, legacy + unparseable lock formats)
 │   ├── auto-update-defer.test.js    # Tests the deferral gate: defers while a task holds the lock, releases a stale one, escalation bound
 │   ├── bridge-agent-scope.test.js   # AST scope guard: catches `X is not defined` in bridge-agent.js
