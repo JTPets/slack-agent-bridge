@@ -87,13 +87,20 @@ done
 
 Everything below has **≥1 production caller** unless flagged. The high-fan-in hubs
 (non-test callers) are `agent-registry` (7), `bulletin-board` (6), `llm-runner` (5),
-`owner-tasks` (3), `task-parser` (2) — these are the modules a change ripples through.
-Note three of those counts include `task-decomposer`, which is itself dead (§3): drop it
-and `task-parser`'s only *live* caller is `bridge-agent.js`, and `llm-runner`'s live
-callers fall to 4.
+`task-parser` (4), `owner-tasks` (3) — these are the modules a change ripples through.
+Note three of those counts include `task-decomposer`, which is itself dead (§3); drop it
+and `llm-runner`'s live callers fall to 4.
 
-`bridge-agent.js` alone has **19** first-party `require` lines
+**`task-parser` moved 2 -> 4 on 2026-09-15** and its live callers are now
+`bridge-agent.js`, `lib/dispatch-message.js` and `lib/dispatch-modal.js` — the `/dispatch`
+form reads the parser's own `FIELD_LABELS`, `MIN_TURNS`/`MAX_TURNS` and `normalizeRepo`
+rather than restating any of them, which is the point (§7).
+
+`bridge-agent.js` alone has **24** first-party `require` lines
 (`grep -c "require('\./" bridge-agent.js`), which is itself the argument for §4.
+**That figure read 19 until 2026-09-15 and was already wrong before this change**: it was
+written at commit `e2a19e2` and `origin/main` measured **23** — regenerate it with the
+command beside it rather than trusting the number.
 
 ---
 
@@ -371,9 +378,9 @@ happens **before** the parser sees anything: it is a property of the transport. 
 separate inputs cannot be flattened, a slash command is what opens a form, and a slash
 command needs a socket.
 
-### What this change built, and what it deliberately did not
+### What the 2026-09-14 change built, and what it deliberately did not
 
-| Built | Not built |
+| Built | Not built (all three landed 2026-09-15 — see below) |
 |---|---|
 | A Socket Mode connection that opens, reports ready, reconnects, and reports an outage that does not recover | Any registered slash command |
 | The `onSlashCommand` seam, plus a defensive `ack` so an unhandled command never hangs | Any modal / form |
@@ -410,30 +417,100 @@ an app setting no repository controls. This change makes the connection exist an
 observable first. If it proves boring for a while, #4 becomes a much smaller decision; if
 it does not, the poll loop never noticed.
 
-### What the NEXT change has to do
+### What the NEXT change had to do — DONE 2026-09-15 (`/dispatch`)
+
+All six steps are landed. Left in place as written, each with what actually happened,
+because the steps were the plan and the record of a plan is worth more than a tidy
+summary of it.
 
 1. **Register the command in the Slack app configuration** (`/task`, say). In Socket Mode
    a slash command needs **no Request URL** — that is the point of the socket.
+   → **Owner action, NOT done by this repository and NOT verifiable from a checkout.**
+   The command is `/dispatch` (`COMMAND_NAME`, `lib/dispatch-modal.js`). The exact
+   steps — Socket Mode on, app-level token, the slash command, **Interactivity on**,
+   reinstall — are in `CLAUDE.md` → "The `/dispatch` command". Interactivity is the one
+   that is easy to miss and is not optional: without it Slack never delivers the
+   `view_submission`, so the modal opens and submitting it does nothing.
+
 2. **Attach a handler**: pass `onSlashCommand({ ack, body })` to `startSocketMode()`. The
    seam is marked `THE COMMAND SEAM` in `lib/slack-socket.js`. Acknowledge within 3
    seconds and open the modal from the `trigger_id`; do the work after the ack, never
    before it.
+   → Done, in `bridge-agent.js`'s `startSocketMode({ ... })` call.
+   `handleSlashCommand` acks first and opens after; a test leaves `views.open` pending and
+   asserts the ack has already gone out. **The seam needed a second half nobody had
+   noticed:** a modal comes back as an **`interactive`** envelope, not a `slash_commands`
+   one, so `onInteractive` was added beside it. A command that opens a form is inert
+   without both.
+
 3. **Open a modal with SEPARATE inputs** — task, repo, branch, turns, instructions. Five
    fields is the entire point: nothing a user types into a multiline input can merge two
    of them.
+   → `lib/dispatch-modal.js`. The blocks are built **from** `lib/dispatch-message.js`'s
+   `FIELD_KEYS`, so the form and the generator cannot gain or lose a field independently.
+   Only instructions is multiline.
+
 4. **Build the task the way the parser reads it back.** Uppercase, line-anchored labels.
    That round trip is already pinned in `tests/integration.test.js` (three modules in this
    repo generate task messages that `parseTask` reads back) — the new generator belongs in
    that pin.
+   → `lib/dispatch-message.js`, and the pin now covers **four** generators. Two mechanisms
+   rather than one: `buildDispatchMessage` emits uppercase line-anchored labels with
+   `INSTRUCTIONS:` last, and `assertRoundTrip` parses its own output back and **throws**
+   on any mismatch before it can be posted. `normalizeRepo` was extracted from `parseTask`
+   and exported so the generator applies the parser's own normalisation instead of a
+   second copy of it.
+
 5. **Reuse the existing gates, do not re-derive them.** `lib/git-identifiers.js` validates
    `REPO:`/`BRANCH:` (reject, never sanitise); `isUserAuthorized` is the allowlist;
    `lib/bridge-state.js` owns dedup. A modal submission is Slack-controlled input reaching
    a `git` argv array, exactly like a message body.
+   → All three reused; the validator adds no pattern of its own.
+   **One thing this step's wording obscures, and it is the sharpest finding of the
+   change:** `lib/bridge-state.js` owns dedup, but the poll loop is **not** a second
+   authorisation gate for what the form posts. Its check is
+   `!isUserAuthorized(msg.user) && !isBotMessage`, and the form's post is a **bot** post —
+   bot posts bypass the allowlist deliberately, so scheduled tasks are not dropped. So the
+   `isUserAuthorized` call in `handleSlashCommand` is the **only** gate, and it is checked
+   again in `handleViewSubmission` because a `view_submission` is its own envelope, not a
+   continuation of the command. Reusing the check was right; relying on a downstream one
+   would not have been.
+
 6. **Decide where the resulting task enters the pipeline** — and say so. Posting the
    assembled message to `#claude-bridge` and letting `poll()` pick it up keeps one intake
    path and one dedup owner, at the cost of up to `POLL_INTERVAL_MS` latency. Calling
    `processTask` directly is faster and creates a second intake path. That is a decision,
    not a detail.
+   → **Decided: post to `#claude-bridge`.** `processTask` is never called from the form
+   (asserted in `tests/slack-socket.test.js`). One intake path, one dedup owner, and a
+   task that survives a restart because it exists as a message. The latency is paid
+   against work that runs for ten minutes.
+
+### Failure paths, and the one that has no good answer
+
+A rejected field acks with `response_action: 'errors'` keyed by `block_id`: the modal
+**stays open** and the reason sits on the offending input. That shape is reused for every
+post-submission failure, because acking `{}` closes the modal and takes the operator's
+five inputs with it.
+
+**The socket is connected but the channel post fails** — the case worth stating plainly.
+The post is attempted **before** the ack and bounded by `SUBMIT_POST_TIMEOUT_MS`
+(2500 ms, inside Slack's ~3 s ack window):
+
+| Outcome | What the operator sees | What ops sees |
+|---|---|---|
+| Posted | The modal closes; `poll()` takes it from here | nothing |
+| Slack refused | Modal stays open, the Slack error named, inputs intact | a `#sqtools-ops` post |
+| Exceeded the ack window | Modal stays open, outcome stated as **UNKNOWN**, told to check the channel before resubmitting | a `#sqtools-ops` post |
+
+The timeout row never claims the post failed. It may well have landed, and dedup is by
+message `ts` — two posts are two tasks, each running for ten minutes. The pending promise
+is left permanently guarded so a late rejection cannot become an unhandled rejection, and
+whichever way it eventually settles is logged.
+
+A `views.open` that fails happens **after** the ack, where there is no modal to report
+into, so it reaches the operator as an ephemeral and `#sqtools-ops` as a post. If the
+ephemeral fails too, ops still hears and nothing throws.
 
 ---
 
