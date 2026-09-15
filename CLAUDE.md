@@ -606,7 +606,7 @@ slack-agent-bridge/
 │   │       └── .gitkeep          # Placeholder for memory files
 │   └── email-monitor/
 │       └── memory/       # Email Monitor's memory directory
-│           ├── rules.json        # Email categorization rules. Operator-editable; read on every check by emailCategorizer.loadRules(). NOTE: the `urgent` and `important` categories in this file are never consulted by categorizeEmail() — see WORK-TODO #28
+│           ├── rules.json        # Email categorization rules. Operator-editable; read on every check by emailCategorizer.loadRules(). categorizeEmail() walks `categories` in declared (insertion) order and returns the first whose `keywords` OR `senders` match — so the file is the whole specification: order is precedence, and `action`/`priority` come from the file. A category whose resolved action is `push_to_secretary` also posts a bulletin typed by the category name.
 │           └── check-state.json  # Last successful inbox-check timestamp (created at runtime, gitignored)
 ├── lib/
 │   ├── agent-context.js  # Agent context builder: injects real data into ASK prompts to prevent hallucination

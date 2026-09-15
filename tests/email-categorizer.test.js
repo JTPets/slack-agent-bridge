@@ -315,6 +315,117 @@ describe('email-categorizer module', () => {
         });
     });
 
+    // WORK-TODO #28: the categorizer used to run a hardcoded if-chain over six fixed
+    // category names, so `urgent`/`important` in the operator's file were dead and
+    // per-category `senders` were never read. These assert the file is now the whole
+    // specification — every one of them fails against the old if-chain.
+    describe('file-driven categorization (generic pass) — WORK-TODO #28', () => {
+        const realFs = jest.requireActual('fs');
+        const nodePath = jest.requireActual('path');
+
+        // Declared order is urgent > important > vendor_deal; `important` matches by
+        // sender only. None of this was reachable before the generic pass.
+        const FIXTURE = {
+            categories: {
+                urgent: {
+                    action: 'notify_immediately',
+                    priority: 'high',
+                    keywords: ['asap', 'emergency'],
+                    senders: [],
+                },
+                important: {
+                    action: 'include_in_digest',
+                    priority: 'medium',
+                    keywords: ['invoice'],
+                    senders: ['accounts@landlord.example'],
+                },
+                vendor_deal: {
+                    action: 'push_to_secretary',
+                    priority: 'high',
+                    keywords: ['sale', 'discount'],
+                    senders: [],
+                },
+            },
+            trusted_vendors: [],
+        };
+
+        function useRules(rules) {
+            fs.existsSync.mockReturnValue(true);
+            fs.readFileSync.mockReturnValue(JSON.stringify(rules));
+        }
+
+        test('honours a category the old if-chain never read (urgent)', () => {
+            useRules(FIXTURE);
+            const result = emailCategorizer.categorizeEmail({
+                from: 'ops@supplier.com',
+                subject: 'Server down - ASAP',
+                body: 'Please respond.',
+            });
+            expect(result.category).toBe('urgent');
+            expect(result.action).toBe('notify_immediately');
+            expect(result.priority).toBe('high');
+        });
+
+        test('matches on per-category senders even with no keyword hit', () => {
+            useRules(FIXTURE);
+            const result = emailCategorizer.categorizeEmail({
+                from: 'accounts@landlord.example',
+                subject: 'Monthly statement',
+                body: 'See attached.',
+            });
+            expect(result.category).toBe('important');
+        });
+
+        test('declared order is the precedence: urgent wins over vendor_deal', () => {
+            useRules(FIXTURE);
+            const result = emailCategorizer.categorizeEmail({
+                from: 'vendor@x.com',
+                subject: 'Emergency sale - everything must go',
+                body: 'Huge discount.',
+            });
+            expect(result.category).toBe('urgent');
+        });
+
+        test('push_to_secretary posts a bulletin typed by the category name', () => {
+            useRules(FIXTURE);
+            emailCategorizer.categorizeEmail({
+                from: 'vendor@x.com',
+                subject: 'Big sale today',
+                body: 'discount inside',
+            });
+            expect(bulletinBoard.postBulletin).toHaveBeenCalledWith(
+                'email-monitor',
+                'vendor_deal',
+                expect.objectContaining({ subject: expect.any(String) })
+            );
+        });
+
+        test('a category whose action is not push_to_secretary posts no bulletin', () => {
+            useRules(FIXTURE);
+            emailCategorizer.categorizeEmail({
+                from: 'ops@supplier.com',
+                subject: 'ASAP please',
+                body: '',
+            });
+            expect(bulletinBoard.postBulletin).not.toHaveBeenCalled();
+        });
+
+        test('the shipped rules.json expresses every category it declares', () => {
+            const shipped = realFs.readFileSync(
+                nodePath.join(__dirname, '..', 'agents', 'email-monitor', 'memory', 'rules.json'),
+                'utf8'
+            );
+            useRules(JSON.parse(shipped));
+
+            const cat = (subject) => emailCategorizer.categorizeEmail({ from: 'a@b.com', subject, body: '' }).category;
+            expect(cat('URGENT: deadline today')).toBe('urgent');
+            expect(cat('Your invoice is ready')).toBe('important');
+            expect(cat('20% off clearance')).toBe('vendor_deal');
+            expect(cat('Our weekly newsletter')).toBe('newsletter');
+            expect(cat('Act now for free money')).toBe('spam');
+        });
+    });
+
     describe('categorizeEmails', () => {
         test('categorizes multiple emails and returns summary', () => {
             const emails = [
@@ -362,7 +473,9 @@ describe('email-categorizer module', () => {
             expect(result).toContain('3 vendor');
             expect(result).toContain('2 customer');
             expect(result).toContain('7 newsletter');
-            expect(result).toContain('3 vendor deals flagged');
+            // Wording became category-neutral 2026-09-14 (WORK-TODO #28): `flagged`
+            // now includes `urgent`, not only vendor deals.
+            expect(result).toContain('3 flagged');
         });
 
         test('formats summary with single flagged item', () => {
@@ -377,7 +490,7 @@ describe('email-categorizer module', () => {
 
             const result = emailCategorizer.formatSummary(summary);
 
-            expect(result).toContain('1 vendor deal flagged');
+            expect(result).toContain('1 flagged');
         });
 
         test('formats summary with no flagged items', () => {
