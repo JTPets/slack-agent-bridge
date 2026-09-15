@@ -448,7 +448,27 @@ template, and an enumerating guard for it
 That is fix part 3's *shape* applied to a different invariant — it proves the pattern
 works here and is the model for the scheduled-set-vs-joined-set assertion this item still
 needs. Parts 1 and 2 are untouched.
-**Priority:** P1 | **Effort:** Low | **Status:** open
+**ADVANCED 2026-09-15 — all three fix parts landed; left open pending re-verification
+against the running container.** `startScheduler` now checks `status` and refuses a
+planned agent's job (`grep -n "status === 'planned'" lib/agent-scheduler.js` -> a hit).
+Fix part 1 went further than this item proposed: joining, polling and scheduling no
+longer have three rules to keep in agreement — they all derive from `activeChannels()`
+in `lib/agent-surface.js`, and `buildChannelsToPoll()` in bridge-agent.js delegates to
+it rather than restating it, so the two sets *cannot* diverge rather than being checked
+for divergence. Fix part 2 landed: a planned agent's schedule and an active agent whose
+declared channel has not resolved both go into the scheduler's `refusals`, which posts
+to `#sqtools-ops` at startup, and unresolved channels get their own post naming each
+agent. `jester` is now reported on every boot. Fix part 3 landed in
+`tests/agent-surface.test.js`, including the flip of the test that asserted the defect
+("joinableChannels includes a planned agent's existing channel — the story-bot case").
+
+Left **open** deliberately: this item's namesake is a claim about the *running*
+container ("CONFIRMED FIRING LIVE"), and a scratch clone cannot verify that story-bot's
+Friday job stopped registering on the box. Deploys here are manual, so nothing has
+reached the NAS. Close it after a `docker compose restart jt-agent` whose startup output
+shows the refusals and no `Scheduled story-bot:draft-weekly-posts`.
+
+**Priority:** P1 | **Effort:** Low | **Status:** open — fix landed on a branch, not verified live
 
 ---
 

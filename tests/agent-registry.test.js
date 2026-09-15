@@ -16,10 +16,6 @@ const {
     getAgentMemoryDir,
     getProductionAgentForRepo,
     isProductionRepo,
-    saveAgents,
-    updateAgent,
-    activateAgent,
-    getAgentsNeedingActivation,
 } = require('../lib/agent-registry');
 
 describe('agent-registry', () => {
@@ -405,82 +401,24 @@ describe('agent-registry', () => {
         });
     });
 
-    // LOGIC CHANGE 2026-03-26: Tests for agent activation helper functions
-    describe('saveAgents', () => {
-        it('should write agents to file', () => {
-            const agents = [{ id: 'test', name: 'Test Agent' }];
-
-            saveAgents(agents);
-
-            expect(fs.writeFileSync).toHaveBeenCalled();
-            const writeCall = fs.writeFileSync.mock.calls[0];
-            const writtenData = JSON.parse(writeCall[1].trim());
-            expect(writtenData).toEqual(agents);
-        });
-    });
-
-    describe('updateAgent', () => {
-        beforeEach(() => {
-            fs.readFileSync.mockReturnValue(JSON.stringify(mockAgents));
-        });
-
-        it('should update agent fields', () => {
-            const updated = updateAgent('bridge', { max_turns: 100 });
-
-            expect(updated).toBeDefined();
-            expect(updated.max_turns).toBe(100);
-            expect(updated.id).toBe('bridge');
-            expect(fs.writeFileSync).toHaveBeenCalled();
-        });
-
-        it('should return null for unknown agent', () => {
-            const updated = updateAgent('unknown', { max_turns: 100 });
-
-            expect(updated).toBeNull();
-        });
-
-        it('should preserve existing fields', () => {
-            const updated = updateAgent('bridge', { priority: 5 });
-
-            expect(updated.name).toBe('Bridge Agent');
-            expect(updated.priority).toBe(5);
-        });
-    });
-
-    describe('getAgentsNeedingActivation', () => {
-        beforeEach(() => {
-            fs.readFileSync.mockReturnValue(JSON.stringify(mockAgents));
-        });
-
-        // LOGIC CHANGE 2026-03-26: Fixed test - secretary has a channel assigned (C123456789),
-        // so only security (which has status=planned and channel=null) should be returned.
-        it('should return agents with planned status and no channel', () => {
-            const agents = getAgentsNeedingActivation();
-
-            expect(agents).toHaveLength(1); // only security has status=planned AND no channel
-            expect(agents.some(a => a.id === 'security')).toBe(true);
-        });
-
-        it('should not return agents with channels', () => {
-            const agents = getAgentsNeedingActivation();
-
-            // secretary has a channel assigned
-            const hasSecretary = agents.some(a => a.id === 'secretary');
-            expect(hasSecretary).toBe(false);
-        });
-
-        it('should return empty array when all agents are active', () => {
-            const allActive = mockAgents.map(a => {
-                const { status, ...rest } = a;
-                return { ...rest, channel: 'C12345' };
-            });
-            fs.readFileSync.mockReturnValue(JSON.stringify(allActive));
-
-            const agents = getAgentsNeedingActivation();
-
-            expect(agents).toHaveLength(0);
-        });
-    });
+    // LOGIC CHANGE 2026-09-15: the saveAgents, updateAgent, getAgentsNeedingActivation
+    // and activateAgent suites were REMOVED from this file, not weakened.
+    //
+    // They asserted behaviour this change deliberately replaced, so leaving them
+    // green would have meant leaving a test that sanctions the defect:
+    //   - saveAgents/updateAgent wrote agents/agents.json back to disk. Definitions
+    //     are now tracked markdown, so those writes would edit a fallback nothing
+    //     reads — and a runtime write to a TRACKED file is what auto-update's
+    //     `git reset --hard HEAD` has already destroyed twice.
+    //   - activateAgent called ensureChannel(), which CREATES a Slack channel when
+    //     the name is not found. Creating a channel has a cost outside this
+    //     repository and is an owner action; the replacement refuses instead.
+    //   - getAgentsNeedingActivation returned "planned AND no channel", an `and`
+    //     that hid the one agent most worth listing — planned WITH a channel, which
+    //     is story-bot, whose scheduled job posts where nothing polls.
+    //
+    // The replacements live in tests/agent-activation.test.js, against real files in
+    // a temp directory rather than a mocked fs.
 
     // LOGIC CHANGE 2026-03-27: Tests for personality and system_prompt fields
     describe('personality and system_prompt', () => {
@@ -562,69 +500,4 @@ describe('agent-registry', () => {
         });
     });
 
-    describe('activateAgent', () => {
-        let mockSlackClient;
-
-        beforeEach(() => {
-            fs.readFileSync.mockReturnValue(JSON.stringify(mockAgents));
-            mockSlackClient = {
-                ensureChannel: jest.fn().mockResolvedValue({
-                    channelId: 'C99999',
-                    name: 'secretary-agent',
-                    created: true,
-                }),
-            };
-        });
-
-        it('should throw error for unknown agent', async () => {
-            await expect(activateAgent('unknown', mockSlackClient)).rejects.toThrow(
-                'Agent not found: unknown'
-            );
-        });
-
-        it('should throw error for already active agent', async () => {
-            // bridge agent has no status field (active)
-            await expect(activateAgent('bridge', mockSlackClient)).rejects.toThrow(
-                'not in "planned" status'
-            );
-        });
-
-        it('should activate agent and create channel if none assigned', async () => {
-            // security agent has status=planned and no channel
-            const result = await activateAgent('security', mockSlackClient);
-
-            expect(result.channelCreated).toBe(true);
-            expect(result.channelId).toBe('C99999');
-            expect(mockSlackClient.ensureChannel).toHaveBeenCalledWith(
-                'security-agent',
-                expect.stringContaining('Security Auditor')
-            );
-        });
-
-        it('should not create channel if already assigned', async () => {
-            // secretary has a channel assigned but status=planned
-            const result = await activateAgent('secretary', mockSlackClient);
-
-            expect(result.channelCreated).toBe(false);
-            expect(mockSlackClient.ensureChannel).not.toHaveBeenCalled();
-        });
-
-        it('should continue activation even if channel creation fails', async () => {
-            mockSlackClient.ensureChannel.mockRejectedValue(new Error('API error'));
-
-            // security agent has no channel, channel creation will fail
-            const result = await activateAgent('security', mockSlackClient);
-
-            // Activation should still complete, just without a channel
-            expect(result.channelId).toBe(null);
-            expect(result.channelCreated).toBe(false);
-        });
-
-        it('should work without slackClient (channel remains null)', async () => {
-            const result = await activateAgent('security', null);
-
-            expect(result.channelId).toBe(null);
-            expect(result.channelCreated).toBe(false);
-        });
-    });
 });

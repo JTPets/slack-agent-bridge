@@ -7,6 +7,10 @@ agents/shared/watercooler-state.json
 agents/shared/bulletin.json
 agents/shared/processed-tasks.json
 agents/shared/channel-map.json
+# Workspace activation decisions. Gitignored ON PURPOSE: a tracked status field was
+# destroyed twice by auto-update's `git reset --hard HEAD`, and an activation is a
+# fact about THIS workspace, not about the repository.
+agents/shared/agent-activation.json
 agents/shared/approval-queue.json
 data/delivery-quotes.json
 

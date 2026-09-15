@@ -167,9 +167,14 @@ describe('agent-scheduler', () => {
         // to a handler or a template. Before this, a scheduled task name that
         // resolved to neither registered a cron job that logged "No template
         // found" on every tick, forever, and did nothing else.
-        it('resolves every task name scheduled in agents.json', () => {
-            const agents = JSON.parse(fs.readFileSync(AGENTS_FILE, 'utf8'));
-            const scheduled = (Array.isArray(agents) ? agents : agents.agents)
+        // LOGIC CHANGE 2026-09-15: reads through loadAgents() rather than parsing
+        // agents/agents.json, which no longer exists — definitions are
+        // agents/<id>/agent.md. Reading the loader's OUTPUT is also the better
+        // assertion: it is what the scheduler itself sees, so a task name lost in
+        // the markdown migration would fail here, which a file-format read could not.
+        it('resolves every task name scheduled by any agent', () => {
+            const { loadAgents } = require('../lib/agent-registry');
+            const scheduled = loadAgents()
                 .filter(a => a.schedule && a.schedule.task)
                 .map(a => ({ id: a.id, task: a.schedule.task }));
 

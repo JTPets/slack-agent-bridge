@@ -104,7 +104,10 @@ const { getAgent, loadAgents, getActiveAgents, getAgentByChannel, registryExists
 // LOGIC CHANGE 2026-09-15: the pure rule for "which channels does the bridge join".
 // It lives in lib/agent-surface.js beside the rest of the agent-surface enumeration,
 // so scripts/agent-surface.js reports the same set this file acts on.
-const { joinableChannels } = require('./lib/agent-surface');
+const { joinableChannels, activeChannels } = require('./lib/agent-surface');
+// LOGIC CHANGE 2026-09-15: channel-name resolution at startup. Find-only — it never
+// creates a channel; see lib/agent-activation.js.
+const { resolveAgentChannel } = require('./lib/agent-activation');
 
 // LOGIC CHANGE 2026-09-15: THE verb -> handler table. It sources its deterministic
 // verbs from lib/agent-task-catalogue.js rather than redeclaring them, because a
@@ -611,7 +614,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
 
         let bulletinContextStr = '';
         try {
-          bulletinContextStr = bulletinBoard.formatBulletinsForContext('bridge', 5);
+          bulletinContextStr = bulletinBoard.formatBulletinsForContext('bridge', 10);
         } catch (bErr) {
           console.error('[bridge-agent] formatBulletinsForContext failed:', bErr.message);
         }
@@ -1209,6 +1212,17 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
         agent: agentConfig,
         channelId: sourceChannel,
         userId: msg.user,
+        // LOGIC CHANGE 2026-09-15: the two seams the activation verbs need.
+        // `slackClient` is the wrapper that can FIND a channel by name (it never
+        // creates one here — lib/agent-activation.js names no create API at all).
+        slackClient,
+        // `onActivationChanged` re-derives the startup-only state so an activation
+        // takes effect now rather than at the next restart. `channelsToPoll` and the
+        // scheduler's jobs are both built once at boot (docs/AGENTS.md), so without
+        // this an activation would be recorded and do nothing visible for hours.
+        // The handler reports which of the two happened; it never claims live effect
+        // it did not have.
+        onActivationChanged: reRegisterAgents,
       });
       if (routed.handled) {
         console.log(`[${agentId}] Command \`${routed.verb}\` handled: ${msg.ts} (ok=${routed.ok})`);
@@ -1612,7 +1626,7 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
     // needing to explicitly query the bulletin board.
     let bulletinContext = '';
     try {
-      bulletinContext = bulletinBoard.formatBulletinsForContext(agentId, 5);
+      bulletinContext = bulletinBoard.formatBulletinsForContext(agentId, 10);
     } catch (bulletinErr) {
       console.error(`[${agentId}] formatBulletinsForContext failed:`, bulletinErr.message);
     }
@@ -1974,46 +1988,54 @@ function runStartupMemoryMaintenance() {
 }
 
 // LOGIC CHANGE 2026-03-27: Build list of channels to poll on startup.
-// Always includes bridge channel. Adds channels for all active agents that have
-// a channel assigned. Returns array of { channelId, agentId, agentConfig }.
+// LOGIC CHANGE 2026-09-15: it DELEGATES to `activeChannels()` in lib/agent-surface.js
+// instead of restating the rule. Joining and polling used to be two rules maintained
+// separately and they had drifted — every declared channel was joined, only active
+// agents' channels were polled — so story-bot was joined to a channel the poll loop
+// never read and its weekly job posted a TASK: message nothing executed. There is now
+// one rule, in one place, and the join path, the poll set and the scheduler all read
+// it. A rule restated in two places with nothing comparing them is the drift this
+// repo files as a defect; the fix is to have one statement, not a better comparison.
+//
+// Returns array of { channelId, agentId, agentConfig }.
 function buildChannelsToPoll() {
-  const channels = [];
-
-  // Always include bridge channel (for TASK: messages and bridge agent)
-  channels.push({
-    channelId: BRIDGE_CHANNEL,
-    agentId: 'bridge',
-    agentConfig: agentConfig,
-  });
-
-  // Add channels for all active agents (those without status="planned")
+  let declared = [];
   try {
-    const activeAgents = getActiveAgents();
-    for (const agent of activeAgents) {
-      // Skip bridge agent (already added) and agents without channels
-      if (agent.id === 'bridge' || !agent.channel) {
-        continue;
-      }
-      // Skip if channel is same as bridge (some agents share channels)
-      if (agent.channel === BRIDGE_CHANNEL) {
-        continue;
-      }
-      // Check if this channel is already in the list (multiple agents may share a channel)
-      const existing = channels.find(c => c.channelId === agent.channel);
-      if (!existing) {
-        channels.push({
-          channelId: agent.channel,
-          agentId: agent.id,
-          agentConfig: agent,
-        });
-      }
-    }
+    declared = activeChannels(loadAgents(), BRIDGE_CHANNEL);
   } catch (err) {
     console.error('[bridge-agent] Failed to load active agents:', err.message);
-    // Continue with just the bridge channel
+    // Continue with just the bridge channel - the path every task arrives on.
+    declared = BRIDGE_CHANNEL ? [{ channelId: BRIDGE_CHANNEL, agentId: 'bridge' }] : [];
   }
 
-  return channels;
+  return declared.map(entry => ({
+    channelId: entry.channelId,
+    agentId: entry.agentId,
+    agentConfig: entry.agentId === 'bridge' ? agentConfig : getAgent(entry.agentId),
+  }));
+}
+
+/**
+ * Re-derive the two pieces of state that are otherwise built only at startup: the
+ * poll set and the scheduler's cron registrations.
+ *
+ * LOGIC CHANGE 2026-09-15: activating an agent has to change what the RUNNING
+ * process does, or it is a decision with no effect until someone restarts the
+ * container — and deploys here are manual, so that could be days.
+ *
+ * It re-registers EVERY agent rather than adding one, by stopping the scheduler and
+ * starting it again. Registration is idempotent and cron jobs hold no state, so this
+ * reuses the one code path that already exists instead of adding a second, partial
+ * one that could disagree with it.
+ *
+ * @returns {{ channels: number, jobs: number }}
+ */
+function reRegisterAgents() {
+  channelsToPoll = buildChannelsToPoll();
+  stopScheduler();
+  const result = startScheduler(slack);
+  console.log(`[bridge-agent] Re-registered: ${channelsToPoll.length} channel(s), ${result.jobCount} job(s)`);
+  return { channels: channelsToPoll.length, jobs: result.jobCount };
 }
 
 console.log('[bridge-agent] Starting v2');
@@ -2123,8 +2145,11 @@ cleanupProcessedTasks();
 
 // LOGIC CHANGE 2026-03-28: Start the agent scheduler for cron-based proactive tasks.
 // Each agent with a schedule field gets a cron job that posts TASK messages to their channel.
-const schedulerResult = startScheduler(slack);
-console.log(`  Scheduler: ${schedulerResult.jobCount} jobs (${schedulerResult.agents.join(', ') || 'none'})`);
+// LOGIC CHANGE 2026-09-15: MOVED into the startup IIFE below, after channel
+// resolution. Registering jobs before the declared channel names were resolved meant
+// an agent whose channel resolves on THIS boot would still have had its schedule
+// refused for want of a channel — the third consequence of a declaration missing
+// because it was evaluated before the first.
 
 // LOGIC CHANGE 2026-03-28: Join all agent channels before starting the poll loop.
 // Runs async so the bot is guaranteed to be in all channels before first poll.
@@ -2138,16 +2163,51 @@ let socketMode = null;
 // name or expired key shows up immediately in logs instead of silently on the
 // first ASK message. Does not block the poll loop from starting.
 (async () => {
+  // LOGIC CHANGE 2026-09-15: ONE DECLARATION, THREE CONSEQUENCES — and this is
+  // where they happen, in the order that makes them consequences of each other:
+  // resolve the declared channel NAME to an id, then join it, then poll it.
+  //
+  // A tracked definition carries `channel_name`, never a workspace id
+  // (lib/agent-markdown.js). Resolution is cached durably in the local channel map
+  // (lib/bridge-state.js), so this costs a Slack lookup only for a name that has
+  // never resolved — every already-known channel is a cache hit and no API call.
+  //
+  // NOTHING HERE CREATES A CHANNEL. Where the declared channel does not exist the
+  // agent gets none of the three and the reason is REPORTED to #sqtools-ops, which
+  // is also what the scheduler now does with that agent's schedule. That is the
+  // correct behaviour: creating a channel has a cost outside this repository.
   try {
-    // LOGIC CHANGE 2026-09-15: join EVERY channel a declared agent names, not only
-    // the channels the poll loop reads. `channelsToPoll` is built from ACTIVE agents
-    // (`getActiveAgents()`), so a `planned` agent holding a real channel was never
-    // joined — which is story-bot exactly: its weekly job is registered (the
-    // scheduler checks `schedule` + `channel`, never `status` — WORK-TODO #3), it
-    // posts to C0AP8CHCV1U, and Slack answers `not_in_channel` every Friday.
-    // Joining a channel that ALREADY EXISTS is safe and reversible; this creates
-    // none. `joinableChannels` is the pure rule, in lib/agent-surface.js, so
-    // `scripts/agent-surface.js` reports the same set the bridge joins.
+    const unresolved = [];
+    for (const agent of loadAgents()) {
+      if (agent.status === 'planned' || agent.channel || !agent.channel_name) continue;
+      const resolution = await resolveAgentChannel(agent, slackClient);
+      if (!resolution.resolved) unresolved.push(`• \`${agent.id}\` — ${resolution.reason}`);
+      else console.log(`[bridge-agent] Resolved #${agent.channel_name} -> ${resolution.channelId} for ${agent.id}`);
+    }
+
+    if (unresolved.length) {
+      await notifyOwner.notifyOps(
+        `:mag: *${unresolved.length} active agent(s) declare a channel that could not be resolved.*\n` +
+        unresolved.join('\n') + '\n' +
+        'They are not joined, not polled, and their schedules are not registered — three consequences of one ' +
+        'declaration, or none. Nothing here creates a channel: create it, then the next restart picks it up. ' +
+        'Run `node scripts/agent-surface.js` for the per-agent picture.'
+      ).catch(notifyErr => {
+        console.error('[bridge-agent] Could not escalate unresolved channels:', notifyErr.message);
+      });
+    }
+
+    // Rebuild from the registry now that resolution has run, so a channel resolved
+    // on THIS boot is polled on this boot rather than the next one.
+    channelsToPoll = buildChannelsToPoll();
+    console.log(`  Channels: ${channelsToPoll.length} (${channelsToPoll.map(c => c.agentId).join(', ')})`);
+
+    const schedulerResult = startScheduler(slack);
+    console.log(`  Scheduler: ${schedulerResult.jobCount} jobs (${schedulerResult.agents.join(', ') || 'none'})`);
+
+    // The set joined is the set polled, from the same rule — see
+    // `activeChannels()` in lib/agent-surface.js. Joining a channel that ALREADY
+    // EXISTS is safe and reversible; this creates none.
     const toJoin = joinableChannels(loadAgents(), BRIDGE_CHANNEL);
     const joinResult = await slackClient.joinAgentChannels(toJoin);
 

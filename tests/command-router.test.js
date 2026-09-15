@@ -49,7 +49,9 @@ describe('THE guard: a command in code but not in the table is red', () => {
             expect(typeof entry.handler).toBe('function');
             expect(typeof entry.summary).toBe('string');
             expect(entry.summary.length).toBeGreaterThan(0);
-            expect(['report', 'scheduled']).toContain(entry.kind);
+            // LOGIC CHANGE 2026-09-15: 'mutate' added for the activation verbs —
+            // the only kind that writes anything.
+            expect(['report', 'scheduled', 'mutate']).toContain(entry.kind);
             if (entry.kind === 'scheduled') {
                 expect(getDeterministicTask(entry.task)).toBeTruthy();
             }
@@ -141,7 +143,7 @@ describe('runCommand', () => {
         const r = await runCommand('status');
         expect(r.handled).toBe(true);
         expect(r.ok).toBe(true);
-        expect(r.text).toContain('registry:agents.json');
+        expect(r.text).toContain('registry:agent.md');
         expect(r.text).toContain('secretary');
     });
 

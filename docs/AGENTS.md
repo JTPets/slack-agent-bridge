@@ -142,6 +142,292 @@ The Email Monitor can automatically unsubscribe from newsletters on behalf of th
 
 See [EMAIL-MONITOR-DESIGN.md](./EMAIL-MONITOR-DESIGN.md) for complete specification.
 
+---
+
+## How agent state is actually held — established from code, 2026-09-15
+
+Written because the summary everyone repeats ("agents are declared in `agents.json`,
+some are planned") is true and useless: it does not say *when* a definition is read,
+*which* fields the tracked file actually decides, or what a change to one requires
+before it takes effect. Those three have different answers, and the difference is
+what makes a format migration safe or not.
+
+Every claim below carries the `file:line` it was read from at `69a3922`.
+
+### What loads a definition, and when
+
+`lib/agent-registry.js:31 loadAgents()` is the **only** reader of
+`agents/agents.json`. It `fs.readFileSync`s the file on **every call** — there is no
+cache, no memoisation, no watcher. Regenerate the caller list:
+
+```bash
+grep -rn "require.*agent-registry" --include=*.js . | grep -v node_modules | grep -v '^./tests/'
+```
+
+Nothing outside `lib/agent-registry.js` opens the file by path, in `lib/`, in the
+entry points, or in `scripts/`. That chokepoint is the single most important fact
+here and everything in the migration section rests on it.
+
+So the file is re-readable at runtime — but **what the process does with it is not
+re-derived.** Three pieces of startup-only state are computed once and then outlive
+any edit:
+
+| Derived at startup, never again | Where | What a registry edit cannot change until restart |
+|---|---|---|
+| `agentConfig` — the bridge's own record | `bridge-agent.js:215-221` (`getAgent('bridge')`) | `MAX_TURNS` (`:241`), the bridge `system_prompt` (`:581`, `:661`), its provider (`:527`, `:700`) |
+| `channelsToPoll` | `bridge-agent.js:2030` calling `buildChannelsToPoll()` (`:1979`, which calls `getActiveAgents()` at `:1991`) | which channels are polled at all |
+| `activeJobs` — the cron registrations | `lib/agent-scheduler.js:32`, filled by `startScheduler()` (`:107 loadAgents()`), called at `bridge-agent.js:2126` | every schedule, its cron expression and its refusals |
+
+Everything else reads the registry **per event**, so an edit lands immediately:
+`getAgentByChannel()` on every polled message, `lib/bulletin-watcher.js:64` on every
+bulletin, `lib/command-router.js:48`, `lib/task-decomposer.js:19`,
+`lib/notify-owner.js:14`, `lib/security-followup.js:22`, `lib/watercooler.js:20`,
+`lib/agent-surface.js:22`.
+
+**So: "what does a change to a definition require before it takes effect?" has two
+answers, not one.** A change to a personality, a system prompt, a watch list, a
+permission or a `target_repo` is live on the next event. A change to a channel, a
+schedule, `status`, or any bridge-agent field is inert until
+`docker compose restart jt-agent` — and merging it reaches the box only when a human
+runs that (`CLAUDE.md` → "Self-update — DESIGNED AND TESTED, NOT WIRED"). Nothing
+reports the difference, so an edit that appears to do nothing and an edit that is
+waiting for a restart look identical.
+
+### Which fields come from the tracked file, and which from the environment
+
+**From `agents/agents.json` (tracked):** `id`, `name`, `role`, `channel`,
+`permissions`, `denied`, `priority`, `max_turns`, `memory_dir`, `status`,
+`workflow`, `merge_policy`, `deploy_policy`, `branch_prefix`, `production`,
+`target_repo`, `llm_provider`, `llm_model`, `schedule`, `watches`, `personality`,
+`system_prompt`, `activation_prefix`, `integrations`, `note`, `phone_capabilities`,
+`watercooler`.
+
+**From `.env` (untracked, owner-managed, not verifiable from a checkout):**
+`LLM_PROVIDER_<AGENTID>` — which **wins over** the registry's `llm_provider`
+(`lib/config.js:165`, provenance in `lib/agent-llm-resolver.js`); the global
+`LLM_PROVIDER`; and the channel ids `BRIDGE_CHANNEL_ID`, `OPS_CHANNEL_ID`,
+`STORE_TASKS_CHANNEL_ID`.
+
+**The finding in that split:** the bridge agent's polled channel does **not** come
+from its registry record. `buildChannelsToPoll()` pushes `BRIDGE_CHANNEL`
+(`bridge-agent.js:1982-1986`), which is `config.BRIDGE_CHANNEL` = the
+`BRIDGE_CHANNEL_ID` env var (`lib/config.js:20`). The bridge record's
+`"channel": "C0ANZUEJXEJ"` is read only by `getAgentByChannel()` and by
+`joinableChannels()`. If the two ever disagree the bridge **joins both and polls
+one**, and nothing compares them. Whether they agree on the NAS is
+**unverified — `.env` is off-limits from a checkout.**
+
+### Where a running agent's state lives other than in the file it was declared in
+
+Six durable places and four in-process ones. This is the list a format migration has
+to leave undisturbed.
+
+| Store | Owner | Keyed by | Tracked? |
+|---|---|---|---|
+| `agents/shared/channel-map.json` | `lib/slack-client.js:36/58` | channel **name** → id | gitignored |
+| `.bridge-agent-state.json` | `lib/bridge-state.js` | channel **id** → poll cursor | gitignored |
+| `agents/shared/processed-tasks.json` | `lib/bridge-state.js` | message `ts` | gitignored |
+| `agents/<id>/memory/*.json` | `memory/memory-manager.js`, `lib/memory-tiers.js` | agent **id** | gitignored except seeds |
+| `agents/shared/bulletin.json` | `lib/bulletin-board.js` | agent **id** (`agentId`, `read_by`) | gitignored |
+| `.env` | owner | var name | untracked |
+
+In-process only, lost on restart: `agentConfig` (`bridge-agent.js:215`),
+`channelsToPoll` (`:291`), `activeJobs` (`lib/agent-scheduler.js:32`),
+`lastTriggerTimes` (`lib/bulletin-watcher.js:24`).
+
+**`channel-map.json` is the one that matters and the one that is not doing its
+job.** It is a channel-name → id cache, and it is written **only** by
+`ensureChannel()` (`lib/slack-client.js:333/352/363`), which is reached only from
+`activateAgent()` and the `ASK: create channel` command. The startup join path does
+not consult it: `joinAgentChannels()` (`:388`) takes ids straight from the registry
+records. So the durable resolution cache exists, is gitignored, is the right shape —
+and the boot path has never used it.
+
+### If definitions move to a new format, do the running agents migrate, run in parallel, or break?
+
+**They migrate, in place, with no parallel period** — because `loadAgents()` is a
+real chokepoint. Ten non-test modules consume agent definitions and every one of
+them goes through it. Change what `loadAgents()` reads, keep the record shape it
+returns, and no other module has to know.
+
+One thing genuinely would break a running agent, and it is the reason this section
+was written before any code was moved:
+
+> **The channel IDs cannot be re-derived from a checkout.** Nothing in this
+> repository maps `C0AP42BT4MR` to a channel name — that needs a Slack API call. A
+> migration that replaced `channel: <id>` with `channel_name: <name>` and resolved
+> the name at startup would depend on names guessed from agent ids. A wrong guess
+> does not fail loudly: `findChannelByName` returns null, the agent's channel
+> resolves to nothing, and the bridge **stops polling a channel that worked
+> yesterday**.
+
+The avoidance is to never resolve what is already known. At migration time the six
+live ids are **seeded into the local state store**, keyed by the channel name the
+new definition declares. First boot after the migration is a cache hit for every
+existing agent; no Slack lookup runs for an agent that already worked, so no guess
+can be wrong for one. Name resolution is exercised only by an agent that has no id
+today — which is exactly the four that are already reaching nobody.
+
+**Reversibility: yes, by `git revert` alone, with no manual step and no data loss.**
+The channel ids are in git history whatever happens to the working tree, so
+reverting the migration commit restores `agents/agents.json` with its ids intact and
+`loadAgents()` reads it again. The local state file the migration writes is
+gitignored and additive — code from before the migration never looks at it, so a
+revert leaves it sitting harmlessly on disk. A channel id is not a credential; it is
+already public in this repository's history, so recording one in a commit body costs
+nothing.
+
+**Verdict: safe to proceed.** The condition is the seeding step, not the format.
+
+---
+
+## The bulletin stream — what every agent can see, established 2026-09-15
+
+The bulletin board is the substrate for agents reacting to each other's output
+rather than only to the owner. This section is the report of what it actually
+carries; `lib/bulletin-board.js` is the code and `tests/bulletin-types.test.js` is
+the guard.
+
+### What is published today
+
+Five call sites. Regenerate the list rather than trusting this table:
+
+```bash
+grep -rn "postBulletin(" --include=*.js . | grep -v node_modules | grep -v '^./tests/' | grep -v '^./lib/bulletin-board.js'
+```
+
+| Posted by | Type | When |
+|---|---|---|
+| `bridge-agent.js` | `task_completed` | every task that finishes |
+| `security-review.js` | `security_finding` | the nightly audit finds something |
+| `morning-digest.js` (as `secretary`) | `milestone` | the digest runs |
+| `lib/watercooler.js` (as `watercooler`) | `milestone` | a standup completes |
+| `lib/integrations/email-categorizer.js` | **the category name** | a category whose action is `push_to_secretary` matches |
+
+The last row is the one to watch. It types the bulletin by the *category name*, and
+category names come from `agents/email-monitor/memory/rules.json`, which is
+operator-editable, while valid types come from `BULLETIN_TYPES`. Today only
+`vendor_deal` carries `push_to_secretary` and it happens to be a valid type, so
+nothing is being dropped. Give `urgent` that action — which is exactly what the file
+is for — and every one of its bulletins is rejected, because `postBulletin` returns
+`{ success: false }` rather than throwing and the call site ignored the result. The
+call site now logs the rejection, and the guard test covers the literal call sites.
+
+### Who watches, and what a watcher actually receives
+
+`watches.bulletin_types` in an agent's definition. `lib/bulletin-watcher.js` fans out
+to matching agents — skipping the poster, skipping agents with no channel, and
+rate-limited to one trigger per agent per five minutes.
+
+**A watcher receives a notification, not the record.** It is an `ASK:` message
+carrying `[type] from agentId: <summary truncated to 150 characters>`, posted into
+the watcher's channel. The bulletin's payload beyond that one summary line, its id,
+and its timestamp are all absent from the notification. To see the record the agent
+has to read the stream.
+
+**`customer_interaction` was a dead watch** — secretary and marketing both declared
+it and it is not in `BULLETIN_TYPES`, so `postBulletin` would reject it and those
+watches could never have fired. Corrected to `customer_insight`, and
+`tests/bulletin-types.test.js` now fails on any watch for a type nothing can post.
+
+**`milestone` currently reaches no watcher.** Only story-bot watches it, and
+story-bot is not activated, so `processBulletin` skips it for want of a channel.
+This is not a regression from the 2026-09-15 activation change: before it, the
+notification was posted into a channel the poll loop did not read, so it was never
+executed either. The difference is that it is now quiet rather than accumulating.
+
+### The stream itself, which every active agent sees
+
+Distinct from watching, and **not opt-in**. `processConversation` injects
+`formatBulletinsForContext(agentId, 10)` into the prompt of whichever agent owns the
+channel, on every `ASK:`. Since every active agent's channel is polled (see the one
+declaration rule above), every active agent sees the stream. `ASK: bulletins` renders
+it for a human in any polled channel, through the same module.
+
+**What it carries:** the bulletin type, which agent posted it, when (America/Toronto,
+named explicitly), and **every scalar field of the payload**, each value capped at
+200 characters so one long field cannot crowd out the rest.
+
+Before 2026-09-15 it carried one line of `description || title || message ||
+JSON.stringify(data).slice(0,150)`. Every bulletin `pushToSecretary` posts has none
+of those three keys — its payload is `from`, `subject`, `isTrustedVendor` — so a
+supplier email reached other agents as a truncated JSON fragment. An agent cannot
+notice a supplier shortage in a string cut at 150 characters.
+
+**What it does not carry:**
+
+- anything beyond the newest 10, and nothing at all past the 7-day retention
+  (`cleanupOldBulletins`). It is a recent-events feed, not a log;
+- the bulletin **id**, so an agent cannot refer to one or mark it read;
+- any **link back** to the work that produced it — no Slack permalink, no thread, no
+  task id. An agent can see that a task completed; it cannot open it;
+- **no reaction logic.** Nothing here makes an agent act on what it reads. That is
+  deliberate and out of scope: the stream existing and being worth reading is the
+  deliverable.
+
+`unreadBy` is applied, but **nothing in production calls `markRead`** —
+
+```bash
+grep -rn "markRead" --include=*.js . | grep -v node_modules | grep -v tests
+```
+
+— so in practice every agent sees the newest ten on every `ASK`, including ones it
+has seen. That is deliberate for now: an agent has no memory of a bulletin between
+conversations, so filtering seen ones would make the stream emptier, not cleaner.
+
+
+---
+
+## Activating an agent in this workspace
+
+An agent is *defined* in `agents/<id>/agent.md` (tracked) and *activated* in this
+workspace (local). The commands act on what the markdown already defines; they
+invent no agent, and **nothing here creates a Slack channel.**
+
+```
+ASK: available            # defined agents not activated here, and what each waits on
+ASK: activate <id>        # resolve the declared channel, join, poll, schedule
+ASK: deactivate <id>      # stop polling and scheduling; keep the resolved channel
+```
+
+They are verbs in the one command table (`lib/command-router.js`), implemented in
+`lib/agent-activation.js`. `activate` does all four things or none of them:
+
+1. resolve the declared `channel_name` to an id — local map first, then Slack by
+   name, **find-only**;
+2. join the channel;
+3. rebuild the poll set;
+4. register the agent's schedule.
+
+**Where the declared channel does not exist, it refuses and changes nothing.** No
+activation is recorded, no join is attempted, and the message says which channel name
+failed. That matches what the scheduler does for a channel-less agent, and it is the
+correct behaviour: creating a channel is an owner action with a cost outside this
+repository. `available` separates *ready* from *blocked* for exactly this reason.
+
+### Does an activation survive a restart and a pull?
+
+**Yes — the decision does.** It is written to `agents/shared/agent-activation.json`,
+which is **gitignored**, so `git reset --hard HEAD` (which auto-update runs before
+every pull) and `git clean -fd` both leave it alone. The resolved channel id lives in
+`agents/shared/channel-map.json`, also gitignored, so re-activating an agent never
+needs a second Slack lookup. This is the whole reason activation is not a `status`
+field in a tracked file: that edit was destroyed twice by a hard reset.
+
+**The live effect is separate, and the command tells you which one you got.** The
+poll set and the cron registrations are derived once at startup, so the handler asks
+bridge-agent to re-derive them through `onActivationChanged` (`reRegisterAgents()`),
+which rebuilds `channelsToPoll` and restarts the scheduler. When that hook is present
+the verdict says the agent is *now polled with its schedule registered*; when it is
+absent or throws, the verdict says the decision is recorded and takes effect on the
+next `docker compose restart jt-agent`. It never claims a live effect it did not
+have — `tests/agent-activation.test.js` asserts both wordings.
+
+One thing it cannot do: **deploy.** Merging this repository changes nothing on the
+NAS until a human restarts the container (`CLAUDE.md` → "Self-update — DESIGNED AND
+TESTED, NOT WIRED"). The commands act on the *running* process they are typed into.
+
+
 ## Adding a New Agent
 
 1. **Define the agent** in `agents/agents.json`:
@@ -307,19 +593,53 @@ node scripts/agent-surface.js --json    # the same rows, machine-readable
 ```
 
 The guard is `tests/agent-surface.test.js`: it fails when an agent's output stops
-reaching anything. Three distinct facts the table separates, because they have three
-different fixes:
+reaching anything. **LOGIC CHANGE 2026-09-15: these are now three consequences of ONE declaration, not
+three facts maintained separately.** They used to have three different fixes, which
+is how they drifted: every declared channel was joined, only active agents' channels
+were polled, and the scheduler checked neither. story-bot — `planned`, with a real
+channel and a weekly job — was therefore joined to a channel the poll loop never
+read, and its `draft-weekly-posts` job posted a `TASK:` message every Friday that
+nothing executed.
 
-- **Declared** — the agent has a `channel` in `agents/agents.json`.
-- **Joined** — the bridge calls `conversations.join` on it at startup. Since
-  2026-09-15 this is *every* channel a declared agent names, including a `planned`
-  agent's, because a scheduled job can be registered for a planned agent (the
-  scheduler checks `schedule` + `channel`, never `status` — WORK-TODO #3) and posting
-  to a channel the bot is not in answers `not_in_channel`.
+The rule is `activeChannels()` in `lib/agent-surface.js`, and there is exactly one
+statement of it: `buildChannelsToPoll()` in `bridge-agent.js` delegates to it, the
+startup join path calls it, and `lib/agent-scheduler.js` refuses any schedule it
+excludes. `tests/agent-surface.test.js` asserts the delegation and that the join set
+and the poll set are the same set.
+
+- **Resolved** — the agent's declared `channel_name` has an id in the local channel
+  map (`agents/shared/channel-map.json`). Resolution happens once, at startup, for
+  an active agent whose name has never resolved, and is cached durably — so an
+  already-known channel costs no API call. **Nothing creates a channel.**
+- **Joined** — the bridge calls `conversations.join` on it at startup.
 - **Polled** — `poll()` reads it, so a `TASK:`/`ASK:` message there is executed.
-  Built from `getActiveAgents()`, so a `planned` agent's channel is joined but never
-  polled. A scheduled job that posts a `TASK:` message into an unpolled channel
-  produces text a human can read and nothing will run.
+- **Scheduled** — the agent's cron job is registered.
+
+An agent that is not activated in this workspace, or whose declared channel has not
+resolved, gets **none** of them — and the reason is posted to `#sqtools-ops` at
+startup rather than skipped in silence. Three or none is the whole rule; one of them
+arriving alone is what produced work nobody collected.
+
+### On the repeated `already_in_channel` warnings
+
+**There are none, and there never were** — cited versus actual at `69a3922`.
+`joinAgentChannels()` (`lib/slack-client.js`) treats `already_in_channel` as a
+*success*: it increments `joined` and `continue`s, logging nothing. Grep it:
+
+```bash
+grep -rn "already_in_channel" --include=*.js . | grep -v node_modules
+```
+
+Every hit is a success branch or a test of one. So the change above removes no
+warning, because none exists to remove. What *does* repeat on every start is the
+single info line `[bridge-agent] Joined N/N agent channels`, and re-joining on every
+start is deliberate: a channel can be recreated while the bot is offline, and
+`conversations.join` on a channel it is already in is a no-op. What the change does
+reduce is the *size* of that set — planned agents' channels are no longer joined —
+and the number of `conversations.list` lookups, which is now zero for any channel
+already in the local map. If a warning really is appearing on the box it has a
+different cause and is not this code path; it would need the actual log line to
+diagnose, which is not readable from a checkout.
 
 ### Channels that would need to be created — PROPOSED, not created
 
@@ -331,7 +651,7 @@ even reported at startup. Creating a channel is an owner action
 
 | Agent | Status | Declared schedule | Proposed channel | What creating it would change |
 |---|---|---|---|---|
-| `jester` | **active** | `0 18 * * 5` weekly-critique | `#jester-agent` | The only **active** agent that cannot be addressed at all — no channel, no registered job, no route. Its `weekly-critique` template exists and nothing can reach it. Giving it a channel registers the job and makes the agent addressable. |
+| `jester` | **active** | `0 18 * * 5` weekly-critique | `#jester-agent` | The only **active** agent that cannot be addressed at all — its declared `channel_name` has never resolved, so no channel, no registered job, no route. Its `weekly-critique` template exists and nothing can reach it. Since 2026-09-15 this is reported to `#sqtools-ops` at every startup instead of being a silent skip. Creating the channel resolves it on the next restart and registers the job. |
 | `social-media` | planned | `0 9 * * 1,3,5` content-calendar | `#social-media-agent` | Registers the job. It would still need `status: "planned"` removed for the channel to be **polled**, or the posted `TASK:` message reaches no executor — see #3. |
 | `marketing` | planned | `0 6 * * 1` weekly-analytics | `#marketing-agent` | Same as above. |
 | `storefront` | planned | none | `#storefront-agent` | Nothing scheduled; the agent is served by `bots/storefront.js` over HTTP, not by a channel. Lowest value of the four — listed for completeness, not recommended. |
@@ -341,9 +661,11 @@ bot joins on every boot and a place output can accumulate unread. `jester` is th
 with a concrete defect behind it; the other three are gated on the `planned` decision
 in WORK-TODO #3 and should follow it, not precede it.
 
-**`story-bot` is NOT in this table** — it already has `C0AP8CHCV1U`, which the bridge
-now joins. What it still lacks is a reader: the channel is not polled because the
-agent is `planned`. That is #3, not a channel to create.
+**`story-bot` is NOT in this table** — its channel already exists and its id is in
+the local channel map. What it lacks is an *activation*: as of 2026-09-15 a
+`planned` agent is not joined, not polled and not scheduled, so story-bot produces
+nothing rather than producing work nobody collected. Activating it is
+`lib/agent-activation.js`, not a channel to create.
 
 ## API Reference
 
