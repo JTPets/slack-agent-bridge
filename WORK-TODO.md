@@ -1045,12 +1045,12 @@ and **65** `.js` files exceed it. Until 2026-09-15 the gate was **unconditionall
 new violation could not be told apart from the standing ones without diffing path lists by
 hand — that happened twice in the week of 2026-09-08. The exceptions had never been examined.
 
-**The gate becomes declaration-driven on this branch (2026-09-15).** `lib/file-size-gate.js`
-+ `lib/validate-exceptions.json` will hold one recorded justification per over-limit file; an
-undeclared violation fails, and a declared entry for a file that is no longer over the limit
-also fails, so the list cannot rot. *Neither file exists at this commit* — this record is
-committed first, on purpose, because it is what that list gets built from and what a later run
-resumes from instead of re-deriving.
+**The gate is declaration-driven as of 2026-09-15.** `lib/file-size-gate.js` +
+`lib/validate-exceptions.json` hold one recorded justification per over-limit file, guarded by
+`tests/file-size-gate.test.js`; an undeclared violation fails, and a declared entry whose file
+is gone or is back under the limit also fails, so the list cannot rot. This record was
+committed before any file was touched, on purpose: it is what that list was built from and what
+a later run resumes from instead of re-deriving.
 
 Regenerate every figure in this item:
 ```bash

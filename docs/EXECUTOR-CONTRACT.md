@@ -83,13 +83,29 @@ literal claim is met".
 Run `npm test` (full suite) and `npm run test:smoke` (load/require gate). Both must be
 green, and a runner that will not start is **red**, not a hiccup — run `npm ci` first.
 
-`npm run validate` (loads `bridge-agent.js` in a subprocess; fails any `.js` file over
-**300 lines**) is **currently red on `main` for two known reasons**: it needs a populated
-`.env` to load the bridge, and **63** files already exceed 300 lines (WORK-TODO **#10**;
-regenerate that figure with `npm run validate 2>&1 | grep -cE '^  - '`).
-Run it anyway and **compare against the base commit** — new failures are yours, the
-standing ones are not. Never report its red as a pass, and never report it as your
-failure without that comparison.
+`npm run validate` loads `bridge-agent.js` in a subprocess and then runs the
+**declaration-driven file-size gate** (`lib/file-size-gate.js`).
+
+**Since 2026-09-15 the size half of it is green, and a red there is yours.** It used to
+fail on every over-limit file unconditionally — 65 of them — so it was red on every run
+and a new violation could not be told apart from the standing ones without diffing path
+lists by hand. Twice in the week of 2026-09-08 nobody did. Every over-limit file now
+carries a recorded justification in `lib/validate-exceptions.json`, so the gate fails on:
+a file over 300 lines with no entry; an entry whose file is gone or is back under the
+limit; an entry with a blank reason; a path declared twice. **If your change puts a file
+over the limit, split it or add an entry with a real reason in the same change** — the
+cost of an exception is writing down why. The record behind every current entry (path,
+length, code-vs-comment, category, disposition, and the seam each deferred split would
+cut on) is WORK-TODO **#10**; whether the rule should cover `tests/` at all, and whether
+it should count code lines rather than raw lines, are argued and left undecided in **#44**.
+
+Regenerate: `node -e "const g=require('./lib/file-size-gate');const r=g.check();console.log(g.formatReport(r).join('\n'))"`,
+or just `npm run validate`. The guard in the suite is `tests/file-size-gate.test.js`.
+
+**The load check is still red without a populated `.env`** — it reports
+`Missing required env vars: SLACK_BOT_TOKEN, BRIDGE_CHANNEL_ID, OPS_CHANNEL_ID` and
+exits 1. That is a local-environment condition, not a code defect and not your failure;
+say so rather than reporting it as a pass or as yours.
 
 | Rule | Guard — cite this, not prose |
 |------|------------------------------|
@@ -99,7 +115,7 @@ failure without that comparison.
 | No unbound identifier in `bridge-agent.js` (catches `X is not defined` that unit tests miss) | `tests/bridge-agent-scope.test.js` |
 | The LLM fallback chain is actually wired in, and no circular deps | `tests/integration.test.js` |
 | No test invocation can report a pass without assertions having run: an absent runner, a non-zero exit before any assertion, a timeout and a fully skipped suite are each distinguishable from a pass, and every invocation site routes through `lib/test-verdict.js` | `tests/test-gate-honesty.test.js` |
-| No `.js` file over 300 lines; `bridge-agent.js` actually loads | `npm run validate` (`lib/validate.js`) |
+| No `.js` file over 300 lines without a recorded justification in `lib/validate-exceptions.json`; `bridge-agent.js` actually loads | `tests/file-size-gate.test.js`, and `npm run validate` (`lib/validate.js` -> `lib/file-size-gate.js`) |
 
 **On argv arrays and `git`:** an argv array defeats a *shell*, not `git`'s option
 parser. A positional value starting with `-` is read as a flag however it arrived.
