@@ -33,9 +33,10 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
-At the 2026-09-15 reconciliation those print **38** open items — 6 P1, 25 P2, 7 P3 — and
-no duplicates. (Was 36 — 4/25/7 — before #42 and #41 were filed on 2026-09-15 from the
-NAS hardening pass.)
+At the 2026-09-15 reconciliation those print **37** open items — 6 P1, 24 P2, 7 P3 — and
+no duplicates. (Was 35 — 4/24/7 — on `main` after #28 was closed by the email-rules-file
+work; the NAS hardening pass then filed #41 and #42 on 2026-09-15. This branch read **38**
+— 6/25/7 — before it merged `main`, because it was still counting #28 as open.)
 
 The index anchors follow GitHub's slugger: lowercase, drop punctuation **except**
 hyphen and underscore, spaces to hyphens. Four entries (#5, #20, #21, #34) previously
@@ -54,7 +55,7 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#3** — [The scheduler never checks `planned` status — CONFIRMED FIRING LIVE 2026-09-14](#3-the-scheduler-never-checks-planned-status--confirmed-firing-live-2026-09-14)
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 
-**P2 — real gaps, no risk to the running process** (25)
+**P2 — real gaps, no risk to the running process** (24)
 
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
@@ -67,7 +68,6 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#20** — [`MAX_TURNS` names four different quantities, and the env var is dead config](#20-max_turns-names-four-different-quantities-and-the-env-var-is-dead-config)
 - **#33** — [A UTC day key is used as the store's day, so evening staff tasks are filed against tomorrow](#33-a-utc-day-key-is-used-as-the-stores-day-so-evening-staff-tasks-are-filed-against-tomorrow)
 - **#32** — [One bulletin timestamp, three renderings — and the path every agent's prompt uses emits none](#32-one-bulletin-timestamp-three-renderings--and-the-path-every-agents-prompt-uses-emits-none)
-- **#28** — [The email rules file declares two categories the categorizer never reads, and using the file disables three it does](#28-the-email-rules-file-declares-two-categories-the-categorizer-never-reads-and-using-the-file-disables-three-it-does)
 - **#34** — [`DEPLOY_KEY_PATH` is read but undocumented](#34-deploy_key_path-is-read-but-undocumented)
 - **#35** — [Per-agent memory has TTL and decay but no max-entries cap](#35-per-agent-memory-has-ttl-and-decay-but-no-max-entries-cap)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
@@ -942,52 +942,6 @@ in one prompt and absent from another, for the same data — not a formatting pr
 called by all three. Emit at least date + time into `formatBulletinsForContext`; a bulletin
 list an agent cannot order is worse than no bulletin list.
 **Priority:** P2 | **Effort:** Low | **Status:** open
-
----
-
-### 28. The email rules file declares two categories the categorizer never reads, and using the file disables three it does
-**Filed 2026-09-14,** while tracing the scheduled inbox check for the deterministic-fetch
-work. Reported rather than fixed: changing what the operator's existing file *means* is a
-decision, not a refactor.
-
-`agents/email-monitor/memory/rules.json` is the operator's control surface — it is now the
-only thing deciding what an inbox check surfaces (`lib/email-check.js` ->
-`emailCategorizer.categorizeEmails`). Two of its five declared categories are never
-consulted, and three categories the code branches on are not in it:
-
-```bash
-# what the file declares
-node -e "console.log(Object.keys(require('./agents/email-monitor/memory/rules.json').categories))"
-# -> [ 'urgent', 'important', 'vendor_deal', 'newsletter', 'spam' ]
-# what categorizeEmail() actually branches on
-grep -n "rules.categories?\." lib/integrations/email-categorizer.js
-# -> vendor_deal, customer_inquiry, invoice, shipping, newsletter, spam
-```
-
-- **`urgent` and `important` are dead.** `categorizeEmail()` (`lib/integrations/email-categorizer.js:186`, the if-chain begins at `:197`)
-  is a hardcoded if-chain over six names and neither is among them. An operator adding a
-  keyword to `urgent` — whose declared `action` is `notify_immediately` — changes nothing.
-- **`customer_inquiry`, `invoice` and `shipping` are unreachable whenever the file
-  exists.** `loadRules()` (`:86`) *replaces* `DEFAULT_RULES` with the file rather than
-  merging over it, so `rules.categories.customer_inquiry` is `undefined` and each of those
-  three branches is skipped by its own `if (config && …)` guard. They fire only when the
-  file is missing or corrupt.
-- **`vendor_deal` ignores its own config.** The branch returns hardcoded
-  `priority: 'high'`, `action: 'push_to_secretary'` (`:239-243`) instead of calling the
-  `determinePriority`/`determineAction` helpers two functions above it, so editing those
-  two keys in the file also does nothing.
-
-Net: of the five categories an operator can see and edit, exactly two (`newsletter`,
-`spam`) behave as the file implies, and one (`vendor_deal`) matches on keywords but
-ignores its own action and priority.
-
-**Fix — a decision first, then a small change.** Either (a) make `loadRules()` merge the
-file over `DEFAULT_RULES` and add `urgent`/`important` to the chain, or (b) replace the
-if-chain with a generic pass over `rules.categories` in declared order. (b) is the honest
-shape — the file becomes the whole specification — but it changes the match order for
-existing mail, so it needs a fixture-based test first. Either way `vendor_deal` should go
-through the two helpers like every other category.
-**Priority:** P2 | **Effort:** Low (a) / Medium (b) | **Status:** open
 
 ---
 
