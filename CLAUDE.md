@@ -695,6 +695,13 @@ slack-agent-bridge/
 │   └── decompose/
 │       └── SKILL.md      # Task decomposition: break complex tasks into subtasks
 ├── tests/
+│   ├── fixtures/
+│   │   └── channel-map.json     # THE tracked channel-name -> id map the suites resolve against. Its ids are deliberately fake (C0FIX*) — a real workspace id never has to appear in a tracked test to make one pass. Exists because agents/shared/channel-map.json is gitignored, so 30 assertions were red in every fresh clone (WORK-TODO #50)
+│   ├── helpers/
+│   │   ├── workspace-fixture.js # useFixtureWorkspace(): copies tests/fixtures/channel-map.json into a temp dir and points lib/bridge-state.js at the copy for the life of a suite. A suite gets a workspace instead of whichever workspace the checkout is sitting in, and a suite that RESOLVES a channel writes the copy, never the live map
+│   │   ├── live-state-setup.js  # jest globalSetup: fingerprints every durable state file (agents/shared/*.json + .bridge-agent-state.json), enumerated from disk. Also exports the pure diff() the teardown compares with
+│   │   └── live-state-teardown.js # jest globalTeardown: THE guard that a test run never writes the files the deployment reads. Throws — failing the whole run — naming each file that was created, modified or deleted
+│   ├── live-state-guard.test.js # The negative controls for that guard: it runs outside every suite, so without these its only evidence of working is a green run, which is what a guard comparing nothing also produces
 │   ├── smoke.test.js            # Smoke tests: module loading, dotenv checks, export verification
 │   ├── integration.test.js      # Integration tests: critical paths, wiring, no circular deps
 │   ├── bug-fixes.test.js        # Regression tests for named past defects: rate-limit false positives, memory-file corruption resilience, null exit code = interrupted, stale working memory, addTask on corrupted tasks.json

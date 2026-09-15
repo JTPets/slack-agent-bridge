@@ -35,6 +35,14 @@ const source = fs.readFileSync(path.join(REPO_ROOT, 'bridge-agent.js'), 'utf8');
 const { loadAgents, getAgent } = require('../lib/agent-registry');
 const { activeChannels, describeSchedule } = require('../lib/agent-surface');
 
+// LOGIC CHANGE 2026-09-15: this suite resolves agent channels, and until now it did
+// that against `agents/shared/channel-map.json` — gitignored, so absent from every
+// clone, so this suite was red in a fresh checkout for a reason unrelated to any
+// change under test (WORK-TODO #50). It now runs against the TRACKED fixture
+// workspace in tests/fixtures/channel-map.json, copied to a temp dir.
+require('./helpers/workspace-fixture').useFixtureWorkspace();
+
+
 /** Strip // line comments and block comments, leaving strings intact. */
 function stripComments(src) {
     return src

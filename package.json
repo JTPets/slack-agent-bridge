@@ -21,5 +21,9 @@
   "devDependencies": {
     "jest": "^30.3.0",
     "supertest": "^7.2.2"
+  },
+  "jest": {
+    "globalSetup": "<rootDir>/tests/helpers/live-state-setup.js",
+    "globalTeardown": "<rootDir>/tests/helpers/live-state-teardown.js"
   }
 }

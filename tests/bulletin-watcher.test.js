@@ -18,6 +18,14 @@ const {
     RATE_LIMIT_MS,
 } = require('../lib/bulletin-watcher');
 
+// LOGIC CHANGE 2026-09-15: this suite resolves agent channels, and until now it did
+// that against `agents/shared/channel-map.json` — gitignored, so absent from every
+// clone, so this suite was red in a fresh checkout for a reason unrelated to any
+// change under test (WORK-TODO #50). It now runs against the TRACKED fixture
+// workspace in tests/fixtures/channel-map.json, copied to a temp dir.
+require('./helpers/workspace-fixture').useFixtureWorkspace();
+
+
 describe('bulletin-watcher', () => {
     let mockSlack;
 

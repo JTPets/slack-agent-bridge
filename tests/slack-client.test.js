@@ -5,12 +5,43 @@
  *
  * LOGIC CHANGE 2026-03-26: Initial test suite for Slack channel management functions.
  * LOGIC CHANGE 2026-03-28: Added tests for joinAgentChannels(), loadChannelMap(), saveChannelMap().
+ *
+ * LOGIC CHANGE 2026-09-15: this suite no longer writes the LIVE channel map.
+ * `ensureChannel()` caches every resolution through `saveChannelMap()`, so the
+ * ensureChannel tests below were writing `test-channel`, `new-channel` and
+ * `my-channel` — three invented ids — into `agents/shared/channel-map.json`, the file
+ * the running bridge resolves agent channels from. That is WORK-TODO #24's shape with
+ * a twist worth naming: the override seam ALREADY existed (ownership of the map moved
+ * to `lib/bridge-state.js init({ channelMapFile })` on 2026-09-15) and this suite
+ * simply never used it, which is why #24's proposed source-shape enumerator would not
+ * have caught it. The whole-run guard that does is jest `globalSetup`/`globalTeardown`
+ * (`tests/helpers/live-state-*.js`).
  */
 
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { createSlackClient, loadChannelMap, saveChannelMap, CHANNEL_NAME_MAX_LENGTH, CHANNEL_NAME_PATTERN } = require('../lib/slack-client');
+const bridgeState = require('../lib/bridge-state');
+
+// Every channel-map read and write in this file lands in a temp directory. Set up
+// once for the whole file rather than per-describe: `loadChannelMap`/`saveChannelMap`
+// are re-exports of bridge-state's, so ONE unscoped path anywhere in the file is
+// enough to write the live map.
+let mapWorkspace;
+beforeEach(() => {
+    mapWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'slack-client-map-'));
+    bridgeState.init({
+        channelMapFile: path.join(mapWorkspace, 'channel-map.json'),
+        activationFile: path.join(mapWorkspace, 'agent-activation.json'),
+        stateFile: path.join(mapWorkspace, 'state.json'),
+        processedTasksFile: path.join(mapWorkspace, 'processed-tasks.json'),
+    });
+});
+afterEach(() => {
+    if (mapWorkspace) fs.rmSync(mapWorkspace, { recursive: true, force: true });
+    mapWorkspace = null;
+});
 
 // Mock @slack/web-api
 jest.mock('@slack/web-api', () => ({
@@ -542,11 +573,21 @@ describe('channel-map functions', () => {
     });
 
     it('loadChannelMap should return {} when file does not exist', () => {
-        // The actual CHANNEL_MAP_FILE path is inside the project
-        // We test the self-healing behavior using corrupt data
-        const result = loadChannelMap();
-        expect(typeof result).toBe('object');
-        expect(Array.isArray(result)).toBe(false);
+        // LOGIC CHANGE 2026-09-15: this used to read the REAL project map and assert
+        // only its type, with a tempDir built beside it that the module ignored. It
+        // now reads the temp map this file owns, so "does not exist" is a fact rather
+        // than a hope.
+        expect(loadChannelMap()).toEqual({});
+    });
+
+    it('saveChannelMap writes where the override points, never the project file', () => {
+        saveChannelMap({ 'a-channel': 'C_TEMP_ONLY' });
+        expect(loadChannelMap()).toEqual({ 'a-channel': 'C_TEMP_ONLY' });
+        expect(fs.existsSync(path.join(mapWorkspace, 'channel-map.json'))).toBe(true);
+        // Deliberately NOT asserted here: that the project's own map is absent. In a
+        // real workspace it legitimately exists, so that assertion would be a fact
+        // about the checkout. "This run did not write it" is a whole-run property and
+        // belongs to the globalTeardown guard, which owns it.
     });
 
     it('saveChannelMap and loadChannelMap should be exported functions', () => {

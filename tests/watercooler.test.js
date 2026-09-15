@@ -86,6 +86,24 @@ jest.mock('../lib/agent-registry', () => ({
 
 const watercooler = require('../lib/watercooler');
 
+// LOGIC CHANGE 2026-09-15: this suite drives runStandup(), which calls
+// saveLastStandupTime(), which was writing the LIVE
+// agents/shared/watercooler-state.json on every run — WORK-TODO #24's
+// lib/watercooler.js row, live rather than latent. The module now takes the same
+// init({ stateFile }) override lib/bridge-state.js and lib/approval-queue.js have,
+// and this points it at a temp directory. The whole-run guard is jest
+// globalSetup/globalTeardown (tests/helpers/live-state-*.js).
+let standupStateDir;
+beforeEach(() => {
+    standupStateDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'watercooler-state-'));
+    watercooler.init({ stateFile: path.join(standupStateDir, 'watercooler-state.json') });
+});
+afterEach(() => {
+    if (standupStateDir) fs.rmSync(standupStateDir, { recursive: true, force: true });
+    standupStateDir = null;
+    watercooler.init();
+});
+
 describe('watercooler', () => {
     // Store original env
     const originalEnv = process.env;
