@@ -376,6 +376,58 @@ has seen. That is deliberate for now: an agent has no memory of a bulletin betwe
 conversations, so filtering seen ones would make the stream emptier, not cleaner.
 
 
+---
+
+## Activating an agent in this workspace
+
+An agent is *defined* in `agents/<id>/agent.md` (tracked) and *activated* in this
+workspace (local). The commands act on what the markdown already defines; they
+invent no agent, and **nothing here creates a Slack channel.**
+
+```
+ASK: available            # defined agents not activated here, and what each waits on
+ASK: activate <id>        # resolve the declared channel, join, poll, schedule
+ASK: deactivate <id>      # stop polling and scheduling; keep the resolved channel
+```
+
+They are verbs in the one command table (`lib/command-router.js`), implemented in
+`lib/agent-activation.js`. `activate` does all four things or none of them:
+
+1. resolve the declared `channel_name` to an id — local map first, then Slack by
+   name, **find-only**;
+2. join the channel;
+3. rebuild the poll set;
+4. register the agent's schedule.
+
+**Where the declared channel does not exist, it refuses and changes nothing.** No
+activation is recorded, no join is attempted, and the message says which channel name
+failed. That matches what the scheduler does for a channel-less agent, and it is the
+correct behaviour: creating a channel is an owner action with a cost outside this
+repository. `available` separates *ready* from *blocked* for exactly this reason.
+
+### Does an activation survive a restart and a pull?
+
+**Yes — the decision does.** It is written to `agents/shared/agent-activation.json`,
+which is **gitignored**, so `git reset --hard HEAD` (which auto-update runs before
+every pull) and `git clean -fd` both leave it alone. The resolved channel id lives in
+`agents/shared/channel-map.json`, also gitignored, so re-activating an agent never
+needs a second Slack lookup. This is the whole reason activation is not a `status`
+field in a tracked file: that edit was destroyed twice by a hard reset.
+
+**The live effect is separate, and the command tells you which one you got.** The
+poll set and the cron registrations are derived once at startup, so the handler asks
+bridge-agent to re-derive them through `onActivationChanged` (`reRegisterAgents()`),
+which rebuilds `channelsToPoll` and restarts the scheduler. When that hook is present
+the verdict says the agent is *now polled with its schedule registered*; when it is
+absent or throws, the verdict says the decision is recorded and takes effect on the
+next `docker compose restart jt-agent`. It never claims a live effect it did not
+have — `tests/agent-activation.test.js` asserts both wordings.
+
+One thing it cannot do: **deploy.** Merging this repository changes nothing on the
+NAS until a human restarts the container (`CLAUDE.md` → "Self-update — DESIGNED AND
+TESTED, NOT WIRED"). The commands act on the *running* process they are typed into.
+
+
 ## Adding a New Agent
 
 1. **Define the agent** in `agents/agents.json`:

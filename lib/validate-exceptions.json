@@ -338,6 +338,16 @@
       "path": "lib/bridge-state.js",
       "lines_when_declared": 373,
       "reason": "DEFERRED, and the split it invites is the one thing that must not happen. This module is the single owner of the bridge's durable local state, and it went over the limit on 2026-09-15 when it took on the workspace-resolved half of an agent definition (channel-map.json, moved here from lib/slack-client.js, and the new agent-activation.json). Cutting it back under 300 means giving one of the four state files a second owner module, which is exactly the multiple-owners problem the consolidation removed: channel-map.json already had an owner that the boot path never called, and nothing noticed for six months. The honest seam is by FILE, not by line count — poll-cursors+dedup (bridge runtime) versus channel-map+activation (agent workspace state) — and it is worth cutting only if a third consumer appears that needs one half without the other. Recorded against WORK-TODO #10."
+    },
+    {
+      "path": "lib/command-router.js",
+      "lines_when_declared": 316,
+      "reason": "DEFERRED, with a named seam. It went over on 2026-09-15 when the activation verbs were registered. The verbs themselves cost 20 lines; the bulk is four inline handlers (help, status, agents, holidays) that are RENDERERS of other modules' data and belong with those modules — which is exactly where the activation handlers were put (lib/agent-activation.js), so the pattern is already established and the remaining four are the seam. Moving them touches lib/agent-llm-resolver.js, lib/agent-surface.js and lib/integrations/holidays.js, so it is its own change rather than something bundled into a feature. The TABLE must stay in one file: it is the thing tests/command-router.test.js enumerates. Recorded against WORK-TODO #10."
+    },
+    {
+      "path": "tests/agent-activation.test.js",
+      "lines_when_declared": 361,
+      "reason": "JUSTIFIED, PROVISIONALLY — same footing as tests/llm-runner.test.js. It covers one coherent surface (definition + workspace state -> a running agent) across its three layers: the two durable stores, applyWorkspaceState's merge, and the activate/deactivate/available command handlers. Splitting it by layer would separate assertions that only mean anything together — that activation refuses when the channel does not exist, AND that nothing is recorded when it refuses. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was meant to reach tests/ at all is argued on both sides and left undecided in WORK-TODO #44; until that is decided this is declared rather than cut."
     }
   ]
 }

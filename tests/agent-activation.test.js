@@ -227,3 +227,134 @@ describe('the activation store is gitignored, which is the whole durability clai
         expect(ignore).toMatch(/^agents\/shared\/channel-map\.json$/m);
     });
 });
+
+describe('the activation command surface', () => {
+    const activation = require('../lib/agent-activation');
+    const registry = require('../lib/agent-registry');
+    const router = require('../lib/command-router');
+
+    function slackStub(known = {}) {
+        return {
+            findChannelByName: jest.fn(async (name) => (known[name] ? { channelId: known[name], name } : null)),
+            joinAgentChannels: jest.fn(async (channels) => ({ joined: channels.length, failed: 0, total: channels.length })),
+        };
+    }
+
+    test('the verbs are registered in the one command table', () => {
+        for (const verb of ['available', 'activate', 'deactivate']) {
+            expect(router.listVerbs()).toContain(verb);
+            expect(router.isCommand(verb)).toBe(true);
+        }
+    });
+
+    test('available lists what the markdown defines, separating ready from blocked', async () => {
+        const result = await activation.handleAvailable();
+        expect(result.ok).toBe(true);
+        // Blocked agents are the ones whose declared channel has not resolved.
+        const blocked = registry.loadAgents().filter(a => a.status === 'planned' && !a.channel);
+        for (const agent of blocked) expect(result.text).toContain(agent.id);
+        expect(result.text).toMatch(/Nothing here creates a channel/);
+    });
+
+    test('available invents no agent — every agent it lists is one the registry defines', async () => {
+        const defined = new Set(registry.loadAgents().map(a => a.id));
+        // Each listed agent is a bullet line opening with its id in backticks.
+        const listed = [...(await activation.handleAvailable()).text.matchAll(/^• `([^`]+)`/gm)].map(m => m[1]);
+        expect(listed.length).toBeGreaterThan(0);
+        expect(listed.filter(id => !defined.has(id))).toEqual([]);
+    });
+
+    test('activate refuses an agent whose declared channel does not exist, and says why', async () => {
+        const planned = registry.loadAgents().find(a => a.status === 'planned' && !a.channel);
+        const result = await activation.handleActivate({ args: planned.id, slackClient: slackStub() });
+        expect(result.ok).toBe(false);
+        expect(result.text).toMatch(/does not exist in this workspace/);
+        expect(result.text).toMatch(/Nothing was changed/);
+        expect(bridgeState.getActivation(planned.id)).toBeNull();
+    });
+
+    test('activate with no argument explains itself rather than guessing an agent', async () => {
+        const result = await activation.handleActivate({ args: '   ' });
+        expect(result.ok).toBe(false);
+        expect(result.text).toMatch(/Usage/);
+    });
+
+    // THE honesty assertion. An activation that cannot reach the running poll loop
+    // must SAY a restart is needed. Claiming live effect it did not have is the
+    // failure this whole dispatch exists to stop.
+    test('without the re-registration hook it says a restart is needed, and does not imply otherwise', async () => {
+        const planned = registry.loadAgents().find(a => a.status === 'planned' && !a.channel);
+        const result = await activation.handleActivate({
+            args: planned.id,
+            slackClient: slackStub({ [planned.channel_name]: 'C_NEW' }),
+        });
+        expect(result.ok).toBe(true);
+        expect(result.text).toMatch(/takes effect on the next/);
+        expect(result.text).toMatch(/docker compose restart/);
+        expect(result.text).not.toMatch(/now polled/);
+    });
+
+    test('with the hook it reports live effect, and the hook actually ran', async () => {
+        const planned = registry.loadAgents().find(a => a.status === 'planned' && !a.channel);
+        const onActivationChanged = jest.fn();
+        const result = await activation.handleActivate({
+            args: planned.id,
+            slackClient: slackStub({ [planned.channel_name]: 'C_NEW' }),
+            onActivationChanged,
+        });
+        expect(result.ok).toBe(true);
+        expect(onActivationChanged).toHaveBeenCalled();
+        expect(result.text).toMatch(/now polled, with its schedule registered/);
+    });
+
+    test('a hook that throws downgrades the claim instead of reporting success', async () => {
+        const planned = registry.loadAgents().find(a => a.status === 'planned' && !a.channel);
+        const result = await activation.handleActivate({
+            args: planned.id,
+            slackClient: slackStub({ [planned.channel_name]: 'C_NEW' }),
+            onActivationChanged: jest.fn(() => { throw new Error('registrar exploded'); }),
+        });
+        expect(result.text).toMatch(/registrar exploded/);
+        expect(result.text).toMatch(/takes effect on the next restart/);
+    });
+
+    // The durability claim, asserted rather than only written down.
+    test('every activation verdict states that the decision survives a restart and a pull', async () => {
+        const planned = registry.loadAgents().find(a => a.status === 'planned' && !a.channel);
+        const activated = await activation.handleActivate({
+            args: planned.id,
+            slackClient: slackStub({ [planned.channel_name]: 'C_NEW' }),
+            onActivationChanged: jest.fn(),
+        });
+        const deactivated = await activation.handleDeactivate({ args: planned.id, onActivationChanged: jest.fn() });
+        for (const text of [activated.text, deactivated.text]) {
+            expect(text).toMatch(/survives a restart and a `git pull`/);
+            expect(text).toMatch(/gitignored/);
+        }
+    });
+
+    test('deactivate keeps the resolved channel so re-activating needs no Slack lookup', async () => {
+        const planned = registry.loadAgents().find(a => a.status === 'planned' && !a.channel);
+        await activation.handleActivate({
+            args: planned.id,
+            slackClient: slackStub({ [planned.channel_name]: 'C_NEW' }),
+            onActivationChanged: jest.fn(),
+        });
+        await activation.handleDeactivate({ args: planned.id, onActivationChanged: jest.fn() });
+        expect(bridgeState.getActivation(planned.id)).toBe(false);
+        expect(bridgeState.getChannelId(planned.channel_name)).toBe('C_NEW');
+    });
+
+    test('bridge-agent supplies both seams the verbs need', () => {
+        const src = fs.readFileSync(path.join(__dirname, '..', 'bridge-agent.js'), 'utf8');
+        const call = src.slice(src.indexOf('commandRouter.runCommand('));
+        const ctx = call.slice(0, call.indexOf('});'));
+        expect(ctx).toMatch(/slackClient/);
+        expect(ctx).toMatch(/onActivationChanged: reRegisterAgents/);
+        // And the hook re-derives BOTH pieces of startup-only state.
+        const fn = src.slice(src.indexOf('function reRegisterAgents()'));
+        const body = fn.slice(0, fn.indexOf('\n}'));
+        expect(body).toMatch(/buildChannelsToPoll\(\)/);
+        expect(body).toMatch(/startScheduler\(slack\)/);
+    });
+});

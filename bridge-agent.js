@@ -1212,6 +1212,17 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
         agent: agentConfig,
         channelId: sourceChannel,
         userId: msg.user,
+        // LOGIC CHANGE 2026-09-15: the two seams the activation verbs need.
+        // `slackClient` is the wrapper that can FIND a channel by name (it never
+        // creates one here — lib/agent-activation.js names no create API at all).
+        slackClient,
+        // `onActivationChanged` re-derives the startup-only state so an activation
+        // takes effect now rather than at the next restart. `channelsToPoll` and the
+        // scheduler's jobs are both built once at boot (docs/AGENTS.md), so without
+        // this an activation would be recorded and do nothing visible for hours.
+        // The handler reports which of the two happened; it never claims live effect
+        // it did not have.
+        onActivationChanged: reRegisterAgents,
       });
       if (routed.handled) {
         console.log(`[${agentId}] Command \`${routed.verb}\` handled: ${msg.ts} (ok=${routed.ok})`);
@@ -2002,6 +2013,29 @@ function buildChannelsToPoll() {
     agentId: entry.agentId,
     agentConfig: entry.agentId === 'bridge' ? agentConfig : getAgent(entry.agentId),
   }));
+}
+
+/**
+ * Re-derive the two pieces of state that are otherwise built only at startup: the
+ * poll set and the scheduler's cron registrations.
+ *
+ * LOGIC CHANGE 2026-09-15: activating an agent has to change what the RUNNING
+ * process does, or it is a decision with no effect until someone restarts the
+ * container — and deploys here are manual, so that could be days.
+ *
+ * It re-registers EVERY agent rather than adding one, by stopping the scheduler and
+ * starting it again. Registration is idempotent and cron jobs hold no state, so this
+ * reuses the one code path that already exists instead of adding a second, partial
+ * one that could disagree with it.
+ *
+ * @returns {{ channels: number, jobs: number }}
+ */
+function reRegisterAgents() {
+  channelsToPoll = buildChannelsToPoll();
+  stopScheduler();
+  const result = startScheduler(slack);
+  console.log(`[bridge-agent] Re-registered: ${channelsToPoll.length} channel(s), ${result.jobCount} job(s)`);
+  return { channels: channelsToPoll.length, jobs: result.jobCount };
 }
 
 console.log('[bridge-agent] Starting v2');
