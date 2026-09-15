@@ -182,6 +182,13 @@ const { redact } = require('./lib/redact-secrets');
 // docs/WIRING-AND-SEAMS.md. Pure fs/execFileSync helpers with no bridge state.
 const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-lifecycle');
 
+// LOGIC CHANGE 2026-09-14: Additive Slack Socket Mode connection for slash commands.
+// It does NOT carry messages: the poll loop below is untouched and remains the only
+// path a TASK:/ASK: message arrives on. Registering no commands in this change, so
+// the connection comes up, reports itself, survives a disconnect, and does nothing
+// else. See lib/slack-socket.js and docs/WIRING-AND-SEAMS.md section 7.
+const { startSocketMode } = require('./lib/slack-socket');
+
 // ---- Config ----
 
 // Validate required config
@@ -2072,6 +2079,11 @@ console.log(`  Scheduler: ${schedulerResult.jobCount} jobs (${schedulerResult.ag
 // LOGIC CHANGE 2026-03-28: Join all agent channels before starting the poll loop.
 // Runs async so the bot is guaranteed to be in all channels before first poll.
 // This must happen on EVERY startup — channels might be recreated while offline.
+// LOGIC CHANGE 2026-09-14: Holds the Socket Mode handle so gracefulShutdown can
+// close the connection. Stays null when Socket Mode is off — a normal state — and
+// also while the startup IIFE below is still resolving it.
+let socketMode = null;
+
 // LOGIC CHANGE 2026-03-30: Also validates Gemini API at startup so a bad model
 // name or expired key shows up immediately in logs instead of silently on the
 // first ASK message. Does not block the poll loop from starting.
@@ -2092,6 +2104,24 @@ console.log(`  Scheduler: ${schedulerResult.jobCount} jobs (${schedulerResult.ag
   }
   poll();
   setInterval(poll, POLL_INTERVAL);
+
+  // LOGIC CHANGE 2026-09-14: Open the Socket Mode connection LAST and do not await
+  // it. The ordering is the additivity proof, not a style choice: the poll loop is
+  // already running by the time this line is reached, so a Socket Mode connection
+  // that is unconfigured, slow, or failing cannot delay or prevent the one path
+  // every task actually arrives on. startSocketMode() never rejects — the .catch()
+  // is a belt-and-braces guard against a future edit breaking that promise, and it
+  // logs rather than throwing so an unhandled rejection can never kill the bridge.
+  startSocketMode()
+    .then((handle) => {
+      socketMode = handle;
+      if (!handle.started) {
+        console.log(`[bridge-agent] Socket Mode not started (${handle.reason}). Poll loop unaffected.`);
+      }
+    })
+    .catch((socketErr) => {
+      console.error('[bridge-agent] Socket Mode startup threw unexpectedly:', socketErr.message);
+    });
 })();
 
 // LOGIC CHANGE 2026-03-27: Graceful shutdown handler for SIGTERM and SIGINT.
@@ -2111,6 +2141,23 @@ async function gracefulShutdown(signal) {
     stopScheduler();
   } catch (err) {
     console.error('[bridge-agent] Failed to stop scheduler:', err.message);
+  }
+
+  // LOGIC CHANGE 2026-09-14: Close the Socket Mode connection, if one is open, so a
+  // deliberate shutdown is not reported to #sqtools-ops as an unexplained outage.
+  // Bounded, because a wedged WebSocket must not hold shutdown open: this runs before
+  // the ops post and before the up-to-60s wait for a running task, and a socket that
+  // will not close within SOCKET_STOP_TIMEOUT_MS is abandoned rather than awaited.
+  if (socketMode && typeof socketMode.stop === 'function') {
+    const SOCKET_STOP_TIMEOUT_MS = 5000;
+    try {
+      await Promise.race([
+        socketMode.stop(),
+        new Promise((resolve) => setTimeout(resolve, SOCKET_STOP_TIMEOUT_MS)),
+      ]);
+    } catch (err) {
+      console.error('[bridge-agent] Failed to stop Socket Mode:', err.message);
+    }
   }
 
   // Notify ops channel about shutdown

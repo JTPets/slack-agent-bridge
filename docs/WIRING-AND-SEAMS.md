@@ -50,7 +50,7 @@ that is checkable, not just that it could be started.
 
 | Entry point | How it starts | Role |
 |-------------|---------------|------|
-| `bridge-agent.js` | `node bridge-agent.js` (container `command:`) | The bridge: polls Slack, runs tasks, handles ASK commands |
+| `bridge-agent.js` | `node bridge-agent.js` (container `command:`) | The bridge: polls Slack, runs tasks, handles ASK commands. Since 2026-09-14 it also starts an **additive** Socket Mode connection for slash commands (§7) — started after the poll interval is armed, never awaited, and off by default |
 | `auto-update.js` | **Nothing starts it** (verified 2026-09-14) | Git-poll → verify → `process.exit(0)` self-deploy — *designed, tested, not running* |
 | `morning-digest.js` | cron `0 8 * * *` | Daily digest DM |
 | `security-review.js` | cron `0 1 * * *` | Nightly commit audit |
@@ -346,6 +346,94 @@ the lock is the only thing that would tell it a task is in flight.
   helpers) before attempting the orchestrator itself. Splitting the orchestrator is a
   separate, higher-risk project — do it after A–E have shrunk the file and proven the
   extraction discipline.
+
+---
+
+## 7. The Socket Mode connection — additive, commands only (2026-09-14)
+
+`lib/slack-socket.js` opens one Socket Mode WebSocket. **It is not an entry point** — it
+has no `main()` and nothing starts it on its own; `bridge-agent.js` starts it, which is
+the distinction section 1 exists to make.
+
+### What it is for, and why the parser is not the thing to fix
+
+A dispatch reaches the bridge as a Slack message whose first lines carry
+`TASK:`/`REPO:`/`BRANCH:`/`TURNS:`/`INSTRUCTIONS:`. Flatten that block onto a single line
+— which is what Slack does to some pasted multi-line input — and the labels are no longer
+at the start of a line, so `REPO:` absorbs the rest of the message and the task runs
+against no repository, at the default turn budget rather than the one asked for. Three
+tasks failed that way on 2026-09-14, each after ten to fifteen minutes of work.
+
+`lib/task-parser.js` is behaving correctly. `FIELD_LABELS` are uppercase and line-anchored
+deliberately (CLAUDE.md -> "Field Label Rules"), and the 2026-09-14 change that refuses a
+non-canonical label rather than silently downgrading the task is the right shape. The loss
+happens **before** the parser sees anything: it is a property of the transport. A form with
+separate inputs cannot be flattened, a slash command is what opens a form, and a slash
+command needs a socket.
+
+### What this change built, and what it deliberately did not
+
+| Built | Not built |
+|---|---|
+| A Socket Mode connection that opens, reports ready, reconnects, and reports an outage that does not recover | Any registered slash command |
+| The `onSlashCommand` seam, plus a defensive `ack` so an unhandled command never hangs | Any modal / form |
+| `SLACK_APP_TOKEN`, documented, with its absence handled as a normal state | Any submission -> task-message path |
+
+### Additivity — how it is enforced, not asserted
+
+The poll loop is the only way a task arrives, **including the task that would repair the
+poll loop**. So the socket may never be on its critical path. Three mechanisms, each with
+a test in `tests/slack-socket.test.js`:
+
+1. **Ordering.** `startSocketMode()` is called after `setInterval(poll, POLL_INTERVAL)`
+   and is not awaited (`describe('the wiring in bridge-agent.js')`). The poll loop is
+   already running before the socket is touched.
+2. **Total failure containment.** `startSocketMode()` never throws and never rejects.
+   Every failure — `not_configured`, `invalid_token_shape`, `dependency_missing`,
+   `start_failed` — resolves to `{ started: false, reason }` and posts to `#sqtools-ops`.
+3. **Lazy dependency.** `@slack/socket-mode` is `require`d inside the start call, not at
+   module load, so a dependency that is absent or broken cannot stop
+   `require('./bridge-agent.js')`. The container installs dependencies at start, so
+   "absent" is a state that can actually happen here.
+
+A fourth property is asserted for the same reason: the socket subscribes to exactly
+`connected`, `disconnected`, `reconnecting` and `slash_commands` — never `message` or
+`app_mention`. If it ever received messages, message intake would have two owners and the
+dedup/authorisation gate in `poll()` would no longer be the single one.
+
+### Relationship to WORK-TODO #4
+
+#4 proposes **replacing** the poll loop with Socket Mode. This is not that, and does not
+close it. #4's risk is exactly what this change refuses to take: it would make the only
+message path depend on a connection that is new, unconfigured on the box, and dependent on
+an app setting no repository controls. This change makes the connection exist and be
+observable first. If it proves boring for a while, #4 becomes a much smaller decision; if
+it does not, the poll loop never noticed.
+
+### What the NEXT change has to do
+
+1. **Register the command in the Slack app configuration** (`/task`, say). In Socket Mode
+   a slash command needs **no Request URL** — that is the point of the socket.
+2. **Attach a handler**: pass `onSlashCommand({ ack, body })` to `startSocketMode()`. The
+   seam is marked `THE COMMAND SEAM` in `lib/slack-socket.js`. Acknowledge within 3
+   seconds and open the modal from the `trigger_id`; do the work after the ack, never
+   before it.
+3. **Open a modal with SEPARATE inputs** — task, repo, branch, turns, instructions. Five
+   fields is the entire point: nothing a user types into a multiline input can merge two
+   of them.
+4. **Build the task the way the parser reads it back.** Uppercase, line-anchored labels.
+   That round trip is already pinned in `tests/integration.test.js` (three modules in this
+   repo generate task messages that `parseTask` reads back) — the new generator belongs in
+   that pin.
+5. **Reuse the existing gates, do not re-derive them.** `lib/git-identifiers.js` validates
+   `REPO:`/`BRANCH:` (reject, never sanitise); `isUserAuthorized` is the allowlist;
+   `lib/bridge-state.js` owns dedup. A modal submission is Slack-controlled input reaching
+   a `git` argv array, exactly like a message body.
+6. **Decide where the resulting task enters the pipeline** — and say so. Posting the
+   assembled message to `#claude-bridge` and letting `poll()` pick it up keeps one intake
+   path and one dedup owner, at the cost of up to `POLL_INTERVAL_MS` latency. Calling
+   `processTask` directly is faster and creates a second intake path. That is a decision,
+   not a detail.
 
 ---
 

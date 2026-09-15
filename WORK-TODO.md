@@ -33,10 +33,12 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
-At the 2026-09-15 reconciliation those print **37** open items — 6 P1, 24 P2, 7 P3 — and
-no duplicates. (Was 35 — 4/24/7 — on `main` after #28 was closed by the email-rules-file
-work; the NAS hardening pass then filed #41 and #42 on 2026-09-15. This branch read **38**
-— 6/25/7 — before it merged `main`, because it was still counting #28 as open.)
+At the 2026-09-15 reconciliation those print **38** open items — 7 P1, 24 P2, 7 P3 — and
+no duplicates. (Was 35 — 4/24/7 — after #28 was closed by the email-rules-file work; the
+NAS hardening pass then filed #41 and #42, and the additive Socket Mode connection filed
+#43, all on 2026-09-15. That last item was filed as #41 on its own branch and renumbered
+when the two branches turned out to have picked the same ID independently — IDs are never
+reused, so one of them had to move rather than collide.)
 
 The index anchors follow GitHub's slugger: lowercase, drop punctuation **except**
 hyphen and underscore, spaces to hyphens. Four entries (#5, #20, #21, #34) previously
@@ -46,7 +48,7 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 
 *Regenerated from the headings. Do not append to it by hand; re-run the command above.*
 
-**P1 — protects or unblocks the live deployment** (6)
+**P1 — protects or unblocks the live deployment** (7)
 
 - **#42** — [Every backup this system has lives on the box it backs up, and their liveness is checked by nothing](#42-every-backup-this-system-has-lives-on-the-box-it-backs-up-and-their-liveness-is-checked-by-nothing)
 - **#41** — [The NAS is the single point of failure for every stack and every credential, and its exposure has never been established](#41-the-nas-is-the-single-point-of-failure-for-every-stack-and-every-credential-and-its-exposure-has-never-been-established)
@@ -54,6 +56,7 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#25** — [The preserved scratch clone does not survive a container recreation — silent data loss inside the feature that prevents silent data loss](#25-the-preserved-scratch-clone-does-not-survive-a-container-recreation--silent-data-loss-inside-the-feature-that-prevents-silent-data-loss)
 - **#3** — [The scheduler never checks `planned` status — CONFIRMED FIRING LIVE 2026-09-14](#3-the-scheduler-never-checks-planned-status--confirmed-firing-live-2026-09-14)
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
+- **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
 **P2 — real gaps, no risk to the running process** (24)
 
@@ -91,7 +94,6 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#14** — [Watercooler retro → LinkedIn draft](#14-watercooler-retro--linkedin-draft)
 - **#15** — [Task complexity auto-scaling TURNS](#15-task-complexity-auto-scaling-turns)
 - **#16** — [Channel-per-task archive mode](#16-channel-per-task-archive-mode)
----
 
 ## P1 — Protects or unblocks the live deployment
 
@@ -454,7 +456,50 @@ per-message processing path (`processTask`/`processConversation`) is unchanged.
 (`processed-tasks.json`) and channel-join startup logic intact; they are not
 polling-specific.
 
-**Priority:** P1 | **Effort:** Medium | **Status:** open (re-verified 2026-09-14: `grep -c socket-mode package.json` -> 0)
+**Priority:** P1 | **Effort:** Medium | **Status:** open — but the premise moved on 2026-09-14.
+`@slack/socket-mode` is now a dependency and `lib/slack-socket.js` runs a live Socket Mode
+connection, so the "no dependency exists" evidence above is stale (`grep -c socket-mode package.json`
+-> 1 now, not 0). What landed is **additive and carries slash commands only**; the poll loop is
+untouched and is still the sole message path, deliberately — see #43 and
+[`docs/WIRING-AND-SEAMS.md` section 7](docs/WIRING-AND-SEAMS.md). This item is what remains: moving
+**message intake** off polling. It is now cheaper (the connection, the token, the reconnect
+reporting and the app configuration all exist) and should stay parked until the connection has been
+boring for a while, because the poll loop is how the task that would repair it gets dispatched.
+
+---
+
+### 43. A flattened dispatch loses its fields — the connection for the fix exists, the command does not
+**Source:** three tasks on 2026-09-14 that ran with no repository and the default turn
+budget, worked for ten to fifteen minutes each, and failed.
+**Problem:** a dispatch is a Slack **message** whose first lines carry `TASK:`/`REPO:`/
+`BRANCH:`/`TURNS:`/`INSTRUCTIONS:`. Slack flattens some pasted multi-line input onto one
+line; the labels are then no longer at the start of a line, `REPO:` absorbs the rest of the
+message, and the task clones nothing. `lib/task-parser.js` is not at fault — `FIELD_LABELS`
+are uppercase and line-anchored by design, and refusing a non-canonical label rather than
+silently downgrading the task is the correct behaviour. The loss happens in the
+**transport**, before the parser sees anything, and no parser change can recover a field
+the transport merged away.
+**What already exists (2026-09-14):** `lib/slack-socket.js` — an additive Socket Mode
+connection carrying slash commands, started after the poll loop is armed and never awaited,
+with `SLACK_APP_TOKEN` documented and its absence handled as a normal state. It registers
+**no command**; the seam is marked `THE COMMAND SEAM` in that file.
+**Fix:** register a `/task` slash command (no Request URL needed in Socket Mode), attach
+`onSlashCommand`, and open a modal with **separate** inputs for task / repo / branch /
+turns / instructions. Five inputs cannot be flattened into one. On submission, build the
+message the way `parseTask` reads it back — that generator→parser round trip is already
+pinned in `tests/integration.test.js` and the new generator belongs in that pin — and reuse
+`lib/git-identifiers.js`, `isUserAuthorized` and `lib/bridge-state.js` dedup rather than
+re-deriving them. Step 6 of `docs/WIRING-AND-SEAMS.md` section 7 names the one open design
+decision: post the assembled message to `#claude-bridge` and let `poll()` take it (one
+intake path, one dedup owner, up to `POLL_INTERVAL_MS` of latency) versus calling
+`processTask` directly (faster, second intake path).
+**Blocked on an owner action the repo cannot take:** Socket Mode enabled in the Slack app,
+an app-level token with `connections:write`, and `SLACK_APP_TOKEN` in `.env` (which needs
+`docker compose up -d --force-recreate jt-agent`, not `restart`). Until then the connection
+reports itself unconfigured on every boot and nothing else happens.
+**Risk:** Low to the running bridge — the poll loop is not touched either way.
+
+**Priority:** P1 | **Effort:** Medium | **Status:** open (connection landed 2026-09-14; command not built)
 
 ---
 

@@ -198,6 +198,8 @@ const POLL_INTERVAL = 5000;
 | `GITHUB_ORG` | Default GitHub org | `jtpets` |
 | `CLAUDE_BIN` | Path to claude binary | `/usr/local/bin/claude` |
 | `POLL_INTERVAL_MS` | Poll frequency in ms | `30000` |
+| `SLACK_APP_TOKEN` | Slack **app-level** token (`xapp-`) for the additive Socket Mode connection. **Never log this.** Absent or blank = Socket Mode off, which is a reported condition and **not** a startup failure; the poll loop is unaffected either way. A `xoxb-` bot token here is refused on shape. | - |
+| `SOCKET_MODE_DOWN_ALERT_MS` | How long the Socket Mode connection may be down before it is reported to `#sqtools-ops`, re-posted once per interval until it recovers | `300000` (5 min) |
 | `MAX_TURNS` | CC max turns per task | `50` |
 | `TASK_TIMEOUT_MS` | Hard kill timeout in ms | `600000` |
 | `TASK_LOCK_STALE_MS` | Age at which a task lock is treated as orphaned and released. Must exceed the longest a task can legitimately run. | `2 × TASK_TIMEOUT_MS + 600000` (30 min at defaults) |
@@ -629,6 +631,7 @@ slack-agent-bridge/
 │   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork, assertValidTargetDir. Every git call is an execFileSync argv array — no function here builds a shell command string
 │   ├── bridge-state.js    # State persistence (seam B): sole owner of .bridge-agent-state.json (per-channel poll cursors) and processed-tasks.json (task dedup); init, get/setLastChecked, isTaskProcessed, markTaskProcessed, cleanupProcessedTasks
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
+│   ├── slack-socket.js   # ADDITIVE Slack Socket Mode connection, commands only. startSocketMode() opens one WebSocket for slash commands and NEVER throws: no SLACK_APP_TOKEN, a malformed token, a missing dependency or a rejected handshake each resolve to `{ started: false, reason }` and are reported to #sqtools-ops. The dependency is required lazily so it cannot break bridge-agent's load. Reconnection is the library's; an outage lasting SOCKET_MODE_DOWN_ALERT_MS reaches a human and re-posts until it recovers. Registers NO command — the seam is `onSlashCommand`
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks
 │   ├── review-findings.js # Structured findings for the Phase-3 verdict: a closed RULES catalogue of stable rule identifiers with severities, makeFinding (ruleId + file + line, prose GENERATED from those fields), buildVerdict, sameFinding/findRecurrence (comparison is by ruleId only — a fix that moves the same defect to another file has not converged), nextAction (the D5 generation cap and the D6 recurrence stop) and describeSpawnedTask (the lineage a spawned fix task must carry). Nothing spawns tasks; this is the contract, made executable
 │   ├── test-verdict.js   # THE honest classifier for a test-command run: classifyTestRun distinguishes passed / failed / runner_absent / no_assertions / timed_out / not_run, and a pass requires exit 0 AND a positive parsed assertion count. A fully skipped suite, a command that exits 0 printing nothing, and `jest: not found` are each a failed gate, never a pass. Every test invocation in the repo routes through it (tests/test-gate-honesty.test.js)
@@ -695,6 +698,7 @@ slack-agent-bridge/
 │   ├── undelivered-work.test.js # Tests for detectUndeliveredWork + processTask's delivery-gated cleanup (the regression guard for the three tasks lost to unconditional cleanup)
 │   ├── bridge-state.test.js     # Tests for lib/bridge-state.js (poll cursors, legacy migration, processed-task dedup; temp-dir CRUD)
 │   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management, joinAgentChannels)
+│   ├── slack-socket.test.js     # Tests for lib/slack-socket.js: THE guard for the additivity contract (every failure mode resolves inert instead of throwing), that a rejection message never echoes the token it rejected, that an outage reaches a human and a recovery does too, and that bridge-agent.js starts the connection AFTER the poll interval is armed and does not await it
 │   ├── multi-channel-routing.test.js # Tests for multi-channel polling and agent routing (buildChannelsToPoll, per-channel cursors, TASK vs ASK routing)
 │   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command, label anchoring, field rejection)
 │   ├── git-identifiers.test.js  # Tests for lib/git-identifiers.js (repo/branch allowlists, injection payload rejection, message-vs-pattern agreement probed over every ASCII punctuation character)
@@ -783,6 +787,8 @@ The bot requires these OAuth scopes at [api.slack.com/apps](https://api.slack.co
 | `reactions:write` | Add emoji reactions to messages |
 | `reactions:read` | Check if messages have been processed |
 | `users:read` | Resolve user IDs |
+
+**Socket Mode is not a bot scope.** It needs an **app-level** token with the `connections:write` scope (Basic Information -> App-Level Tokens), plus Socket Mode enabled under Settings -> Socket Mode. That token is `SLACK_APP_TOKEN`; it is separate from `SLACK_BOT_TOKEN` and is not listed in the bot-scope table above because it is not a bot scope. Absent it, the bridge runs normally on the poll loop.
 
 If the API returns `missing_scope` error, the log will show: `Missing Slack scope: <scope>. Add it at api.slack.com/apps`
 
@@ -886,6 +892,51 @@ if channels were recreated while the bot was offline. Results are logged:
 
 Resolved channel IDs are cached in `agents/shared/channel-map.json` (gitignored) to reduce
 API calls on subsequent startups.
+
+### Socket Mode (commands only) — additive, and NOT how messages arrive
+
+**LOGIC CHANGE 2026-09-14.** `lib/slack-socket.js` opens one Socket Mode WebSocket
+(`@slack/socket-mode`). It exists to carry **slash commands**. It does not carry
+messages, and the HTTP poll loop is unchanged: `poll()` on `POLL_INTERVAL_MS` remains
+the only path a `TASK:`/`ASK:` message arrives on, with the same dedup, the same
+`ALLOWED_USER_IDS` gate and the same `describeSkipReason` logging.
+
+**Why a socket at all — the transport loses fields the parser cannot recover.** A
+dispatch is a Slack message whose first lines carry `TASK:`/`REPO:`/`BRANCH:`/`TURNS:`/
+`INSTRUCTIONS:`. Flatten that block to one line and the labels stop being line-anchored,
+so `REPO:` swallows the remainder and the task runs against no repository at half the
+intended turn budget. `lib/task-parser.js` is right to refuse it — `FIELD_LABELS` are
+uppercase and line-anchored by design (see "Field Label Rules"). The shape that cannot be
+flattened is a **form**, a slash command is what opens a form, and a slash command needs a
+socket. **Not built here:** no command is registered and no modal exists. See
+`docs/WIRING-AND-SEAMS.md` section 7 for what the next change must do.
+
+**Why additive and not WORK-TODO #4's replacement.** #4 proposes swapping the poll loop
+*for* Socket Mode. That is not this. The poll loop is how every task arrives, including
+the task that would repair it, so it is not allowed to depend on a connection that is new,
+unconfigured on the box today, and outside this repository's control. This change takes
+none of that risk: the socket is started **after** `setInterval(poll, POLL_INTERVAL)` and
+is **not awaited** (`tests/slack-socket.test.js` -> `describe('the wiring in
+bridge-agent.js')` pins the ordering, because the ordering *is* the guarantee).
+
+**Every failure is a report, never a throw.** `startSocketMode()` resolves to
+`{ started, reason, detail }` in all cases — `not_configured` (no `SLACK_APP_TOKEN`),
+`invalid_token_shape` (a `xoxb-` token in the app-token slot), `dependency_missing`
+(`@slack/socket-mode` absent or unloadable — it is required *lazily* for exactly this
+reason), `start_failed` (the handshake rejected). Each posts to `#sqtools-ops` and the
+bridge keeps polling.
+
+**A dead socket is not allowed to be quiet.** The library reconnects on its own; it does
+not say when reconnecting has stopped working, and a silently dead connection is
+indistinguishable from a quiet Slack. An outage lasting `SOCKET_MODE_DOWN_ALERT_MS`
+(default 5 min) posts to `#sqtools-ops` via `notifyOps`, **re-posts once per interval**
+while it persists, and posts a recovery line when it returns. A socket that starts but
+never reaches `connected` counts as an outage. A deliberate `stop()` does not.
+
+**ACTION REQUIRED on the Slack app (the owner must do this; the bridge cannot):** enable
+Settings -> Socket Mode, generate an app-level token with `connections:write` under Basic
+Information -> App-Level Tokens, and add it to `.env` as `SLACK_APP_TOKEN`. An `.env`
+change needs `docker compose up -d --force-recreate jt-agent`, not `restart`.
 
 ### Task Queue Coordination
 

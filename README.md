@@ -26,7 +26,8 @@ A Slack bot that executes coding tasks via Claude Code CLI—post a task, get a 
 │  │ ...             │                      │                 │       │
 │  └────────┬────────┘                      └────────▲────────┘       │
 └───────────│────────────────────────────────────────│────────────────┘
-            │ poll                                   │ post results
+            │ poll (the only message path)           │ post results
+            │ + Socket Mode WebSocket: commands only │
             ▼                                        │
 ┌───────────────────────────────────────────────────────────────────┐
 │                       BRIDGE AGENT (Node.js)                       │
@@ -131,6 +132,29 @@ The agent responds directly without cloning any repo.
 | `TASK_TIMEOUT_MS` | `600000` | Hard timeout per task (10 min) |
 | `WORK_DIR` | `/tmp/bridge-agent` | Temp directory for clones |
 | `GITHUB_ORG` | - | Default org for short repo names |
+| `SLACK_APP_TOKEN` | - | App-level token (`xapp-`) for the additive Socket Mode connection. Unset = Socket Mode off, which is a supported state — see below |
+| `SOCKET_MODE_DOWN_ALERT_MS` | `300000` | How long the Socket Mode connection may be down before `#sqtools-ops` is told |
+
+### Socket Mode (slash commands only — additive)
+
+`lib/slack-socket.js` opens one Socket Mode WebSocket for **slash commands**. It does
+**not** carry messages: the HTTP poll loop is unchanged and is still the only path a
+`TASK:`/`ASK:` message arrives on. No command is registered yet — this is the connection
+only.
+
+**Leaving `SLACK_APP_TOKEN` unset is supported.** The bridge starts and runs normally;
+the absence is logged and posted to `#sqtools-ops` once. Every other failure — a `xoxb-`
+token in the app-token slot, a missing dependency, a rejected handshake — is reported the
+same way and never stops startup. An outage lasting `SOCKET_MODE_DOWN_ALERT_MS` is posted
+and re-posted until the connection recovers, because a library that reconnects silently
+also fails silently.
+
+**To enable it** (owner action; the bridge cannot do this itself): at
+[api.slack.com/apps](https://api.slack.com/apps) → your app → **Settings → Socket Mode**,
+turn Socket Mode on; then **Basic Information → App-Level Tokens** → generate a token with
+the `connections:write` scope; put it in `.env` as `SLACK_APP_TOKEN`; recreate the
+container (`docker compose up -d --force-recreate jt-agent` — a plain `restart` keeps the
+old environment).
 
 ### Scheduled Inbox Check Variables
 
@@ -267,6 +291,7 @@ slack-agent-bridge/
 │   ├── llm-runner.js     # Provider adapters (claude, gemini, ollama) + fallback chain
 │   ├── llm-metrics.js    # Provider verdict counter (fallback visibility)
 │   ├── task-parser.js    # Message parsing
+│   ├── slack-socket.js   # Additive Socket Mode connection (slash commands only)
 │   ├── update-verifier.js # Pre-restart gate for auto-update (node --check, restart plan)
 │   └── validate.js       # Pre-commit checks
 ├── memory/
