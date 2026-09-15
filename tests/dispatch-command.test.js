@@ -3,167 +3,236 @@
 /**
  * tests/dispatch-command.test.js
  *
- * Parts one, two and four of the slash-command dispatch form: the modal, the
- * command handler, and the failure paths. Every test here fails without
- * lib/dispatch-command.js.
+ * Part one of the slash-command dispatch form: the command handler and the
+ * authorisation gate. Every test here fails without lib/dispatch-command.js.
+ *
+ * The properties under test: the acknowledgement goes out before anything slow, and
+ * authorisation reuses the poll loop's own check rather than a second one. The
+ * failure paths (part four) are in tests/dispatch-failure-paths.test.js.
  */
 
 const {
   COMMAND_NAME,
   CALLBACK_ID,
-  ACTION_ID,
-  BLOCK_IDS,
-  buildModalView,
-  readPrivateMetadata,
-  extractSubmission,
-  toSlackErrors,
+  SUBMIT_POST_TIMEOUT_MS,
+  raceWithTimeout,
+  handleSlashCommand,
+  handleViewSubmission,
 } = require('../lib/dispatch-command');
 
+const { BLOCK_IDS, ACTION_ID } = require('../lib/dispatch-modal');
 const { FIELD_KEYS } = require('../lib/dispatch-message');
-const { DEFAULT_TURNS, MIN_TURNS, MAX_TURNS } = require('../lib/task-parser');
+const { parseTask } = require('../lib/task-parser');
 
-/** Build a view_submission `view` carrying the given raw values. */
-function submissionView(values, metadata = { channelId: 'C_CMD', userId: 'U_OWNER' }) {
+const silent = { log: () => {}, warn: () => {}, error: () => {} };
+const AUTHORIZED = 'U_OWNER';
+const isAuthorized = (id) => id === AUTHORIZED;
+
+function commandBody(overrides = {}) {
+  return {
+    command: COMMAND_NAME,
+    user_id: AUTHORIZED,
+    channel_id: 'C_CMD',
+    trigger_id: 'TRIGGER.123',
+    text: '',
+    ...overrides,
+  };
+}
+
+function submissionBody(values, overrides = {}) {
   const state = { values: {} };
   for (const key of FIELD_KEYS) {
     state.values[BLOCK_IDS[key]] = {
       [ACTION_ID]: { type: 'plain_text_input', value: values[key] === undefined ? null : values[key] },
     };
   }
-  return { callback_id: CALLBACK_ID, private_metadata: JSON.stringify(metadata), state };
+  return {
+    type: 'view_submission',
+    user: { id: AUTHORIZED },
+    view: {
+      callback_id: CALLBACK_ID,
+      private_metadata: JSON.stringify({ channelId: 'C_CMD', userId: AUTHORIZED }),
+      state,
+    },
+    ...overrides,
+  };
 }
 
-describe('the modal has five separate inputs — the entire point of the form', () => {
-  const view = buildModalView({ channelId: 'C_CMD', userId: 'U_OWNER' });
+const goodValues = {
+  task: 'Add the missing regression test',
+  repo: 'JTPets/slack-agent-bridge',
+  branch: 'main',
+  turns: '100',
+  instructions: 'Read the contract.\nThen write the test.',
+};
 
-  test('it is a modal carrying our callback_id and a submit button', () => {
-    expect(view.type).toBe('modal');
-    expect(view.callback_id).toBe(CALLBACK_ID);
-    expect(view.submit).toBeDefined();
-    expect(view.title.text.length).toBeLessThanOrEqual(24); // Slack's modal title cap
+// ---------------------------------------------------------------------------
+// PART ONE — the command
+// ---------------------------------------------------------------------------
+describe('the slash command acknowledges first, then opens the form', () => {
+  test('the ack is sent BEFORE the modal is opened', async () => {
+    const order = [];
+    const ack = jest.fn(async () => { order.push('ack'); });
+    const openView = jest.fn(async () => { order.push('open'); });
+
+    const result = await handleSlashCommand(
+      { ack, body: commandBody() },
+      { openView, isAuthorized, logger: silent }
+    );
+
+    expect(result).toEqual({ opened: true, reason: 'ok' });
+    expect(order).toEqual(['ack', 'open']);
   });
 
-  test('there is exactly one input block per generator field, in order', () => {
-    const inputs = view.blocks.filter((b) => b.type === 'input');
-    expect(inputs).toHaveLength(FIELD_KEYS.length);
-    expect(inputs.map((b) => b.block_id)).toEqual(FIELD_KEYS.map((k) => BLOCK_IDS[k]));
+  test('nothing slow runs before the ack — a hanging views.open cannot delay it', async () => {
+    // The three-second rule made executable: the ack resolves while views.open is
+    // still pending. A late ack shows the operator a timeout with no trace of why.
+    let releaseOpen;
+    const ack = jest.fn(async () => {});
+    const openView = jest.fn(() => new Promise((resolve) => { releaseOpen = resolve; }));
+
+    const pending = handleSlashCommand(
+      { ack, body: commandBody() },
+      { openView, isAuthorized, logger: silent }
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ack).toHaveBeenCalled();
+
+    releaseOpen();
+    await pending;
   });
 
-  test('the blocks are built FROM the generator field list, so neither can gain a field alone', () => {
-    // A field added to lib/dispatch-message.js but not here (or the reverse) is the
-    // drift this asserts against: five inputs that are not the five fields.
-    const blockIds = view.blocks.filter((b) => b.type === 'input').map((b) => b.block_id);
-    expect(blockIds.sort()).toEqual(FIELD_KEYS.map((k) => BLOCK_IDS[k]).sort());
-    expect(new Set(blockIds).size).toBe(FIELD_KEYS.length);
+  test('the ack carries no text, so nothing is echoed into the channel', async () => {
+    const ack = jest.fn(async () => {});
+    await handleSlashCommand(
+      { ack, body: commandBody() },
+      { openView: async () => {}, isAuthorized, logger: silent }
+    );
+    expect(ack).toHaveBeenCalledWith();
   });
 
-  test('only the instructions field is multiline', () => {
-    for (const block of view.blocks.filter((b) => b.type === 'input')) {
-      const expected = block.block_id === BLOCK_IDS.instructions;
-      expect(block.element.multiline).toBe(expected);
-    }
+  test('the modal is opened from the trigger_id Slack supplied', async () => {
+    const openView = jest.fn(async () => {});
+    await handleSlashCommand(
+      { ack: async () => {}, body: commandBody({ trigger_id: 'TRIGGER.abc' }) },
+      { openView, isAuthorized, logger: silent }
+    );
+    expect(openView.mock.calls[0][0].trigger_id).toBe('TRIGGER.abc');
+    expect(openView.mock.calls[0][0].view.callback_id).toBe(CALLBACK_ID);
   });
 
-  test('task and instructions are required; repo, branch and turns are optional', () => {
-    const optional = {};
-    for (const block of view.blocks.filter((b) => b.type === 'input')) {
-      optional[block.block_id] = block.optional;
-    }
-    expect(optional[BLOCK_IDS.task]).toBe(false);
-    expect(optional[BLOCK_IDS.instructions]).toBe(false);
-    expect(optional[BLOCK_IDS.repo]).toBe(true);
-    expect(optional[BLOCK_IDS.branch]).toBe(true);
-    expect(optional[BLOCK_IDS.turns]).toBe(true);
-  });
-
-  test('the turn budget defaults to the parser default and names the parser range', () => {
-    const block = view.blocks.find((b) => b.block_id === BLOCK_IDS.turns);
-    expect(block.element.initial_value).toBe(String(DEFAULT_TURNS));
-    expect(block.hint.text).toContain(String(MIN_TURNS));
-    expect(block.hint.text).toContain(String(MAX_TURNS));
-  });
-
-  test('the branch defaults to main', () => {
-    const block = view.blocks.find((b) => b.block_id === BLOCK_IDS.branch);
-    expect(block.element.initial_value).toBe('main');
-  });
-
-  test('private_metadata records where the command came from and carries no typed value', () => {
-    expect(readPrivateMetadata(view)).toEqual({ channelId: 'C_CMD', userId: 'U_OWNER' });
-    expect(view.private_metadata).not.toContain('token');
-  });
-
-  test('unparseable private_metadata degrades to empty rather than throwing', () => {
-    expect(readPrivateMetadata({ private_metadata: 'not json' })).toEqual({ channelId: '', userId: '' });
-    expect(readPrivateMetadata(undefined)).toEqual({ channelId: '', userId: '' });
-  });
-});
-
-describe('extractSubmission reads the five inputs back', () => {
-  test('a full submission yields every value', () => {
-    const values = extractSubmission(submissionView({
-      task: 'Do the thing',
-      repo: 'jtpets/slack-agent-bridge',
-      branch: 'feature/x',
-      turns: '100',
-      instructions: 'Read then write.',
-    }));
-    expect(values).toEqual({
-      task: 'Do the thing',
-      repo: 'jtpets/slack-agent-bridge',
-      branch: 'feature/x',
-      turns: '100',
-      instructions: 'Read then write.',
-    });
-  });
-
-  test('a blank optional input arrives from Slack as null and is read as an empty string', () => {
-    const values = extractSubmission(submissionView({
-      task: 'Do the thing',
-      repo: undefined,
-      branch: undefined,
-      turns: undefined,
-      instructions: 'Read then write.',
-    }));
-    expect(values.repo).toBe('');
-    expect(values.branch).toBe('');
-    expect(values.turns).toBe('');
-  });
-
-  test('a malformed or absent view yields empty strings, never a throw', () => {
-    expect(() => extractSubmission(undefined)).not.toThrow();
-    expect(extractSubmission({}).task).toBe('');
-    expect(extractSubmission({ state: {} }).instructions).toBe('');
+  test('a missing trigger_id is reported, not passed to Slack as undefined', async () => {
+    const ack = jest.fn(async () => {});
+    const openView = jest.fn(async () => {});
+    const result = await handleSlashCommand(
+      { ack, body: commandBody({ trigger_id: '' }) },
+      { openView, isAuthorized, logger: silent }
+    );
+    expect(result.reason).toBe('no_trigger_id');
+    expect(openView).not.toHaveBeenCalled();
+    expect(ack.mock.calls[0][0].text).toMatch(/trigger_id/);
   });
 });
 
-describe('toSlackErrors keys errors by block_id so they land on the right input', () => {
-  test('a field error becomes a block_id error', () => {
-    expect(toSlackErrors({ repo: 'Rejected "bad;repo" - ...' })).toEqual({
-      [BLOCK_IDS.repo]: 'Rejected "bad;repo" - ...',
-    });
+describe('authorisation reuses the existing allowlist check', () => {
+  test('an unauthorized user gets an ephemeral refusal and no form', async () => {
+    const ack = jest.fn(async () => {});
+    const openView = jest.fn(async () => {});
+
+    const result = await handleSlashCommand(
+      { ack, body: commandBody({ user_id: 'U_STRANGER' }) },
+      { openView, isAuthorized, logger: silent }
+    );
+
+    expect(result).toEqual({ opened: false, reason: 'unauthorized' });
+    expect(openView).not.toHaveBeenCalled();
+    expect(ack.mock.calls[0][0].response_type).toBe('ephemeral');
+    expect(ack.mock.calls[0][0].text).toMatch(/ALLOWED_USER_IDS/);
   });
 
-  test('every field key maps to a distinct block_id', () => {
-    const all = {};
-    for (const key of FIELD_KEYS) all[key] = `problem with ${key}`;
-    const mapped = toSlackErrors(all);
-    expect(Object.keys(mapped)).toHaveLength(FIELD_KEYS.length);
-    expect(new Set(Object.keys(mapped)).size).toBe(FIELD_KEYS.length);
+  test('the handler calls the injected check rather than reading an allowlist itself', async () => {
+    const check = jest.fn(() => true);
+    await handleSlashCommand(
+      { ack: async () => {}, body: commandBody({ user_id: 'U_WHOEVER' }) },
+      { openView: async () => {}, isAuthorized: check, logger: silent }
+    );
+    expect(check).toHaveBeenCalledWith('U_WHOEVER');
   });
 
-  test('a long reason is cut to Slack’s 250-character field-error cap', () => {
-    const mapped = toSlackErrors({ instructions: 'x'.repeat(400) });
-    expect(mapped[BLOCK_IDS.instructions]).toHaveLength(250);
-  });
+  test('a submission from an unauthorized user is refused too — it is its own envelope', async () => {
+    // A view_submission does not inherit the command's gate, and our post is a bot
+    // post, which the poll loop lets through without an allowlist check.
+    const ack = jest.fn(async () => {});
+    const postMessage = jest.fn(async () => ({ ok: true }));
 
-  test('no error means no error map', () => {
-    expect(toSlackErrors({})).toEqual({});
+    const result = await handleViewSubmission(
+      { ack, body: submissionBody(goodValues, { user: { id: 'U_STRANGER' } }) },
+      { postMessage, isAuthorized, bridgeChannel: 'C_BRIDGE', logger: silent }
+    );
+
+    expect(result.reason).toBe('unauthorized');
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(ack.mock.calls[0][0].response_action).toBe('errors');
   });
 });
 
-describe('the command name is declared once', () => {
-  test('it is a slash command', () => {
-    expect(COMMAND_NAME).toMatch(/^\/[a-z-]+$/);
+// ---------------------------------------------------------------------------
+// The success path: a valid submission becomes a message the parser reads back
+// ---------------------------------------------------------------------------
+describe('a valid submission posts a parseable message to the bridge channel', () => {
+  test('the post goes to the bridge channel and the modal then closes', async () => {
+    const ack = jest.fn(async () => {});
+    const postMessage = jest.fn(async () => ({ ok: true, ts: '1.1' }));
+
+    const result = await handleViewSubmission(
+      { ack, body: submissionBody(goodValues) },
+      { postMessage, isAuthorized, bridgeChannel: 'C_BRIDGE', logger: silent }
+    );
+
+    expect(result.posted).toBe(true);
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(postMessage.mock.calls[0][0].channel).toBe('C_BRIDGE');
+    // ack() with no payload closes the modal.
+    expect(ack).toHaveBeenCalledWith();
+  });
+
+  test('what it posts round-trips through parseTask — the whole point of the change', async () => {
+    const postMessage = jest.fn(async () => ({ ok: true }));
+    await handleViewSubmission(
+      { ack: async () => {}, body: submissionBody(goodValues) },
+      { postMessage, isAuthorized, bridgeChannel: 'C_BRIDGE', logger: silent }
+    );
+
+    const parsed = parseTask(postMessage.mock.calls[0][0].text);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.repo).toBe('JTPets/slack-agent-bridge');
+    expect(parsed.branch).toBe('main');
+    expect(parsed.turns).toBe(100);
+    expect(parsed.description).toBe(goodValues.task);
+    expect(parsed.instructions).toBe(goodValues.instructions);
+  });
+
+  test('it does NOT call the task path directly — one intake path, one dedup owner', async () => {
+    const processTask = jest.fn();
+    const postMessage = jest.fn(async () => ({ ok: true }));
+    await handleViewSubmission(
+      { ack: async () => {}, body: submissionBody(goodValues) },
+      { postMessage, processTask, isAuthorized, bridgeChannel: 'C_BRIDGE', logger: silent }
+    );
+    expect(processTask).not.toHaveBeenCalled();
+  });
+
+  test('a submission for someone else’s modal is acknowledged and ignored', async () => {
+    const postMessage = jest.fn(async () => {});
+    const ack = jest.fn(async () => {});
+    const result = await handleViewSubmission(
+      { ack, body: submissionBody(goodValues, { view: { callback_id: 'someone_elses_modal' } }) },
+      { postMessage, isAuthorized, bridgeChannel: 'C_BRIDGE', logger: silent }
+    );
+    expect(result.reason).toBe('not_ours');
+    expect(ack).toHaveBeenCalledWith();
+    expect(postMessage).not.toHaveBeenCalled();
   });
 });

@@ -184,10 +184,15 @@ const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-li
 
 // LOGIC CHANGE 2026-09-14: Additive Slack Socket Mode connection for slash commands.
 // It does NOT carry messages: the poll loop below is untouched and remains the only
-// path a TASK:/ASK: message arrives on. Registering no commands in this change, so
-// the connection comes up, reports itself, survives a disconnect, and does nothing
-// else. See lib/slack-socket.js and docs/WIRING-AND-SEAMS.md section 7.
+// path a TASK:/ASK: message arrives on. See lib/slack-socket.js and
+// docs/WIRING-AND-SEAMS.md section 7.
+// LOGIC CHANGE 2026-09-15: The command seam is now attached to. `/dispatch` opens a
+// five-input modal and its submission is composed into a task message that is POSTED
+// TO THE BRIDGE CHANNEL — poll() then picks it up like any other message. The task
+// path is not called directly: one intake path, one dedup owner, and a task that
+// survives a restart because it exists as a message.
 const { startSocketMode } = require('./lib/slack-socket');
+const { handleSlashCommand, handleViewSubmission } = require('./lib/dispatch-command');
 
 // ---- Config ----
 
@@ -2112,7 +2117,33 @@ let socketMode = null;
   // every task actually arrives on. startSocketMode() never rejects — the .catch()
   // is a belt-and-braces guard against a future edit breaking that promise, and it
   // logs rather than throwing so an unhandled rejection can never kill the bridge.
-  startSocketMode()
+  startSocketMode({
+    // LOGIC CHANGE 2026-09-15: THE COMMAND SEAM, attached. Both handlers resolve in
+    // every case and never reject, so the additivity contract is unchanged: nothing
+    // here can delay or kill the poll loop, which is already running by this line.
+    //
+    // Authorisation is isUserAuthorized — the SAME allowlist the poll loop applies,
+    // not a second check. It has to be applied HERE because the message this posts is
+    // a BOT post, and the poll loop deliberately lets a bot post through without an
+    // allowlist check so scheduled tasks are not dropped. There is no gate after this.
+    onSlashCommand: (envelope) =>
+      handleSlashCommand(envelope, {
+        openView: (args) => slack.views.open(args),
+        postEphemeral: (args) => slack.chat.postEphemeral(args),
+        isAuthorized: isUserAuthorized,
+        notify: postToOps,
+      }),
+    onInteractive: (envelope) =>
+      handleViewSubmission(envelope, {
+        postMessage: (args) => slack.chat.postMessage({ ...args, unfurl_links: false }),
+        isAuthorized: isUserAuthorized,
+        bridgeChannel: BRIDGE_CHANNEL,
+        notify: postToOps,
+        // githubOrg is deliberately NOT passed: omitted, lib/dispatch-message.js
+        // falls back to lib/task-parser.js's own DEFAULT_GITHUB_ORG, so the generator
+        // and the parser cannot disagree about which org a bare repo name belongs to.
+      }),
+  })
     .then((handle) => {
       socketMode = handle;
       if (!handle.started) {
