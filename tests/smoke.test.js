@@ -316,8 +316,14 @@ describe('lib/ modules load without errors', () => {
         expect(agentRegistry).toHaveProperty('getAgentMemoryDir');
         expect(agentRegistry).toHaveProperty('getProductionAgentForRepo');
         expect(agentRegistry).toHaveProperty('isProductionRepo');
-        expect(agentRegistry).toHaveProperty('saveAgents');
-        expect(agentRegistry).toHaveProperty('updateAgent');
+        // LOGIC CHANGE 2026-09-15: saveAgents and updateAgent were REMOVED, not
+        // renamed. They wrote agents/agents.json back to disk; definitions are now
+        // tracked markdown, so they would have edited a fallback nothing reads —
+        // and a runtime write to a TRACKED file is the defect auto-update's
+        // `git reset --hard HEAD` has already destroyed twice. Asserting their
+        // absence keeps them from coming back by habit.
+        expect(agentRegistry).not.toHaveProperty('saveAgents');
+        expect(agentRegistry).not.toHaveProperty('updateAgent');
         expect(agentRegistry).toHaveProperty('activateAgent');
         expect(agentRegistry).toHaveProperty('getAgentsNeedingActivation');
 

@@ -141,7 +141,7 @@ describe('runCommand', () => {
         const r = await runCommand('status');
         expect(r.handled).toBe(true);
         expect(r.ok).toBe(true);
-        expect(r.text).toContain('registry:agents.json');
+        expect(r.text).toContain('registry:agent.md');
         expect(r.text).toContain('secretary');
     });
 

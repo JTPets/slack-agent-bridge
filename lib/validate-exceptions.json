@@ -333,6 +333,11 @@
       "path": "tests/dispatch-message.test.js",
       "lines_when_declared": 300,
       "reason": "JUSTIFIED, PROVISIONALLY. The suite for lib/dispatch-message.js: per-field rejection reusing tests/git-identifiers.test.js's own injection payload set, a field label inside the instructions body, and assertRoundTrip's negative controls. It crossed the limit by one line when the form's default turn budget became the ceiling (2026-09-15) and three assertions were added pinning the default to MAX_TURNS as an identity rather than as the number 100. Same category and same WORK-TODO #44 caveat as the entry above."
+    },
+    {
+      "path": "lib/bridge-state.js",
+      "lines_when_declared": 373,
+      "reason": "DEFERRED, and the split it invites is the one thing that must not happen. This module is the single owner of the bridge's durable local state, and it went over the limit on 2026-09-15 when it took on the workspace-resolved half of an agent definition (channel-map.json, moved here from lib/slack-client.js, and the new agent-activation.json). Cutting it back under 300 means giving one of the four state files a second owner module, which is exactly the multiple-owners problem the consolidation removed: channel-map.json already had an owner that the boot path never called, and nothing noticed for six months. The honest seam is by FILE, not by line count — poll-cursors+dedup (bridge runtime) versus channel-map+activation (agent workspace state) — and it is worth cutting only if a third consumer appears that needs one half without the other. Recorded against WORK-TODO #10."
     }
   ]
 }

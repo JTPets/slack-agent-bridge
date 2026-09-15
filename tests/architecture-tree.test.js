@@ -157,6 +157,7 @@ describe('CLAUDE.md architecture tree is complete', () => {
             'watercooler-state.json',
             'processed-tasks.json',
             'channel-map.json',
+            'agent-activation.json',
             'approval-queue.json',
             'check-state.json',
             'delivery-quotes.json',

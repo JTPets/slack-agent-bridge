@@ -202,7 +202,7 @@ describe('formatResolution', () => {
     test('renders provider and model each with their source', () => {
         const lines = formatResolution(resolveAgentLlm({ id: 'secretary', llm_provider: 'gemini' }, { env: { GEMINI_API_KEY: 'k' } }));
         expect(lines[0]).toBe('secretary');
-        expect(lines[1]).toMatch(/provider: gemini\s+\(registry:agents\.json\)/);
+        expect(lines[1]).toMatch(/provider: gemini\s+\(registry:agent\.md\)/);
         expect(lines[2]).toMatch(/model:\s+gemini-2\.5-flash\s+\(adapter default\)/);
     });
 

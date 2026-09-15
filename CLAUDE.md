@@ -232,7 +232,7 @@ const POLL_INTERVAL = 5000;
 
 **LLM_PROVIDER options:** `claude` (default), `gemini`, `ollama`, `openai` (not yet implemented)
 
-**Per-agent provider precedence:** `LLM_PROVIDER_<AGENTID>` env > the agent's `agents.json` `llm_provider` > global `LLM_PROVIDER` env > `claude`. Resolved by `resolveLlmProvider()` in `lib/config.js`. Because `agents.json` is tracked and auto-update runs `git reset --hard HEAD` before each pull, on-box edits to it are silently discarded — set the per-agent env var in `.env` (gitignored) instead so the override survives a pull.
+**Per-agent provider precedence:** `LLM_PROVIDER_<AGENTID>` env > the agent's definition `llm_provider` > global `LLM_PROVIDER` env > `claude`. Resolved by `resolveLlmProvider()` in `lib/config.js`. Because `agents.json` is tracked and auto-update runs `git reset --hard HEAD` before each pull, on-box edits to it are silently discarded — set the per-agent env var in `.env` (gitignored) instead so the override survives a pull.
 
 **LLM Fallback:** When `LLM_FALLBACK_ENABLED=true` (default), a provider failure automatically retries on the next provider in the chain. `LLM_FALLBACK_PROVIDER` accepts a single provider or a comma-separated chain; when unset, the chain defaults per primary — `ollama` -> `gemini` -> `claude`, everything else -> `gemini`. Gemini requires `GEMINI_API_KEY`; an unconfigured provider is skipped (with a logged reason) rather than attempted.
 
@@ -581,6 +581,7 @@ slack-agent-bridge/
 ├── security-review.js    # Cron job script: security audit of commits from last 24h
 ├── scripts/
 │   ├── watercooler.js    # Cron/manual script: weekly team standup conversation (Friday 5PM)
+│   ├── migrate-agent-definitions.js # THE migration from agents/agents.json to agents/<id>/agent.md, and the seeding step that made it safe: it writes the definitions AND seeds agents/shared/channel-map.json with the ids the legacy file held, keyed by the name each definition declares. Without the seed the bridge would resolve a convention-derived channel name against Slack at boot and a wrong name would silently stop a working channel being polled. `--dry-run` to print without writing
 │   └── agent-surface.js  # THE regenerating command for the agent surface: one row per declared agent — channel, joined, polled, scheduled job, resolved provider with its source, and whether anything it produces has a reader. Read-only; needs no Slack token. `--json` for the same rows machine-readable. Prints the "output that reaches nobody" list that tests/agent-surface.test.js pins
 ├── bots/
 │   └── storefront.js     # Express server for storefront chat widget (POST /api/chat, GET /widget, POST /api/delivery-quote)
@@ -590,7 +591,8 @@ slack-agent-bridge/
 │   ├── widget.html       # Embeddable chat widget HTML (mobile-responsive, floating button)
 │   └── delivery.html     # Courier intake page with geocoding and auto-quote (JTPets.ca/delivery)
 ├── agents/
-│   ├── agents.json               # Agent registry: defines all agents, permissions, and config
+│   ├── <id>/agent.md             # THE tracked definition of one agent: frontmatter (identity, provider, schedule, watches, and the channel NAME) plus body sections for role/personality/system prompt. Portable and reviewable — no Slack channel id may appear in one, and lib/agent-markdown.js REFUSES a definition that carries one. Replaced agents/agents.json 2026-09-15
+│   ├── shared/agent-activation.json # Which agents THIS workspace activated (created at runtime, gitignored). The definition declares `default_status`; this file overrides it, and being gitignored it survives auto-update's `git reset --hard`
 │   ├── activation-checklists.json # Owner action items for activating each agent
 │   ├── shared/
 │   │   ├── bulletin.json         # Inter-agent bulletin board (created at runtime, gitignored)
@@ -616,6 +618,9 @@ slack-agent-bridge/
 │           ├── rules.json        # Email categorization rules. Operator-editable; read on every check by emailCategorizer.loadRules(). categorizeEmail() walks `categories` in declared (insertion) order and returns the first whose `keywords` OR `senders` match — so the file is the whole specification: order is precedence, and `action`/`priority` come from the file. A category whose resolved action is `push_to_secretary` also posts a bulletin typed by the category name.
 │           └── check-state.json  # Last successful inbox-check timestamp (created at runtime, gitignored)
 ├── lib/
+│   ├── agent-activation.js # Turning a DEFINITION into a running agent in this workspace: resolveAgentChannel (local channel map first, then Slack by name — and it NEVER creates a channel), activateAgent/deactivateAgent/resetActivation writing workspace-local state via lib/bridge-state.js, getAgentsNeedingActivation. Refuses, changing nothing, when the declared channel does not exist
+│   ├── agent-frontmatter.js # A deliberately tiny YAML-subset codec — scalars, lists of scalars, one level of nested maps — for the frontmatter block of an agent definition. Knows nothing about agents. THROWS with a line number on anything outside the subset rather than guessing. No js-yaml: it resolves only as a transitive jest dependency and is absent under `npm ci --omit=dev`
+│   ├── agent-markdown.js # THE reader and writer of agents/<id>/agent.md: parseAgentMarkdown, serializeAgent, loadDefinitions. Enforces the one rule that makes a definition portable — a `channel:` key, or any value shaped like a Slack id, is REFUSED, not stripped
 │   ├── agent-context.js  # Agent context builder: injects real data into ASK prompts to prevent hallucination
 │   ├── agent-scheduler.js # Cron registrar for agents' proactive schedules: startScheduler reads each agent's `schedule` from agents.json and registers a node-cron job (timezone America/Toronto) that posts a TASK message built from TASK_TEMPLATES to that agent's channel; stopScheduler/getActiveJobs/triggerTask manage them. Registers on `schedule` + `channel` only — it never checks `status: "planned"` (WORK-TODO #3). A task name in `DETERMINISTIC_TASKS` runs code instead of posting a TASK message (`check-inbox` -> `lib/email-check.js`); a name in neither registry is now REFUSED at registration instead of registering a job that could never do anything
 │   ├── agent-task-catalogue.js # WHAT scheduled tasks exist: TASK_TEMPLATES (the LLM prompt templates a cron tick posts) and DETERMINISTIC_TASKS (names that run code instead — `check-inbox` -> `lib/email-check.js`), plus getTaskTemplate/getDeterministicTask. Extracted from agent-scheduler.js 2026-09-15 (WORK-TODO #10): what tasks exist is a different concern from when they fire. Re-exported by lib/agent-scheduler.js, so callers are unchanged
@@ -694,6 +699,8 @@ slack-agent-bridge/
 │   ├── integration.test.js      # Integration tests: critical paths, wiring, no circular deps
 │   ├── bug-fixes.test.js        # Regression tests for named past defects: rate-limit false positives, memory-file corruption resilience, null exit code = interrupted, stale working memory, addTask on corrupted tasks.json
 │   ├── agent-context.test.js    # Tests for lib/agent-context.js (anti-hallucination, secretary context)
+│   ├── agent-activation.test.js # Tests for lib/agent-activation.js and the workspace-state half of lib/bridge-state.js, against real files in a temp dir: THE guard that activation never creates a Slack channel (the replaced implementation did), that a declared channel which does not exist is refused with nothing recorded, and that the decision lands in a gitignored file so it survives a pull
+│   ├── agent-markdown.test.js   # THE enumerating guard for the tracked-definition rule: it walks every agents/<id>/agent.md from disk and fails when one carries a Slack channel id, when one does not parse, or when a definition loses a field in a serialize/parse round trip. Carries its own negative controls
 │   ├── agent-scheduler.test.js  # Tests for lib/agent-scheduler.js (schedule registration, task templates, cron validation)
 │   ├── agent-surface.test.js    # THE enumerating guard for the agent surface: walks agents.json from disk and fails when the set of agents whose output reaches nobody changes, when a scheduled job posts to a channel the bridge does not join, or when lib/agent-surface.js's pure channel rules drift from buildChannelsToPoll's source in bridge-agent.js. Carries its own negative controls
 │   ├── agent-llm-resolver.test.js # Tests for lib/agent-llm-resolver.js: the four-level provider precedence with its provenance label at each level, the model precedence, per-provider adapter inputs, and THE guard that no credential VALUE appears in any resolved output
