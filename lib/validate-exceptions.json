@@ -270,6 +270,11 @@
       "reason": "JUSTIFIED. Under the limit on code (231). One sliding-window algorithm applied to three buckets; splitting per bucket would triple the surface for a single algorithm."
     },
     {
+      "path": "tests/task-agent-identity.test.js",
+      "lines_when_declared": 303,
+      "reason": "JUSTIFIED, PROVISIONALLY. THE enumerating guard for WORK-TODO #38 — a TASK: executes as the agent it was addressed to. Its length is its coverage: it extracts processTask's agent resolution from bridge-agent.js's source and replays it against every declared agent record, pins the poll loop handing both paths the same channelAgentConfig, enumerates the EIGHT identities that must follow the resolved agent plus the one that deliberately does not, walks the scheduler -> channel -> agent chain for story-bot, and carries its own negative controls because several assertions are of the 'this list is empty' shape. Every one of those is a separate claim; the cheapest way to shorten the file is to stop making one. Splitting it would put the meta-tests in a different file from the assertions they prove live, which is the property that makes them worth having. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided this is declared rather than cut."
+    },
+    {
       "path": "tests/agent-context.test.js",
       "lines_when_declared": 389,
       "reason": "JUSTIFIED, PROVISIONALLY. Test suite for lib/agent-context.js — anti-hallucination and the per-persona contexts. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."

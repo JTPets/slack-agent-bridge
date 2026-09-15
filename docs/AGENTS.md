@@ -661,11 +661,46 @@ bot joins on every boot and a place output can accumulate unread. `jester` is th
 with a concrete defect behind it; the other three are gated on the `planned` decision
 in WORK-TODO #3 and should follow it, not precede it.
 
-**`story-bot` is NOT in this table** — its channel already exists and its id is in
-the local channel map. What it lacks is an *activation*: as of 2026-09-15 a
-`planned` agent is not joined, not polled and not scheduled, so story-bot produces
-nothing rather than producing work nobody collected. Activating it is
-`lib/agent-activation.js`, not a channel to create.
+**`story-bot` is NOT in this table, and is now ACTIVATED** (2026-09-15). Its channel
+already exists and its id is in the local channel map; what it lacked was an
+activation, so it produced nothing rather than producing work nobody collected.
+
+**How it was activated, and how to reverse it:** `default_status: active` in
+`agents/story-bot/agent.md` (one line, was `planned`). Set that line back to `planned`
+to reverse; `git revert` of the activation commit does the same. **Not** via
+`agents/shared/agent-activation.json` — that file is gitignored workspace-local state
+and a dispatch runs in a scratch clone, so writing it there reaches nothing. The
+local file still WINS over `default_status` (`lib/agent-registry.js:106-112`), so if
+this workspace already carries a recorded decision for story-bot the definition change
+is inert until `ASK: activate story-bot` or a reset of that decision. **Whether such a
+decision exists on the NAS is not knowable from a checkout.**
+
+**What it gets, verified:** `node scripts/agent-surface.js` now reports story-bot
+`active / joined / polled / draft-weekly-posts registered / reader: polled`, and it has
+left the "output that reaches nobody" list (7 entries → 3). Its Friday `0 18 * * 5` job
+posts a `TASK:` message into its channel, the poll loop reads that channel, and — since
+WORK-TODO #38 closed the same day — the task executes as **story-bot**, with story-bot's
+persona, its `gemini` provider and its own metrics identity, not the bridge's.
+
+**One thing to know about its channel.** The definition declares
+`channel_name: story-bot-agent`, which the format migration derived from the agent id
+by convention; `agents/activation-checklists.json` records the id behind it
+(`C0AP8CHCV1U`) as the **#social-media** channel, "shared with Social Media Manager for
+draft approvals". So the declared name is very likely not the channel's real name in
+Slack. That is harmless while the seeded local map holds the id — resolution is a cache
+hit and no lookup runs — and it fails **loudly** rather than silently if the map is ever
+lost: `resolveAgentChannel` returns `#story-bot-agent does not exist in this workspace`
+and activation refuses, changing nothing (`lib/agent-activation.js`). Recorded because
+a lost channel map is the one event that would stop this working, and the fix is to
+correct the declared name, not to create a channel.
+
+**Still missing, and outside this repository's gift:** no LinkedIn integration exists
+(`grep -rln linkedin --include=*.js .` finds only a routing keyword in the dead
+`lib/task-decomposer.js`). story-bot's `linkedin-personal` / `linkedin-company`
+permissions and its `linkedin-api` integration are declarative. That is by design for
+now — the template ends "Post drafts for John's review and approval", so the output is
+**text in Slack for a human**, which needs no API. Nothing auto-publishes, and nothing
+should without an owner decision.
 
 ## API Reference
 

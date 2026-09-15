@@ -621,7 +621,7 @@ slack-agent-bridge/
 │   ├── agent-activation.js # Turning a DEFINITION into a running agent in this workspace: resolveAgentChannel (local channel map first, then Slack by name — and it NEVER creates a channel), activateAgent/deactivateAgent/resetActivation writing workspace-local state via lib/bridge-state.js, getAgentsNeedingActivation, plus the handlers behind the `available`/`activate`/`deactivate` verbs. Refuses, changing nothing, when the declared channel does not exist. An activation re-derives the poll set and the scheduler through the caller's onActivationChanged hook, and when it cannot, the verdict SAYS a restart is needed rather than implying a live effect it did not have
 │   ├── agent-frontmatter.js # A deliberately tiny YAML-subset codec — scalars, lists of scalars, one level of nested maps — for the frontmatter block of an agent definition. Knows nothing about agents. THROWS with a line number on anything outside the subset rather than guessing. No js-yaml: it resolves only as a transitive jest dependency and is absent under `npm ci --omit=dev`
 │   ├── agent-markdown.js # THE reader and writer of agents/<id>/agent.md: parseAgentMarkdown, serializeAgent, loadDefinitions. Enforces the one rule that makes a definition portable — a `channel:` key, or any value shaped like a Slack id, is REFUSED, not stripped
-│   ├── agent-context.js  # Agent context builder: injects real data into ASK prompts to prevent hallucination
+│   ├── agent-context.js  # Agent context builder: injects real data into agent prompts to prevent hallucination. `buildEnrichedPrompt` is the ASK: path's assembler and has exactly one production caller (processConversation); `buildAgentDataContext(agentId)` is the per-agent data switch on its own, extracted 2026-09-15 so the TASK: path can inject the same facts — before that a scheduled agent got its persona and none of its data, which for story-bot meant drafting posts about milestones it was never told. It returns '' for an agent with no builder unless asked for the generic placeholder
 │   ├── agent-scheduler.js # Cron registrar for agents' proactive schedules: startScheduler reads each agent's `schedule` from agents.json and registers a node-cron job (timezone America/Toronto) that posts a TASK message built from TASK_TEMPLATES to that agent's channel; stopScheduler/getActiveJobs/triggerTask manage them. Registration follows the SAME declaration as resolving, joining and polling (`activeChannels` in lib/agent-surface.js): a `planned` agent's job and an agent whose declared channel has not resolved are both REFUSED and REPORTED to #sqtools-ops, where both used to be a silent skip (WORK-TODO #3). A task name in `DETERMINISTIC_TASKS` runs code instead of posting a TASK message (`check-inbox` -> `lib/email-check.js`); a name in neither registry is now REFUSED at registration instead of registering a job that could never do anything
 │   ├── agent-task-catalogue.js # WHAT scheduled tasks exist: TASK_TEMPLATES (the LLM prompt templates a cron tick posts) and DETERMINISTIC_TASKS (names that run code instead — `check-inbox` -> `lib/email-check.js`), plus getTaskTemplate/getDeterministicTask. Extracted from agent-scheduler.js 2026-09-15 (WORK-TODO #10): what tasks exist is a different concern from when they fire. Re-exported by lib/agent-scheduler.js, so callers are unchanged
 │   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel, activateAgent
@@ -758,6 +758,7 @@ slack-agent-bridge/
 │   ├── test-gate-honesty.test.js # THE enumerating guard for "a test invocation that can report a pass without running assertions": classification case-by-case against real runner output, plus a disk walk asserting every test-command site routes through lib/test-verdict.js, with negative controls
 │   ├── task-lock.test.js            # Tests for lib/task-lock.js (acquire/release, staleness, legacy + unparseable lock formats)
 │   ├── auto-update-defer.test.js    # Tests the deferral gate: defers while a task holds the lock, releases a stale one, escalation bound
+│   ├── task-agent-identity.test.js  # THE guard for WORK-TODO #38: a TASK: executes as the agent it was addressed to. It extracts processTask's agent resolution from bridge-agent.js's SOURCE and replays it against every declared agent record, asserts the poll loop hands processTask the same `channelAgentConfig` it already hands processConversation, and enumerates the seven identities that must follow the resolved agent (provider, persona, model, metrics id, bulletin stream, bulletin voice, working memory) plus the one that deliberately does not (the owner's ACTION REQUIRED inbox). Carries its own negative controls
 │   ├── bridge-agent-scope.test.js   # AST scope guard: catches `X is not defined` in bridge-agent.js
 │   └── silent-drop-logging.test.js  # Tests for describeSkipReason + the poll loop's skip logging
 ├── docs/
@@ -1048,6 +1049,35 @@ and `auto-update.js` to prevent task interruption during updates.
 - `interrupted`: Task was interrupted — by a kill the bridge did not survive
   (recorded at the next startup by `recoverInterrupted()`), or by a child-process
   kill it did survive (recorded immediately by `interrupt()`)
+
+**LOGIC CHANGE 2026-09-15: a terminal entry also carries `completionSeq`, and that — not
+`completedAt` — is what orders `getRecentCompleted()`.** `completedAt` is an ISO string at
+**millisecond** resolution, so two tasks finishing in the same millisecond compared equal;
+`Array#sort` is stable, so the tie handed them back in *insertion* order, oldest first,
+the opposite of what the method promises. That surfaced as `ASK: what's queued` showing
+the owner the wrong order, and — the reason it was P-worthy — as
+`tests/task-queue.test.js` going red at random: **25 of 40** isolated runs on the base
+commit, at one assertion.
+
+`completionSeq` is an integer assigned by `_nextCompletionSeq()` as `1 + max(seq already
+in the file)`, inside the same synchronous load → mutate → save block every write already
+uses. **It cannot tie:** it is derived to be strictly greater than every value present, so
+uniqueness holds by induction over the file, and there is no clock involved and therefore
+no resolution at which to collide. It is persisted on the entry rather than held in
+memory, so it survives a container restart — which `process.hrtime.bigint()` would not,
+its origin being per-process, so a post-restart completion would sort *before* a
+pre-restart one.
+
+All four terminal writers stamp it (`complete`, `fail`, `interrupt`, and each entry
+`recoverInterrupted()` sweeps); `_startRunning()` clears it alongside `completedAt`, so a
+re-attempt takes a fresh, higher seq. `completedAt` is still written exactly as before and
+every other reader of it is untouched (`cleanup()`'s 24-hour retention,
+`morning-digest.js`, `lib/watercooler.js`, `lib/memory-tiers.js`). Entries written before
+the field existed carry no seq and sort *after* every entry that has one — correct rather
+than a compromise, since a seq is stamped at the terminal transition, so a row lacking one
+necessarily terminated before this code ran. Guard:
+`tests/task-queue.test.js` → `describe('the ordering is total, not incidental')`, six
+tests, all six red without the fix.
 
 **LOGIC CHANGE 2026-09-14: `running` is a state the live path actually enters.** Until
 now `dequeue()` was the *sole* writer of `running` and `startedAt`, and it had **zero

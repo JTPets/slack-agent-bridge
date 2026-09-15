@@ -33,17 +33,18 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
-At the 2026-09-15 command-router pass those print **45** open items — 7 P1, 30 P2, 8 P3 —
-and **one duplicate ID, `### 43.`, which is a defect in this file.** (The size-gate pass
-earlier the same day printed 40 — 7/26/7; #45-#49 were filed after it.) Two items share it: the P1
-"A flattened dispatch loses its fields" and the P2 "`getRecentCompleted` sorts by a
-millisecond timestamp". They were filed on branches that picked the same next ID
-independently — the same collision this paragraph previously recorded being resolved once
-already, recurring because "the next ID" is read by eye rather than by command. **Renumbering
-one is the owner's call, not an executor's** (an ID is an address and #43 may already be cited
-elsewhere), so it is recorded here rather than silently fixed. The preceding count also read
-38 while the command printed 39: the figure was stale *and* the duplicate was invisible to
-whoever wrote it.
+At the 2026-09-15 agent-identity pass those print **44** open items — 7 P1, 29 P2,
+8 P3 — and **no duplicate ID.** (The command-router pass earlier the same day also printed
+45; the size-gate pass before it printed 40 — 7/26/7.)
+
+**The `### 43.` collision is resolved, by closure rather than by renumbering.** Two items
+shared that number: the P1 "A flattened dispatch loses its fields" and the P2
+"`getRecentCompleted` sorts by a millisecond timestamp". The second is now closed and
+purged, so one `### 43.` remains and the duplicate-ID command prints nothing. Renumbering
+was never done — an ID is an address, and the P1 #43 keeps the one it has. **The cause is
+not fixed:** "the next ID" is still read by eye rather than by the command in this block,
+which is how the collision happened twice. The duplicate-ID check above is the guard; run
+it before filing, not after.
 
 (Was 35 — 4/24/7 — after #28 was closed by the email-rules-file work; the NAS hardening pass
 then filed #41 and #42, and the additive Socket Mode connection filed #43, all on 2026-09-15.
@@ -90,15 +91,14 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#7** — [Task timeout escalation tiers](#7-task-timeout-escalation-tiers)
 - **#8** — [Surface deduplication in status](#8-surface-deduplication-in-status)
 - **#9** — [`ASK: task history [n]` command](#9-ask-task-history-n-command)
-- **#38** — [`TASK:` is always executed as the bridge agent, so a scheduled agent's persona and provider never apply to its own task](#38-task-is-always-executed-as-the-bridge-agent-so-a-scheduled-agents-persona-and-provider-never-apply-to-its-own-task)
 - **#39** — [The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged](#39-the-queue-cannot-tell-a-completed-task-from-a-landed-one--nothing-here-knows-whether-a-branch-merged)
 - **#40** — [Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout](#40-uncommitted-edits-in-the-live-deployment-tree--reported-not-verifiable-from-a-checkout)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
-- **#43** — [`getRecentCompleted` sorts by a millisecond timestamp, so same-millisecond tasks come back oldest-first — and it makes the suite flaky](#43-getrecentcompleted-sorts-by-a-millisecond-timestamp-so-same-millisecond-tasks-come-back-oldest-first--and-it-makes-the-suite-flaky)
 - **#45** — [Commands are verbs, names are channels — record the distinction before the namespace has both](#45-commands-are-verbs-names-are-channels--record-the-distinction-before-the-namespace-has-both)
 - **#46** — [`/dispatch` posts to one fixed channel — routing by the invoking channel needs two things that do not exist](#46-dispatch-posts-to-one-fixed-channel--routing-by-the-invoking-channel-needs-two-things-that-do-not-exist)
 - **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
 - **#49** — [`NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does](#49-natural_conversation_mode-is-off-and-nothing-establishes-what-turning-it-on-does)
+- **#50** — [`npm test` is red in a fresh clone: 30 tests depend on a gitignored file no checkout has](#50-npm-test-is-red-in-a-fresh-clone-30-tests-depend-on-a-gitignored-file-no-checkout-has)
 
 **P3 — nice to have / uncertain ROI** (8)
 
@@ -463,12 +463,29 @@ agent. `jester` is now reported on every boot. Fix part 3 landed in
 ("joinableChannels includes a planned agent's existing channel — the story-bot case").
 
 Left **open** deliberately: this item's namesake is a claim about the *running*
-container ("CONFIRMED FIRING LIVE"), and a scratch clone cannot verify that story-bot's
-Friday job stopped registering on the box. Deploys here are manual, so nothing has
-reached the NAS. Close it after a `docker compose restart jt-agent` whose startup output
-shows the refusals and no `Scheduled story-bot:draft-weekly-posts`.
+container ("CONFIRMED FIRING LIVE"), and a scratch clone cannot verify what registers on
+the box. Deploys here are manual, so nothing has reached the NAS.
 
-**Priority:** P1 | **Effort:** Low | **Status:** open — fix landed on a branch, not verified live
+**CLOSE CONDITION CHANGED 2026-09-15 — read this before checking the box.** It used to
+read "close it after a restart whose startup output shows the refusals and **no**
+`Scheduled story-bot:draft-weekly-posts`". That is now **inverted for story-bot**, and
+following the old wording would report a success as a failure. story-bot has since been
+activated on purpose (`default_status: active` in `agents/story-bot/agent.md`), so its
+job registering is now CORRECT — what was wrong was registering while the poll loop did
+not read its channel, and joining, polling and scheduling now derive from one rule. The
+startup output that closes this item is:
+
+- `Scheduled story-bot:draft-weekly-posts` **present**, AND story-bot's channel in the
+  joined/polled set — the three consequences arriving together, which is the invariant
+  this item is about;
+- refusals posted to `#sqtools-ops` for `jester` (active, `#jester-agent` never
+  resolved) and for `social-media` / `marketing` (declared schedules, not activated);
+- **no** agent that is scheduled but unjoined — the count is 0, and
+  `tests/agent-surface.test.js` already fails if it is not.
+
+Regenerate the expected table before comparing: `node scripts/agent-surface.js`.
+
+**Priority:** P1 | **Effort:** Low | **Status:** open — fix landed on a branch, not verified live; close condition restated above
 
 ---
 
@@ -1449,55 +1466,6 @@ timestamps and outcomes.
 
 ---
 
-### 38. `TASK:` is always executed as the bridge agent, so a scheduled agent's persona and provider never apply to its own task
-**Filed 2026-09-14,** from tracing what a scheduled agent job actually runs.
-
-**Verified at HEAD, not inferred.** `agentConfig` is bound **once, at module scope**, to
-the bridge agent and never rebound:
-```bash
-grep -n "agentConfig = getAgent('bridge')" bridge-agent.js          # -> :194
-grep -n "processTask(msg, channelId\|processConversation(msg, channelId" bridge-agent.js
-```
-The second command shows the asymmetry that is the whole item:
-
-| Path | Call | Agent used |
-|---|---|---|
-| `TASK:` | `processTask(msg, channelId, queuedTask.id)` | **module-scope `agentConfig`** — always `bridge` |
-| `ASK:` | `processConversation(msg, channelId, channelAgentConfig)` | the channel's own agent |
-
-So inside `processTask` the `system_prompt`, the `llm_provider`, the `llm_model` and the
-`agentId` on the metrics verdict all come from the **bridge** record, whatever channel the
-message arrived in and whichever agent the scheduler was firing for.
-
-**Why this is filed rather than fixed.** It is load-bearing in both directions and the
-repository already relies on it: `resolveLlmProvider(agentConfig, agentConfig?.id ||
-'bridge')` at `bridge-agent.js:498` and `:670` reads the module-scope record deliberately,
-and there is a comment saying so. Changing it changes which provider every scheduled task
-bills to and which system prompt shapes it — that is a behaviour decision, not a bug fix.
-
-**What it blocks, which is why it is not P3.** Any design in which different agents do
-different work. The email-monitor case is the proof and is already fixed *around* this
-rather than through it: the scheduler now runs `check-inbox` as deterministic code
-(`DETERMINISTIC_TASKS`, `lib/agent-scheduler.js`) precisely because routing it through a
-`TASK:` message got the bridge's prompt and no mailbox access. Every future "agent X does
-Y on a schedule" hits the same wall, and the deterministic-handler escape hatch does not
-scale to work that genuinely needs an LLM with that agent's persona.
-
-**Partly recorded already, nowhere as an item.** A comment at `bridge-agent.js:676-686`
-states it, and `docs/WIRING-AND-SEAMS.md` section 3a states it in the specific context of
-the email path. Neither is findable by someone designing a new agent.
-**Note on the existing citation:** section 3a cites `bridge-agent.js:1704-1711` for the
-routing; at HEAD those lines are inside `processConversation`, and the routing is at
-`:1768` / `:1792`. Corrected in the same change that files this.
-
-**Fix (not chosen here):** pass the channel's agent into `processTask` as
-`processConversation` already does, and decide explicitly whether the prompt, the provider
-and the metrics `agentId` each follow the channel or stay on the bridge. They are three
-separate decisions and conflating them is how this got missed.
-**Priority:** P2 | **Effort:** Medium | **Status:** open
-
----
-
 ### 39. The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged
 **Filed 2026-09-14,** from the autonomous-loop design
 ([`docs/AUTONOMOUS-LOOP-DESIGN.md`](docs/AUTONOMOUS-LOOP-DESIGN.md) section 4, part five).
@@ -1596,60 +1564,6 @@ or to collapse HIGH into a `notifyOps()` post, and that is a decision about how 
 traffic the owner wants in `#sqtools-ops`, not a bug fix an executor should make alone.
 Whichever is chosen, `PRIORITY.HIGH` must stop returning `true` for a message it dropped.
 **Priority:** P2 | **Effort:** Low | **Status:** open — owner decides digest vs. ops post
-
----
-
-### 43. `getRecentCompleted` sorts by a millisecond timestamp, so same-millisecond tasks come back oldest-first — and it makes the suite flaky
-**Filed 2026-09-15,** from an unexplained single failure during the /dispatch form work.
-Not caused by that change: `git diff origin/main...HEAD --stat` on that branch lists
-neither `lib/task-queue.js` nor `tests/task-queue.test.js`.
-
-**Verified at HEAD.** `lib/task-queue.js` `getRecentCompleted` sorts with
-`(a, b) => new Date(b.completedAt) - new Date(a.completedAt)`, and `completedAt` is
-`new Date().toISOString()` — millisecond resolution. Two tasks completed inside the same
-millisecond compare equal, `Array#sort` is stable, so they are returned in INSERTION
-order: oldest first, the opposite of the method's documented contract.
-
-**Regenerate the collision rate** (writes only to a temp dir):
-
-```bash
-node -e '
-const os=require("os"),path=require("path"),fs=require("fs");
-const {TaskQueue}=require("./lib/task-queue");
-let wrong=0,runs=2000;
-for(let i=0;i<runs;i++){
-  const f=path.join(fs.mkdtempSync(path.join(os.tmpdir(),"q-")),"q.json");
-  const q=new TaskQueue(f);
-  q.enqueue({msgTs:"1.1",channelId:"C1",text:"T1",description:"First"});
-  q.complete(q.dequeue().id,"Done1");
-  q.enqueue({msgTs:"2.2",channelId:"C1",text:"T2",description:"Second"});
-  q.complete(q.dequeue().id,"Done2");
-  if(q.getRecentCompleted(5)[0].description!=="Second") wrong++;
-}
-console.log(`oldest-first (wrong) orderings: ${wrong}/${runs}`);
-' 2>/dev/null | tail -1
-```
-
-Observed **1522/2000** in a tight loop on 2026-09-15 (node v22.22.2, in-container).
-
-**Two consequences, and the second is the reason this is filed rather than shrugged at.**
-
-1. *Live path:* `formatStatusResponse` renders `getRecentCompleted`, so `ASK: what's
-   queued` shows the owner the last five tasks in the wrong order whenever two finished
-   in the same millisecond. Cosmetic, low.
-2. *Verification integrity:* `tests/task-queue.test.js` -> `getRecentCompleted` ->
-   "returns completed tasks sorted by completion time (newest first)" fails
-   intermittently — observed **once in 25** full `npm test` runs on 2026-09-15. The full
-   suite is the gate on every commit in this repo, and a gate that goes red at random
-   trains its readers to re-run rather than to read. That is the same class as a green
-   suite that skipped: the signal stops meaning what it says.
-
-**The fix is in the source, not the test.** A test asserting the current behaviour would
-encode the defect. Either give a completed task a monotonic tiebreaker (an incrementing
-sequence, or `process.hrtime.bigint()` alongside `completedAt`) and sort on it, or fall
-back to the existing `id` — which already carries `Date.now()` plus a random suffix — when
-`completedAt` compares equal. Order within one millisecond must be total, not incidental.
-**Priority:** P2 | **Effort:** Low | **Status:** open — not touched by the /dispatch change
 
 ---
 
@@ -1757,6 +1671,72 @@ anywhere.
 things that *would* depend on this path. Nothing should, until the four questions above
 have answers.
 **Priority:** P2 | **Effort:** Low to investigate; unknown to make safe | **Status:** open — question recorded, unanswered
+
+---
+
+### 50. `npm test` is red in a fresh clone: 30 tests depend on a gitignored file no checkout has
+**Filed 2026-09-15,** from establishing the base state before the `getRecentCompleted`
+fix. **This is a verification-integrity item, not a feature gap:** the full suite is the
+stated gate on every commit in this repository (`docs/EXECUTOR-CONTRACT.md` §5), and in
+the environment every dispatched task actually runs in — a fresh scratch clone — that
+gate reports 30 failures that have nothing to do with the change under test.
+
+**Measured at `1e4878f`, with no working-tree change, `--runInBand`, after deleting the
+runtime artifacts left by a previous run:**
+
+```bash
+rm -f agents/shared/channel-map.json agents/shared/watercooler-state.json
+npx jest --runInBand 2>&1 | tail -5
+# Test Suites: 6 failed, 59 passed, 65 total
+# Tests:       30 failed, 2164 passed, 2194 total
+```
+
+**The cause, confirmed by making it go away.** `agents/shared/channel-map.json` is
+gitignored (`.gitignore:9`) and is the ONLY thing that maps an agent's declared
+`channel_name` to an id. A clone has never had one, so every agent resolves to no
+channel, and every assertion of the form "agents with channels" gets an empty set.
+Seeding the file with one entry per declared `channel_name` — the ids need not even be
+the real ones, which is itself the point — turns the same commit green:
+
+```bash
+# any syntactically valid ids will do; resolution is all the suites need
+printf '{"claude-bridge":"C1","code-agent":"C2","secretary-agent":"C3",
+"security-agent":"C4","email-monitor-agent":"C5","story-bot-agent":"C6"}' \
+  > agents/shared/channel-map.json
+npx jest --runInBand 2>&1 | tail -5
+# Test Suites: 65 passed, 65 total
+# Tests:       2194 passed, 2194 total
+```
+
+**The six suites:** `tests/agent-scheduler.test.js`, `tests/agent-surface.test.js`,
+`tests/bulletin-watcher.test.js`, `tests/failure-visibility.test.js`,
+`tests/multi-channel-routing.test.js`, `tests/security-followup.test.js`.
+
+**Why this is the same class as a green suite that skipped.** The repo already treats a
+gate that can go red for a non-code reason as a defect — the size half of
+`npm run validate` was red on 65 standing violations until 2026-09-15 precisely because
+"a new violation could not be told apart from the standing ones", and twice in one week
+nobody checked. This is that failure with the sign flipped: an executor who runs
+`npm test` in a scratch clone sees 30 red and must either diff the failure list by hand
+against a base run or dismiss it. Dismissing red is the habit being trained.
+
+**A second, smaller finding inside the same surface.** Some suite writes the REAL
+`agents/shared/channel-map.json` rather than a temp path — after a run it contains
+`{"test-channel":"C12345","new-channel":"C99999","my-channel":"C12345"}`. So the suite
+mutates the same ambient state its own outcome depends on. Find the writer with:
+
+```bash
+grep -rn "channel-map" tests/ | grep -v "tmpdir\|mkdtemp"
+```
+
+**Fix (not chosen here; it is a test-architecture decision):** either the six suites
+provide their own channel-map fixture and point the resolver at a temp dir (the shape
+`tests/bridge-state.test.js` and `tests/agent-activation.test.js` already use), or a
+tracked fixture file is added and the resolver prefers it under `NODE_ENV=test`. The
+first is the repo's existing convention; the second is fewer edits. Whichever is taken,
+the guard that it stays fixed is a run from a clean checkout with no
+`agents/shared/*.json` runtime artifacts present.
+**Priority:** P2 | **Effort:** Low-Medium | **Status:** open — measured and reproduced, not fixed
 
 ---
 
@@ -1904,11 +1884,22 @@ item 5) and mostly only worth it alongside the mid-task ask capability.
 ### 14. Watercooler retro → LinkedIn draft
 **Idea:** after the Friday retro, aggregate the week's highlights into a LinkedIn draft
 for review.
-**Blocked by:** `story-bot` is `status: "planned"` (see item 3); its `draft-weekly-posts`
-template exists (`lib/agent-scheduler.js:56`) but the agent is not active. Activate
-story-bot first.
-**Effort:** Low once story-bot is live.
-**Priority:** P3 | **Effort:** Low once story-bot is live | **Status:** open
+**UNBLOCKED 2026-09-15.** This read "Blocked by: `story-bot` is `status: "planned"`
+(see item 3); its `draft-weekly-posts` template exists but the agent is not active.
+Activate story-bot first." story-bot is now activated (`default_status: active` in
+`agents/story-bot/agent.md`), joined, polled, its Friday job registers, and since #38
+closed the task executes as story-bot rather than as the bridge. The template lives at
+`lib/agent-task-catalogue.js` now, not `lib/agent-scheduler.js:56` — it moved in the
+2026-09-15 catalogue extraction and that citation was stale.
+**What remains, which is the actual work of this item:** nothing aggregates the retro's
+output into the draft. `lib/watercooler.js` posts a `milestone` bulletin when a standup
+completes, story-bot `watches` `milestone`, and `lib/bulletin-watcher.js` would fan out
+to it — but a watcher receives a 150-character SUMMARY LINE, not the record, so the
+draft would be written from a truncated notification. Either the watcher carries more,
+or `draft-weekly-posts` reads the stream itself. Note also that `milestone` reached no
+watcher at all while story-bot was the only agent watching it and was not activated;
+that is no longer true, so this path is live and untested.
+**Priority:** P3 | **Effort:** Low-Medium | **Status:** open — story-bot activated, the aggregation is the remaining work
 
 ---
 
