@@ -3,7 +3,7 @@ id: security
 name: Security Auditor
 order: 4
 default_status: active
-channel_name: security-agent
+channel_name: sqtools-alerts
 permissions:
   - github-read
 denied:

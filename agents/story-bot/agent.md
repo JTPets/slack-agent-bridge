@@ -3,7 +3,7 @@ id: story-bot
 name: Story Bot
 order: 10
 default_status: active
-channel_name: story-bot-agent
+channel_name: social-media
 permissions:
   - linkedin-personal
   - linkedin-company

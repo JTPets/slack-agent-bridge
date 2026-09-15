@@ -620,6 +620,57 @@ resolved, gets **none** of them — and the reason is posted to `#sqtools-ops` a
 startup rather than skipped in silence. Three or none is the whole rule; one of them
 arriving alone is what produced work nobody collected.
 
+### Declared channel name vs. the workspace's real one — established 2026-09-15
+
+**A declared `channel_name` was a convention, not a fact.** The 2026-09-15 migration
+derived every name from the agent id as `<id>-agent`
+(`scripts/migrate-agent-definitions.js` → `channelNameFor()`), with `claude-bridge` and
+the shared `code-agent` as its only two exceptions, and said so in its own header:
+"Every other name is UNVERIFIED against the workspace." Seven of eleven were wrong.
+
+They were invisible because `agents/shared/channel-map.json` is keyed by **name**, and
+the only thing that had ever written it (`ensureChannel()`) wrote the **real** names. So
+a definition asking for `#secretary-agent` looked up a key that had never existed, while
+the id for `#secretary-inbox` sat in the same file untouched. Nothing compared them.
+
+**The evidence is in this repository, and it is tracked:**
+`agents/activation-checklists.json` pairs, per agent, a completed "Create #X Slack
+channel" task with a completed "Assign channel `<ID>`" task. That pairing is a
+name↔id binding recorded at the time each channel was made. Regenerate it:
+
+```bash
+node -e "const d=require('./agents/activation-checklists.json');
+for (const [id,v] of Object.entries(d)) for (const t of (v.tasks||[]))
+  if (/#[a-z0-9-]+/.test(t.description)) console.log(id, '|', t.completed, '|', t.description);"
+```
+
+| Agent | Declared before | Declared now | Verdict | Evidence |
+|---|---|---|---|---|
+| `bridge` | `claude-bridge` | `claude-bridge` | **confirmed real** | `CLAUDE.md`; checklist "Create #claude-bridge and #sqtools-ops", completed |
+| `code-bridge` | `code-agent` | **`code-review`** | **was fiction** | checklist "Create #code-review Slack channel" + "Assign channel C0AP42BT4MR", both completed |
+| `code-sqtools` | `code-agent` | **`code-review`** | **was fiction** | checklist note "Shares #code-review channel with code-bridge" |
+| `secretary` | `secretary-agent` | **`secretary-inbox`** | **was fiction** | checklist "Create #secretary-inbox Slack channel", completed |
+| `security` | `security-agent` | **`sqtools-alerts`** | **was fiction** | checklist "Create #sqtools-alerts Slack channel" + "Assign channel C0ANZUQQRGW" |
+| `email-monitor` | `email-monitor-agent` | `email-monitor-agent` | **confirmed real** | checklist "Create #email-monitor-agent Slack channel" + "Assign channel C0AQH3KC31S" |
+| `story-bot` | `story-bot-agent` | **`social-media`** | **was fiction** | checklist note "Shares #social-media channel (C0AP8CHCV1U)" + "Verify #social-media channel exists" |
+| `social-media` | `social-media-agent` | **`social-media`** | **was fiction** | checklist "Create #social-media Slack channel for draft approvals", completed |
+| `marketing` | `marketing-agent` | **`marketing`** | **was fiction** | checklist "Create #marketing Slack channel", completed |
+| `storefront` | `storefront-agent` | **`store-inbox`** | **was fiction** | checklist "Create #store-inbox Slack channel", completed. Note this is the same channel `STORE_INBOX_CHANNEL_ID` names (`bots/storefront.js:30`) — one channel, two consumers, by design |
+| `jester` | `jester-agent` | `jester-agent` | **known fiction, left alone** | checklist note: "Responds via ASK in any channel, **no dedicated channel needed**" — so no real name exists to substitute. Inventing one is the defect being fixed; the declaration stays and the gap is filed |
+
+**What "confirmed" means here, precisely.** It means a tracked file in this repository
+records that the channel was created under that name. It is **not** a live Slack call —
+no dispatch may make one, and none was made. The standing check is the one the bridge
+now runs itself at startup (below): a declared name that does not resolve is reported
+to `#sqtools-ops`, named, every boot.
+
+**Why this is worth more than the ids it recovers.** A fork of this repository used to
+receive eleven definitions, seven of which named channels that exist nowhere, and the
+only reason the original workspace worked was a gitignored file pairing each fiction
+with a correct id. The map was doing the work of the declaration. It is now a cache of
+the declaration, which is the whole difference between a workspace that can be rebuilt
+and one that can only be remembered.
+
 ### On the repeated `already_in_channel` warnings
 
 **There are none, and there never were** — cited versus actual at `69a3922`.
@@ -649,14 +700,14 @@ scheduler skips them silently — unlike an unknown task name, a missing channel
 even reported at startup. Creating a channel is an owner action
 (`ASK: create channel #name`, which needs `channels:manage`); this is the proposal.
 
-| Agent | Status | Declared schedule | Proposed channel | What creating it would change |
+| Agent | Status | Declared schedule | Declared channel | State after the 2026-09-15 name correction |
 |---|---|---|---|---|
-| `jester` | **active** | `0 18 * * 5` weekly-critique | `#jester-agent` | The only **active** agent that cannot be addressed at all — its declared `channel_name` has never resolved, so no channel, no registered job, no route. Its `weekly-critique` template exists and nothing can reach it. Since 2026-09-15 this is reported to `#sqtools-ops` at every startup instead of being a silent skip. Creating the channel resolves it on the next restart and registers the job. |
-| `social-media` | planned | `0 9 * * 1,3,5` content-calendar | `#social-media-agent` | Registers the job. It would still need `status: "planned"` removed for the channel to be **polled**, or the posted `TASK:` message reaches no executor — see #3. |
-| `marketing` | planned | `0 6 * * 1` weekly-analytics | `#marketing-agent` | Same as above. |
-| `storefront` | planned | none | `#storefront-agent` | Nothing scheduled; the agent is served by `bots/storefront.js` over HTTP, not by a channel. Lowest value of the four — listed for completeness, not recommended. |
+| `jester` | **active** | `0 18 * * 5` weekly-critique | `#jester-agent` | **The only one that still needs a decision.** Its checklist says "Responds via ASK in any channel, no dedicated channel needed", so `#jester-agent` is a name nothing ever created and no real name exists to substitute. It is the one **active** agent that cannot be addressed at all, and its `weekly-critique` job is refused for a stated reason at every startup. Creating `#jester-agent` is one answer; deciding jester needs no channel and removing the schedule is the other. Filed, not chosen. |
+| `social-media` | planned | `0 9 * * 1,3,5` content-calendar | `#social-media` | **No channel needs creating** — the checklist records `#social-media` as created (`C0AP8CHCV1U`). It is `planned`, so `ASK: activate social-media` is the whole remaining step, and it resolves from the map or from Slack by name. |
+| `marketing` | planned | `0 6 * * 1` weekly-analytics | `#marketing` | Same: the checklist records `#marketing` as created. `ASK: activate marketing` and nothing else. Its id is not in the map, so activation resolves it against Slack by name — the path that was never exercised before the names were corrected. |
+| `storefront` | planned | none | `#store-inbox` | Nothing scheduled; the agent is served by `bots/storefront.js` over HTTP, not by a channel. `#store-inbox` exists and is already the SMS/call log channel. Listed for completeness, still not recommended. |
 
-**Do not create all four to make the table tidy.** Each new channel is a channel the
+**One channel that still has to be created by a human, not four.**  Each new channel is a channel the
 bot joins on every boot and a place output can accumulate unread. `jester` is the one
 with a concrete defect behind it; the other three are gated on the `planned` decision
 in WORK-TODO #3 and should follow it, not precede it.

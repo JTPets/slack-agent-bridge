@@ -3,7 +3,7 @@ id: code-sqtools
 name: SqTools Code Agent
 order: 2
 default_status: active
-channel_name: code-agent
+channel_name: code-review
 permissions:
   - github
   - file-system

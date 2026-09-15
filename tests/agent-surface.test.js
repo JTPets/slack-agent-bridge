@@ -193,8 +193,15 @@ describe('joinableChannels is EXACTLY the polled set, and creates nothing', () =
         expect(syntheticJoined).toContain('C_ACTIVE_TEST');
         expect(syntheticJoined).not.toContain('C_PLANNED_TEST');
 
-        const joined = joinableChannels(loadAgents(), BRIDGE_CHANNEL).map(c => c.channelId);
-        for (const agent of loadAgents().filter(a => a.status === 'planned' && a.channel)) {
+        // LOGIC CHANGE 2026-09-15: now "planned AND claimed by no active agent". It
+        // asserted NO planned agent's channel is joined — an assumption, not the rule.
+        // Correcting the declared names made story-bot (active) and social-media
+        // (planned) both declare #social-media. `activeChannels` is per CHANNEL.
+        const agents = loadAgents();
+        const joined = joinableChannels(agents, BRIDGE_CHANNEL).map(c => c.channelId);
+        const claimedByActive = new Set(agents.filter(a => a.status !== 'planned' && a.channel).map(a => a.channel));
+        for (const agent of agents.filter(a => a.status === 'planned' && a.channel)) {
+            if (claimedByActive.has(agent.channel)) continue;
             expect(joined).not.toContain(agent.channel);
         }
     });
