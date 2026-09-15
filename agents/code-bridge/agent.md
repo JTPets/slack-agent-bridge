@@ -3,7 +3,7 @@ id: code-bridge
 name: Code Bridge Agent
 order: 1
 default_status: active
-channel_name: code-agent
+channel_name: code-review
 permissions:
   - github
   - file-system

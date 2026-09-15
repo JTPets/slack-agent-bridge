@@ -33,9 +33,14 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
-At the 2026-09-15 agent-identity pass those print **44** open items — 7 P1, 29 P2,
-8 P3 — and **no duplicate ID.** (The command-router pass earlier the same day also printed
-45; the size-gate pass before it printed 40 — 7/26/7.)
+At the 2026-09-15 agent-wiring pass those print **48** open items — 8 P1, 32 P2, 8 P3 —
+and **no duplicate ID.** (Earlier the same day: the agent-identity pass printed 44 — 7/29/8;
+the command-router pass 45; the size-gate pass 40 — 7/26/7.) That pass purged **#50**
+(closed: the suite is green in a fresh clone and no longer writes live configuration) and
+filed **#51**–**#55**.
+
+**Do not read those numbers.** Run the four commands above — they are the count, and this
+paragraph is a dated observation of what they printed.
 
 **The `### 43.` collision is resolved, by closure rather than by renumbering.** Two items
 shared that number: the P1 "A flattened dispatch loses its fields" and the P2
@@ -46,10 +51,6 @@ not fixed:** "the next ID" is still read by eye rather than by the command in th
 which is how the collision happened twice. The duplicate-ID check above is the guard; run
 it before filing, not after.
 
-(Was 35 — 4/24/7 — after #28 was closed by the email-rules-file work; the NAS hardening pass
-then filed #41 and #42, and the additive Socket Mode connection filed #43, all on 2026-09-15.
-The size-gate pass filed #44.)
-
 The index anchors follow GitHub's slugger: lowercase, drop punctuation **except**
 hyphen and underscore, spaces to hyphens. Four entries (#5, #20, #21, #34) previously
 dropped the underscore too and were therefore broken links; regenerating fixed them.
@@ -58,8 +59,9 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 
 *Regenerated from the headings. Do not append to it by hand; re-run the command above.*
 
-**P1 — protects or unblocks the live deployment** (7)
+**P1 — protects or unblocks the live deployment** (8)
 
+- **#55** — [The channel mapping had no reproduction path, and a deploy proved it](#55-the-channel-mapping-had-no-reproduction-path-and-a-deploy-proved-it)
 - **#42** — [Every backup this system has lives on the box it backs up, and their liveness is checked by nothing](#42-every-backup-this-system-has-lives-on-the-box-it-backs-up-and-their-liveness-is-checked-by-nothing)
 - **#41** — [The NAS is the single point of failure for every stack and every credential, and its exposure has never been established](#41-the-nas-is-the-single-point-of-failure-for-every-stack-and-every-credential-and-its-exposure-has-never-been-established)
 - **#17** — [Nothing starts `auto-update.js` — merged code does not reach the running process](#17-nothing-starts-auto-updatejs--merged-code-does-not-reach-the-running-process)
@@ -68,7 +70,7 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (30)
+**P2 — real gaps, no risk to the running process** (32)
 
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
@@ -98,7 +100,10 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#46** — [`/dispatch` posts to one fixed channel — routing by the invoking channel needs two things that do not exist](#46-dispatch-posts-to-one-fixed-channel--routing-by-the-invoking-channel-needs-two-things-that-do-not-exist)
 - **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
 - **#49** — [`NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does](#49-natural_conversation_mode-is-off-and-nothing-establishes-what-turning-it-on-does)
-- **#50** — [`npm test` is red in a fresh clone: 30 tests depend on a gitignored file no checkout has](#50-npm-test-is-red-in-a-fresh-clone-30-tests-depend-on-a-gitignored-file-no-checkout-has)
+- **#51** — [A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it](#51-a-command-that-writes-a-tracked-file-is-destroyed-by-the-next-pull-and-every-configuration-writing-command-shares-it)
+- **#52** — [The workspace's channels and the repository's agents have never been reconciled in either direction](#52-the-workspaces-channels-and-the-repositorys-agents-have-never-been-reconciled-in-either-direction)
+- **#53** — [`jester` is an active commentary agent with a weekly schedule, no channel, and no defined material](#53-jester-is-an-active-commentary-agent-with-a-weekly-schedule-no-channel-and-no-defined-material)
+- **#54** — [Two defects deferred on scope grounds were load-bearing — the deferral judgement, not the filing, is what failed](#54-two-defects-deferred-on-scope-grounds-were-load-bearing--the-deferral-judgement-not-the-filing-is-what-failed)
 
 **P3 — nice to have / uncertain ROI** (8)
 
@@ -112,6 +117,84 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#16** — [Channel-per-task archive mode](#16-channel-per-task-archive-mode)
 
 ## P1 — Protects or unblocks the live deployment
+
+### 55. The channel mapping had no reproduction path, and a deploy proved it
+**Filed 2026-09-15,** from the incident on the evening of 2026-09-15. **P1 because it
+already happened**: a deploy left five active agents with no resolved channel and stopped
+two scheduled agents, and the recovery was a human reading identifiers out of terminal
+scrollback. Nothing in the repository recorded which channel an agent runs in.
+
+**The mechanism, established from the repository rather than from the report.** Three
+facts compose into it:
+
+1. `agents/shared/channel-map.json` is gitignored and is the ONLY thing that maps a
+   declared `channel_name` to a Slack id (`lib/agent-registry.js` `applyWorkspaceState`).
+2. The only writer it had ever had was `ensureChannel()` (`lib/slack-client.js`), reached
+   from `ASK: create channel` — so its keys are the channel names a human actually
+   created: `claude-bridge`, `code-review`, `secretary-inbox`, `sqtools-alerts`,
+   `email-monitor-agent`, `social-media`.
+3. The 2026-09-15 markdown migration declared names by the convention `<id>-agent`
+   (`scripts/migrate-agent-definitions.js` `channelNameFor`), so seven of eleven
+   definitions asked for keys that had never existed in that file.
+
+So the map resolved exactly the two declared names that happened to be real
+(`claude-bridge`, `email-monitor-agent`) and nothing else — two of the seven distinct
+names the eight active agents declare. The two scheduled agents that stopped, `secretary`
+(`0 7 * * *`) and `security` (`0 1 * * *`), are two of the five that did not resolve.
+
+**The migration's seeding step is the part that did not survive, and it could not have.**
+Its header is right that seeding was the condition for safety — "First boot after the
+migration is a cache hit for every existing agent" — and it does seed, from the legacy
+file's ids, keyed by the new name. But its output is `agents/shared/channel-map.json`,
+which is **gitignored**, and a dispatched task runs in a **scratch clone**
+(`docs/EXECUTOR-CONTRACT.md` §7). The seed was written into a temp directory and
+discarded with it. A step whose only output is an ignored file cannot travel with the
+commit that needs it, by construction. Six name→id mappings would have been seeded
+(`bridge`, `code-bridge`+`code-sqtools` sharing one, `secretary`, `security`,
+`email-monitor`, `story-bot`); on the box, zero were.
+
+**And the script can no longer run at all.** It reads `agents/agents.json`, which the
+same commit deleted:
+
+```bash
+git log --diff-filter=D --format='%H %s' -1 -- agents/agents.json
+node -e "require('./scripts/migrate-agent-definitions').migrate({dryRun:true})"  # ENOENT
+```
+
+**What was done about it (2026-09-15).** The declared names were corrected to the
+workspace's real ones from the tracked evidence in `agents/activation-checklists.json`
+(`docs/AGENTS.md` → "Declared channel name vs. the workspace's real one"), the bridge now
+resolves an unresolved active agent's name against Slack at startup and reports what it
+could not resolve, and `scripts/channel-map.js` reconstructs the whole map — from Slack,
+or from the deleted `agents/agents.json` in git history — so the fresh-install path is a
+command rather than archaeology.
+
+**What is NOT closed, and is why this stays open:**
+- **The live resolution path has never run against a real Slack workspace.** Every test of
+  it uses a stub. The first real exercise is the next `docker compose restart jt-agent`,
+  and this repository cannot verify a deployment (`CLAUDE.md` → "Self-update — DESIGNED
+  AND TESTED, NOT WIRED").
+- **The reconstruction from history is one-shot.** It recovers the ids that were in
+  `agents/agents.json` when it was deleted. An id that changes after that date — a channel
+  recreated, a workspace migrated — is recoverable only by resolving the name again.
+- **`jester` still declares a channel that does not exist** and no real name exists to
+  substitute; see #53.
+- **Nothing exports the resolved map off-box.** If both the NAS and Slack are unavailable
+  the mapping is gone. `node scripts/channel-map.js --report` prints it; where that output
+  is kept is an owner decision that has not been made (same class as #42).
+
+**Regenerate the whole picture:**
+```bash
+node scripts/channel-map.js --report      # declared name -> resolved id, per agent
+node scripts/agent-surface.js             # and what each agent therefore gets
+```
+**Priority:** P1 | **Effort:** Medium (done); Low to close the remainder
+**Risk:** Low — resolution never creates a channel and refuses rather than guessing
+**Status:** open — mechanism fixed and reproducible (`lib/channel-map-rebuild.js`,
+`scripts/channel-map.js`, guard `tests/channel-map-rebuild.test.js`); live verification
+against a real Slack workspace and off-box export of the resolved map both outstanding
+
+---
 
 ### 42. Every backup this system has lives on the box it backs up, and their liveness is checked by nothing
 **Filed 2026-09-15,** from the NAS hardening pass
@@ -908,34 +991,45 @@ exists**:
 | `lib/llm-metrics.js` | `llm-metrics.json` | yes | `LLM_METRICS_FILE` env, read per-call |
 | `bots/storefront.js` | `delivery-quotes.json` | yes | `DELIVERY_QUOTES_FILE` env |
 | **`lib/bulletin-board.js`** | `bulletin.json` | yes | **none** |
-| **`lib/slack-client.js`** | `channel-map.json` | yes | **none** |
+| `lib/slack-client.js` | `channel-map.json` | yes | **`lib/bridge-state.js init({channelMapFile})`** (2026-09-15) |
 | **`lib/staff-tasks.js`** | `staff-tasks-state.json` | yes | **none** |
-| **`lib/watercooler.js`** | `watercooler-state.json` | yes | **none** |
+| `lib/watercooler.js` | `watercooler-state.json` | yes | **now `init({stateFile})`** (2026-09-15) |
 
-The bottom four are the exact pre-fix shape of #19: a writable file resolved as a
-module-scope `const` with no `init`/arg/env override. Their tests confirm it — they
-operate on the **real** project file, not a temp copy: `tests/bulletin-board.test.js:12-19`
-unlinks the real `agents/shared/bulletin.json`; `tests/slack-client.test.js:532` builds a
-`tempDir` the module ignores (its own comment: "The actual CHANNEL_MAP_FILE path is inside
-the project"); `tests/staff-tasks.test.js:305` unlinks the real `staffTasks.TASKS_STATE_FILE`.
+**LOGIC CHANGE 2026-09-15 — two of the four are closed, and the "latent" judgement below
+was wrong about both.** This item said the defect was latent because each file has exactly
+one writing suite so nothing races it. That is true and it was not the risk. A full run on
+`3c62bb1` left `agents/shared/channel-map.json` containing
+`{"test-channel":"C12345","new-channel":"C99999","my-channel":"C12345"}` — three invented
+ids written by `tests/slack-client.test.js` into the file the running bridge resolves
+agent channels from — and rewrote `agents/shared/watercooler-state.json` on every run.
+Not a race: a straightforward corruption of live configuration by a test suite, happening
+continuously. See #54 on the deferral judgement itself.
 
-**Why they do not flake today, and why that is not safety:** each of those four files is
-written by exactly **one** test suite, so nothing races it. #19 flaked only because *two*
-suites wrote `approval-queue.json` (`approval-queue.test.js` + `security-followup.test.js`).
-The defect is latent in the other four — the day a second writing suite appears for any of
-them (or two of these suites' production writers run under one test), the identical
-scheduling-dependent race returns. Not fixed here to keep the #19 change scoped; filed so
-the class is visible.
+**`lib/slack-client.js` is the instructive one.** By the time it was found it already HAD
+the seam this item prescribes — ownership of `channel-map.json` moved to
+`lib/bridge-state.js init({ channelMapFile })` on 2026-09-15 — and `tests/slack-client.test.js`
+simply never used it. **So the enumerator proposed below, which walks `lib/` for a
+module-scope writable path with no override seam, would not have caught it.** A guard on
+the cause misses an unused cure.
 
-**Fix:** give each of the four the `init({ file })` override `lib/bridge-state.js` /
-`lib/approval-queue.js` already model, and point their suites at `os.tmpdir()`. **The
-durable close is an enumerator, not four edits:** a test that walks `lib/` + `bots/`,
-flags any module exporting a writer whose target path has no override seam, and fails when
-a new one appears — the `tests/no-shell-execution.test.js` pattern applied to
-shared-mutable-path. Without it a fifth sibling lands unnoticed.
-**Priority:** P2 | **Effort:** Low per module; Medium for the enumerator.
+**The enumerator that now exists is on the EFFECT**, and holds whatever the module shape
+is: jest `globalSetup`/`globalTeardown` (`tests/helpers/live-state-setup.js` and
+`-teardown.js`) fingerprint every durable state file before a run — `agents/shared/*.json`
+enumerated from disk, plus the runtime files that may not exist yet, plus
+`.bridge-agent-state.json` — and fail the whole run naming any file created, modified or
+deleted. Negative controls: `tests/live-state-guard.test.js`. Cite that pair, not this
+paragraph.
+
+**REMAINING: `lib/bulletin-board.js` and `lib/staff-tasks.js`.** Both still resolve their
+path as a module-scope `const` with no override; `tests/bulletin-board.test.js:12-19`
+unlinks the real `agents/shared/bulletin.json` and `tests/staff-tasks.test.js:305` unlinks
+the real `staffTasks.TASKS_STATE_FILE`. They happen to leave no residue, so the new guard
+passes on them today and fails the moment either stops cleaning up. Give each the
+`init({ file })` override `lib/bridge-state.js` / `lib/approval-queue.js` /
+`lib/watercooler.js` model and point its suite at `os.tmpdir()`.
+**Priority:** P2 | **Effort:** Low per module (two left); the enumerator is done.
 **Risk:** Low — additive overrides; unset option preserves each current path exactly.
-**Status:** open (re-verified 2026-09-14)
+**Status:** open — 2 of 4 closed 2026-09-15, enumerator built, 2 remain
 
 ---
 
@@ -1674,69 +1768,156 @@ have answers.
 
 ---
 
-### 50. `npm test` is red in a fresh clone: 30 tests depend on a gitignored file no checkout has
-**Filed 2026-09-15,** from establishing the base state before the `getRecentCompleted`
-fix. **This is a verification-integrity item, not a feature gap:** the full suite is the
-stated gate on every commit in this repository (`docs/EXECUTOR-CONTRACT.md` §5), and in
-the environment every dispatched task actually runs in — a fresh scratch clone — that
-gate reports 30 failures that have nothing to do with the change under test.
+### 51. A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it
+**Filed 2026-09-15.** **This is a class, filed after its third instance.** A built-in
+command that changes configuration has exactly two places to write: a tracked file, which
+`auto-update.js`'s `git reset --hard HEAD` discards on the next pull, or a gitignored
+file, which no other workspace and no reviewer ever sees. Every such command has to choose,
+and none of them has solved it — three have picked a side ad hoc and one of those three
+was wrong.
 
-**Measured at `1e4878f`, with no working-tree change, `--runInBand`, after deleting the
-runtime artifacts left by a previous run:**
+| Command / writer | Writes | Survives a pull? | Visible in review? |
+|---|---|---|---|
+| `activate` / `deactivate` (`lib/agent-activation.js`) | `agents/shared/agent-activation.json` | **yes** (gitignored) | **no** |
+| `ASK: create channel` → `ensureChannel()` | `agents/shared/channel-map.json` | **yes** (gitignored) | **no** |
+| the removed `activateAgent()` in `lib/agent-registry.js` | `agents/agents.json` | **NO** | yes |
+| a per-agent provider change | nothing — it is `LLM_PROVIDER_<AGENTID>` in `.env`, by hand | yes | **no** |
+| `create` (part four, 2026-09-15) | `agents/<id>/agent.md` | **NO** | yes |
 
+**Observed damage, not hypothesised.** `lib/agent-registry.js`'s own removal comment
+records the tracked-file variant as having been destroyed twice. `docs/AGENTS.md` records
+the same shape destroying a scheduled job's interval. `CLAUDE.md` records that
+`docker-compose.yml` was one `git clean -fd` away from being deleted and is now gitignored
+for exactly this reason (#26).
+
+**The uncomfortable half:** the two that "survive" survive by being invisible. A workspace
+whose agent set differs from its repository's, with the difference recorded nowhere a
+reviewer reads, is the same defect as a lost write with the sign flipped — it is how the
+running system and the tracked declaration drift without anyone being told.
+
+**Shapes, none chosen:**
+- *(a)* A command that writes a tracked file also commits and pushes it. Needs a git
+  identity and a push credential in the bridge process, and makes `ASK:` a thing that can
+  change `main` — a much larger blast radius than any command has today.
+- *(b)* A command that writes a tracked file returns the **diff** and asks a human to
+  commit it. Honest, cheap, and the only one that works with the deploy path as it is.
+  `create` does this today by saying plainly that the file will be discarded.
+- *(c)* Move every runtime-decidable field out of tracked files entirely, so the tracked
+  file is a declaration and the local store is the whole state. This is the direction
+  2026-09-15 already went (`default_status` + `agent-activation.json`), and (b) is the
+  gap-filler for the fields that cannot move — a role, a system prompt, a `target_repo`.
+
+**Do not fix this by adding a fourth store.** The cost of the current mess is three
+mechanisms; a fix that adds a fourth is not one.
+**Priority:** P2 | **Effort:** Low for (b) per command; High for (a)
+**Risk:** (a) is the only one that can push to `main` and should not be attempted before #17
+**Status:** open — class recorded with its instances; no shape chosen
+
+---
+
+### 52. The workspace's channels and the repository's agents have never been reconciled in either direction
+**Filed 2026-09-15,** from the channel-name correction. **Two sets, never compared.**
+
+**Direction one — agents with no channel.** Regenerate:
 ```bash
-rm -f agents/shared/channel-map.json agents/shared/watercooler-state.json
-npx jest --runInBand 2>&1 | tail -5
-# Test Suites: 6 failed, 59 passed, 65 total
-# Tests:       30 failed, 2164 passed, 2194 total
+node scripts/channel-map.js --report   # any row printing "unresolved"
 ```
+Today: `jester` (active, scheduled, declares a name nothing created), `marketing` and
+`storefront` (planned, declaring names their checklists record as created, so probably
+resolvable — never tried).
 
-**The cause, confirmed by making it go away.** `agents/shared/channel-map.json` is
-gitignored (`.gitignore:9`) and is the ONLY thing that maps an agent's declared
-`channel_name` to an id. A clone has never had one, so every agent resolves to no
-channel, and every assertion of the form "agents with channels" gets an empty set.
-Seeding the file with one entry per declared `channel_name` — the ids need not even be
-the real ones, which is itself the point — turns the same commit green:
+**Direction two — channels with no agent, which nothing in this repository can even
+enumerate.** The repository names channels that no agent record references:
+`#sqtools-ops` (`OPS_CHANNEL_ID`), `#store-tasks` (`STORE_TASKS_CHANNEL_ID`),
+`#store-inbox` (`STORE_INBOX_CHANNEL_ID`), `#bot-memory` (`MEMORY_CHANNEL_ID`, in a
+completed checklist entry and read by nothing). Beyond those, `docs/CONFIG-SURFACE-AND-REBUILD.md`
+Step 2 records that the live `.env` carries **six** `*_CHANNEL_ID` keys no code in this
+repository reads — so there are channels the deployment knows about that the repository
+cannot name at all. And a channel that exists in Slack but appears in neither place is
+invisible to every command here.
 
-```bash
-# any syntactically valid ids will do; resolution is all the suites need
-printf '{"claude-bridge":"C1","code-agent":"C2","secretary-agent":"C3",
-"security-agent":"C4","email-monitor-agent":"C5","story-bot-agent":"C6"}' \
-  > agents/shared/channel-map.json
-npx jest --runInBand 2>&1 | tail -5
-# Test Suites: 65 passed, 65 total
-# Tests:       2194 passed, 2194 total
-```
+**Why it is worth reconciling.** The bot joins a channel on every boot and output
+accumulates in channels nobody reads; a channel with no agent is where an agent's work
+goes to die, and an agent with no channel is work that never starts. Both failures have
+already happened (#3, #55). Neither is reported by anything.
 
-**The six suites:** `tests/agent-scheduler.test.js`, `tests/agent-surface.test.js`,
-`tests/bulletin-watcher.test.js`, `tests/failure-visibility.test.js`,
-`tests/multi-channel-routing.test.js`, `tests/security-followup.test.js`.
+**The missing half is one Slack call this repository deliberately does not make.**
+`conversations.list` is already used by `findChannelByName()`; a read-only "every channel
+the bot is in, against every channel an agent declares" report needs no new scope. It is
+not built here because it is a live-workspace enumeration and the repository can only
+verify its own half — but it is the only thing that closes this.
+**Priority:** P2 | **Effort:** Low (a read-only report; `channels:read` is already held)
+**Risk:** Low — read-only, creates nothing
+**Status:** open — one direction is computable from the repo today, the other needs the report
 
-**Why this is the same class as a green suite that skipped.** The repo already treats a
-gate that can go red for a non-code reason as a defect — the size half of
-`npm run validate` was red on 65 standing violations until 2026-09-15 precisely because
-"a new violation could not be told apart from the standing ones", and twice in one week
-nobody checked. This is that failure with the sign flipped: an executor who runs
-`npm test` in a scratch clone sees 30 red and must either diff the failure list by hand
-against a base run or dismiss it. Dismissing red is the habit being trained.
+---
 
-**A second, smaller finding inside the same surface.** Some suite writes the REAL
-`agents/shared/channel-map.json` rather than a temp path — after a run it contains
-`{"test-channel":"C12345","new-channel":"C99999","my-channel":"C12345"}`. So the suite
-mutates the same ambient state its own outcome depends on. Find the writer with:
+### 53. `jester` is an active commentary agent with a weekly schedule, no channel, and no defined material
+**Filed 2026-09-15.** Three separate gaps that look like one:
 
-```bash
-grep -rn "channel-map" tests/ | grep -v "tmpdir\|mkdtemp"
-```
+1. **No channel, and no real name to give it.** Its checklist says "Responds via ASK in
+   any channel, no dedicated channel needed", yet its definition declares
+   `channel_name: jester-agent`, which nothing ever created. The 2026-09-15 name
+   correction fixed seven declarations from tracked evidence and could not fix this one,
+   because there is no real name to substitute. It is the only **active** agent that
+   cannot be addressed at all.
+2. **A schedule that is refused every boot.** `0 18 * * 5` → `weekly-critique`, refused by
+   `lib/agent-scheduler.js` for a stated reason since 2026-09-15 (it used to be a silent
+   skip — #3). So the refusal is visible; the decision behind it is not made.
+3. **Its input is undecided, and that is the real question.** `weekly-critique` is a
+   template with no defined material. Pointed at a diff it produces remarks about naming.
+   The material worth reading is the **gap between what was claimed and what happened** —
+   and a large part of that is already computable with no model at all:
 
-**Fix (not chosen here; it is a test-architecture decision):** either the six suites
-provide their own channel-map fixture and point the resolver at a temp dir (the shape
-`tests/bridge-state.test.js` and `tests/agent-activation.test.js` already use), or a
-tracked fixture file is added and the resolver prefers it under `NODE_ENV=test`. The
-first is the repo's existing convention; the second is fewer edits. Whichever is taken,
-the guard that it stays fixed is a run from a clean checkout with no
-`agents/shared/*.json` runtime artifacts present.
-**Priority:** P2 | **Effort:** Low-Medium | **Status:** open — measured and reproduced, not fixed
+   - items in this file carrying a **Filed** date and still `Status: open` — how long each
+     has been open, and which were deferred on scope grounds and then bit (#54);
+   - `Closes <ID>` vs `Addresses <ID>` in commit bodies — work claimed complete against
+     work claimed partial (`git log --grep='^Addresses #' --oneline`);
+   - a definition-of-done list in a commit body against the suites that actually ran.
+
+   A deterministic report over those three is material a model can then be given, rather
+   than a model being asked to find material. Note the ordering: decide the input before
+   deciding the channel, because a weekly post with nothing to say is worse than silence
+   and would be the thing the agent exists to mock.
+
+**Three ways out, none chosen:** create `#jester-agent` (owner action, one channel that
+then accumulates a weekly post); drop the schedule and keep jester as an ASK-only
+personality, which is what its checklist says it is; or build the deterministic report
+first and decide afterwards.
+**Priority:** P2 | **Effort:** Low to decide; Low-Medium for the report
+**Risk:** Low
+**Status:** open — refusal is visible, decision is not made
+
+---
+
+### 54. Two defects deferred on scope grounds were load-bearing — the deferral judgement, not the filing, is what failed
+**Filed 2026-09-15.** **A decision record about how this backlog is used, not a code
+defect.** Both instances were filed correctly, with evidence, and then deferred for a
+reason that read well at the time and was wrong.
+
+| Filed as | Deferred because | What it actually was |
+|---|---|---|
+| `getRecentCompleted` sorts by a millisecond timestamp (P2, closed 3d7ad70) | "cosmetic ordering in one status command" | `tests/task-queue.test.js` failed in **25 of 40** isolated runs on the base commit. Every test run in this repository was a coin flip, so *every* gate was unreliable, including the ones judging unrelated work |
+| #50 / #24 — a suite writing fixtures into live configuration | "latent; each file has exactly one writing suite, so nothing races it" (#24's own words) | It was not latent. It was writing three invented ids into `agents/shared/channel-map.json` — the file the running bridge resolves agent channels from — on every run, while the same file being absent made 30 tests red in every fresh clone |
+
+**The common shape, and it is the useful part.** Both were ranked by the **visible
+symptom's** severity — a mis-ordered list, a tidiness issue in tests — when the thing that
+made them load-bearing was that they sat under **verification**. A defect in the thing
+that judges other work is not P2 because its symptom is small; its blast radius is every
+judgement made while it is open. #50 says this about itself in passing ("Dismissing red is
+the habit being trained") and was still filed P2.
+
+**The rule this records:** *before assigning a tier, ask whether the defect is in the
+system under test or in the apparatus that tests it.* A defect in the apparatus — a flaky
+suite, a gate that cannot start, a gate red for a non-code reason, a suite that mutates
+what it measures — is **P1 regardless of its symptom**, because everything downstream of
+it is unverified while it is open. The existing P1 definition ("can brick or silently
+degrade the running bridge") does not cover this, and both of these fell through that gap.
+
+**Not proposed:** re-ranking the whole file. Two instances is a pattern, not a mandate,
+and the next filing is where this is cheapest to apply.
+**Priority:** P2 | **Effort:** None (the decision is the artifact)
+**Status:** recorded 2026-09-15 — the rule is written down; nothing enforces it
 
 ---
 

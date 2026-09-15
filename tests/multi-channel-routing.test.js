@@ -29,6 +29,13 @@ beforeAll(() => {
     process.env.ALLOWED_USER_IDS = 'U_TEST_USER';
 });
 
+// LOGIC CHANGE 2026-09-15: this suite resolves agent channels, and until now it did
+// that against `agents/shared/channel-map.json` — gitignored, so absent from every
+// clone, so this suite was red in a fresh checkout for a reason unrelated to any
+// change under test (WORK-TODO #50). It now runs against the TRACKED fixture
+// workspace in tests/fixtures/channel-map.json, copied to a temp dir.
+require('./helpers/workspace-fixture').useFixtureWorkspace();
+
 describe('Agent registry multi-channel support', () => {
     test('getActiveAgents returns agents without planned status', () => {
         const { getActiveAgents } = require('../lib/agent-registry');

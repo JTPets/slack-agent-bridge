@@ -3,7 +3,7 @@ id: secretary
 name: Secretary
 order: 3
 default_status: active
-channel_name: secretary-agent
+channel_name: secretary-inbox
 permissions:
   - google-calendar
   - gmail-read

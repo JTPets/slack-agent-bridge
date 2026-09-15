@@ -1,0 +1,8 @@
+{
+  "claude-bridge": "C0FIXBRIDGE",
+  "code-review": "C0FIXCODE",
+  "secretary-inbox": "C0FIXSECRETARY",
+  "sqtools-alerts": "C0FIXSECURITY",
+  "email-monitor-agent": "C0FIXEMAIL",
+  "social-media": "C0FIXSOCIAL"
+}

@@ -224,7 +224,7 @@ to leave undisturbed.
 
 | Store | Owner | Keyed by | Tracked? |
 |---|---|---|---|
-| `agents/shared/channel-map.json` | `lib/slack-client.js:36/58` | channel **name** → id | gitignored |
+| `agents/shared/channel-map.json` | `lib/bridge-state.js` (moved there 2026-09-15; `lib/slack-client.js` re-exports) | channel **name** → id | gitignored |
 | `.bridge-agent-state.json` | `lib/bridge-state.js` | channel **id** → poll cursor | gitignored |
 | `agents/shared/processed-tasks.json` | `lib/bridge-state.js` | message `ts` | gitignored |
 | `agents/<id>/memory/*.json` | `memory/memory-manager.js`, `lib/memory-tiers.js` | agent **id** | gitignored except seeds |
@@ -235,13 +235,15 @@ In-process only, lost on restart: `agentConfig` (`bridge-agent.js:215`),
 `channelsToPoll` (`:291`), `activeJobs` (`lib/agent-scheduler.js:32`),
 `lastTriggerTimes` (`lib/bulletin-watcher.js:24`).
 
-**`channel-map.json` is the one that matters and the one that is not doing its
-job.** It is a channel-name → id cache, and it is written **only** by
-`ensureChannel()` (`lib/slack-client.js:333/352/363`), which is reached only from
-`activateAgent()` and the `ASK: create channel` command. The startup join path does
-not consult it: `joinAgentChannels()` (`:388`) takes ids straight from the registry
-records. So the durable resolution cache exists, is gitignored, is the right shape —
-and the boot path has never used it.
+**`channel-map.json` is the one that matters, and as of 2026-09-15 it is doing its
+job — but read the next section before trusting it.** The sentence that stood here
+("the durable resolution cache exists, is gitignored, is the right shape — and the
+boot path has never used it") is **no longer true**: the startup IIFE in
+`bridge-agent.js` now calls `resolveAgentChannel()` for every active agent whose
+declared name has no id, caches the answer here, and posts the ones it could not
+resolve to `#sqtools-ops`. What replaced the old claim is a different problem — the
+file is the only durable record of the mapping and nothing could rebuild it — and that
+is what the next section is about.
 
 ### If definitions move to a new format, do the running agents migrate, run in parallel, or break?
 
@@ -378,6 +380,90 @@ conversations, so filtering seen ones would make the stream emptier, not cleaner
 
 ---
 
+### Repository-level rules vs. agent-level rules — audited 2026-09-15, reported not deduplicated
+
+**The rule, stated so the audit has something to check against.** An agent definition
+may carry a `target_repo`. An executor working in that repository reads **that
+repository's own** `CLAUDE.md`: `reviewTask()` in `lib/code-review-pipeline.js` reads
+`CLAUDE.md` and `COMMANDMENTS.md` **from the clone**, and `buildPrompt()` injects them
+ahead of the task instructions (`CLAUDE.md` → Code Review Pipeline, steps 1 and 4). So
+repository-level rules reach the executor from the repository, every time, at whatever
+version that repository is at.
+
+It follows that **repository-level rules belong to the repository and agent-level rules
+belong to the agent**, and that copying the first into the second is how they drift: the
+copy in the definition is a snapshot, the repository's own file moves, and nothing
+compares them. An agent-level rule is one about *this agent* — its voice, what it is
+for, what it may not touch — that no repository could state, because a repository does
+not know which agent is working in it.
+
+**The audit.** Regenerate:
+```bash
+for f in agents/*/agent.md; do echo "== $f"; sed -n '/^## System Prompt/,$p' "$f"; done
+```
+
+| Agent | Duplicates its target repository's rules? | Which |
+|---|---|---|
+| `code-bridge` (`jtpets/slack-agent-bridge`) | **yes, four** | "ALWAYS run npm test before committing", "Add regression tests for every bug fix", "Check line counts ... after refactors", "Never skip tests — if they fail, fix them". All four are this repository's own `CLAUDE.md` (Testing; Refactor validation) and `docs/EXECUTOR-CONTRACT.md` §5, which say them in more detail and are read from the clone |
+| `code-sqtools` (`jtpets/SquareDashboardTool`) | **yes, four, and two of them twice over** | "NEVER push to main directly", "Always create feature branches with the `agent/` prefix", "Write comprehensive tests", "Create detailed PR descriptions". The first two are ALSO already in its own frontmatter as `workflow: branch-and-pr`, `merge_policy: owner-approval-required` and `branch_prefix: agent/`, which is what `getProductionAgentForRepo()` reads. Stated three times: frontmatter, prose, and the target repository |
+| `bridge` (no `target_repo`) | **partly** | "Follow the project's coding standards in CLAUDE.md" is a pointer and is fine — it tells the agent the file governs without restating it. "Always run tests before committing" is a restatement |
+| every other agent | no | None carries a `target_repo`, and none restates a repository rule |
+
+**Not deduplicated here, deliberately.** Deleting four lines from a system prompt changes
+what every future task by that agent is told, and the only evidence that the deletion is
+safe is that another file says the same thing *today*. That is a behaviour change dressed
+as tidying, and it is the owner's call. What is recorded is the finding and the rule.
+
+**What the drift would look like when it happens** — worth stating, because it is silent:
+`code-sqtools` says "Always create feature branches with the `agent/` prefix". If
+SquareDashboardTool changes its convention, its own `CLAUDE.md` changes and the executor
+is told both, the definition's copy last and loudest. Nobody is told the two disagree.
+
+**The forward rule is enforced for new agents, not retrofitted to old ones.** A
+definition created by `create` (`lib/agent-create.js`) that carries a `target_repo` gets
+a system prompt that says the repository's `CLAUDE.md` governs and that its rules must
+not be restated, and the command's verdict says the same thing in the channel.
+
+### `code-sqtools` is stood down — `default_status: planned`, 2026-09-15
+
+**One field, reversible, and the reason is not tidiness.**
+
+**What it was.** `code-sqtools` declared the same channel as `code-bridge` — both now
+`#code-review`, as the workspace actually has it — and `activeChannels()` deduplicates by
+channel id, so of the two agents sharing that channel exactly one is reachable.
+`getAgentByChannel()` returns the **first** record whose `channel` matches, and
+`code-bridge` has the lower `order`, so every message in `#code-review` ran as
+`code-bridge`. `code-sqtools` existed only to appear as a collision in every enumeration:
+it could not be addressed, it had no schedule to fire, and its only effect was to be a
+second row that resolved to a channel already spoken for.
+
+**Why stand it down rather than give it a channel.** Its `target_repo` is
+`jtpets/SquareDashboardTool` — `production: true`, `merge_policy:
+owner-approval-required`. That repository's merge gate does not currently function: its
+real-PG integration suites cannot run, so work produced for it cannot be fully verified
+before merging. An agent that is hard to address is a nuisance; an agent that is easy to
+address and whose output cannot be verified before it reaches production is worse. The
+right order is: restore the gate, then decide the channel.
+
+**What changes.** `getActiveAgents()` excludes it, so `activeChannels()` excludes it,
+so it is not joined, not polled and not scheduled — and the scheduler now refuses a
+planned agent's job **with a stated reason** rather than skipping it silently
+(WORK-TODO #3). The collision is gone from every enumeration because the agent is
+declared inactive, not because it was hidden. `#code-review` is unaffected: `code-bridge`
+was already the record every message there resolved to.
+
+**What does NOT change, and it is the part worth knowing.** `code-sqtools` is still a
+**definition**, so `getProductionAgentForRepo('jtpets/SquareDashboardTool')` still
+returns it and `isProductionRepo()` is still true — those read `loadAgents()`, not
+`getActiveAgents()`. The production-workflow rules a `REPO:` task against
+SquareDashboardTool triggers are therefore untouched by this. Standing the agent down
+removes an addressee; it does not remove a production policy.
+
+**Reverse it** by setting `default_status: active` in `agents/code-sqtools/agent.md`, or
+`git revert` the commit. **Not** via `ASK: activate code-sqtools` on the box — that
+records a gitignored local decision that would then override the definition for this
+workspace only, which is the opposite of what a reversal should mean here.
+
 ## Activating an agent in this workspace
 
 An agent is *defined* in `agents/<id>/agent.md` (tracked) and *activated* in this
@@ -388,6 +474,7 @@ invent no agent, and **nothing here creates a Slack channel.**
 ASK: available            # defined agents not activated here, and what each waits on
 ASK: activate <id>        # resolve the declared channel, join, poll, schedule
 ASK: deactivate <id>      # stop polling and scheduling; keep the resolved channel
+ASK: create <id> channel=<name> provider=<claude|gemini|ollama> [repo=<owner/name>] [name=<Display Name>]
 ```
 
 They are verbs in the one command table (`lib/command-router.js`), implemented in
@@ -399,7 +486,53 @@ They are verbs in the one command table (`lib/command-router.js`), implemented i
 3. rebuild the poll set;
 4. register the agent's schedule.
 
-**Where the declared channel does not exist, it refuses and changes nothing.** No
+### `create` — a definition, and nothing more (2026-09-15)
+
+`create` writes `agents/<id>/agent.md` from a template and stops. It is
+`lib/agent-create.js`, separate from `lib/agent-activation.js` on purpose: the two have
+different durability, and one module would invite one sentence covering both.
+
+**What it does not do**, each for a stated reason:
+
+- **It does not create a Slack channel**, and does not resolve one either. Creating one
+  costs something outside this repository; resolving one is `activate`'s job, and doing
+  it here would produce a definition that arrives half-activated.
+- **It does not activate anything.** The new definition is `default_status: planned`
+  with `schedule: null` and `watches: null` — nothing polls it, nothing is joined,
+  nothing fires. An agent that acts before a human has read its definition is how
+  `story-bot` spent months posting into a channel nothing read (WORK-TODO #3).
+- **It does not sanitise.** Every field is rejected with a reason and nothing is
+  written — the same rule `REPO:`/`BRANCH:` follow. Turning `My Agent` into `my-agent`
+  would create a different agent than the one asked for, with nobody told. A `channel`
+  that looks like a Slack id is refused on shape, because a tracked definition may not
+  carry a workspace id (`lib/agent-markdown.js` refuses one anyway).
+- **It does not commit.** See below.
+
+**Does a created definition survive a pull? NO — and the command says so.**
+`agents/<id>/agent.md` is **tracked**. `auto-update.js` runs `git reset --hard HEAD`
+before every pull, so an uncommitted definition written on the box is destroyed by the
+next pull. This is the opposite of `activate`, whose decision lives in a gitignored file
+precisely so that cannot happen, and it is not solvable by moving the file — a
+definition that no other workspace and no reviewer can see is not a definition.
+
+So the command's verdict states it in those words: the file is tracked, the next pull
+destroys it unless it is committed, commit and push it or treat it as a draft. It does
+not commit on your behalf, because a command reachable from an `ASK:` message that can
+write to `main` is a far larger blast radius than anything in this repository has today.
+This is **WORK-TODO #51**, the class every configuration-writing command here shares, and
+`create` does not solve it — it refuses to hide it.
+
+**The sequence**, therefore:
+
+```
+ASK: create inventory channel=inventory-desk provider=gemini repo=jtpets/SquareDashboardTool
+# -> agents/inventory/agent.md, planned, three TODO sections
+# -> commit and push it, or it is gone on the next pull
+# -> make sure #inventory-desk exists (nothing here creates it)
+ASK: activate inventory
+```
+
+**Where the declared channel does not exist, `activate` refuses and changes nothing.** No
 activation is recorded, no join is attempted, and the message says which channel name
 failed. That matches what the scheduler does for a channel-less agent, and it is the
 correct behaviour: creating a channel is an owner action with a cost outside this
@@ -620,6 +753,128 @@ resolved, gets **none** of them — and the reason is posted to `#sqtools-ops` a
 startup rather than skipped in silence. Three or none is the whole rule; one of them
 arriving alone is what produced work nobody collected.
 
+### The channel map: what it holds, who writes it, and how it comes back — established 2026-09-15
+
+**What it holds.** `agents/shared/channel-map.json` is a flat `{ "<channel name>":
+"<Slack channel id>" }` object. Nothing else. It holds a **name**, not an agent id, so
+two agents declaring one channel share one entry — `code-bridge` and `code-sqtools`
+both resolve through `#code-review`, `story-bot` and `social-media` both through
+`#social-media`.
+
+**Who owns it.** `lib/bridge-state.js` since 2026-09-15 (`loadChannelMap`,
+`saveChannelMap`, `getChannelId`, `setChannelId`). `lib/slack-client.js` re-exports the
+first two, so older callers are unchanged. Regenerate the writer list:
+
+```bash
+grep -rn "setChannelId\|saveChannelMap" --include=*.js . | grep -v node_modules | grep -v '^./tests/'
+```
+
+Three writers, and only three: `resolveAgentChannel()` (`lib/agent-activation.js`),
+`ensureChannel()` (`lib/slack-client.js`, reached from `ASK: create channel`), and
+`scripts/channel-map.js`.
+
+**Who reads it, and when.** One reader: `applyWorkspaceState()` in
+`lib/agent-registry.js`, called by `loadAgents()` — which reads from disk on **every
+call**, with no cache. So every consumer of an agent record consults it transitively.
+It is consulted at three moments that matter:
+
+| Moment | What happens |
+|---|---|
+| Startup, in the IIFE in `bridge-agent.js` | For each **active** agent with a `channel_name` and no id: resolve against Slack, cache the result. Every already-known name is a cache hit and costs no API call. Anything unresolved is posted to `#sqtools-ops`, named, with the reason |
+| Startup, immediately after | `buildChannelsToPoll()` and `joinableChannels()` re-derive from the registry, so a channel resolved on **this** boot is joined and polled on this boot |
+| `ASK: activate <id>` | `resolveAgentChannel()` again, then `reRegisterAgents()` — no restart needed |
+
+**On a fresh install where it does not exist.** `loadChannelMap()` returns `{}`,
+`applyWorkspaceState()` gives every agent `channel: null`, and the startup resolution
+above is what fills it — one `conversations.list` lookup per declared name, cached
+permanently. A name that is real resolves; a name that is fiction is refused and
+reported. **Nothing creates a channel**, at boot or anywhere else.
+
+That is why part two of this document matters more than it looks: boot-time resolution
+was already in place on 2026-09-15 and the deploy still failed, because it was
+resolving seven names that did not exist. The resolver was working; what it was given
+was wrong.
+
+**How the mapping comes back when it is lost.** Two commands, answering two different
+questions. Neither creates a channel and neither writes a tracked file.
+
+```bash
+node scripts/channel-map.js              # read-only: declared name -> resolved id, per agent
+node scripts/channel-map.js --from-git   # THIS workspace's ids, from git history. No token, no network
+node scripts/channel-map.js --resolve    # ANY workspace: resolve the declared names against Slack
+```
+
+`--from-git` is the answer to "the box died". It reads `agents/agents.json` as it stood
+when the 2026-09-15 migration deleted it — every clone carries that, because it is
+history rather than working tree — and keys each recovered id by the agent's **current**
+declared `channel_name`, joining on the agent id. That join is what makes it survive a
+name correction: the legacy file recorded `secretary -> C0AP8CDPP62`, the definition now
+says `secretary -> #secretary-inbox`, and the recovered entry is
+`secretary-inbox -> C0AP8CDPP62` rather than the dead `secretary-agent` key. An id
+already in the map is never overwritten — a value resolved against the live workspace
+always beats a reconstructed one.
+
+`--resolve` is the answer for a workspace that is not this one, which is the case a
+declared name exists for at all. It needs a bot token and `channels:read`.
+
+**What neither of them covers, and it is filed as WORK-TODO #55:** the history
+reconstruction is one-shot — it recovers ids as of the deletion commit, so a channel
+recreated after that date is recoverable only by `--resolve`; and nothing exports the
+resolved map off-box, so if both the NAS and Slack are unavailable the mapping is gone.
+`node scripts/channel-map.js` prints it; where that output is kept is an owner decision
+that has not been made.
+
+### Declared channel name vs. the workspace's real one — established 2026-09-15
+
+**A declared `channel_name` was a convention, not a fact.** The 2026-09-15 migration
+derived every name from the agent id as `<id>-agent`
+(`scripts/migrate-agent-definitions.js` → `channelNameFor()`), with `claude-bridge` and
+the shared `code-agent` as its only two exceptions, and said so in its own header:
+"Every other name is UNVERIFIED against the workspace." Seven of eleven were wrong.
+
+They were invisible because `agents/shared/channel-map.json` is keyed by **name**, and
+the only thing that had ever written it (`ensureChannel()`) wrote the **real** names. So
+a definition asking for `#secretary-agent` looked up a key that had never existed, while
+the id for `#secretary-inbox` sat in the same file untouched. Nothing compared them.
+
+**The evidence is in this repository, and it is tracked:**
+`agents/activation-checklists.json` pairs, per agent, a completed "Create #X Slack
+channel" task with a completed "Assign channel `<ID>`" task. That pairing is a
+name↔id binding recorded at the time each channel was made. Regenerate it:
+
+```bash
+node -e "const d=require('./agents/activation-checklists.json');
+for (const [id,v] of Object.entries(d)) for (const t of (v.tasks||[]))
+  if (/#[a-z0-9-]+/.test(t.description)) console.log(id, '|', t.completed, '|', t.description);"
+```
+
+| Agent | Declared before | Declared now | Verdict | Evidence |
+|---|---|---|---|---|
+| `bridge` | `claude-bridge` | `claude-bridge` | **confirmed real** | `CLAUDE.md`; checklist "Create #claude-bridge and #sqtools-ops", completed |
+| `code-bridge` | `code-agent` | **`code-review`** | **was fiction** | checklist "Create #code-review Slack channel" + "Assign channel C0AP42BT4MR", both completed |
+| `code-sqtools` | `code-agent` | **`code-review`** | **was fiction** | checklist note "Shares #code-review channel with code-bridge" |
+| `secretary` | `secretary-agent` | **`secretary-inbox`** | **was fiction** | checklist "Create #secretary-inbox Slack channel", completed |
+| `security` | `security-agent` | **`sqtools-alerts`** | **was fiction** | checklist "Create #sqtools-alerts Slack channel" + "Assign channel C0ANZUQQRGW" |
+| `email-monitor` | `email-monitor-agent` | `email-monitor-agent` | **confirmed real** | checklist "Create #email-monitor-agent Slack channel" + "Assign channel C0AQH3KC31S" |
+| `story-bot` | `story-bot-agent` | **`social-media`** | **was fiction** | checklist note "Shares #social-media channel (C0AP8CHCV1U)" + "Verify #social-media channel exists" |
+| `social-media` | `social-media-agent` | **`social-media`** | **was fiction** | checklist "Create #social-media Slack channel for draft approvals", completed |
+| `marketing` | `marketing-agent` | **`marketing`** | **was fiction** | checklist "Create #marketing Slack channel", completed |
+| `storefront` | `storefront-agent` | **`store-inbox`** | **was fiction** | checklist "Create #store-inbox Slack channel", completed. Note this is the same channel `STORE_INBOX_CHANNEL_ID` names (`bots/storefront.js:30`) — one channel, two consumers, by design |
+| `jester` | `jester-agent` | `jester-agent` | **known fiction, left alone** | checklist note: "Responds via ASK in any channel, **no dedicated channel needed**" — so no real name exists to substitute. Inventing one is the defect being fixed; the declaration stays and the gap is filed |
+
+**What "confirmed" means here, precisely.** It means a tracked file in this repository
+records that the channel was created under that name. It is **not** a live Slack call —
+no dispatch may make one, and none was made. The standing check is the one the bridge
+now runs itself at startup (below): a declared name that does not resolve is reported
+to `#sqtools-ops`, named, every boot.
+
+**Why this is worth more than the ids it recovers.** A fork of this repository used to
+receive eleven definitions, seven of which named channels that exist nowhere, and the
+only reason the original workspace worked was a gitignored file pairing each fiction
+with a correct id. The map was doing the work of the declaration. It is now a cache of
+the declaration, which is the whole difference between a workspace that can be rebuilt
+and one that can only be remembered.
+
 ### On the repeated `already_in_channel` warnings
 
 **There are none, and there never were** — cited versus actual at `69a3922`.
@@ -649,14 +904,14 @@ scheduler skips them silently — unlike an unknown task name, a missing channel
 even reported at startup. Creating a channel is an owner action
 (`ASK: create channel #name`, which needs `channels:manage`); this is the proposal.
 
-| Agent | Status | Declared schedule | Proposed channel | What creating it would change |
+| Agent | Status | Declared schedule | Declared channel | State after the 2026-09-15 name correction |
 |---|---|---|---|---|
-| `jester` | **active** | `0 18 * * 5` weekly-critique | `#jester-agent` | The only **active** agent that cannot be addressed at all — its declared `channel_name` has never resolved, so no channel, no registered job, no route. Its `weekly-critique` template exists and nothing can reach it. Since 2026-09-15 this is reported to `#sqtools-ops` at every startup instead of being a silent skip. Creating the channel resolves it on the next restart and registers the job. |
-| `social-media` | planned | `0 9 * * 1,3,5` content-calendar | `#social-media-agent` | Registers the job. It would still need `status: "planned"` removed for the channel to be **polled**, or the posted `TASK:` message reaches no executor — see #3. |
-| `marketing` | planned | `0 6 * * 1` weekly-analytics | `#marketing-agent` | Same as above. |
-| `storefront` | planned | none | `#storefront-agent` | Nothing scheduled; the agent is served by `bots/storefront.js` over HTTP, not by a channel. Lowest value of the four — listed for completeness, not recommended. |
+| `jester` | **active** | `0 18 * * 5` weekly-critique | `#jester-agent` | **The only one that still needs a decision.** Its checklist says "Responds via ASK in any channel, no dedicated channel needed", so `#jester-agent` is a name nothing ever created and no real name exists to substitute. It is the one **active** agent that cannot be addressed at all, and its `weekly-critique` job is refused for a stated reason at every startup. Creating `#jester-agent` is one answer; deciding jester needs no channel and removing the schedule is the other. Filed, not chosen. |
+| `social-media` | planned | `0 9 * * 1,3,5` content-calendar | `#social-media` | **No channel needs creating** — the checklist records `#social-media` as created (`C0AP8CHCV1U`). It is `planned`, so `ASK: activate social-media` is the whole remaining step, and it resolves from the map or from Slack by name. |
+| `marketing` | planned | `0 6 * * 1` weekly-analytics | `#marketing` | Same: the checklist records `#marketing` as created. `ASK: activate marketing` and nothing else. Its id is not in the map, so activation resolves it against Slack by name — the path that was never exercised before the names were corrected. |
+| `storefront` | planned | none | `#store-inbox` | Nothing scheduled; the agent is served by `bots/storefront.js` over HTTP, not by a channel. `#store-inbox` exists and is already the SMS/call log channel. Listed for completeness, still not recommended. |
 
-**Do not create all four to make the table tidy.** Each new channel is a channel the
+**One channel that still has to be created by a human, not four.**  Each new channel is a channel the
 bot joins on every boot and a place output can accumulate unread. `jester` is the one
 with a concrete defect behind it; the other three are gated on the `planned` decision
 in WORK-TODO #3 and should follow it, not precede it.

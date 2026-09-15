@@ -27,9 +27,11 @@ const {
 } = require('../lib/agent-surface');
 const { loadAgents } = require('../lib/agent-registry');
 
-// The bridge channel is an env var the repo cannot see. Pin it to the registry's own
-// bridge channel so the table is the live-shaped one rather than a checkout artifact.
-const BRIDGE_CHANNEL = 'C0ANZUEJXEJ';
+// LOGIC CHANGE 2026-09-15: the fixture workspace, not the checkout's own gitignored
+// channel map (WORK-TODO #50), and not a real workspace id pinned into a tracked test.
+const { useFixtureWorkspace, CHANNELS } = require('./helpers/workspace-fixture');
+useFixtureWorkspace();
+const BRIDGE_CHANNEL = CHANNELS['claude-bridge'];
 
 function surface() {
     return buildSurface({ bridgeChannel: BRIDGE_CHANNEL, env: { ...process.env, BRIDGE_CHANNEL_ID: BRIDGE_CHANNEL } });
@@ -69,13 +71,10 @@ describe('output that reaches nobody', () => {
     // LOGIC CHANGE 2026-09-15: story-bot is GONE from this list, and that removal is
     // a capability arriving rather than a list being tidied.
     //
-    // Its history in two steps. It was originally an orphan of the worst kind: its
-    // weekly job registered and fired a TASK: message into C0AP8CHCV1U every Friday,
-    // and the poll loop did not read that channel, so the work was done and
-    // collected by nobody. The 2026-09-15 one-rule change (`activeChannels`) made a
-    // planned agent get none of joining/polling/scheduling instead of one of them,
-    // which stopped the waste but produced nothing either — its entry above then read
-    // "not activated in this workspace".
+    // Its history in two steps. It was an orphan of the worst kind: its weekly job
+    // fired a TASK: message into #social-media every Friday and the poll loop did not
+    // read that channel. The 2026-09-15 one-rule change (`activeChannels`) stopped the
+    // waste but produced nothing either — its entry then read "not activated here".
     //
     // It is now activated, by `default_status: active` in agents/story-bot/agent.md,
     // so it has all three consequences and its output is read. Reverse by setting
@@ -146,16 +145,18 @@ describe('buildChannelsToPoll in bridge-agent.js does not restate the rule', () 
 
     test('the pure rule produces the six distinct channels the live one does', () => {
         const polled = pollableChannels(loadAgents(), BRIDGE_CHANNEL);
-        // code-bridge and code-sqtools share C0AP42BT4MR — one channel, not two.
+        // Still six after the 2026-09-15 name correction, but a different six: the
+        // count is unchanged because the corrections renamed channels rather than
+        // merging them. code-bridge and code-sqtools share #code-review — one channel,
+        // not two — and story-bot now declares #social-media, the channel its
+        // checklist records it sharing, instead of #story-bot-agent, which never
+        // existed. Sharing is the workspace's real shape.
         expect(polled.size).toBe(6);
-        expect(polled.has('C0AP42BT4MR')).toBe(true);
-        // LOGIC CHANGE 2026-09-15: was 5, and asserted story-bot's channel is NOT
-        // polled because story-bot was `planned`. It is now `default_status: active`
-        // (agents/story-bot/agent.md), so its channel is polled and its Friday job's
-        // TASK: message is executed. That is the point of activating it: before, the
-        // assertion below read `.toBe(false)` and described a job producing drafts
-        // nothing collected.
-        expect(polled.has('C0AP8CHCV1U')).toBe(true);
+        expect(polled.has(CHANNELS['code-review'])).toBe(true);
+        // story-bot is `default_status: active`, so its channel IS polled and its
+        // Friday job's TASK: message is executed — before activation this read false
+        // and described a job producing drafts nothing collected.
+        expect(polled.has(CHANNELS['social-media'])).toBe(true);
     });
 });
 
@@ -193,8 +194,15 @@ describe('joinableChannels is EXACTLY the polled set, and creates nothing', () =
         expect(syntheticJoined).toContain('C_ACTIVE_TEST');
         expect(syntheticJoined).not.toContain('C_PLANNED_TEST');
 
-        const joined = joinableChannels(loadAgents(), BRIDGE_CHANNEL).map(c => c.channelId);
-        for (const agent of loadAgents().filter(a => a.status === 'planned' && a.channel)) {
+        // LOGIC CHANGE 2026-09-15: now "planned AND claimed by no active agent". It
+        // asserted NO planned agent's channel is joined — an assumption, not the rule.
+        // Correcting the declared names made story-bot (active) and social-media
+        // (planned) both declare #social-media. `activeChannels` is per CHANNEL.
+        const agents = loadAgents();
+        const joined = joinableChannels(agents, BRIDGE_CHANNEL).map(c => c.channelId);
+        const claimedByActive = new Set(agents.filter(a => a.status !== 'planned' && a.channel).map(a => a.channel));
+        for (const agent of agents.filter(a => a.status === 'planned' && a.channel)) {
+            if (claimedByActive.has(agent.channel)) continue;
             expect(joined).not.toContain(agent.channel);
         }
     });

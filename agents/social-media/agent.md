@@ -3,7 +3,7 @@ id: social-media
 name: Social Media Manager
 order: 7
 default_status: planned
-channel_name: social-media-agent
+channel_name: social-media
 permissions:
   - meta-graph-api
   - instagram-api

@@ -3,7 +3,7 @@ id: storefront
 name: Storefront Agent
 order: 5
 default_status: planned
-channel_name: storefront-agent
+channel_name: store-inbox
 permissions:
   - square-catalog-read
   - square-orders-write

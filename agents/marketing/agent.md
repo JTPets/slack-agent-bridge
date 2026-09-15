@@ -3,7 +3,7 @@ id: marketing
 name: Marketing Manager
 order: 9
 default_status: planned
-channel_name: marketing-agent
+channel_name: marketing
 permissions:
   - google-business-profile
   - google-merchant-center
