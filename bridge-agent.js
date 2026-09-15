@@ -101,6 +101,11 @@ const {
 // LOGIC CHANGE 2026-03-27: Added getActiveAgents and getAgentByChannel for multi-channel polling.
 const { getAgent, loadAgents, getActiveAgents, getAgentByChannel, registryExists, isProductionRepo } = require('./lib/agent-registry');
 
+// LOGIC CHANGE 2026-09-15: the pure rule for "which channels does the bridge join".
+// It lives in lib/agent-surface.js beside the rest of the agent-surface enumeration,
+// so scripts/agent-surface.js reports the same set this file acts on.
+const { joinableChannels } = require('./lib/agent-surface');
+
 // LOGIC CHANGE 2026-03-26: Extracted LLM execution into lib/llm-runner.js
 // to support multiple LLM providers via LLM_PROVIDER env var.
 // LOGIC CHANGE 2026-03-26: Import RateLimitError for detecting rate limit
@@ -2094,9 +2099,40 @@ let socketMode = null;
 // first ASK message. Does not block the poll loop from starting.
 (async () => {
   try {
-    await slackClient.joinAgentChannels(channelsToPoll);
+    // LOGIC CHANGE 2026-09-15: join EVERY channel a declared agent names, not only
+    // the channels the poll loop reads. `channelsToPoll` is built from ACTIVE agents
+    // (`getActiveAgents()`), so a `planned` agent holding a real channel was never
+    // joined — which is story-bot exactly: its weekly job is registered (the
+    // scheduler checks `schedule` + `channel`, never `status` — WORK-TODO #3), it
+    // posts to C0AP8CHCV1U, and Slack answers `not_in_channel` every Friday.
+    // Joining a channel that ALREADY EXISTS is safe and reversible; this creates
+    // none. `joinableChannels` is the pure rule, in lib/agent-surface.js, so
+    // `scripts/agent-surface.js` reports the same set the bridge joins.
+    const toJoin = joinableChannels(loadAgents(), BRIDGE_CHANNEL);
+    const joinResult = await slackClient.joinAgentChannels(toJoin);
+
+    // LOGIC CHANGE 2026-09-15: a failed join was a console.error and nothing else.
+    // A channel the bot is not in is a scheduled job whose output reaches nobody,
+    // and the container log is not where anyone learns that. Escalate by the path
+    // this repo already uses for operational failures.
+    if (joinResult && joinResult.failed > 0) {
+      await notifyOwner.notifyOps(
+        `:door: *Could not join ${joinResult.failed} of ${joinResult.total} agent channel(s)* at startup.\n` +
+        'Anything scheduled to post there reaches nobody until the bot is a member. ' +
+        'Check the `channels:join` scope, or invite the bot manually. ' +
+        'Run `node scripts/agent-surface.js` for the per-agent picture.'
+      ).catch(notifyErr => {
+        console.error('[bridge-agent] Could not escalate channel-join failures:', notifyErr.message);
+      });
+    }
   } catch (joinErr) {
     console.error('[bridge-agent] Failed to join agent channels on startup:', joinErr.message);
+    await notifyOwner.notifyOps(
+      `:door: *Agent channel join threw at startup* — ${joinErr.message}\n` +
+      'The bridge is still polling, but it may not be a member of every agent channel.'
+    ).catch(notifyErr => {
+      console.error('[bridge-agent] Could not escalate channel-join throw:', notifyErr.message);
+    });
   }
   await validateGeminiOnStartup();
   // LOGIC CHANGE 2026-09-11: Probe the local Ollama server the same way.

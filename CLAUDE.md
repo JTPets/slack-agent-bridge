@@ -580,7 +580,8 @@ slack-agent-bridge/
 ├── morning-digest.js     # Cron job script: sends daily task stats DM to owner
 ├── security-review.js    # Cron job script: security audit of commits from last 24h
 ├── scripts/
-│   └── watercooler.js    # Cron/manual script: weekly team standup conversation (Friday 5PM)
+│   ├── watercooler.js    # Cron/manual script: weekly team standup conversation (Friday 5PM)
+│   └── agent-surface.js  # THE regenerating command for the agent surface: one row per declared agent — channel, joined, polled, scheduled job, resolved provider with its source, and whether anything it produces has a reader. Read-only; needs no Slack token. `--json` for the same rows machine-readable. Prints the "output that reaches nobody" list that tests/agent-surface.test.js pins
 ├── bots/
 │   └── storefront.js     # Express server for storefront chat widget (POST /api/chat, GET /widget, POST /api/delivery-quote)
 ├── data/
@@ -619,6 +620,8 @@ slack-agent-bridge/
 │   ├── agent-scheduler.js # Cron registrar for agents' proactive schedules: startScheduler reads each agent's `schedule` from agents.json and registers a node-cron job (timezone America/Toronto) that posts a TASK message built from TASK_TEMPLATES to that agent's channel; stopScheduler/getActiveJobs/triggerTask manage them. Registers on `schedule` + `channel` only — it never checks `status: "planned"` (WORK-TODO #3). A task name in `DETERMINISTIC_TASKS` runs code instead of posting a TASK message (`check-inbox` -> `lib/email-check.js`); a name in neither registry is now REFUSED at registration instead of registering a job that could never do anything
 │   ├── agent-task-catalogue.js # WHAT scheduled tasks exist: TASK_TEMPLATES (the LLM prompt templates a cron tick posts) and DETERMINISTIC_TASKS (names that run code instead — `check-inbox` -> `lib/email-check.js`), plus getTaskTemplate/getDeterministicTask. Extracted from agent-scheduler.js 2026-09-15 (WORK-TODO #10): what tasks exist is a different concern from when they fire. Re-exported by lib/agent-scheduler.js, so callers are unchanged
 │   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel, activateAgent
+│   ├── agent-surface.js  # THE enumerator for the declared-agent surface: buildSurface returns one row per agent (channel, joined, polled, scheduled job, provider + provenance, reader), findOrphans returns the rows whose output reaches nobody, and pollableChannels/joinableChannels are the two pure channel rules — joinableChannels is what bridge-agent.js actually joins, so the script and the bridge cannot disagree. Pure: no Slack call, no write
+│   ├── agent-llm-resolver.js # THE resolver for "what is this agent running on, and where did each value come from": resolveAgentLlm returns provider, model, adapter inputs and a SOURCE for each. Calls lib/config.js resolveLlmProvider for the provider precedence rather than re-deriving it; owns the model precedence and the adapter-input mapping, which were inline at the call sites. NEVER emits a credential value — a key is reported as `key_set: true/false` plus the variable name, because this output is built to be posted to Slack
 │   ├── bulletin-board.js # Inter-agent communication: postBulletin, getBulletins, markRead, cleanupOldBulletins
 │   ├── bulletin-watcher.js # Event-driven fan-out for the bulletin board: processBulletin finds agents whose agents.json `watches.bulletin_types` includes the posted type and posts an ASK notification to each one's channel, rate-limited to one trigger per agent per RATE_LIMIT_MS (5 min)
 │   ├── config.js         # Environment variable loading, validation, and defaults
@@ -691,6 +694,8 @@ slack-agent-bridge/
 │   ├── bug-fixes.test.js        # Regression tests for named past defects: rate-limit false positives, memory-file corruption resilience, null exit code = interrupted, stale working memory, addTask on corrupted tasks.json
 │   ├── agent-context.test.js    # Tests for lib/agent-context.js (anti-hallucination, secretary context)
 │   ├── agent-scheduler.test.js  # Tests for lib/agent-scheduler.js (schedule registration, task templates, cron validation)
+│   ├── agent-surface.test.js    # THE enumerating guard for the agent surface: walks agents.json from disk and fails when the set of agents whose output reaches nobody changes, when a scheduled job posts to a channel the bridge does not join, or when lib/agent-surface.js's pure channel rules drift from buildChannelsToPoll's source in bridge-agent.js. Carries its own negative controls
+│   ├── agent-llm-resolver.test.js # Tests for lib/agent-llm-resolver.js: the four-level provider precedence with its provenance label at each level, the model precedence, per-provider adapter inputs, and THE guard that no credential VALUE appears in any resolved output
 │   ├── agent-registry.test.js   # Tests for lib/agent-registry.js (includes activation helpers)
 │   ├── config.test.js           # Tests for lib/config.js
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
