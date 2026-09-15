@@ -8,6 +8,9 @@
 > **name** left the tooling. Deploy keys and the live `.env` were never opened for
 > their contents — only their filenames and the `KEY=` left-hand sides were read.
 
+> **Addendum 2026-09-15:** **Step 7 — NAS host hardening** is appended at the end of
+> this document. Steps 0-6 and the Appendix are unchanged.
+
 This was produced from inside the running `jt-agent` container. Its purpose is to make
 the deployment rebuildable from evidence rather than from memory, after the Pi→NAS
 migration left the only copy of several artifacts on the NAS.
@@ -494,3 +497,240 @@ services:
     command: sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"
     restart: unless-stopped
 ```
+
+---
+
+# Step 7 — NAS host hardening (addendum, 2026-09-15)
+
+**This is an addendum to a dated snapshot. Steps 0-6 and the Appendix above are
+unchanged** — they record what was observed from inside the running container on
+2026-09-14 and are not rewritten here.
+
+## 7.0 What this step is, and what it is not
+
+Steps 0-6 inventory the *bridge container* and stop at the container boundary. Step 6
+names what lies past it — the NAS share root, the host crontab, Tailscale, the other two
+stacks, the other deploy keys — and says plainly that it is **owned by no repository**.
+Step 7 is the first pass at the thing Step 6 deferred: the host itself.
+
+**Nothing in this step was observed.** It was written from a checkout, on a machine with
+no route to the NAS. Every line describing current state is therefore a **question with
+the command that answers it**, never a claim. Three labels are used throughout and each
+one is load-bearing:
+
+| Label | Means |
+|---|---|
+| **repository-verified** | Regenerable from any checkout; the command is given and was run. |
+| **owner-supplied** | Established on the NAS by the owner (dates given). Not regenerable from a checkout; re-confirm before depending on it. |
+| **UNVERIFIED** | Nobody has established this. It is a question, not a finding. Answering it is the first task, not the last. |
+
+**QNAP menu paths below are from QTS convention and are UNVERIFIED for this box's
+firmware.** Menus move between QTS releases. Treat every "Control Panel → …" as a lead
+to confirm on the appliance, in exactly the way `docs/EXECUTOR-CONTRACT.md` §2 treats a
+supplied file:line.
+
+## 7.1 What is actually being hardened
+
+| Fact | Label |
+|---|---|
+| The appliance is a QNAP **TS-264** | **owner-supplied** (2026-09-15 dispatch). Confirm: Control Panel → System → System Status, or `getsysinfo model` over SSH |
+| It hosts the `jt-agent` container, whose `env_file` holds **9 credential keys** (Step 3) and whose deploy directory holds the repository deploy key | **owner-supplied** (compose + `.env` capture, Step 0 / Appendix) |
+| It hosts SqTools — **PRODUCTION**, money and customer PII — as `sqtools-db` (postgres) + `sqtools-app` + `sqtools-tunnel` under `/share/CACHEDEV1_DATA/sqtools/` | **owner-supplied** (standing statement; `/repo` confirms the app tree exists, Step 1) |
+| It hosts the DayZ discord bot under `/share/CACHEDEV1_DATA/discordbot/` | **owner-supplied** (standing statement) |
+| It holds **the only copies of every backup**: nightly `pg_dump` 02:15 → `sqtools/backups/` (14-day retention), DayZ mirror 02:45 (8-day) | **owner-supplied** (standing statement) |
+| Access is via Tailscale (`alexandernas`); Supremo to `msi` as a last resort | **owner-supplied** (standing statement) |
+| Firmware updates wipe `/etc/config/crontab`, so both backup jobs stop and nothing reports it | **owner-supplied** (standing statement — an observed failure, not a theory) |
+
+**The shape those rows make is the finding, and it is one sentence:** the NAS is
+simultaneously the production host, the credential store, and the backup target for all
+three stacks. One successful ransomware run, or one disk or controller failure, takes the
+running systems *and* every restore path at the same moment. Nothing below matters more
+than 7.2 and 7.3, which are the two items that change that.
+
+## 7.2 Inbound exposure — establish it before anything else
+
+**Why this is first.** QNAP appliances are not a generic hardening target; they are a
+*specific* ransomware target with a history (Qlocker, DeadBolt, eCh0raix), and every one
+of those campaigns worked by reaching a NAS management or service port from the internet.
+If nothing on this box is reachable from outside, most of 7.4-7.6 is defence in depth and
+can be paced. If something is reachable, it is the only item on the list.
+
+**UNVERIFIED — nobody has established which of these is true.** Answer in this order:
+
+| # | Establish (on the box / router) | Hardened target |
+|---|---|---|
+| 1 | The router's port-forward / virtual-server table: is anything forwarded to the NAS's LAN IP? | No forward to the NAS. Tailscale needs none — it is outbound-only. |
+| 2 | Control Panel → Network & File Services → **UPnP / service discovery**, and myQNAPcloud → **Auto Router Configuration** | Both **off**. Auto Router Configuration punches port forwards on your behalf; a forward you never made is the one you never audit. |
+| 3 | **myQNAPcloud** account link, DDNS, and "myQNAPcloud Link" (relay) | Off, if Tailscale is the access path. A relay is an inbound path that no router table shows. |
+| 4 | An **off-LAN probe** of the public IP: from a phone on cellular (Wi-Fi off), try the QTS ports (8080, 443), SSH (22 or the configured port), and the SqTools app port (5001) | All refused / timed out. |
+
+Record the answer to each in this document as a dated line. **A "no" that nobody wrote
+down gets re-asked every six months and eventually gets guessed at.**
+
+**Then close the gaps found, if any.** Removing a forward is immediate and reversible;
+the cost is that whatever used it stops working, which is the point — establish what used
+it *before* removing it, not after.
+
+**Supremo deserves its own line.** It is a remote-desktop path into the LAN that does not
+go through Tailscale, so it is not covered by "access is via Tailscale". **UNVERIFIED:**
+whether it is set to start automatically, whether its access is fixed-password or
+one-time, and who else holds that credential. If it is a last resort, it should be
+started when needed and not left running; if it must run, its password is a credential
+with a rotation story like any other.
+
+## 7.3 The backups are on the box they back up
+
+**This is the highest-value item that is fully in the owner's hands, and it is cheap.**
+
+A nightly `pg_dump` into `sqtools/backups/` on the same NAS protects against exactly one
+failure — someone dropping a table — and against none of the failures that actually take
+a NAS out. Ransomware encrypts the backup directory in the same pass as the data.
+A failed disk or controller takes both. 14-day retention on the same volume is 14 days of
+the same single point of failure.
+
+**The target is one off-box copy, and "off-box" has a test:** could the copy be restored
+if the NAS were powered off and gone? A second share on the same appliance fails that
+test. A USB disk left permanently mounted fails it against ransomware. What passes: an
+external disk rotated and disconnected, another machine that pulls (rather than the NAS
+pushing, so a compromised NAS cannot reach in and delete), or an object store with
+versioning and a retention lock.
+
+**Pull, not push, if a second machine is used.** A push credential stored on the NAS is a
+credential an attacker on the NAS holds. The direction of the pull is the control.
+
+**Do not skip the restore.** A backup nobody has restored is a hypothesis. The check is a
+real `pg_restore` of the newest dump into a scratch database and a row count against the
+live one — the same discipline `SQTOOLS_REQUIRE_PG=1` exists for, applied to the restore
+path. Write the date of the last successful restore down.
+
+## 7.4 Backup liveness — check the artifact, never the cron entry
+
+**owner-supplied, and already observed:** a firmware update wipes `/etc/config/crontab`.
+Both backup jobs stop, and **nothing reports it**. The failure is silent by construction:
+the job that would have complained is the job that no longer runs.
+
+This is the same class as `auto-update.js` (item #17) — a scheduled thing that nobody is
+told has stopped — and it has the same shape of fix: **the check must be on the artifact,
+not on the schedule.** `crontab -l` showing the entry proves nothing about last night;
+only the file's timestamp does.
+
+```bash
+# On the NAS. Newest dump and its age — this is the check, not `crontab -l`.
+ls -lt /share/CACHEDEV1_DATA/sqtools/backups/ | head -5
+find /share/CACHEDEV1_DATA/sqtools/backups/ -name '*.sql*' -mtime -1 | wc -l   # 0 = last night did not run
+crontab -l    # second, only to explain a 0 above
+```
+
+**The durable form is an alert, not a habit.** Anything that surfaces "newest dump is
+older than 26 hours" to a human works — and this repository already owns a path that
+does: `#sqtools-ops` via `lib/notify-owner.js` → `notifyOps`, which every other
+operational failure in the bridge already uses. A small scheduled check posting there is
+a better answer than a reminder to run the command, because the reminder has the same
+failure mode as the cron entry.
+
+**Whatever is added must itself be re-added after a firmware update** — see 7.8.
+
+## 7.5 Accounts and authentication
+
+Ordered by what it costs an attacker. All rows **UNVERIFIED**.
+
+| Item | Target | Note |
+|---|---|---|
+| Built-in **`admin`** account | Disabled, after a second named administrator exists and has been logged in with | `admin` is the username every QNAP-targeting script tries first. Disabling it invalidates the whole guess. Create the replacement and **verify you can log in as it** before disabling the original — locking yourself out of a NAS you reach only over Tailscale is a physical-access problem. |
+| **2-step verification** (TOTP) on every administrator | On | Control Panel → Privilege → Users → account → 2-step verification. Save the recovery path somewhere that is not the NAS. |
+| **IP Access Protection** (auto-block after N failed logins) | On, for SSH, HTTP/HTTPS, and any enabled file service | Control Panel → System → Security. Turns credential-stuffing from unlimited into a few tries. |
+| **Account Access Protection** | On | Locks a single account after repeated failures rather than blocking the source IP. |
+| **Allow/Deny list** | Allow the LAN and the Tailscale CGNAT range `100.64.0.0/10`; deny the rest | Only meaningful once 7.2 is answered — and it is a second line of defence, never a substitute for removing an exposure. |
+| Administrator **password** | Unique to this box, in the password manager, not reused from anything | |
+| Web-session timeout, and "do not allow auto-login" | On | |
+| **Unknown users, shares, and scheduled tasks** | None | Not a hardening step — a **compromise check**. An account or a cron entry nobody created is the finding, and it changes the task from hardening to incident response. Do this pass while you are in there. |
+
+## 7.6 Service surface and appliance updates
+
+**The rule is: everything not in use is off.** Each enabled service is a listener with its
+own CVE history, and on this box most of them have no user at all.
+
+| Service | Question | Expected here |
+|---|---|---|
+| Telnet | On? | **Off.** No exceptions. |
+| SSH | On, on what port, which accounts may use it? | On is reasonable — it is how the stacks are administered. Key-based, non-default port, restricted to the administrator account, reachable only over LAN/Tailscale. |
+| SMB / Microsoft Networking | Minimum protocol version? | **SMB2 or higher; SMB1 disabled.** |
+| FTP, AFP, NFS, WebDAV, Rsync server | Any actual user? | Off unless one is named. |
+| Web Server, SQL Server, Multimedia/DLNA, Photo/Music/Video stations, Qsync | Any actual user? | Off. These are consumer-NAS features with no role in this deployment. |
+| QTS web UI | HTTP allowed? | **Force HTTPS.** Change from the default 8080/443 ports if it costs nothing. |
+| **Malware Remover** | Installed, run recently? | Run it. QNAP-supplied; it is the cheapest compromise check available. |
+| **Security Counselor** | Installed, run recently? | Run it and read the report. It enumerates much of this section against the *actual* firmware, which is worth more than this table's conventions. Its output is the right thing to paste into the dated record 7.2 asks for. |
+| Firmware and App Center updates | Auto-update on? Current version? | Current. Every named QNAP ransomware campaign exploited a flaw with a patch already published. |
+
+**Snapshots are recovery, not prevention, and they are the fast half of 7.3.** If this
+box and volume support them (Storage & Snapshots), a snapshot schedule turns "restore
+from last night's dump" into "roll back". Use locked / secure snapshots if the firmware
+offers them — an unlocked snapshot is deletable by whoever holds admin, which after a
+compromise is the attacker. **A snapshot is not the off-box copy.** It lives on the same
+volume and dies with it. 7.3 still stands.
+
+## 7.7 The container's own blast radius — concrete shapes for item #27
+
+Step 0 consequence 3 records that a task can write `/bridge/.env` (every credential),
+`/bridge/.deploy_key`, `/bridge/docker-compose.yml`, `/bridge/.claude-home/` (the CLI's
+live OAuth credential) and the working tree that loads at the next restart. WORK-TODO #27
+holds that open as the owner's decision. This section adds only what was missing: the
+changes written out against the captured compose, with their verification and their
+failure mode, so the decision is a review rather than a design exercise.
+
+**They are in `docker-compose.example.yml` in this repository, commented out**, each with
+a one-line reason and a `docker inspect` verification. **None has been tested against the
+live bridge.** Apply one at a time, with `docker compose logs -f jt-agent` open, and
+confirm a real `TASK:` runs end to end before the next. Revert = re-comment and
+`docker compose up -d --force-recreate jt-agent`.
+
+| Shape | Closes | Honest cost |
+|---|---|---|
+| `logging` `max-size`/`max-file` | Unbounded container log on the volume that also holds the production postgres data | None. |
+| `mem_limit` / `cpus` / `pids_limit` | A task's `npm ci` + jest burst starving the production database — the same reasoning as CLAUDE.md's ollama systemd fence | Set too low, the container is OOM-killed mid-task and looks like a crash. Tune to the box. |
+| `security_opt: no-new-privileges`, `cap_drop: ALL` | Privilege escalation from the task shell | An `npm` postinstall needing a capability would break. Unlikely here; not impossible. |
+| Read-only `/bridge` + writable sub-path | The real #27 exposure | **Not a one-line change** — the start command runs `npm ci` into `/bridge/node_modules` and the CLI installs into `/bridge/.npm-global`, both of which need write. It requires moving those and `WORK_DIR` first, and it interacts with #25. Do not attempt it as part of a hardening pass. |
+| A second uid for task execution, or a child container | The real #27 exposure | The genuine fix, and the largest. Out of scope for an appliance hardening pass; it stays in #27. |
+
+**The `:ro` on `/repo` is the one containment boundary this deployment has.** It is the
+reason a bridge-side compromise cannot damage SqTools. `docker-compose.example.yml` now
+carries that statement next to the line, where someone editing the mount will read it.
+**Never make it writable.**
+
+## 7.8 The standing re-run list
+
+Hardening is not a one-time pass; the specific thing that undoes it here is known.
+
+**After every firmware update**, and quarterly regardless:
+
+1. `crontab -l` — both backup jobs present? (`/etc/config/crontab` is wiped by firmware
+   updates. This is not a precaution; it has happened.)
+2. The artifact check in 7.4 — is last night's dump actually there? The cron entry being
+   back is not the same answer.
+3. Re-check 7.2 row 2: did the update re-enable UPnP / Auto Router Configuration?
+4. Re-check the disabled services in 7.6 — an update can re-enable an app it upgraded.
+5. Re-run Security Counselor; compare against the last dated record.
+6. Confirm the `jt-agent` and SqTools containers came back: `docker ps`.
+
+**The re-run list has the same defect it is written to catch** — it is a habit, and a
+habit fails silently. Automating item 2 (7.4's alert to `#sqtools-ops`) converts the most
+expensive item on the list from a habit into a report. That is the one worth building.
+
+## 7.9 What this step changed, and what it did not
+
+**Changed in this repository** (repository-verified):
+
+| Change | Verify |
+|---|---|
+| `docker-compose.yml` added to `.gitignore` — `git clean -fd` in the deploy directory can no longer delete the deployment definition (WORK-TODO #26, repo-side half) | `git check-ignore -v docker-compose.yml` → matches, exit 0 |
+| `docker-compose.example.yml` committed — the off-box copy of the deployment definition, as a file rather than prose in an appendix (Step 5 item 3), carrying the proposed hardening as commented blocks | `git check-ignore -v docker-compose.example.yml` → no match, exit 1 (it is tracked) |
+
+**Not changed, and not verified: anything on the NAS.** No setting was read, altered, or
+confirmed on the appliance by this work. The `.gitignore` line reaches the deploy tree
+only when someone pulls on the box — nothing starts `auto-update.js` (#17), so a merge to
+`main` deploys nothing. Until that pull, the live tree's `docker-compose.yml` is still
+untracked *and* unignored there.
+
+**Filed as backlog items rather than done here:** WORK-TODO #41 (exposure and the
+single-point-of-failure posture — 7.1 to 7.3) and #42 (the backups' off-box copy and
+liveness — 7.3 and 7.4). Both are P1 and both need the box.
