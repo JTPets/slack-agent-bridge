@@ -190,7 +190,9 @@ node scripts/agent-surface.js             # and what each agent therefore gets
 ```
 **Priority:** P1 | **Effort:** Medium (done); Low to close the remainder
 **Risk:** Low — resolution never creates a channel and refuses rather than guessing
-**Status:** open — mechanism fixed and reproducible; live verification and off-box export outstanding
+**Status:** open — mechanism fixed and reproducible (`lib/channel-map-rebuild.js`,
+`scripts/channel-map.js`, guard `tests/channel-map-rebuild.test.js`); live verification
+against a real Slack workspace and off-box export of the resolved map both outstanding
 
 ---
 

@@ -19,46 +19,74 @@ require('dotenv').config();
  *   2. `agents/shared/channel-map.json` — untracked, SEEDED with the channel ids
  *      the legacy file already held, keyed by the name written in (1).
  *
- * Without (2) the bridge would have to resolve a channel name against Slack at
- * boot, and the names are a convention (`<id>-agent`) rather than a fact anyone
- * verified — nothing in this repository maps C0AP42BT4MR back to a name. A wrong
- * name does not fail loudly: it resolves to null and the bridge stops polling a
- * channel that worked yesterday. Seeding means first boot after the migration is a
- * cache hit for every agent that already had an id, so no guess can be wrong for
- * one, and name resolution is exercised only by agents that reach nobody today.
+ * The reasoning for (2) was: the bridge would otherwise resolve a name against Slack
+ * at boot, the names were a convention rather than a verified fact, and a wrong name
+ * does not fail loudly — it resolves to null and the bridge stops polling a channel
+ * that worked yesterday. **Every clause of that was correct and it still failed**, for
+ * the reason in correction 2 below: the seed cannot travel with the commit. The
+ * predicted failure then happened exactly as written.
+ *
+ * Two things now make the same guarantee, both of which a commit CAN carry: the names
+ * are verified rather than conventional (docs/AGENTS.md), and the resolution the boot
+ * path performs is REPORTED to #sqtools-ops per agent when it fails, so a wrong name
+ * is loud. `nothing in this repository maps C0AP42BT4MR back to a name` is also no
+ * longer true — `agents/activation-checklists.json` does, and
+ * `lib/channel-map-rebuild.js` reads the binding out of git history.
  *
  * WRITES ONLY. It contacts Slack for nothing and creates no channel.
  *
  *   node scripts/migrate-agent-definitions.js --dry-run   # print, write nothing
  *   node scripts/migrate-agent-definitions.js             # write
+ *
+ * LOGIC CHANGE 2026-09-15 — TWO CORRECTIONS, BOTH FROM WATCHING THIS FAIL:
+ *
+ *   1. IT COULD NOT RUN. The commit that added this script also DELETED
+ *      `agents/agents.json`, so `migrate()` threw ENOENT from its first line and the
+ *      "command that re-runs the conversion" in the header above was not a command.
+ *      It now reads the legacy file through `lib/channel-map-rebuild.js`, which takes
+ *      the working-tree copy when there is one and otherwise the blob from the commit
+ *      that deleted it.
+ *   2. THE SEEDING STEP COULD NEVER HAVE REACHED THE DEPLOYMENT, and that is the
+ *      defect the header's own reasoning missed. Its only output is
+ *      `agents/shared/channel-map.json`, which is GITIGNORED, and a dispatched task
+ *      runs in a scratch clone — so the seed was written into a temp directory and
+ *      discarded with it. On the box, zero of six mappings were seeded; five active
+ *      agents went unresolved and two scheduled agents stopped (WORK-TODO #55).
+ *      The seeding half now lives where it can be run deliberately, on the machine
+ *      that needs it: `node scripts/channel-map.js --from-git`.
+ *   3. `channelNameFor()` IS NO LONGER THE AUTHORITY on a channel name. It was a
+ *      convention (`<id>-agent`), seven of its eleven answers were fiction, and the
+ *      definitions now carry names verified against `agents/activation-checklists.json`
+ *      (docs/AGENTS.md). Where a definition already exists, its declared name wins;
+ *      the convention is the fallback for an agent that has none.
  */
 
 const fs = require('fs');
 const path = require('path');
-const { serializeAgent } = require('../lib/agent-markdown');
+const { serializeAgent, loadDefinitions } = require('../lib/agent-markdown');
 const bridgeState = require('../lib/bridge-state');
+const { readLegacyRegistry } = require('../lib/channel-map-rebuild');
 
 const ROOT = path.join(__dirname, '..');
-const LEGACY_FILE = path.join(ROOT, 'agents', 'agents.json');
 
 /**
  * The channel NAME an agent's definition declares.
  *
- * `<id>-agent` is the convention `activateAgent()` has always used. Two exceptions,
- * both facts rather than guesses:
- *   - `bridge` is `#claude-bridge`, named in CLAUDE.md and docs/AGENTS.md.
- *   - `code-bridge` and `code-sqtools` share ONE channel in the legacy file
- *     (C0AP42BT4MR), so they must declare one name, not two that seed the same id.
- *
- * Every other name is UNVERIFIED against the workspace — see the header. The seeded
- * id is what is actually used; the name is what a fresh workspace would resolve.
+ * LOGIC CHANGE 2026-09-15: an existing definition's DECLARED name wins. Those names
+ * were verified against `agents/activation-checklists.json`; this function's
+ * `<id>-agent` convention produced seven fictions out of eleven and is now only the
+ * fallback for a legacy record that has no definition yet. `bridge` keeps its explicit
+ * `claude-bridge` for that fallback case; the `code-agent` special case is gone,
+ * because the definitions already declare `code-review` for both code agents.
  *
  * @param {object} agent - Legacy record.
+ * @param {object[]} [definitions] - Current markdown definitions; theirs wins.
  * @returns {string}
  */
-function channelNameFor(agent) {
+function channelNameFor(agent, definitions) {
+    const declared = (definitions || []).find(d => d.id === agent.id);
+    if (declared && declared.channel_name) return String(declared.channel_name).replace(/^#/, '');
     if (agent.id === 'bridge') return 'claude-bridge';
-    if (agent.id === 'code-bridge' || agent.id === 'code-sqtools') return 'code-agent';
     return `${agent.id}-agent`;
 }
 
@@ -69,14 +97,14 @@ function channelNameFor(agent) {
  * @param {number} index - Registry position, preserved as `order`.
  * @returns {object}
  */
-function toDefinition(agent, index) {
+function toDefinition(agent, index, definitions) {
     const { channel, status, id, name, ...rest } = agent;
     return {
         id,
         name,
         order: index,
         default_status: status === 'planned' ? 'planned' : 'active',
-        channel_name: channelNameFor(agent),
+        channel_name: channelNameFor(agent, definitions),
         ...rest,
     };
 }
@@ -87,15 +115,17 @@ function toDefinition(agent, index) {
  * @returns {{ written: string[], seeded: object, skipped: string[] }}
  */
 function migrate(options = {}) {
-    const legacy = JSON.parse(fs.readFileSync(LEGACY_FILE, 'utf8'));
-    if (!Array.isArray(legacy)) throw new Error('agents.json is not an array');
+    const read = options.legacy || readLegacyRegistry();
+    if (!read.ok) throw new Error(`cannot read the legacy registry: ${read.reason}`);
+    const legacy = read.agents;
+    const definitions = options.definitions || loadDefinitions();
 
     const written = [];
     const seeded = {};
     const skipped = [];
 
     legacy.forEach((agent, index) => {
-        const definition = toDefinition(agent, index);
+        const definition = toDefinition(agent, index, definitions);
         const dir = path.join(ROOT, 'agents', agent.id);
         const file = path.join(dir, 'agent.md');
         const markdown = serializeAgent(definition);
@@ -136,7 +166,7 @@ function main() {
     console.log(`${dryRun ? '[dry run] would write' : 'wrote'} ${result.written.length} definitions:`);
     for (const f of result.written) console.log(`  ${f}`);
     console.log('');
-    console.log(`${dryRun ? 'would seed' : 'seeded'} ${Object.keys(result.seeded).length} channel name -> id mappings into agents/shared/channel-map.json (gitignored):`);
+    console.log(`${dryRun ? 'would seed' : 'seeded'} ${Object.keys(result.seeded).length} channel name -> id mappings into agents/shared/channel-map.json (gitignored — so this reaches the DEPLOYMENT only when run ON it; see \`node scripts/channel-map.js --from-git\`):`);
     for (const [name, id] of Object.entries(result.seeded)) console.log(`  #${name} -> ${id}`);
     if (result.skipped.length) {
         console.log('');

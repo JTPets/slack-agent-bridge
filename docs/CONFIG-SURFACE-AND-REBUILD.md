@@ -373,9 +373,36 @@ a **named placeholder**. "Safe to commit" = repo; "Off-box encrypted" = never in
 6. **Claude Code CLI** — installed by the compose command (`npm install -g
    @anthropic-ai/claude-code`); `CLAUDE_BIN` must point at it. — *Safe to commit* (the
    command), *off-box* (any auth the CLI needs).
-7. **Runtime state files** are self-healing (`.bridge-agent-state.json`,
-   `.auto-update-state.json`, `agents/shared/*.json`) — created on first run; nothing to
-   restore. — *N/A*.
+7. **Runtime state files** — `.bridge-agent-state.json`, `.auto-update-state.json`,
+   `agents/shared/*.json`. Created on first run. **CORRECTED 2026-09-15: one of them is
+   not self-healing in the sense this step claimed, and it cost an outage.**
+
+   `agents/shared/channel-map.json` maps a declared channel **name** to a Slack id and
+   is the only record of that mapping anywhere. It is gitignored, correctly — a
+   workspace id is not portable — so a rebuilt box starts with none. The boot path does
+   re-resolve it (`bridge-agent.js` startup IIFE → `resolveAgentChannel()`), which is
+   what "self-healing" meant, **but only for declared names that are real**. On
+   2026-09-15 seven of eleven declared names were a convention that named no existing
+   channel: five active agents resolved to nothing and two scheduled agents stopped. The
+   names are now verified (`docs/AGENTS.md` → "Declared channel name vs. the workspace's
+   real one"), and there is a command for the rest:
+
+   ```bash
+   node scripts/channel-map.js              # read-only report: name -> resolved id, per agent
+   node scripts/channel-map.js --from-git   # rebuild THIS workspace's ids from git history
+   node scripts/channel-map.js --resolve    # rebuild ANY workspace's from Slack, by name
+   ```
+
+   `--from-git` needs no token and no network: it reads `agents/agents.json` as it stood
+   when the markdown migration deleted it, which every clone carries as history. Run it
+   on the rebuilt box **before** the first `docker compose up`, and the first boot is a
+   cache hit for every agent that already had a channel.
+
+   **What is still missing, filed as WORK-TODO #55:** nothing exports the resolved map
+   off-box, so if the NAS and Slack are both unavailable the mapping is gone; and the
+   history reconstruction recovers ids as of the deletion commit, not later changes.
+   This is the same class as Step 7.3 — a record that lives only on the box it describes.
+   — *Safe to commit*: the commands. *Not committed*: the ids they produce.
 
 **Notable rebuild facts discovered (not yet reflected in the repo docs):**
 

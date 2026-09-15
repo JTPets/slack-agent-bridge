@@ -224,7 +224,7 @@ to leave undisturbed.
 
 | Store | Owner | Keyed by | Tracked? |
 |---|---|---|---|
-| `agents/shared/channel-map.json` | `lib/slack-client.js:36/58` | channel **name** → id | gitignored |
+| `agents/shared/channel-map.json` | `lib/bridge-state.js` (moved there 2026-09-15; `lib/slack-client.js` re-exports) | channel **name** → id | gitignored |
 | `.bridge-agent-state.json` | `lib/bridge-state.js` | channel **id** → poll cursor | gitignored |
 | `agents/shared/processed-tasks.json` | `lib/bridge-state.js` | message `ts` | gitignored |
 | `agents/<id>/memory/*.json` | `memory/memory-manager.js`, `lib/memory-tiers.js` | agent **id** | gitignored except seeds |
@@ -235,13 +235,15 @@ In-process only, lost on restart: `agentConfig` (`bridge-agent.js:215`),
 `channelsToPoll` (`:291`), `activeJobs` (`lib/agent-scheduler.js:32`),
 `lastTriggerTimes` (`lib/bulletin-watcher.js:24`).
 
-**`channel-map.json` is the one that matters and the one that is not doing its
-job.** It is a channel-name → id cache, and it is written **only** by
-`ensureChannel()` (`lib/slack-client.js:333/352/363`), which is reached only from
-`activateAgent()` and the `ASK: create channel` command. The startup join path does
-not consult it: `joinAgentChannels()` (`:388`) takes ids straight from the registry
-records. So the durable resolution cache exists, is gitignored, is the right shape —
-and the boot path has never used it.
+**`channel-map.json` is the one that matters, and as of 2026-09-15 it is doing its
+job — but read the next section before trusting it.** The sentence that stood here
+("the durable resolution cache exists, is gitignored, is the right shape — and the
+boot path has never used it") is **no longer true**: the startup IIFE in
+`bridge-agent.js` now calls `resolveAgentChannel()` for every active agent whose
+declared name has no id, caches the answer here, and posts the ones it could not
+resolve to `#sqtools-ops`. What replaced the old claim is a different problem — the
+file is the only durable record of the mapping and nothing could rebuild it — and that
+is what the next section is about.
 
 ### If definitions move to a new format, do the running agents migrate, run in parallel, or break?
 
@@ -619,6 +621,77 @@ An agent that is not activated in this workspace, or whose declared channel has 
 resolved, gets **none** of them — and the reason is posted to `#sqtools-ops` at
 startup rather than skipped in silence. Three or none is the whole rule; one of them
 arriving alone is what produced work nobody collected.
+
+### The channel map: what it holds, who writes it, and how it comes back — established 2026-09-15
+
+**What it holds.** `agents/shared/channel-map.json` is a flat `{ "<channel name>":
+"<Slack channel id>" }` object. Nothing else. It holds a **name**, not an agent id, so
+two agents declaring one channel share one entry — `code-bridge` and `code-sqtools`
+both resolve through `#code-review`, `story-bot` and `social-media` both through
+`#social-media`.
+
+**Who owns it.** `lib/bridge-state.js` since 2026-09-15 (`loadChannelMap`,
+`saveChannelMap`, `getChannelId`, `setChannelId`). `lib/slack-client.js` re-exports the
+first two, so older callers are unchanged. Regenerate the writer list:
+
+```bash
+grep -rn "setChannelId\|saveChannelMap" --include=*.js . | grep -v node_modules | grep -v '^./tests/'
+```
+
+Three writers, and only three: `resolveAgentChannel()` (`lib/agent-activation.js`),
+`ensureChannel()` (`lib/slack-client.js`, reached from `ASK: create channel`), and
+`scripts/channel-map.js`.
+
+**Who reads it, and when.** One reader: `applyWorkspaceState()` in
+`lib/agent-registry.js`, called by `loadAgents()` — which reads from disk on **every
+call**, with no cache. So every consumer of an agent record consults it transitively.
+It is consulted at three moments that matter:
+
+| Moment | What happens |
+|---|---|
+| Startup, in the IIFE in `bridge-agent.js` | For each **active** agent with a `channel_name` and no id: resolve against Slack, cache the result. Every already-known name is a cache hit and costs no API call. Anything unresolved is posted to `#sqtools-ops`, named, with the reason |
+| Startup, immediately after | `buildChannelsToPoll()` and `joinableChannels()` re-derive from the registry, so a channel resolved on **this** boot is joined and polled on this boot |
+| `ASK: activate <id>` | `resolveAgentChannel()` again, then `reRegisterAgents()` — no restart needed |
+
+**On a fresh install where it does not exist.** `loadChannelMap()` returns `{}`,
+`applyWorkspaceState()` gives every agent `channel: null`, and the startup resolution
+above is what fills it — one `conversations.list` lookup per declared name, cached
+permanently. A name that is real resolves; a name that is fiction is refused and
+reported. **Nothing creates a channel**, at boot or anywhere else.
+
+That is why part two of this document matters more than it looks: boot-time resolution
+was already in place on 2026-09-15 and the deploy still failed, because it was
+resolving seven names that did not exist. The resolver was working; what it was given
+was wrong.
+
+**How the mapping comes back when it is lost.** Two commands, answering two different
+questions. Neither creates a channel and neither writes a tracked file.
+
+```bash
+node scripts/channel-map.js              # read-only: declared name -> resolved id, per agent
+node scripts/channel-map.js --from-git   # THIS workspace's ids, from git history. No token, no network
+node scripts/channel-map.js --resolve    # ANY workspace: resolve the declared names against Slack
+```
+
+`--from-git` is the answer to "the box died". It reads `agents/agents.json` as it stood
+when the 2026-09-15 migration deleted it — every clone carries that, because it is
+history rather than working tree — and keys each recovered id by the agent's **current**
+declared `channel_name`, joining on the agent id. That join is what makes it survive a
+name correction: the legacy file recorded `secretary -> C0AP8CDPP62`, the definition now
+says `secretary -> #secretary-inbox`, and the recovered entry is
+`secretary-inbox -> C0AP8CDPP62` rather than the dead `secretary-agent` key. An id
+already in the map is never overwritten — a value resolved against the live workspace
+always beats a reconstructed one.
+
+`--resolve` is the answer for a workspace that is not this one, which is the case a
+declared name exists for at all. It needs a bot token and `channels:read`.
+
+**What neither of them covers, and it is filed as WORK-TODO #55:** the history
+reconstruction is one-shot — it recovers ids as of the deletion commit, so a channel
+recreated after that date is recoverable only by `--resolve`; and nothing exports the
+resolved map off-box, so if both the NAS and Slack are unavailable the mapping is gone.
+`node scripts/channel-map.js` prints it; where that output is kept is an owner decision
+that has not been made.
 
 ### Declared channel name vs. the workspace's real one — established 2026-09-15
 
