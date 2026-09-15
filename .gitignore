@@ -61,3 +61,7 @@ models/
 .npm-global/
 *.bak*
 .deploy_key*
+
+# The deployment definition. Off-box copy: docker-compose.example.yml (tracked).
+# Ignored so `git clean -fd` in the deploy directory cannot delete it — WORK-TODO #26.
+docker-compose.yml

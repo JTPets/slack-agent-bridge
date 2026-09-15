@@ -11,16 +11,20 @@
 
 Node.js Slack polling agent that monitors Slack channels for task messages and executes them via Claude Code CLI. No database, no frontend, no multi-tenant.
 
-**Deployment (as of 2026-09-13):** runs as the `jt-agent` container (`node:20`) on a QNAP NAS. The Raspberry Pi that previously hosted it is dead. The compose file lives beside the repo on the NAS and is deliberately untracked (it carries host paths). Line endings are pinned to LF by `.gitattributes` — a Windows clone copied to Linux once made the entire tree uncommittable.
+**Deployment (as of 2026-09-13):** runs as the `jt-agent` container (`node:20`) on a QNAP NAS. The Raspberry Pi that previously hosted it is dead. The live `docker-compose.yml` lives beside the repo on the NAS — inside the git working tree the bridge runs — and stays untracked because it carries host paths. **As of 2026-09-15 it is also gitignored**, so `git clean -fd` in the deploy directory can no longer delete the only on-box copy of the deployment definition, and `docker-compose.example.yml` in this repository is the off-box copy (see `docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 7.9). Line endings are pinned to LF by `.gitattributes` — a Windows clone copied to Linux once made the entire tree uncommittable.
 
 **`package-lock.json` is committed (as of 2026-09-13).** It was gitignored, which meant every container start resolved semver ranges afresh: the deployed dependency tree was whatever npm picked that minute, and `.github/dependabot.yml`'s weekly npm PRs could only ever bump direct ranges in `package.json` — transitive dependencies, where most published advisories actually live, were unpinnable and invisible.
 
-> **ACTION REQUIRED on the NAS (not changeable from this repo):** the compose
-> `command:` should move from `npm install` to `npm ci`. `npm install` is free to
-> re-resolve and rewrite the lockfile, so committing it buys nothing at deploy time
-> until the command honours it. `npm ci` installs the locked tree exactly and fails
-> loudly if `package.json` and the lockfile disagree. Until that edit is made, the
-> lockfile pins CI and local installs but not production.
+> **That action was required on the NAS and is DONE — corrected 2026-09-15.** This
+> paragraph previously said the compose `command:` still had to move from `npm install`
+> to `npm ci`. The compose file captured from inside the running container on 2026-09-14
+> already runs `npm ci` (`docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 5 and the Appendix;
+> the same correction is recorded in WORK-TODO #4b). So the lockfile pins production too,
+> not only CI and local installs. `npm ci` matters here because `npm install` is free to
+> re-resolve and rewrite the lockfile, which would make committing it buy nothing at
+> deploy time. Re-confirm on the box with
+> `grep -n "command" /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml`; the tracked
+> `docker-compose.example.yml` carries the same command.
 
 ## Tech Stack
 
@@ -353,7 +357,9 @@ Tune `MemoryMax` to the model actually pulled — it must be below `(total RAM -
 > **Evidence (repo-side, regenerable from any checkout):**
 > - No npm script starts it — `node -e "console.log(Object.keys(require('./package.json').scripts))"` → `[ 'test', 'test:smoke', 'validate' ]`.
 > - Nothing spawns or forks it — `grep -rn "auto-update" --include=*.js --include=*.json . | grep -v node_modules | grep -v package-lock | grep -v '^./tests/'` returns only comments, doc prose, and `auto-update.js`'s own body.
-> - The repo contains no compose file, Procfile, systemd unit or supervisor config of any kind.
+> - The repo contains no Procfile, systemd unit or supervisor config of any kind. The
+>   `docker-compose.example.yml` added 2026-09-15 is the off-box copy of the live file,
+>   not a second deployment, and its `command:` starts `node bridge-agent.js` only.
 >
 > **Evidence (container-side):** a check run from inside the `jt-agent` container
 > recorded that the compose service's `command:` starts `node bridge-agent.js` only —
@@ -740,6 +746,7 @@ slack-agent-bridge/
 ├── README.md             # Project overview
 ├── COMMANDMENTS.md       # Non-negotiable rules, prepended to every task prompt
 ├── WORK-TODO.md          # The backlog: flat, one ### heading per OPEN item, stable numeric IDs never reused, closed items purged (git history + the `Closes <ID>` commit body are the record), index regenerated from the headings. Counts are commands, not figures: `grep -cE '^### [0-9]+[a-z]?\. ' WORK-TODO.md`
+├── docker-compose.example.yml # The deployment definition, off-box. Reproduces the live compose captured 2026-09-14 (untracked and now gitignored on the NAS) and carries the proposed container hardening as commented blocks — see docs/CONFIG-SURFACE-AND-REBUILD.md Step 7.7. No secret belongs in it; credentials live only in the off-repo env_file
 ├── .gitattributes        # Line-ending normalization (* text=auto eol=lf) - stops CRLF corruption
 └── .gitignore            # Git ignore rules (node_modules, .env, .claude-home/, *.bak, etc.)
 ```

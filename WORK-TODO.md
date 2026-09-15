@@ -33,9 +33,10 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
-At the 2026-09-14 reconciliation those print **35** open items — 4 P1, 24 P2, 7 P3 — and
-no duplicates. (Was 36 — 4/25/7 — before #28 was closed by the email-rules-file work; was
-31 — 4/21/6 — before #36-#40 were filed on 2026-09-14 from the autonomous-loop design work.)
+At the 2026-09-15 reconciliation those print **37** open items — 6 P1, 24 P2, 7 P3 — and
+no duplicates. (Was 35 — 4/24/7 — on `main` after #28 was closed by the email-rules-file
+work; the NAS hardening pass then filed #41 and #42 on 2026-09-15. This branch read **38**
+— 6/25/7 — before it merged `main`, because it was still counting #28 as open.)
 
 The index anchors follow GitHub's slugger: lowercase, drop punctuation **except**
 hyphen and underscore, spaces to hyphens. Four entries (#5, #20, #21, #34) previously
@@ -45,8 +46,10 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 
 *Regenerated from the headings. Do not append to it by hand; re-run the command above.*
 
-**P1 — protects or unblocks the live deployment** (4)
+**P1 — protects or unblocks the live deployment** (6)
 
+- **#42** — [Every backup this system has lives on the box it backs up, and their liveness is checked by nothing](#42-every-backup-this-system-has-lives-on-the-box-it-backs-up-and-their-liveness-is-checked-by-nothing)
+- **#41** — [The NAS is the single point of failure for every stack and every credential, and its exposure has never been established](#41-the-nas-is-the-single-point-of-failure-for-every-stack-and-every-credential-and-its-exposure-has-never-been-established)
 - **#17** — [Nothing starts `auto-update.js` — merged code does not reach the running process](#17-nothing-starts-auto-updatejs--merged-code-does-not-reach-the-running-process)
 - **#25** — [The preserved scratch clone does not survive a container recreation — silent data loss inside the feature that prevents silent data loss](#25-the-preserved-scratch-clone-does-not-survive-a-container-recreation--silent-data-loss-inside-the-feature-that-prevents-silent-data-loss)
 - **#3** — [The scheduler never checks `planned` status — CONFIRMED FIRING LIVE 2026-09-14](#3-the-scheduler-never-checks-planned-status--confirmed-firing-live-2026-09-14)
@@ -92,6 +95,115 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 
 ## P1 — Protects or unblocks the live deployment
 
+### 42. Every backup this system has lives on the box it backs up, and their liveness is checked by nothing
+**Filed 2026-09-15,** from the NAS hardening pass
+([`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) → Step 7.3 and
+7.4). **Placed at the top of P1 deliberately:** the existing P1s are about the bridge
+failing to deploy or to run. This one is about there being nothing to restore from when
+the box is gone. If the ranking is wrong, move it — but state the axis.
+
+**Owner-supplied, not repository-verified** (the NAS is not reachable from a checkout):
+nightly `pg_dump` at 02:15 → `/share/CACHEDEV1_DATA/sqtools/backups/`, 14-day retention;
+DayZ mirror at 02:45, 8-day retention. Both write to the **same appliance** that runs the
+thing they back up.
+
+**Problem, in two independent halves.**
+
+1. **No off-box copy.** A backup on the box it backs up survives exactly one failure —
+   someone dropping a table. It survives neither of the two failures that actually take a
+   NAS out: ransomware encrypts the backup directory in the same pass as the data, and a
+   failed disk or controller takes both. QNAP appliances are a *specific* ransomware
+   target with a campaign history (Qlocker, DeadBolt, eCh0raix), which is what moves this
+   from prudent to overdue. **The test for "off-box" is: could it be restored if the NAS
+   were powered off and gone?** A second share on the same appliance fails that test; so
+   does a permanently-mounted USB disk, against ransomware. A snapshot fails it too — a
+   snapshot is fast recovery, on the same volume, and dies with it.
+2. **Silent stoppage, already observed.** A firmware update wipes `/etc/config/crontab`.
+   Both jobs stop and **nothing reports it** — the job that would complain is the job that
+   no longer runs. Same class as #17: a scheduled thing nobody is told has stopped.
+
+**The check is the artifact's freshness, never the cron entry.** `crontab -l` showing the
+entry proves nothing about last night.
+```bash
+# On the NAS — this is the check.
+find /share/CACHEDEV1_DATA/sqtools/backups/ -name '*.sql*' -mtime -1 | wc -l   # 0 = last night did not run
+ls -lt /share/CACHEDEV1_DATA/sqtools/backups/ | head -5
+crontab -l    # second, only to explain a 0 above
+```
+
+**Fix, in order.** (a) One off-box copy, **pulled** by the other side rather than pushed —
+a push credential stored on the NAS is a credential an attacker on the NAS holds; the
+direction of the pull is the control. (b) A restore actually performed — a `pg_restore` of
+the newest dump into a scratch database with a row count against live, dated and written
+down. A backup nobody has restored is a hypothesis. (c) An age alert, not a habit:
+"newest dump older than 26 hours" posted to `#sqtools-ops`. This repository already owns
+that path — `notifyOps` in `lib/notify-owner.js`, which every other operational failure in
+the bridge uses. A reminder to run the command has the same failure mode as the cron entry.
+
+**Repo-side half available today:** (c) is buildable here. (a) and (b) are on the box.
+
+**Priority:** P1 | **Effort:** Medium for (a); Low for (b) and (c).
+**Risk:** None to the running process — everything here is additive or read-only.
+**Status:** open — needs the NAS
+
+---
+
+### 41. The NAS is the single point of failure for every stack and every credential, and its exposure has never been established
+**Filed 2026-09-15,** from the NAS hardening pass
+([`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) → Step 7,
+which carries the full ordered procedure, the commands, and the per-item labels).
+
+**The shape, in one sentence:** one QNAP TS-264 is simultaneously the production host
+(SqTools — money and customer PII), the credential store (the `jt-agent` `env_file`'s 9
+credential keys per Step 3, plus the repository deploy key and the Claude CLI's live OAuth
+credential), and the backup target (#42). A compromise of the appliance is a compromise of
+all three at once.
+
+**The undone thing is a check, not a change.** Step 6 of the same document already
+recorded that the host level is **owned by no repository**. Nobody has established whether
+anything on this box is reachable from the internet — and that answer decides how much of
+the rest matters. Four questions, in order, with the commands in Step 7.2: the router's
+port-forward table; QTS **UPnP / myQNAPcloud Auto Router Configuration** (which punches
+forwards on your behalf — a forward you never made is the one you never audit);
+myQNAPcloud Link / DDNS (a relay is an inbound path no router table shows); and an
+**off-LAN probe** from a phone on cellular against 8080/443/22/5001. Tailscale needs none
+of them — it is outbound-only.
+
+**Write the answers down, dated, in Step 7.** A "no" nobody recorded gets re-asked every
+six months and eventually gets guessed at.
+
+**Then the rest of Step 7, in its stated order:** accounts (disable the built-in `admin`
+after a named administrator works, 2FA, IP Access Protection) → service surface
+(Telnet off, SMB1 off, every unused service off) → Malware Remover and Security Counselor,
+whose report against the *actual* firmware is worth more than any convention list → locked
+snapshots as the fast-recovery layer. Two things in that pass are compromise checks rather
+than hardening and should be done first: **unknown users, shares or scheduled tasks**, and
+Malware Remover. Either coming back positive changes the task from hardening to incident
+response.
+
+**Also unowned: Supremo.** It is a remote-desktop path into the LAN that does not go
+through Tailscale, so "access is via Tailscale" does not cover it. **Unverified:** whether
+it starts automatically, whether access is fixed-password or one-time, and who else holds
+that credential.
+
+**Every QNAP menu path in Step 7 is an unverified lead** — menus move between QTS
+releases. Confirm on the appliance, the same way `docs/EXECUTOR-CONTRACT.md` §2 treats a
+supplied file:line.
+
+**Repo-side half, landed 2026-09-15** (Step 7.9): the deployment definition now has an
+off-box copy (`docker-compose.example.yml`) and the live file is gitignored so
+`git clean -fd` cannot delete it (#26). The container-level narrowing shapes are written
+out against the captured compose, commented, in that file — they belong to #27, not here.
+
+**Priority:** P1 | **Effort:** Low to establish exposure; Low-to-Medium per hardening item.
+**Risk:** Changing appliance settings is Medium — removing a forward or disabling a
+service stops whatever used it, and locking yourself out of a NAS reached only over
+Tailscale is a physical-access problem. Establish what uses a thing before removing it,
+and verify the replacement administrator logs in before disabling `admin`.
+**Status:** open — needs the NAS
+
+---
+
 ### 17. Nothing starts `auto-update.js` — merged code does not reach the running process
 **Filed 2026-09-14.** *(This item was once duplicated as two `### 17.` headings; reconciled to one on 2026-09-14. The index at the top of this file is regenerated from the headings, so a repeat would show up there.)*
 
@@ -102,11 +214,15 @@ are fixed (see below); the gap itself is open and is the owner's decision.
 `auto-update.js`. Regenerate:
 - `node -e "console.log(Object.keys(require('./package.json').scripts))"` → `[ 'test', 'test:smoke', 'validate' ]` — none of them runs it.
 - `grep -rn "auto-update" --include=*.js --include=*.json . | grep -v node_modules | grep -v package-lock | grep -v '^./tests/'` → comments, doc prose, and `auto-update.js`'s own body only. Nothing spawns or forks it.
-- The repo carries no compose file, Procfile, systemd unit or supervisor config.
+- The repo carries no Procfile, systemd unit or supervisor config. Since 2026-09-15 it
+  does carry `docker-compose.example.yml` — the off-box copy of the live file, not a
+  second deployment — and its `command:` starts `node bridge-agent.js` only, so it does
+  not start the daemon either.
 
 **Problem (off-repo, owner-supplied — NOT verifiable from a checkout):** the live compose
 runs `sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"`
-(`docker-compose.yml:17` on the NAS). The compose file is deliberately untracked. A check
+(`docker-compose.yml:17` on the NAS). That file stays untracked on the NAS (and, since
+2026-09-15, gitignored — #26); `docker-compose.example.yml` reproduces it here. A check
 run from inside the container independently recorded "the compose service starts only
 `node bridge-agent.js`" (`docs/CONFIG-SURFACE-AND-REBUILD.md`, Step 5). Regenerate **on
 the NAS**: `grep -n "command\|entrypoint\|auto-update" /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml`
@@ -548,17 +664,32 @@ of that document's Step 5 rebuild path. That copy is in this repository, on GitH
 only copy not on the NAS. Losing the file is therefore recoverable, which is why this is
 P2 and not P1.
 
-**Fix.** Add `docker-compose.yml` to `.gitignore`. `git clean -fd` skips ignored files
-without `-x`, so one line moves it out of reach, and it stops appearing as untracked noise
-in `git status` on the box. Not taken unilaterally in the topology commit: it is a
-one-line repository change whose only purpose is a deployment-side consequence, so it is
-the owner's call. The stronger version — commit a `docker-compose.example.yml` with host
-paths as placeholders, as Step 5 item 3 already proposes — makes the rebuild path a file
-rather than a prose appendix; both are cheap and they are not exclusive.
+**Fix — repo-side half LANDED 2026-09-15** (NAS hardening pass, Step 7.9). Both halves the
+item proposed were taken, authorised by that dispatch rather than unilaterally:
+- `docker-compose.yml` is in `.gitignore`. `git clean -fd` skips ignored files without
+  `-x`, so it is out of reach, and it stops appearing as untracked noise in `git status`
+  on the box. Verify: `git check-ignore -v docker-compose.yml` → matches, exit 0.
+- `docker-compose.example.yml` is committed — the stronger version Step 5 item 3 proposed,
+  making the rebuild path a file rather than prose in an appendix. It reproduces the
+  2026-09-14 capture and carries the proposed container hardening as commented blocks
+  (#27). Verify: `git check-ignore -v docker-compose.example.yml` → no match, exit 1.
 
-**Priority:** P2 | **Effort:** Low (one line) | **Risk:** None to the running process.
+**Why this stays OPEN.** The item's namesake is the state of the **live working tree**,
+and that is not what a repository change fixes. `.gitignore` reaches the deploy tree only
+when someone pulls on the NAS, and nothing starts `auto-update.js` (#17) — so merging this
+deploys nothing. Until that pull, `docker-compose.yml` is still untracked *and* unignored
+there.
 
-**Status:** open (re-verified 2026-09-14)
+**Close it with this, run on the NAS:**
+```bash
+cd /share/CACHEDEV1_DATA/jt-agent && git pull && git check-ignore -v docker-compose.yml
+```
+A match (exit 0) closes the item. Note the sequencing against #40: a `git pull` in that
+tree is the operation that surfaces any uncommitted local edits — answer #40 first.
+
+**Priority:** P2 | **Effort:** Low (one pull on the box) | **Risk:** None to the running process.
+
+**Status:** open — repo-side fix landed 2026-09-15; remainder is one pull on the NAS
 
 ---
 
@@ -609,11 +740,23 @@ docker exec -u 1000:100 jt-agent sh -c 'ls -la /bridge/.env /bridge/.deploy_key;
 The second confirms both halves at once: readable/writable on the left, permission denied
 on the right.
 
+**The shapes are now written out, 2026-09-15**, so the decision is a review rather than a
+design exercise: `docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 7.7 tables each one against
+the captured compose with its verification and its honest cost, and
+`docker-compose.example.yml` carries the cheap ones as **commented** blocks with a
+`docker inspect` check each — log limits, `mem_limit`/`cpus`/`pids_limit`,
+`no-new-privileges` + `cap_drop: ALL`. **None has been tested against the live bridge.**
+Those three bound the damage; they do not close this item. The two shapes that would —
+read-only `/bridge` with a writable sub-path, and a second uid or child container for task
+execution — are recorded there as explicitly **not** one-line changes: the start command
+runs `npm ci` into `/bridge/node_modules` and installs the CLI into `/bridge/.npm-global`,
+so a read-only mount needs those and `WORK_DIR` moved first, which interacts with #25.
+
 **Priority:** P2 | **Effort:** Low to accept and record; Medium to narrow.
 **Risk:** Changing it is Medium — every narrowing shape can break task execution or the
 push path; none of it should be attempted without a way to verify the bridge still runs.
 
-**Status:** open (re-verified 2026-09-14)
+**Status:** open (re-verified 2026-09-14; narrowing shapes written out 2026-09-15)
 
 ---
 

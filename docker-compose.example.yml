@@ -1,0 +1,88 @@
+# docker-compose.example.yml — the deployment definition, kept in the repository.
+#
+# WHY THIS FILE EXISTS. The live `docker-compose.yml` sits inside the NAS deploy
+# directory, which IS the git checkout the bridge runs (docs/CONFIG-SURFACE-AND-REBUILD.md
+# -> Step 0, consequence 1). It is untracked, so the only copy of the file that defines
+# the deployment lived on the box it defines. This file is the off-box copy, and it is
+# the rebuild artifact Step 5 item 3 asked for: a file, not prose in an appendix.
+#
+# The live `docker-compose.yml` is now also gitignored, so `git clean -fd` in the deploy
+# directory can no longer delete it (WORK-TODO #26).
+#
+# WHAT IS AND IS NOT VERIFIED. The uncommented block below reproduces the live compose
+# file captured from inside the running container on 2026-09-14 and recorded verbatim in
+# docs/CONFIG-SURFACE-AND-REBUILD.md -> Appendix. That capture is OWNER-SUPPLIED: it is
+# not regenerable from a checkout. Re-read the live file before trusting this one:
+#
+#   cat /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml
+#
+# The host paths below are the real NAS paths, not placeholders. They are host paths,
+# not secrets, and they are already in this repository's appendix; a rebuild wants a
+# file it can copy and run, not one it has to fill in. Substitute them if the share
+# layout changes. NO SECRET BELONGS IN THIS FILE — credentials live only in the
+# env_file, which is off-repo and must never be committed.
+#
+# TO REBUILD:
+#   cp docker-compose.example.yml /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml
+#   # restore .env and .deploy_key from the off-box store (Step 5 items 4 and 5)
+#   docker compose up -d
+
+services:
+  bridge:
+    image: node:20
+    container_name: jt-agent
+    user: "1000:100"
+    working_dir: /bridge
+    env_file:
+      - /share/CACHEDEV1_DATA/jt-agent/.env
+    environment:
+      TZ: America/New_York
+      HOME: /bridge/.claude-home
+      NPM_CONFIG_PREFIX: /bridge/.npm-global
+      PATH: /bridge/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    volumes:
+      - /share/CACHEDEV1_DATA/jt-agent:/bridge
+      # SqTools — PRODUCTION, money and customer PII. The `:ro` flag is the one real
+      # containment boundary in this deployment and the reason a bridge-side mistake or
+      # prompt injection cannot damage that system. NEVER remove it, never make it rw.
+      - /share/CACHEDEV1_DATA/sqtools/app:/repo:ro
+    command: sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"
+    restart: unless-stopped
+
+    # ---------------------------------------------------------------------------
+    # PROPOSED HARDENING — commented out deliberately. NONE OF IT HAS BEEN TESTED
+    # AGAINST THE LIVE BRIDGE. Each block is explained, with its verification and its
+    # failure mode, in docs/CONFIG-SURFACE-AND-REBUILD.md -> Step 7.7. Apply one at a
+    # time, with `docker compose logs -f jt-agent` open, and confirm a real TASK: runs
+    # end to end before applying the next. Revert = re-comment the block and
+    # `docker compose up -d --force-recreate jt-agent`.
+    # ---------------------------------------------------------------------------
+
+    # Bound the container's log growth. The NAS also hosts the SqTools postgres volume;
+    # an unbounded json-file log on a shared disk is a production outage with a boring
+    # cause. Verify: docker inspect -f '{{.HostConfig.LogConfig}}' jt-agent
+    # logging:
+    #   driver: json-file
+    #   options:
+    #     max-size: "20m"
+    #     max-file: "5"
+
+    # Fence the bridge away from the production database's working set — the same
+    # reasoning as the ollama systemd fence in CLAUDE.md. A task runs `npm ci` and a
+    # jest suite inside a scratch clone; that is the burst this bounds.
+    # Tune to the box: these must leave postgres + the SqTools app their working set.
+    # Verify: docker inspect -f '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}' jt-agent
+    # Failure mode if set too low: the container is OOM-killed mid-task and restarts,
+    # which looks exactly like a crash. Watch `docker events` after applying.
+    # mem_limit: 3g
+    # cpus: 2.0
+    # pids_limit: 512
+
+    # A task executes through a shell with --dangerously-skip-permissions. Neither node,
+    # git, nor the Claude CLI needs a capability or a setuid escalation.
+    # Verify: docker inspect -f '{{.HostConfig.SecurityOpt}} {{.HostConfig.CapDrop}}' jt-agent
+    # Failure mode: an npm postinstall that shells out to something setuid would break.
+    # security_opt:
+    #   - no-new-privileges:true
+    # cap_drop:
+    #   - ALL
