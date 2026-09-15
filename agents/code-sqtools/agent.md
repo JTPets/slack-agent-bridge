@@ -2,7 +2,7 @@
 id: code-sqtools
 name: SqTools Code Agent
 order: 2
-default_status: active
+default_status: planned
 channel_name: code-review
 permissions:
   - github

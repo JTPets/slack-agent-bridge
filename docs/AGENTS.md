@@ -380,6 +380,90 @@ conversations, so filtering seen ones would make the stream emptier, not cleaner
 
 ---
 
+### Repository-level rules vs. agent-level rules — audited 2026-09-15, reported not deduplicated
+
+**The rule, stated so the audit has something to check against.** An agent definition
+may carry a `target_repo`. An executor working in that repository reads **that
+repository's own** `CLAUDE.md`: `reviewTask()` in `lib/code-review-pipeline.js` reads
+`CLAUDE.md` and `COMMANDMENTS.md` **from the clone**, and `buildPrompt()` injects them
+ahead of the task instructions (`CLAUDE.md` → Code Review Pipeline, steps 1 and 4). So
+repository-level rules reach the executor from the repository, every time, at whatever
+version that repository is at.
+
+It follows that **repository-level rules belong to the repository and agent-level rules
+belong to the agent**, and that copying the first into the second is how they drift: the
+copy in the definition is a snapshot, the repository's own file moves, and nothing
+compares them. An agent-level rule is one about *this agent* — its voice, what it is
+for, what it may not touch — that no repository could state, because a repository does
+not know which agent is working in it.
+
+**The audit.** Regenerate:
+```bash
+for f in agents/*/agent.md; do echo "== $f"; sed -n '/^## System Prompt/,$p' "$f"; done
+```
+
+| Agent | Duplicates its target repository's rules? | Which |
+|---|---|---|
+| `code-bridge` (`jtpets/slack-agent-bridge`) | **yes, four** | "ALWAYS run npm test before committing", "Add regression tests for every bug fix", "Check line counts ... after refactors", "Never skip tests — if they fail, fix them". All four are this repository's own `CLAUDE.md` (Testing; Refactor validation) and `docs/EXECUTOR-CONTRACT.md` §5, which say them in more detail and are read from the clone |
+| `code-sqtools` (`jtpets/SquareDashboardTool`) | **yes, four, and two of them twice over** | "NEVER push to main directly", "Always create feature branches with the `agent/` prefix", "Write comprehensive tests", "Create detailed PR descriptions". The first two are ALSO already in its own frontmatter as `workflow: branch-and-pr`, `merge_policy: owner-approval-required` and `branch_prefix: agent/`, which is what `getProductionAgentForRepo()` reads. Stated three times: frontmatter, prose, and the target repository |
+| `bridge` (no `target_repo`) | **partly** | "Follow the project's coding standards in CLAUDE.md" is a pointer and is fine — it tells the agent the file governs without restating it. "Always run tests before committing" is a restatement |
+| every other agent | no | None carries a `target_repo`, and none restates a repository rule |
+
+**Not deduplicated here, deliberately.** Deleting four lines from a system prompt changes
+what every future task by that agent is told, and the only evidence that the deletion is
+safe is that another file says the same thing *today*. That is a behaviour change dressed
+as tidying, and it is the owner's call. What is recorded is the finding and the rule.
+
+**What the drift would look like when it happens** — worth stating, because it is silent:
+`code-sqtools` says "Always create feature branches with the `agent/` prefix". If
+SquareDashboardTool changes its convention, its own `CLAUDE.md` changes and the executor
+is told both, the definition's copy last and loudest. Nobody is told the two disagree.
+
+**The forward rule is enforced for new agents, not retrofitted to old ones.** A
+definition created by `create` (`lib/agent-create.js`) that carries a `target_repo` gets
+a system prompt that says the repository's `CLAUDE.md` governs and that its rules must
+not be restated, and the command's verdict says the same thing in the channel.
+
+### `code-sqtools` is stood down — `default_status: planned`, 2026-09-15
+
+**One field, reversible, and the reason is not tidiness.**
+
+**What it was.** `code-sqtools` declared the same channel as `code-bridge` — both now
+`#code-review`, as the workspace actually has it — and `activeChannels()` deduplicates by
+channel id, so of the two agents sharing that channel exactly one is reachable.
+`getAgentByChannel()` returns the **first** record whose `channel` matches, and
+`code-bridge` has the lower `order`, so every message in `#code-review` ran as
+`code-bridge`. `code-sqtools` existed only to appear as a collision in every enumeration:
+it could not be addressed, it had no schedule to fire, and its only effect was to be a
+second row that resolved to a channel already spoken for.
+
+**Why stand it down rather than give it a channel.** Its `target_repo` is
+`jtpets/SquareDashboardTool` — `production: true`, `merge_policy:
+owner-approval-required`. That repository's merge gate does not currently function: its
+real-PG integration suites cannot run, so work produced for it cannot be fully verified
+before merging. An agent that is hard to address is a nuisance; an agent that is easy to
+address and whose output cannot be verified before it reaches production is worse. The
+right order is: restore the gate, then decide the channel.
+
+**What changes.** `getActiveAgents()` excludes it, so `activeChannels()` excludes it,
+so it is not joined, not polled and not scheduled — and the scheduler now refuses a
+planned agent's job **with a stated reason** rather than skipping it silently
+(WORK-TODO #3). The collision is gone from every enumeration because the agent is
+declared inactive, not because it was hidden. `#code-review` is unaffected: `code-bridge`
+was already the record every message there resolved to.
+
+**What does NOT change, and it is the part worth knowing.** `code-sqtools` is still a
+**definition**, so `getProductionAgentForRepo('jtpets/SquareDashboardTool')` still
+returns it and `isProductionRepo()` is still true — those read `loadAgents()`, not
+`getActiveAgents()`. The production-workflow rules a `REPO:` task against
+SquareDashboardTool triggers are therefore untouched by this. Standing the agent down
+removes an addressee; it does not remove a production policy.
+
+**Reverse it** by setting `default_status: active` in `agents/code-sqtools/agent.md`, or
+`git revert` the commit. **Not** via `ASK: activate code-sqtools` on the box — that
+records a gitignored local decision that would then override the definition for this
+workspace only, which is the opposite of what a reversal should mean here.
+
 ## Activating an agent in this workspace
 
 An agent is *defined* in `agents/<id>/agent.md` (tracked) and *activated* in this
@@ -390,6 +474,7 @@ invent no agent, and **nothing here creates a Slack channel.**
 ASK: available            # defined agents not activated here, and what each waits on
 ASK: activate <id>        # resolve the declared channel, join, poll, schedule
 ASK: deactivate <id>      # stop polling and scheduling; keep the resolved channel
+ASK: create <id> channel=<name> provider=<claude|gemini|ollama> [repo=<owner/name>] [name=<Display Name>]
 ```
 
 They are verbs in the one command table (`lib/command-router.js`), implemented in
@@ -401,7 +486,53 @@ They are verbs in the one command table (`lib/command-router.js`), implemented i
 3. rebuild the poll set;
 4. register the agent's schedule.
 
-**Where the declared channel does not exist, it refuses and changes nothing.** No
+### `create` — a definition, and nothing more (2026-09-15)
+
+`create` writes `agents/<id>/agent.md` from a template and stops. It is
+`lib/agent-create.js`, separate from `lib/agent-activation.js` on purpose: the two have
+different durability, and one module would invite one sentence covering both.
+
+**What it does not do**, each for a stated reason:
+
+- **It does not create a Slack channel**, and does not resolve one either. Creating one
+  costs something outside this repository; resolving one is `activate`'s job, and doing
+  it here would produce a definition that arrives half-activated.
+- **It does not activate anything.** The new definition is `default_status: planned`
+  with `schedule: null` and `watches: null` — nothing polls it, nothing is joined,
+  nothing fires. An agent that acts before a human has read its definition is how
+  `story-bot` spent months posting into a channel nothing read (WORK-TODO #3).
+- **It does not sanitise.** Every field is rejected with a reason and nothing is
+  written — the same rule `REPO:`/`BRANCH:` follow. Turning `My Agent` into `my-agent`
+  would create a different agent than the one asked for, with nobody told. A `channel`
+  that looks like a Slack id is refused on shape, because a tracked definition may not
+  carry a workspace id (`lib/agent-markdown.js` refuses one anyway).
+- **It does not commit.** See below.
+
+**Does a created definition survive a pull? NO — and the command says so.**
+`agents/<id>/agent.md` is **tracked**. `auto-update.js` runs `git reset --hard HEAD`
+before every pull, so an uncommitted definition written on the box is destroyed by the
+next pull. This is the opposite of `activate`, whose decision lives in a gitignored file
+precisely so that cannot happen, and it is not solvable by moving the file — a
+definition that no other workspace and no reviewer can see is not a definition.
+
+So the command's verdict states it in those words: the file is tracked, the next pull
+destroys it unless it is committed, commit and push it or treat it as a draft. It does
+not commit on your behalf, because a command reachable from an `ASK:` message that can
+write to `main` is a far larger blast radius than anything in this repository has today.
+This is **WORK-TODO #51**, the class every configuration-writing command here shares, and
+`create` does not solve it — it refuses to hide it.
+
+**The sequence**, therefore:
+
+```
+ASK: create inventory channel=inventory-desk provider=gemini repo=jtpets/SquareDashboardTool
+# -> agents/inventory/agent.md, planned, three TODO sections
+# -> commit and push it, or it is gone on the next pull
+# -> make sure #inventory-desk exists (nothing here creates it)
+ASK: activate inventory
+```
+
+**Where the declared channel does not exist, `activate` refuses and changes nothing.** No
 activation is recorded, no join is attempted, and the message says which channel name
 failed. That matches what the scheduler does for a channel-less agent, and it is the
 correct behaviour: creating a channel is an owner action with a cost outside this

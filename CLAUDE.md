@@ -622,6 +622,7 @@ slack-agent-bridge/
 │   ├── agent-activation.js # Turning a DEFINITION into a running agent in this workspace: resolveAgentChannel (local channel map first, then Slack by name — and it NEVER creates a channel), activateAgent/deactivateAgent/resetActivation writing workspace-local state via lib/bridge-state.js, getAgentsNeedingActivation, plus the handlers behind the `available`/`activate`/`deactivate` verbs. Refuses, changing nothing, when the declared channel does not exist. An activation re-derives the poll set and the scheduler through the caller's onActivationChanged hook, and when it cannot, the verdict SAYS a restart is needed rather than implying a live effect it did not have
 │   ├── agent-frontmatter.js # A deliberately tiny YAML-subset codec — scalars, lists of scalars, one level of nested maps — for the frontmatter block of an agent definition. Knows nothing about agents. THROWS with a line number on anything outside the subset rather than guessing. No js-yaml: it resolves only as a transitive jest dependency and is absent under `npm ci --omit=dev`
 │   ├── agent-markdown.js # THE reader and writer of agents/<id>/agent.md: parseAgentMarkdown, serializeAgent, loadDefinitions. Enforces the one rule that makes a definition portable — a `channel:` key, or any value shaped like a Slack id, is REFUSED, not stripped
+│   ├── agent-create.js   # `create` — a new agent DEFINITION from a template, given an id, a channel NAME, a provider and an optional target repo. Separate from lib/agent-activation.js because the two have different durability: activation writes gitignored workspace state and survives a pull, creation writes a TRACKED file that the next `git reset --hard HEAD` discards, and the verdict says so in those words (WORK-TODO #51). Creates no Slack channel, resolves none, activates nothing — the new definition is `planned` with no schedule and no watches. Fields are REJECTED, never sanitised, and a refusal writes nothing
 │   ├── agent-context.js  # Agent context builder: injects real data into agent prompts to prevent hallucination. `buildEnrichedPrompt` is the ASK: path's assembler and has exactly one production caller (processConversation); `buildAgentDataContext(agentId)` is the per-agent data switch on its own, extracted 2026-09-15 so the TASK: path can inject the same facts — before that a scheduled agent got its persona and none of its data, which for story-bot meant drafting posts about milestones it was never told. It returns '' for an agent with no builder unless asked for the generic placeholder
 │   ├── agent-scheduler.js # Cron registrar for agents' proactive schedules: startScheduler reads each agent's `schedule` from agents.json and registers a node-cron job (timezone America/Toronto) that posts a TASK message built from TASK_TEMPLATES to that agent's channel; stopScheduler/getActiveJobs/triggerTask manage them. Registration follows the SAME declaration as resolving, joining and polling (`activeChannels` in lib/agent-surface.js): a `planned` agent's job and an agent whose declared channel has not resolved are both REFUSED and REPORTED to #sqtools-ops, where both used to be a silent skip (WORK-TODO #3). A task name in `DETERMINISTIC_TASKS` runs code instead of posting a TASK message (`check-inbox` -> `lib/email-check.js`); a name in neither registry is now REFUSED at registration instead of registering a job that could never do anything
 │   ├── agent-task-catalogue.js # WHAT scheduled tasks exist: TASK_TEMPLATES (the LLM prompt templates a cron tick posts) and DETERMINISTIC_TASKS (names that run code instead — `check-inbox` -> `lib/email-check.js`), plus getTaskTemplate/getDeterministicTask. Extracted from agent-scheduler.js 2026-09-15 (WORK-TODO #10): what tasks exist is a different concern from when they fire. Re-exported by lib/agent-scheduler.js, so callers are unchanged
@@ -707,6 +708,7 @@ slack-agent-bridge/
 │   ├── smoke.test.js            # Smoke tests: module loading, dotenv checks, export verification
 │   ├── integration.test.js      # Integration tests: critical paths, wiring, no circular deps
 │   ├── bug-fixes.test.js        # Regression tests for named past defects: rate-limit false positives, memory-file corruption resilience, null exit code = interrupted, stale working memory, addTask on corrupted tasks.json
+│   ├── agent-create.test.js     # Tests for lib/agent-create.js: that it creates and resolves no Slack channel, that a created definition is planned with no schedule, that every field is rejected rather than sanitised and a refusal writes nothing, and THE honesty assertion — the success verdict states that the next pull destroys the file unless it is committed
 │   ├── agent-context.test.js    # Tests for lib/agent-context.js (anti-hallucination, secretary context)
 │   ├── agent-activation.test.js # Tests for lib/agent-activation.js and the workspace-state half of lib/bridge-state.js, against real files in a temp dir: THE guard that activation never creates a Slack channel (the replaced implementation did), that a declared channel which does not exist is refused with nothing recorded, and that the decision lands in a gitignored file so it survives a pull
 │   ├── agent-markdown.test.js   # THE enumerating guard for the tracked-definition rule: it walks every agents/<id>/agent.md from disk and fails when one carries a Slack channel id, when one does not parse, or when a definition loses a field in a serialize/parse round trip. Carries its own negative controls
@@ -1372,6 +1374,37 @@ ASK: create channel channel-name
 - Returns channel ID if successful
 - If channel exists, joins it instead of failing
 - Requires `channels:manage` scope
+
+### Agent Definition and Activation
+Define an agent, then turn it on in this workspace. **Nothing here creates a Slack
+channel** — that is an owner action.
+```
+ASK: available            # defined agents not activated here, and what each is waiting on
+ASK: activate <id>        # resolve the declared channel, join it, poll it, register its schedule
+ASK: deactivate <id>      # stop polling and scheduling; keep the resolved channel id
+ASK: create <id> channel=<name> provider=<claude|gemini|ollama> [repo=<owner/name>] [name=<Display Name>]
+```
+- `activate`/`deactivate` write `agents/shared/agent-activation.json`, which is
+  **gitignored** — the decision survives a restart AND a pull.
+- `create` writes `agents/<id>/agent.md`, which is **TRACKED** — it does **not** survive
+  a pull. `auto-update.js` runs `git reset --hard HEAD` first, so an uncommitted
+  definition is destroyed. The command's verdict says so; commit and push it, or treat
+  it as a draft. WORK-TODO #51 is the class; `create` does not solve it, it refuses to
+  hide it.
+- A created definition is `planned`, with no schedule and no watches. Fields are
+  **rejected, never sanitised**, and a refusal writes nothing.
+- See [docs/AGENTS.md](docs/AGENTS.md) → "Activating an agent in this workspace".
+
+### Channel Mapping
+```
+node scripts/channel-map.js              # read-only: declared name -> resolved id, per agent
+node scripts/channel-map.js --from-git   # rebuild THIS workspace's ids from git history (no token)
+node scripts/channel-map.js --resolve    # rebuild ANY workspace's by resolving names against Slack
+```
+`agents/shared/channel-map.json` is gitignored and is the only record of which Slack
+channel an agent runs in. These are how it comes back. See
+[docs/AGENTS.md](docs/AGENTS.md) → "The channel map: what it holds, who writes it, and
+how it comes back".
 
 ### Owner Tasks
 Check pending owner action items:
