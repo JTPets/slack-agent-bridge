@@ -279,6 +279,103 @@ nothing.
 
 **Verdict: safe to proceed.** The condition is the seeding step, not the format.
 
+---
+
+## The bulletin stream — what every agent can see, established 2026-09-15
+
+The bulletin board is the substrate for agents reacting to each other's output
+rather than only to the owner. This section is the report of what it actually
+carries; `lib/bulletin-board.js` is the code and `tests/bulletin-types.test.js` is
+the guard.
+
+### What is published today
+
+Five call sites. Regenerate the list rather than trusting this table:
+
+```bash
+grep -rn "postBulletin(" --include=*.js . | grep -v node_modules | grep -v '^./tests/' | grep -v '^./lib/bulletin-board.js'
+```
+
+| Posted by | Type | When |
+|---|---|---|
+| `bridge-agent.js` | `task_completed` | every task that finishes |
+| `security-review.js` | `security_finding` | the nightly audit finds something |
+| `morning-digest.js` (as `secretary`) | `milestone` | the digest runs |
+| `lib/watercooler.js` (as `watercooler`) | `milestone` | a standup completes |
+| `lib/integrations/email-categorizer.js` | **the category name** | a category whose action is `push_to_secretary` matches |
+
+The last row is the one to watch. It types the bulletin by the *category name*, and
+category names come from `agents/email-monitor/memory/rules.json`, which is
+operator-editable, while valid types come from `BULLETIN_TYPES`. Today only
+`vendor_deal` carries `push_to_secretary` and it happens to be a valid type, so
+nothing is being dropped. Give `urgent` that action — which is exactly what the file
+is for — and every one of its bulletins is rejected, because `postBulletin` returns
+`{ success: false }` rather than throwing and the call site ignored the result. The
+call site now logs the rejection, and the guard test covers the literal call sites.
+
+### Who watches, and what a watcher actually receives
+
+`watches.bulletin_types` in an agent's definition. `lib/bulletin-watcher.js` fans out
+to matching agents — skipping the poster, skipping agents with no channel, and
+rate-limited to one trigger per agent per five minutes.
+
+**A watcher receives a notification, not the record.** It is an `ASK:` message
+carrying `[type] from agentId: <summary truncated to 150 characters>`, posted into
+the watcher's channel. The bulletin's payload beyond that one summary line, its id,
+and its timestamp are all absent from the notification. To see the record the agent
+has to read the stream.
+
+**`customer_interaction` was a dead watch** — secretary and marketing both declared
+it and it is not in `BULLETIN_TYPES`, so `postBulletin` would reject it and those
+watches could never have fired. Corrected to `customer_insight`, and
+`tests/bulletin-types.test.js` now fails on any watch for a type nothing can post.
+
+**`milestone` currently reaches no watcher.** Only story-bot watches it, and
+story-bot is not activated, so `processBulletin` skips it for want of a channel.
+This is not a regression from the 2026-09-15 activation change: before it, the
+notification was posted into a channel the poll loop did not read, so it was never
+executed either. The difference is that it is now quiet rather than accumulating.
+
+### The stream itself, which every active agent sees
+
+Distinct from watching, and **not opt-in**. `processConversation` injects
+`formatBulletinsForContext(agentId, 10)` into the prompt of whichever agent owns the
+channel, on every `ASK:`. Since every active agent's channel is polled (see the one
+declaration rule above), every active agent sees the stream. `ASK: bulletins` renders
+it for a human in any polled channel, through the same module.
+
+**What it carries:** the bulletin type, which agent posted it, when (America/Toronto,
+named explicitly), and **every scalar field of the payload**, each value capped at
+200 characters so one long field cannot crowd out the rest.
+
+Before 2026-09-15 it carried one line of `description || title || message ||
+JSON.stringify(data).slice(0,150)`. Every bulletin `pushToSecretary` posts has none
+of those three keys — its payload is `from`, `subject`, `isTrustedVendor` — so a
+supplier email reached other agents as a truncated JSON fragment. An agent cannot
+notice a supplier shortage in a string cut at 150 characters.
+
+**What it does not carry:**
+
+- anything beyond the newest 10, and nothing at all past the 7-day retention
+  (`cleanupOldBulletins`). It is a recent-events feed, not a log;
+- the bulletin **id**, so an agent cannot refer to one or mark it read;
+- any **link back** to the work that produced it — no Slack permalink, no thread, no
+  task id. An agent can see that a task completed; it cannot open it;
+- **no reaction logic.** Nothing here makes an agent act on what it reads. That is
+  deliberate and out of scope: the stream existing and being worth reading is the
+  deliverable.
+
+`unreadBy` is applied, but **nothing in production calls `markRead`** —
+
+```bash
+grep -rn "markRead" --include=*.js . | grep -v node_modules | grep -v tests
+```
+
+— so in practice every agent sees the newest ten on every `ASK`, including ones it
+has seen. That is deliberate for now: an agent has no memory of a bulletin between
+conversations, so filtering seen ones would make the stream emptier, not cleaner.
+
+
 ## Adding a New Agent
 
 1. **Define the agent** in `agents/agents.json`:

@@ -614,7 +614,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
 
         let bulletinContextStr = '';
         try {
-          bulletinContextStr = bulletinBoard.formatBulletinsForContext('bridge', 5);
+          bulletinContextStr = bulletinBoard.formatBulletinsForContext('bridge', 10);
         } catch (bErr) {
           console.error('[bridge-agent] formatBulletinsForContext failed:', bErr.message);
         }
@@ -1615,7 +1615,7 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
     // needing to explicitly query the bulletin board.
     let bulletinContext = '';
     try {
-      bulletinContext = bulletinBoard.formatBulletinsForContext(agentId, 5);
+      bulletinContext = bulletinBoard.formatBulletinsForContext(agentId, 10);
     } catch (bulletinErr) {
       console.error(`[${agentId}] formatBulletinsForContext failed:`, bulletinErr.message);
     }

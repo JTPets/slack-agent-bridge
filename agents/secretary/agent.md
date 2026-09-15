@@ -23,7 +23,7 @@ watches:
   bulletin_types:
     - task_completed
     - vendor_deal
-    - customer_interaction
+    - customer_insight
     - security_finding
 phone_capabilities:
   inbound: Answer calls, route to staff or voicemail based on calendar/schedule, take messages, log to Slack

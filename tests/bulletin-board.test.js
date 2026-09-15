@@ -335,10 +335,16 @@ describe('bulletin-board', () => {
 
             const result = bulletinBoard.formatBulletinsForContext('secretary');
 
-            expect(result).toContain('UNREAD BULLETINS FROM OTHER AGENTS:');
+            // LOGIC CHANGE 2026-09-15: the header names the retention and the cap,
+            // and the line carries the poster, the Toronto-local time and every
+            // scalar payload field rather than one `description || title || message`
+            // string. The old shape lost the whole payload of any bulletin without
+            // one of those three keys — which is every bulletin pushToSecretary
+            // posts (from/subject/isTrustedVendor).
+            expect(result).toContain('RECENT BULLETINS FROM OTHER AGENTS');
             expect(result).toContain('[task_completed]');
-            expect(result).toContain('bridge:');
-            expect(result).toContain('Task done');
+            expect(result).toContain('bridge (');
+            expect(result).toContain('description=Task done');
         });
 
         test('excludes read bulletins', () => {

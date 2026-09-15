@@ -29,7 +29,7 @@ schedule:
 watches:
   bulletin_types:
     - vendor_deal
-    - customer_interaction
+    - customer_insight
 ---
 
 # Marketing Manager
