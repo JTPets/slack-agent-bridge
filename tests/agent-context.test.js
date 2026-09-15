@@ -385,4 +385,54 @@ describe('agent-context', () => {
             expect(jesterPrompt).toContain('Test milestone');
         });
     });
+
+    describe('buildAgentDataContext — the per-agent data, on its own', () => {
+        // Extracted 2026-09-15 so the TASK: path can inject the same data the ASK:
+        // path already did. buildEnrichedPrompt's only production caller is
+        // processConversation, so before this everything in this module was
+        // unreachable from a scheduled task.
+
+        it('returns story-bot its milestones, which is what it drafts from', async () => {
+            bulletinBoard.getBulletins.mockImplementation(({ type }) => (
+                type === 'milestone'
+                    ? [{ agentId: 'bridge', data: { description: 'Shipped the dispatch form' } }]
+                    : []
+            ));
+
+            const ctx = await agentContext.buildAgentDataContext('story-bot');
+            expect(ctx).toContain('Shipped the dispatch form');
+        });
+
+        it('returns an empty string for an agent with no builder, not a placeholder', async () => {
+            // So a caller can decide whether an "I have no data" line earns its place
+            // in the prompt. The TASK: path passes no `generic`, so it gets ''.
+            await expect(agentContext.buildAgentDataContext('email-monitor')).resolves.toBe('');
+        });
+
+        it('still emits the generic placeholder when asked for it', async () => {
+            const ctx = await agentContext.buildAgentDataContext('email-monitor', { generic: true });
+            expect(ctx).toBeTruthy();
+            expect(ctx).not.toBe('');
+        });
+
+        it('buildEnrichedPrompt is unchanged: it still asks for the placeholder', async () => {
+            const prompt = await agentContext.buildEnrichedPrompt(
+                { id: 'email-monitor', system_prompt: 'Email Monitor' },
+                'Test',
+            );
+            expect(prompt).toContain('No specific data context available');
+        });
+
+        it('a failing data source degrades to a notice, never a rejection', async () => {
+            // The TASK: path must never be blocked by a context failure. story-bot's
+            // builder catches its own errors (lib/agent-context.js, the try around
+            // getBulletins) and returns its own notice, so the outer catch here is a
+            // second net rather than the first. Both are asserted: it RESOLVES, and
+            // what it resolves to says the data is missing rather than inventing any.
+            bulletinBoard.getBulletins.mockImplementation(() => { throw new Error('boom'); });
+            const ctx = await agentContext.buildAgentDataContext('story-bot');
+            expect(ctx).toMatch(/Unable to load|unavailable/i);
+            expect(ctx).not.toMatch(/Shipped the dispatch form/);
+        });
+    });
 });

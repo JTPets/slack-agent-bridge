@@ -2,7 +2,7 @@
 id: story-bot
 name: Story Bot
 order: 10
-default_status: planned
+default_status: active
 channel_name: story-bot-agent
 permissions:
   - linkedin-personal

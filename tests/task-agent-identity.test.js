@@ -33,7 +33,7 @@ const REPO_ROOT = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(REPO_ROOT, 'bridge-agent.js'), 'utf8');
 
 const { loadAgents, getAgent } = require('../lib/agent-registry');
-const { activeChannels } = require('../lib/agent-surface');
+const { activeChannels, describeSchedule } = require('../lib/agent-surface');
 
 /** Strip // line comments and block comments, leaving strings intact. */
 function stripComments(src) {
@@ -163,6 +163,12 @@ describe('a TASK: executes as the agent it was addressed to (WORK-TODO #38)', ()
             ['bulletin stream', /formatBulletinsForContext\(currentAgentId, 10\)/],
             ['bulletin voice',  /postBulletin\(currentAgentId, 'task_completed'/],
             ['working memory',  /clearAgentWorkingMemory\(currentAgentId\)/],
+            // The agent's own DATA, not just its voice. buildEnrichedPrompt's only
+            // production caller is processConversation, so before 2026-09-15 a
+            // scheduled TASK: got the persona and none of the facts it was told to
+            // write about. Injected on the no-repo branch, which is where a scheduled
+            // agent task lands.
+            ['data context',    /buildAgentDataContext\(currentAgentId\)/],
         ];
 
         it.each(IDENTITY_SITES)('%s follows the resolved agent', (_label, pattern) => {
@@ -235,6 +241,42 @@ describe('a TASK: executes as the agent it was addressed to (WORK-TODO #38)', ()
     });
 
     describe('the scheduled case end to end: channel -> agent -> identity', () => {
+        it("story-bot's Friday job resolves to story-bot, not the bridge", () => {
+            // The concrete case WORK-TODO #3 and #38 were both about: a `planned`
+            // agent with a real channel and a weekly `draft-weekly-posts` job. Before
+            // #3 the job fired into a channel nothing polled; before #38 the task it
+            // posted would have executed as the bridge even once polled. Both halves
+            // are asserted here as ONE chain, because either alone produces nothing.
+            //
+            // If story-bot is deactivated this goes red on purpose: that is a
+            // capability being switched off, and it should be a deliberate edit here
+            // rather than a silent change of behaviour.
+            const storyBot = getAgent('story-bot');
+            expect(storyBot).toBeTruthy();
+            expect(storyBot.status).not.toBe('planned');
+
+            // 1. The scheduler registers its job (needs active + resolved channel +
+            //    a task name that resolves to a template or a handler).
+            const sched = describeSchedule(storyBot);
+            expect(sched.registered).toBe(true);
+            expect(sched.task).toBe('draft-weekly-posts');
+
+            // 2. The channel that job posts into is polled, and its poll entry is
+            //    story-bot -- so the TASK: message is executed, by story-bot.
+            const entry = activeChannels(loadAgents(), 'C_BRIDGE_TEST')
+                .find(e => e.channelId === storyBot.channel);
+            expect(entry).toBeTruthy();
+            expect(entry.agentId).toBe('story-bot');
+
+            // 3. What buildChannelsToPoll hands processTask for that entry, run
+            //    through processTask's own resolution.
+            const { currentAgent, currentAgentId } = resolve(getAgent(entry.agentId), getAgent('bridge'));
+            expect(currentAgentId).toBe('story-bot');
+            expect(currentAgent.system_prompt).toBe(storyBot.system_prompt);
+            expect(currentAgent.system_prompt).not.toBe(getAgent('bridge').system_prompt);
+            expect(currentAgent.llm_provider).toBe('gemini');
+        });
+
         it('a scheduled agent posts into a channel whose poll entry is that agent', () => {
             // activeChannels() is THE one membership rule; buildChannelsToPoll()
             // delegates to it, and the scheduler refuses anything it excludes. So the

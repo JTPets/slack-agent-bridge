@@ -699,6 +699,34 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
     // task execution. Skip when using pipeline prompt (already included).
     // LOGIC CHANGE 2026-03-28: usingPipelinePrompt flag prevents double-adding context.
     if (!task.repo) {
+      // LOGIC CHANGE 2026-09-15: inject the EXECUTING AGENT'S OWN DATA on the no-repo
+      // task path, the same data lib/agent-context.js already injects on the ASK:
+      // path. `buildEnrichedPrompt` has exactly one production caller —
+      // processConversation — so until now everything that module does was reachable
+      // from ASK: and from nothing else. A scheduled agent's own TASK: therefore got
+      // the agent's personality and none of its facts: story-bot's Friday job is
+      // literally "draft posts about this week's milestones", and it was never told
+      // what they were. Drafting from nothing is the hallucination agent-context.js
+      // was written to prevent, on the one path that runs unattended.
+      //
+      // Scoped to no-repo tasks deliberately. A repo task's prompt is assembled by
+      // the code-review pipeline in a specific order (COMMANDMENTS -> system_prompt
+      // -> CLAUDE.md -> memory -> bulletins -> repo structure -> ...); inserting into
+      // that is a prompt-composition change with its own review. The no-repo branch
+      // is `system_prompt + instructions` plus the memory context below, and is
+      // exactly where a scheduled agent task lands.
+      //
+      // `generic: false`, so an agent with no builder contributes nothing rather than
+      // a line saying it has nothing. Never blocks the task: failures are logged.
+      try {
+        const agentData = await agentContext.buildAgentDataContext(currentAgentId);
+        if (agentData) {
+          prompt = agentData + '\n\n' + prompt;
+        }
+      } catch (agentCtxErr) {
+        console.error('[bridge-agent] buildAgentDataContext failed:', agentCtxErr.message);
+      }
+
       try {
         const taskContext = memory.buildTaskContext();
         if (taskContext) {

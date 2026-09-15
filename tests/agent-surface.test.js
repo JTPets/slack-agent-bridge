@@ -66,14 +66,20 @@ describe('output that reaches nobody', () => {
     //
     // Every entry here is a KNOWN, FILED state, not an accepted one.
     //
-    // LOGIC CHANGE 2026-09-15: story-bot's entry CHANGED CLASS, and that change is
-    // the defect closing. It used to read "scheduled job posts a TASK: message to
-    // C0AP8CHCV1U, which the poll loop does not read" — a job registered and firing
-    // into a channel nothing collected. Joining, polling and scheduling now all
-    // derive from one rule (`activeChannels`), so a planned agent gets none of the
-    // three instead of one of them, and the reason is posted to #sqtools-ops at
-    // startup rather than being a silent skip. story-bot is now one activation away
-    // from having all three; it is not producing output nobody reads.
+    // LOGIC CHANGE 2026-09-15: story-bot is GONE from this list, and that removal is
+    // a capability arriving rather than a list being tidied.
+    //
+    // Its history in two steps. It was originally an orphan of the worst kind: its
+    // weekly job registered and fired a TASK: message into C0AP8CHCV1U every Friday,
+    // and the poll loop did not read that channel, so the work was done and
+    // collected by nobody. The 2026-09-15 one-rule change (`activeChannels`) made a
+    // planned agent get none of joining/polling/scheduling instead of one of them,
+    // which stopped the waste but produced nothing either — its entry above then read
+    // "not activated in this workspace".
+    //
+    // It is now activated, by `default_status: active` in agents/story-bot/agent.md,
+    // so it has all three consequences and its output is read. Reverse by setting
+    // that one line back to `planned`.
     //
     // jester is the one still worth staring at: it is ACTIVE, and its declared
     // channel #jester-agent has never resolved, so it cannot be addressed at all.
@@ -82,7 +88,6 @@ describe('output that reaches nobody', () => {
         'jester': 'schedule declared but not registered — schedule declared but #jester-agent has not been resolved to a channel id',
         'social-media': 'schedule declared but not registered — schedule declared but the agent is not activated in this workspace',
         'marketing': 'schedule declared but not registered — schedule declared but the agent is not activated in this workspace',
-        'story-bot': 'schedule declared but not registered — schedule declared but the agent is not activated in this workspace',
     };
 
     test('the set of agents whose output reaches nobody is exactly the known set', () => {
@@ -139,13 +144,18 @@ describe('buildChannelsToPoll in bridge-agent.js does not restate the rule', () 
         expect([...pollableChannels(agents, 'C_BRIDGE')]).toEqual(['C_BRIDGE', 'C_ACTIVE']);
     });
 
-    test('the pure rule produces the five distinct channels the live one does', () => {
+    test('the pure rule produces the six distinct channels the live one does', () => {
         const polled = pollableChannels(loadAgents(), BRIDGE_CHANNEL);
         // code-bridge and code-sqtools share C0AP42BT4MR — one channel, not two.
-        expect(polled.size).toBe(5);
+        expect(polled.size).toBe(6);
         expect(polled.has('C0AP42BT4MR')).toBe(true);
-        // story-bot is `planned`, so its channel is joined but never polled.
-        expect(polled.has('C0AP8CHCV1U')).toBe(false);
+        // LOGIC CHANGE 2026-09-15: was 5, and asserted story-bot's channel is NOT
+        // polled because story-bot was `planned`. It is now `default_status: active`
+        // (agents/story-bot/agent.md), so its channel is polled and its Friday job's
+        // TASK: message is executed. That is the point of activating it: before, the
+        // assertion below read `.toBe(false)` and described a job producing drafts
+        // nothing collected.
+        expect(polled.has('C0AP8CHCV1U')).toBe(true);
     });
 });
 
@@ -165,10 +175,28 @@ describe('joinableChannels is EXACTLY the polled set, and creates nothing', () =
     // job came to post where nothing read. It is flipped here in the same change as
     // the fix, not weakened.
     test('it does NOT include a planned agent\'s channel — join follows the same rule as poll', () => {
+        // LOGIC CHANGE 2026-09-15: this used to require that the REAL registry contain
+        // a planned agent WITH a resolved channel, and assert the rule against it —
+        // story-bot was that agent. Activating story-bot left no such record, so the
+        // test's own precondition (`expect(planned.length).toBeGreaterThan(0)`) failed
+        // and the rule stopped being checked at all. A guard that depends on a defect
+        // still existing in order to run is not a guard.
+        //
+        // It now states the rule against a SYNTHETIC record, so it holds whatever the
+        // registry happens to contain, and separately checks the real registry when it
+        // does contain such an agent.
+        const synthetic = [
+            { id: 'planned-with-channel', channel: 'C_PLANNED_TEST', status: 'planned' },
+            { id: 'active-with-channel', channel: 'C_ACTIVE_TEST' },
+        ];
+        const syntheticJoined = joinableChannels(synthetic, BRIDGE_CHANNEL).map(c => c.channelId);
+        expect(syntheticJoined).toContain('C_ACTIVE_TEST');
+        expect(syntheticJoined).not.toContain('C_PLANNED_TEST');
+
         const joined = joinableChannels(loadAgents(), BRIDGE_CHANNEL).map(c => c.channelId);
-        const planned = loadAgents().filter(a => a.status === 'planned' && a.channel);
-        expect(planned.length).toBeGreaterThan(0);
-        for (const agent of planned) expect(joined).not.toContain(agent.channel);
+        for (const agent of loadAgents().filter(a => a.status === 'planned' && a.channel)) {
+            expect(joined).not.toContain(agent.channel);
+        }
     });
 
     test('it invents no channel id that is not already in the registry or the env', () => {

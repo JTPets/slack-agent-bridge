@@ -463,12 +463,29 @@ agent. `jester` is now reported on every boot. Fix part 3 landed in
 ("joinableChannels includes a planned agent's existing channel — the story-bot case").
 
 Left **open** deliberately: this item's namesake is a claim about the *running*
-container ("CONFIRMED FIRING LIVE"), and a scratch clone cannot verify that story-bot's
-Friday job stopped registering on the box. Deploys here are manual, so nothing has
-reached the NAS. Close it after a `docker compose restart jt-agent` whose startup output
-shows the refusals and no `Scheduled story-bot:draft-weekly-posts`.
+container ("CONFIRMED FIRING LIVE"), and a scratch clone cannot verify what registers on
+the box. Deploys here are manual, so nothing has reached the NAS.
 
-**Priority:** P1 | **Effort:** Low | **Status:** open — fix landed on a branch, not verified live
+**CLOSE CONDITION CHANGED 2026-09-15 — read this before checking the box.** It used to
+read "close it after a restart whose startup output shows the refusals and **no**
+`Scheduled story-bot:draft-weekly-posts`". That is now **inverted for story-bot**, and
+following the old wording would report a success as a failure. story-bot has since been
+activated on purpose (`default_status: active` in `agents/story-bot/agent.md`), so its
+job registering is now CORRECT — what was wrong was registering while the poll loop did
+not read its channel, and joining, polling and scheduling now derive from one rule. The
+startup output that closes this item is:
+
+- `Scheduled story-bot:draft-weekly-posts` **present**, AND story-bot's channel in the
+  joined/polled set — the three consequences arriving together, which is the invariant
+  this item is about;
+- refusals posted to `#sqtools-ops` for `jester` (active, `#jester-agent` never
+  resolved) and for `social-media` / `marketing` (declared schedules, not activated);
+- **no** agent that is scheduled but unjoined — the count is 0, and
+  `tests/agent-surface.test.js` already fails if it is not.
+
+Regenerate the expected table before comparing: `node scripts/agent-surface.js`.
+
+**Priority:** P1 | **Effort:** Low | **Status:** open — fix landed on a branch, not verified live; close condition restated above
 
 ---
 
@@ -1867,11 +1884,22 @@ item 5) and mostly only worth it alongside the mid-task ask capability.
 ### 14. Watercooler retro → LinkedIn draft
 **Idea:** after the Friday retro, aggregate the week's highlights into a LinkedIn draft
 for review.
-**Blocked by:** `story-bot` is `status: "planned"` (see item 3); its `draft-weekly-posts`
-template exists (`lib/agent-scheduler.js:56`) but the agent is not active. Activate
-story-bot first.
-**Effort:** Low once story-bot is live.
-**Priority:** P3 | **Effort:** Low once story-bot is live | **Status:** open
+**UNBLOCKED 2026-09-15.** This read "Blocked by: `story-bot` is `status: "planned"`
+(see item 3); its `draft-weekly-posts` template exists but the agent is not active.
+Activate story-bot first." story-bot is now activated (`default_status: active` in
+`agents/story-bot/agent.md`), joined, polled, its Friday job registers, and since #38
+closed the task executes as story-bot rather than as the bridge. The template lives at
+`lib/agent-task-catalogue.js` now, not `lib/agent-scheduler.js:56` — it moved in the
+2026-09-15 catalogue extraction and that citation was stale.
+**What remains, which is the actual work of this item:** nothing aggregates the retro's
+output into the draft. `lib/watercooler.js` posts a `milestone` bulletin when a standup
+completes, story-bot `watches` `milestone`, and `lib/bulletin-watcher.js` would fan out
+to it — but a watcher receives a 150-character SUMMARY LINE, not the record, so the
+draft would be written from a truncated notification. Either the watcher carries more,
+or `draft-weekly-posts` reads the stream itself. Note also that `milestone` reached no
+watcher at all while story-bot was the only agent watching it and was not activated;
+that is no longer true, so this path is live and untested.
+**Priority:** P3 | **Effort:** Low-Medium | **Status:** open — story-bot activated, the aggregation is the remaining work
 
 ---
 
