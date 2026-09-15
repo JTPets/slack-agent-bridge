@@ -444,19 +444,53 @@ node scripts/agent-surface.js --json    # the same rows, machine-readable
 ```
 
 The guard is `tests/agent-surface.test.js`: it fails when an agent's output stops
-reaching anything. Three distinct facts the table separates, because they have three
-different fixes:
+reaching anything. **LOGIC CHANGE 2026-09-15: these are now three consequences of ONE declaration, not
+three facts maintained separately.** They used to have three different fixes, which
+is how they drifted: every declared channel was joined, only active agents' channels
+were polled, and the scheduler checked neither. story-bot — `planned`, with a real
+channel and a weekly job — was therefore joined to a channel the poll loop never
+read, and its `draft-weekly-posts` job posted a `TASK:` message every Friday that
+nothing executed.
 
-- **Declared** — the agent has a `channel` in `agents/agents.json`.
-- **Joined** — the bridge calls `conversations.join` on it at startup. Since
-  2026-09-15 this is *every* channel a declared agent names, including a `planned`
-  agent's, because a scheduled job can be registered for a planned agent (the
-  scheduler checks `schedule` + `channel`, never `status` — WORK-TODO #3) and posting
-  to a channel the bot is not in answers `not_in_channel`.
+The rule is `activeChannels()` in `lib/agent-surface.js`, and there is exactly one
+statement of it: `buildChannelsToPoll()` in `bridge-agent.js` delegates to it, the
+startup join path calls it, and `lib/agent-scheduler.js` refuses any schedule it
+excludes. `tests/agent-surface.test.js` asserts the delegation and that the join set
+and the poll set are the same set.
+
+- **Resolved** — the agent's declared `channel_name` has an id in the local channel
+  map (`agents/shared/channel-map.json`). Resolution happens once, at startup, for
+  an active agent whose name has never resolved, and is cached durably — so an
+  already-known channel costs no API call. **Nothing creates a channel.**
+- **Joined** — the bridge calls `conversations.join` on it at startup.
 - **Polled** — `poll()` reads it, so a `TASK:`/`ASK:` message there is executed.
-  Built from `getActiveAgents()`, so a `planned` agent's channel is joined but never
-  polled. A scheduled job that posts a `TASK:` message into an unpolled channel
-  produces text a human can read and nothing will run.
+- **Scheduled** — the agent's cron job is registered.
+
+An agent that is not activated in this workspace, or whose declared channel has not
+resolved, gets **none** of them — and the reason is posted to `#sqtools-ops` at
+startup rather than skipped in silence. Three or none is the whole rule; one of them
+arriving alone is what produced work nobody collected.
+
+### On the repeated `already_in_channel` warnings
+
+**There are none, and there never were** — cited versus actual at `69a3922`.
+`joinAgentChannels()` (`lib/slack-client.js`) treats `already_in_channel` as a
+*success*: it increments `joined` and `continue`s, logging nothing. Grep it:
+
+```bash
+grep -rn "already_in_channel" --include=*.js . | grep -v node_modules
+```
+
+Every hit is a success branch or a test of one. So the change above removes no
+warning, because none exists to remove. What *does* repeat on every start is the
+single info line `[bridge-agent] Joined N/N agent channels`, and re-joining on every
+start is deliberate: a channel can be recreated while the bot is offline, and
+`conversations.join` on a channel it is already in is a no-op. What the change does
+reduce is the *size* of that set — planned agents' channels are no longer joined —
+and the number of `conversations.list` lookups, which is now zero for any channel
+already in the local map. If a warning really is appearing on the box it has a
+different cause and is not this code path; it would need the actual log line to
+diagnose, which is not readable from a checkout.
 
 ### Channels that would need to be created — PROPOSED, not created
 
@@ -468,7 +502,7 @@ even reported at startup. Creating a channel is an owner action
 
 | Agent | Status | Declared schedule | Proposed channel | What creating it would change |
 |---|---|---|---|---|
-| `jester` | **active** | `0 18 * * 5` weekly-critique | `#jester-agent` | The only **active** agent that cannot be addressed at all — no channel, no registered job, no route. Its `weekly-critique` template exists and nothing can reach it. Giving it a channel registers the job and makes the agent addressable. |
+| `jester` | **active** | `0 18 * * 5` weekly-critique | `#jester-agent` | The only **active** agent that cannot be addressed at all — its declared `channel_name` has never resolved, so no channel, no registered job, no route. Its `weekly-critique` template exists and nothing can reach it. Since 2026-09-15 this is reported to `#sqtools-ops` at every startup instead of being a silent skip. Creating the channel resolves it on the next restart and registers the job. |
 | `social-media` | planned | `0 9 * * 1,3,5` content-calendar | `#social-media-agent` | Registers the job. It would still need `status: "planned"` removed for the channel to be **polled**, or the posted `TASK:` message reaches no executor — see #3. |
 | `marketing` | planned | `0 6 * * 1` weekly-analytics | `#marketing-agent` | Same as above. |
 | `storefront` | planned | none | `#storefront-agent` | Nothing scheduled; the agent is served by `bots/storefront.js` over HTTP, not by a channel. Lowest value of the four — listed for completeness, not recommended. |
@@ -478,9 +512,11 @@ bot joins on every boot and a place output can accumulate unread. `jester` is th
 with a concrete defect behind it; the other three are gated on the `planned` decision
 in WORK-TODO #3 and should follow it, not precede it.
 
-**`story-bot` is NOT in this table** — it already has `C0AP8CHCV1U`, which the bridge
-now joins. What it still lacks is a reader: the channel is not polled because the
-agent is `planned`. That is #3, not a channel to create.
+**`story-bot` is NOT in this table** — its channel already exists and its id is in
+the local channel map. What it lacks is an *activation*: as of 2026-09-15 a
+`planned` agent is not joined, not polled and not scheduled, so story-bot produces
+nothing rather than producing work nobody collected. Activating it is
+`lib/agent-activation.js`, not a channel to create.
 
 ## API Reference
 

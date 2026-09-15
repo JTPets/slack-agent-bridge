@@ -64,19 +64,25 @@ describe('output that reaches nobody', () => {
     // THE live assertion. When this fails, an agent's output stopped reaching
     // something — read the diff, do not update the list to make it pass.
     //
-    // Every entry here is a KNOWN, FILED state, not an accepted one:
-    //   jester / social-media / marketing — a schedule with no channel. The scheduler
-    //     silently skips them (`!agent.schedule || !agent.channel` -> continue), so
-    //     unlike an unknown task name it is not even reported at startup. Jester is
-    //     `active`, so it is the one that cannot be addressed at all: no channel, no
-    //     job, and no agent-channel route to reach it.
-    //   story-bot — registered, posts a TASK: message to a channel `getActiveAgents()`
-    //     excludes from the poll loop because the agent is `planned`. WORK-TODO #3.
+    // Every entry here is a KNOWN, FILED state, not an accepted one.
+    //
+    // LOGIC CHANGE 2026-09-15: story-bot's entry CHANGED CLASS, and that change is
+    // the defect closing. It used to read "scheduled job posts a TASK: message to
+    // C0AP8CHCV1U, which the poll loop does not read" — a job registered and firing
+    // into a channel nothing collected. Joining, polling and scheduling now all
+    // derive from one rule (`activeChannels`), so a planned agent gets none of the
+    // three instead of one of them, and the reason is posted to #sqtools-ops at
+    // startup rather than being a silent skip. story-bot is now one activation away
+    // from having all three; it is not producing output nobody reads.
+    //
+    // jester is the one still worth staring at: it is ACTIVE, and its declared
+    // channel #jester-agent has never resolved, so it cannot be addressed at all.
+    // Creating that channel is an owner action (docs/AGENTS.md), not a dispatch's.
     const EXPECTED_ORPHANS = {
-        'jester': 'schedule declared but not registered — schedule declared but agent has no channel',
-        'social-media': 'schedule declared but not registered — schedule declared but agent has no channel',
-        'marketing': 'schedule declared but not registered — schedule declared but agent has no channel',
-        'story-bot': 'scheduled job posts a TASK: message to C0AP8CHCV1U, which the poll loop does not read',
+        'jester': 'schedule declared but not registered — schedule declared but #jester-agent has not been resolved to a channel id',
+        'social-media': 'schedule declared but not registered — schedule declared but the agent is not activated in this workspace',
+        'marketing': 'schedule declared but not registered — schedule declared but the agent is not activated in this workspace',
+        'story-bot': 'schedule declared but not registered — schedule declared but the agent is not activated in this workspace',
     };
 
     test('the set of agents whose output reaches nobody is exactly the known set', () => {
@@ -91,29 +97,46 @@ describe('output that reaches nobody', () => {
     });
 });
 
-describe('pollableChannels agrees with buildChannelsToPoll in bridge-agent.js', () => {
-    // buildChannelsToPoll lives at module scope in bridge-agent.js and cannot be
-    // called without loading the whole bridge, so the rule is re-stated purely in
-    // lib/agent-surface.js. This asserts the four conditions are still the same four
-    // by reading the live function's SOURCE — a rule restated in two places with
-    // nothing comparing them is the drift this repo files as a defect.
+describe('buildChannelsToPoll in bridge-agent.js does not restate the rule', () => {
+    // LOGIC CHANGE 2026-09-15: this used to assert that the live function still
+    // contained the same four conditions as the pure one — a comparison between two
+    // statements of one rule. The two had already drifted once (joining took every
+    // declared channel, polling took only active agents'), which is what left
+    // story-bot joined to a channel nothing polled.
+    //
+    // A better comparison was not the fix. There is now ONE statement:
+    // buildChannelsToPoll DELEGATES to activeChannels(). This asserts the delegation
+    // and the absence of a second copy, which is a property a future edit cannot
+    // satisfy by accident.
     const fs = require('fs');
     const src = fs.readFileSync(path.join(__dirname, '..', 'bridge-agent.js'), 'utf8');
     const fn = src.slice(src.indexOf('function buildChannelsToPoll()'));
     const body = fn.slice(0, fn.indexOf('\n}'));
 
-    test('it still skips the bridge agent, channel-less agents and the bridge channel', () => {
-        expect(body).toMatch(/agent\.id === 'bridge'/);
-        expect(body).toMatch(/!agent\.channel/);
-        expect(body).toMatch(/agent\.channel === BRIDGE_CHANNEL/);
+    test('it calls the shared rule', () => {
+        expect(body).toMatch(/activeChannels\(loadAgents\(\), BRIDGE_CHANNEL\)/);
     });
 
-    test('it still sources its agents from getActiveAgents, which is the planned filter', () => {
-        expect(body).toMatch(/getActiveAgents\(\)/);
+    test('it no longer contains a second copy of the membership conditions', () => {
+        expect(body).not.toMatch(/getActiveAgents\(\)/);
+        expect(body).not.toMatch(/agent\.status === 'planned'/);
+        expect(body).not.toMatch(/agent\.channel === BRIDGE_CHANNEL/);
     });
 
-    test('it still deduplicates by channel id', () => {
-        expect(body).toMatch(/channels\.find\(c => c\.channelId === agent\.channel\)/);
+    test('the join set and the poll set are the same set, by construction', () => {
+        const agents = loadAgents();
+        const joined = joinableChannels(agents, BRIDGE_CHANNEL).map(c => c.channelId).sort();
+        const polled = [...pollableChannels(agents, BRIDGE_CHANNEL)].sort();
+        expect(joined).toEqual(polled);
+    });
+
+    test('a planned agent with a resolved channel gets neither, not one of the two', () => {
+        const agents = [
+            { id: 'active-one', channel: 'C_ACTIVE', channel_name: 'a' },
+            { id: 'planned-one', channel: 'C_PLANNED', channel_name: 'p', status: 'planned' },
+        ];
+        expect(joinableChannels(agents, 'C_BRIDGE').map(c => c.channelId)).toEqual(['C_BRIDGE', 'C_ACTIVE']);
+        expect([...pollableChannels(agents, 'C_BRIDGE')]).toEqual(['C_BRIDGE', 'C_ACTIVE']);
     });
 
     test('the pure rule produces the five distinct channels the live one does', () => {
@@ -126,7 +149,7 @@ describe('pollableChannels agrees with buildChannelsToPoll in bridge-agent.js', 
     });
 });
 
-describe('joinableChannels is a superset of the polled set, and creates nothing', () => {
+describe('joinableChannels is EXACTLY the polled set, and creates nothing', () => {
     test('every polled channel is also joined', () => {
         const agents = loadAgents();
         const joined = new Set(joinableChannels(agents, BRIDGE_CHANNEL).map(c => c.channelId));
@@ -135,9 +158,17 @@ describe('joinableChannels is a superset of the polled set, and creates nothing'
         }
     });
 
-    test('it includes a planned agent\'s existing channel — the story-bot case', () => {
+    // LOGIC CHANGE 2026-09-15: this test previously asserted the OPPOSITE — that a
+    // planned agent's channel IS joined, "the story-bot case". That was the defect
+    // with a test sanctioning it: joining without polling is one consequence of a
+    // declaration arriving without the other two, which is precisely how a weekly
+    // job came to post where nothing read. It is flipped here in the same change as
+    // the fix, not weakened.
+    test('it does NOT include a planned agent\'s channel — join follows the same rule as poll', () => {
         const joined = joinableChannels(loadAgents(), BRIDGE_CHANNEL).map(c => c.channelId);
-        expect(joined).toContain('C0AP8CHCV1U');
+        const planned = loadAgents().filter(a => a.status === 'planned' && a.channel);
+        expect(planned.length).toBeGreaterThan(0);
+        for (const agent of planned) expect(joined).not.toContain(agent.channel);
     });
 
     test('it invents no channel id that is not already in the registry or the env', () => {
@@ -167,7 +198,7 @@ describe('the guard itself detects what it claims to', () => {
             env: {},
         });
         expect(findOrphans(rows)).toEqual([
-            { id: 'ghost', problem: 'schedule declared but not registered — schedule declared but agent has no channel' },
+            { id: 'ghost', problem: 'schedule declared but not registered — schedule declared but the agent declares no channel' },
         ]);
     });
 
@@ -177,18 +208,37 @@ describe('the guard itself detects what it claims to', () => {
         expect(d.reason).toMatch(/no handler and no template/);
     });
 
-    test('a scheduled TASK: job in an unpolled channel is reported', () => {
+    // LOGIC CHANGE 2026-09-15: this control used to build the unpolled case with
+    // `status: 'planned'` plus a channel, and assert the "poll loop does not read"
+    // orphan. That combination no longer produces a registered job at all — it
+    // produces a refusal, which is the fix. The control now asserts the refusal.
+    test('a planned agent with a real channel is reported as not activated, not silently skipped', () => {
         const rows = buildSurface({
             agents: [{ id: 'quiet', status: 'planned', channel: 'CZZZ', schedule: { cron: '0 9 * * *', task: 'nightly-audit' } }],
             bridgeChannel: BRIDGE_CHANNEL,
             env: {},
         });
-        expect(findOrphans(rows)[0].problem).toMatch(/which the poll loop does not read/);
+        expect(findOrphans(rows)[0].problem).toMatch(/not activated in this workspace/);
+    });
+
+    // The "posts where nothing polls" branch of findOrphans is now UNREACHABLE for a
+    // real registry, because joining and polling come from one rule. The branch stays
+    // as the assertion that they have not diverged again, so this proves it can still
+    // fire — by handing buildSurface a row whose channel the rule excludes.
+    test('the unpolled-channel orphan still fires if join and poll ever diverge', () => {
+        const rows = buildSurface({
+            agents: [{ id: 'drift', channel: 'CZZZ', schedule: { cron: '0 9 * * *', task: 'nightly-audit' } }],
+            bridgeChannel: BRIDGE_CHANNEL,
+            env: {},
+        });
+        // Simulate divergence: the row says scheduled + joined, but not polled.
+        const diverged = [{ ...rows[0], polled: false, reader: READER.HUMAN_ONLY, joined: true }];
+        expect(findOrphans(diverged)[0].problem).toMatch(/which the poll loop does not read/);
     });
 
     test('a deterministic job needs no poll loop and is NOT reported', () => {
         const rows = buildSurface({
-            agents: [{ id: 'mail', status: 'planned', channel: 'CZZZ', schedule: { cron: '0 9 * * *', task: 'check-inbox' } }],
+            agents: [{ id: 'mail', channel: 'CZZZ', schedule: { cron: '0 9 * * *', task: 'check-inbox' } }],
             bridgeChannel: BRIDGE_CHANNEL,
             env: {},
         });
