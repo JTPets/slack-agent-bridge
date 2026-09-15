@@ -33,12 +33,20 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
-At the 2026-09-15 reconciliation those print **38** open items — 7 P1, 24 P2, 7 P3 — and
-no duplicates. (Was 35 — 4/24/7 — after #28 was closed by the email-rules-file work; the
-NAS hardening pass then filed #41 and #42, and the additive Socket Mode connection filed
-#43, all on 2026-09-15. That last item was filed as #41 on its own branch and renumbered
-when the two branches turned out to have picked the same ID independently — IDs are never
-reused, so one of them had to move rather than collide.)
+At the 2026-09-15 size-gate pass those print **40** open items — 7 P1, 26 P2, 7 P3 — and
+**one duplicate ID, `### 43.`, which is a defect in this file.** Two items share it: the P1
+"A flattened dispatch loses its fields" and the P2 "`getRecentCompleted` sorts by a
+millisecond timestamp". They were filed on branches that picked the same next ID
+independently — the same collision this paragraph previously recorded being resolved once
+already, recurring because "the next ID" is read by eye rather than by command. **Renumbering
+one is the owner's call, not an executor's** (an ID is an address and #43 may already be cited
+elsewhere), so it is recorded here rather than silently fixed. The preceding count also read
+38 while the command printed 39: the figure was stale *and* the duplicate was invisible to
+whoever wrote it.
+
+(Was 35 — 4/24/7 — after #28 was closed by the email-rules-file work; the NAS hardening pass
+then filed #41 and #42, and the additive Socket Mode connection filed #43, all on 2026-09-15.
+The size-gate pass filed #44.)
 
 The index anchors follow GitHub's slugger: lowercase, drop punctuation **except**
 hyphen and underscore, spaces to hyphens. Four entries (#5, #20, #21, #34) previously
@@ -58,9 +66,7 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (25)
-
-- **#43** — [`getRecentCompleted` sorts by a millisecond timestamp, so same-millisecond tasks come back oldest-first — and it makes the suite flaky](#43-getrecentcompleted-sorts-by-a-millisecond-timestamp-so-same-millisecond-tasks-come-back-oldest-first--and-it-makes-the-suite-flaky)
+**P2 — real gaps, no risk to the running process** (26)
 
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
@@ -76,6 +82,7 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#34** — [`DEPLOY_KEY_PATH` is read but undocumented](#34-deploy_key_path-is-read-but-undocumented)
 - **#35** — [Per-agent memory has TTL and decay but no max-entries cap](#35-per-agent-memory-has-ttl-and-decay-but-no-max-entries-cap)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
+- **#44** — [The 300-line rule is one rule over two different problems — scope it, or say it covers both](#44-the-300-line-rule-is-one-rule-over-two-different-problems--scope-it-or-say-it-covers-both)
 - **#11** — [A helpers/utilities map and an owning-doc rule](#11-a-helpersutilities-map-and-an-owning-doc-rule)
 - **#5** — [Mid-task `ask_on_slack` capability](#5-mid-task-ask_on_slack-capability)
 - **#6** — [Structured task result format](#6-structured-task-result-format)
@@ -86,6 +93,7 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#39** — [The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged](#39-the-queue-cannot-tell-a-completed-task-from-a-landed-one--nothing-here-knows-whether-a-branch-merged)
 - **#40** — [Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout](#40-uncommitted-edits-in-the-live-deployment-tree--reported-not-verifiable-from-a-checkout)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
+- **#43** — [`getRecentCompleted` sorts by a millisecond timestamp, so same-millisecond tasks come back oldest-first — and it makes the suite flaky](#43-getrecentcompleted-sorts-by-a-millisecond-timestamp-so-same-millisecond-tasks-come-back-oldest-first--and-it-makes-the-suite-flaky)
 
 **P3 — nice to have / uncertain ROI** (7)
 
@@ -1184,6 +1192,95 @@ behaviour-preserving: `node --check` plus the smoke suite catch load failures an
 surface, nothing more. State the smoke coverage of every moved function, and report its
 absence as a finding rather than folding it into a green.
 **Priority:** P2 | **Effort:** High, incremental | **Status:** open
+
+---
+
+### 44. The 300-line rule is one rule over two different problems — scope it, or say it covers both
+**Filed 2026-09-15,** from the size-gate pass that produced #10's record. **Argued here on
+both sides and deliberately left undecided — the branch that filed this did not change the
+rule.** The gate is now declaration-driven (`lib/file-size-gate.js` +
+`lib/validate-exceptions.json`), so nothing is blocked on this; what is at stake is whether
+**36 of the 65 recorded exceptions should have to exist at all**.
+
+**What the rule was written to catch.** `lib/validate.js` pairs `MAX_LINES = 300` with a
+`bridge-agent.js` load check, under the header "keeps files manageable". `CLAUDE.md` places
+the seam rule beside it ("File >300 lines → split on concern separability"), and
+`docs/WIRING-AND-SEAMS.md` §5-§6 is the worked example: `bridge-agent.js` reached 2227 lines
+with two functions accounting for 46% of it, and behaviour started being **re-derived inline**
+because no one could hold the file in one read — which is what `docs/CANONICAL-HELPERS.md`
+enumerates the cost of. So the rule is a **proxy for "this module has too many
+responsibilities"**, measured in lines because lines are cheap to count.
+
+**Figures, as commands.**
+```bash
+npm run validate 2>&1 | grep -cE '^  - '                              # 65 over the limit
+npm run validate 2>&1 | grep -E '^  - ' | sed 's/^  - //' | grep -c '^tests/'   # 36 are test suites
+```
+**36 of 65 — 55% of every violation — are test suites**, and the largest after
+`bridge-agent.js` is `tests/llm-runner.test.js` at 1837 lines.
+
+**Why a suite is a different problem.** A test file's length is its **assertion count**. The
+failure mode the rule exists to prevent — one module quietly acquiring five responsibilities —
+has no analogue there: `tests/llm-runner.test.js` has exactly one responsibility, which is
+`lib/llm-runner.js`, and it is long because that module has four provider adapters and a
+fallback chain with six trigger conditions. Under the rule as written, the cheapest way to
+make a suite compliant is **to delete assertions**, and the second cheapest is to scatter one
+subject across files so no reader can see what is and is not covered. A rule whose easiest
+compliance path is less testing is pointed the wrong way.
+
+### The argument for scoping the rule to source files (suites governed differently, or not at all)
+
+- The rule's stated purpose — responsibility count — does not transfer to a file whose
+  responsibility is fixed by what it tests.
+- It removes 36 of the 65 exceptions. An exceptions list that is 55% one blanket category is a
+  rubber stamp, and the cost of an exception is supposed to be writing down *why*.
+- The pressure it creates on a suite is downward on coverage. Nothing else in this repository
+  pushes that direction; `tests/test-gate-honesty.test.js` exists precisely to stop a suite
+  reporting a pass it did not earn.
+- A suite already has a better-fitted guard available: **one suite per module under test**, an
+  enumerating rule this repo knows how to write (`tests/architecture-tree.test.js` is the
+  pattern) and which catches the real drift — a suite covering three modules, or a module with
+  none.
+
+### The argument for keeping one rule over both
+
+- **An unreadable suite is a real defect, not a hypothetical one.** At 1837 lines nobody knows
+  what `tests/llm-runner.test.js` asserts without reading it end to end, so the practical
+  question "is this behaviour covered?" is answered by grep and hope. That is the same
+  can't-hold-it-in-one-read failure the rule was written for, in a different file.
+- **A suite that grows without bound hides duplication and dead assertions** the same way a
+  module hides re-derived behaviour — `tests/task-parser.test.js` at 860 lines is where a
+  redundant case goes unnoticed.
+- **Two rules are two things to keep honest.** The single rule is enforced by one check with
+  one number; splitting it invites a second threshold that drifts, and a file that is neither
+  clearly source nor clearly test (a fixture, a helper under `tests/`) lands in the gap.
+  Note #36 already records that three enumerating guards each carry their own tree walker and
+  that `tests/` subdirectories are enumerated by none of them — the seam between "source" and
+  "test" is not as crisp in this repo as the argument above assumes.
+- **The exceptions list makes the cost small.** With a recorded reason per file, a long suite
+  is already visible and deliberate. Scoping the rule away removes that visibility entirely.
+
+### A second axis the owner may want separated from the first
+
+The rule counts `split('\n').length` — **every** line, including the prose this repository's
+own contract requires (`LOGIC CHANGE` comments, module headers stating why a guard exists,
+the evidence behind a decision). **Sixteen of the 29 over-limit source modules are under 300
+lines of code**, `lib/clone-lifecycle.js` at 49% comment (170 comment / 158 code) and
+`lib/notify-owner.js` at 176 comment / 192 code. Regenerate with the `node -e` snippet in
+**#10**.
+
+So the rule currently penalises a module for documenting itself, and the cheapest compliance
+path for those sixteen is **to delete comments**. That is the same shape as the test argument
+above — a rule whose easiest satisfaction is the behaviour you did not want — and it is a
+separate decision from the tests question: counting code lines instead of raw lines would
+change 16 source files and 0 test suites, while scoping tests out would change 36 test suites
+and 0 source files. They can be decided independently and should not be bundled.
+
+**Not decided here, and not to be decided by an executor:** changing `MAX_LINES` semantics or
+its scope changes what every future change is measured against. It is the owner's call.
+Whichever way it goes, the change is small — `lib/file-size-gate.js` owns the enumeration and
+the rule in one place, and `tests/file-size-gate.test.js` has the negative controls.
+**Priority:** P2 | **Effort:** Low (the decision is the work) | **Status:** open
 
 ---
 
