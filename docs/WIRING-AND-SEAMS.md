@@ -152,6 +152,21 @@ for every scheduled agent) — built
 a no-REPO prompt of `bridge.system_prompt + "Check the email inbox and triage
 messages"` and handed it to an LLM running in `WORK_DIR`.
 
+> **CORRECTED 2026-09-15 — the "TASK: messages always execute as the bridge agent"
+> half of the paragraph above is no longer true, and it was the defect, not the
+> design.** WORK-TODO **#38** is closed: `processTask` now takes the channel's agent as
+> a fourth parameter (`handlingAgent`), exactly as `processConversation` has taken it
+> as a third since 2026-03-27, and the poll loop passes the same `channelAgentConfig`
+> to both. A scheduled agent's own job now runs with that agent's persona, provider,
+> model and metrics identity. The citations in the paragraph above have drifted again —
+> at HEAD the bind is `bridge-agent.js:220` (was cited `:194`) and the routing is
+> `:1913` for `processTask` versus `:1941`/`:1961` for `processConversation` (was cited
+> `:1768` / `:1792` / `:1812`). Regenerate:
+> `grep -n "agentConfig = getAgent('bridge')\|processTask(msg, channelId\|processConversation(msg, channelId" bridge-agent.js`.
+> The guard is `tests/task-agent-identity.test.js`. **What this does NOT change:** the
+> deterministic `check-inbox` handler stays deterministic — it needs Gmail API calls,
+> not a persona, and an LLM with the right personality still has no mailbox access.
+
 That LLM had **no mailbox access of any kind**. `lib/integrations/gmail.js` had
 exactly one non-test caller in the whole repository — `morning-digest.js:368` — and
 this was not it. `lib/agent-context.js` injects real data for `secretary`,
@@ -209,8 +224,8 @@ grep -rn "runWithFallback(\|runLLM(" --include='*.js' . \
 
 | Caller | Uses | Gets failover? |
 |--------|------|----------------|
-| `bridge-agent.js:869` (`processTask`, TASK:) | `runWithFallback` | ✅ |
-| `bridge-agent.js:1704` (`processConversation`, ASK:) | `runWithFallback` | ✅ |
+| `bridge-agent.js:765` (`processTask`, TASK:) | `runWithFallback` | ✅ |
+| `bridge-agent.js:1719` (`processConversation`, ASK:) | `runWithFallback` | ✅ |
 | `security-review.js:277` | `runLLM` | ❌ one shot |
 | `bots/storefront.js:444` | `runLLM` | ❌ one shot |
 | `lib/watercooler.js:536` | `runLLM` | ❌ one shot |
@@ -218,6 +233,14 @@ grep -rn "runWithFallback(\|runLLM(" --include='*.js' . \
 
 This matches CLAUDE.md's "No silent fallback" section exactly: only the two
 `bridge-agent.js` entry points are on the chain; the other three live callers bypass it.
+
+**LOGIC CHANGE 2026-09-15 — both chain callers now bill to the executing agent.** Until
+WORK-TODO #38 closed, `processTask` passed `agentId: 'bridge'` on every verdict whatever
+channel the task came from, so `getStats({ agentId: 'secretary' })` could never see a
+scheduled secretary task's fallbacks — the counter existed and answered the wrong
+question. Both call sites now pass the resolved agent's id. The two line numbers in the
+table above read `:869`/`:1704` when written and are `:765`/`:1719` at HEAD; they are
+leads — regenerate with the command in this section.
 Called out here so the seam work in §6 does not accidentally "fix" it by routing
 everything through one helper — that is a behaviour change, not a refactor.
 

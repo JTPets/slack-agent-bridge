@@ -33,7 +33,7 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
-At the 2026-09-15 task-queue-ordering pass those print **45** open items — 7 P1, 30 P2,
+At the 2026-09-15 agent-identity pass those print **44** open items — 7 P1, 29 P2,
 8 P3 — and **no duplicate ID.** (The command-router pass earlier the same day also printed
 45; the size-gate pass before it printed 40 — 7/26/7.)
 
@@ -91,7 +91,6 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#7** — [Task timeout escalation tiers](#7-task-timeout-escalation-tiers)
 - **#8** — [Surface deduplication in status](#8-surface-deduplication-in-status)
 - **#9** — [`ASK: task history [n]` command](#9-ask-task-history-n-command)
-- **#38** — [`TASK:` is always executed as the bridge agent, so a scheduled agent's persona and provider never apply to its own task](#38-task-is-always-executed-as-the-bridge-agent-so-a-scheduled-agents-persona-and-provider-never-apply-to-its-own-task)
 - **#39** — [The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged](#39-the-queue-cannot-tell-a-completed-task-from-a-landed-one--nothing-here-knows-whether-a-branch-merged)
 - **#40** — [Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout](#40-uncommitted-edits-in-the-live-deployment-tree--reported-not-verifiable-from-a-checkout)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
@@ -1447,55 +1446,6 @@ reply-on-duplicate path.
 timestamps and outcomes.
 **Effort:** Low.
 **Priority:** P2 | **Effort:** Low | **Status:** open
-
----
-
-### 38. `TASK:` is always executed as the bridge agent, so a scheduled agent's persona and provider never apply to its own task
-**Filed 2026-09-14,** from tracing what a scheduled agent job actually runs.
-
-**Verified at HEAD, not inferred.** `agentConfig` is bound **once, at module scope**, to
-the bridge agent and never rebound:
-```bash
-grep -n "agentConfig = getAgent('bridge')" bridge-agent.js          # -> :194
-grep -n "processTask(msg, channelId\|processConversation(msg, channelId" bridge-agent.js
-```
-The second command shows the asymmetry that is the whole item:
-
-| Path | Call | Agent used |
-|---|---|---|
-| `TASK:` | `processTask(msg, channelId, queuedTask.id)` | **module-scope `agentConfig`** — always `bridge` |
-| `ASK:` | `processConversation(msg, channelId, channelAgentConfig)` | the channel's own agent |
-
-So inside `processTask` the `system_prompt`, the `llm_provider`, the `llm_model` and the
-`agentId` on the metrics verdict all come from the **bridge** record, whatever channel the
-message arrived in and whichever agent the scheduler was firing for.
-
-**Why this is filed rather than fixed.** It is load-bearing in both directions and the
-repository already relies on it: `resolveLlmProvider(agentConfig, agentConfig?.id ||
-'bridge')` at `bridge-agent.js:498` and `:670` reads the module-scope record deliberately,
-and there is a comment saying so. Changing it changes which provider every scheduled task
-bills to and which system prompt shapes it — that is a behaviour decision, not a bug fix.
-
-**What it blocks, which is why it is not P3.** Any design in which different agents do
-different work. The email-monitor case is the proof and is already fixed *around* this
-rather than through it: the scheduler now runs `check-inbox` as deterministic code
-(`DETERMINISTIC_TASKS`, `lib/agent-scheduler.js`) precisely because routing it through a
-`TASK:` message got the bridge's prompt and no mailbox access. Every future "agent X does
-Y on a schedule" hits the same wall, and the deterministic-handler escape hatch does not
-scale to work that genuinely needs an LLM with that agent's persona.
-
-**Partly recorded already, nowhere as an item.** A comment at `bridge-agent.js:676-686`
-states it, and `docs/WIRING-AND-SEAMS.md` section 3a states it in the specific context of
-the email path. Neither is findable by someone designing a new agent.
-**Note on the existing citation:** section 3a cites `bridge-agent.js:1704-1711` for the
-routing; at HEAD those lines are inside `processConversation`, and the routing is at
-`:1768` / `:1792`. Corrected in the same change that files this.
-
-**Fix (not chosen here):** pass the channel's agent into `processTask` as
-`processConversation` already does, and decide explicitly whether the prompt, the provider
-and the metrics `agentId` each follow the channel or stay on the bridge. They are three
-separate decisions and conflating them is how this got missed.
-**Priority:** P2 | **Effort:** Medium | **Status:** open
 
 ---
 

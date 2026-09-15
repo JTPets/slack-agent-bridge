@@ -52,7 +52,8 @@ function extractLifecycle(src) {
     // The poll loop's enqueue — where a TASK: message first becomes a queue entry.
     expect(src.indexOf('const queuedTask = queue.enqueue({')).toBeGreaterThan(-1);
 
-    const fnStart = src.indexOf('async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) {');
+    // LOGIC CHANGE 2026-09-15: match the function, not its parameter list (WORK-TODO #38).
+    const fnStart = src.indexOf('async function processTask(');
     expect(fnStart).toBeGreaterThan(-1);
     // processTask is top-level, so its close is the next `}` at column 0.
     const fnEnd = src.indexOf('\n}\n', fnStart);

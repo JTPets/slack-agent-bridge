@@ -125,8 +125,21 @@ describe('bridge-agent.js scope integrity', () => {
     });
 
     test('processTask binds agentId before passing it to the LLM runner', () => {
-        // The specific defect, pinned by name: processTask always executes as the
-        // bridge agent, so agentId must come from the agent record - not a literal.
+        // The specific defect this pins is a ReferenceError: `agentId` was used in
+        // the runLLM options object without being bound in that scope, so evaluating
+        // the literal threw before the LLM was ever spawned and EVERY TASK: message
+        // failed in zero seconds.
+        //
+        // LOGIC CHANGE 2026-09-15: this assertion used to read
+        //   expect(body).toMatch(/const agentId = agentConfig\?\.id \|\| 'bridge';/)
+        // which pinned the exact right-hand side, and that right-hand side WAS
+        // WORK-TODO #38 -- "processTask always executes as the bridge agent". The
+        // test's own comment said so approvingly. So it sanctioned the defect: any
+        // change making a task run as its own agent turned this red, and the test
+        // gave no way to tell that apart from the ReferenceError it exists to catch.
+        //
+        // What it guards is BINDING, not which record the value comes from. It now
+        // asserts exactly that, and is indifferent to the source expression.
         const source = fs.readFileSync(bridgeAgentPath, 'utf8');
         const processTaskBody = source.slice(
             source.indexOf('async function processTask('),
@@ -134,10 +147,13 @@ describe('bridge-agent.js scope integrity', () => {
         );
 
         expect(processTaskBody).toContain('async function processTask(');
-        expect(processTaskBody).toMatch(/const agentId = agentConfig\?\.id \|\| 'bridge';/);
+        // Bound, from something - never a bare use, never a hardcoded literal.
+        expect(processTaskBody).toMatch(/const agentId = [^;]+;/);
+        expect(processTaskBody).not.toMatch(/const agentId = 'bridge';/);
         // The binding must precede the use, or hoisting rules still throw (TDZ).
         expect(processTaskBody.indexOf('const agentId =')).toBeLessThan(
             processTaskBody.indexOf('agentId,')
         );
+        // Which record it resolves from is tests/task-agent-identity.test.js's claim.
     });
 });

@@ -451,7 +451,29 @@ const TASK_LOCK_FILE = taskLock.DEFAULT_LOCK_FILE;
 // Tasks can be submitted from any agent channel but always execute with bridge agent.
 // LOGIC CHANGE 2026-04-01: Added queueId parameter for task queue integration.
 // Queue status is updated on task completion/failure for auto-update coordination.
-async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) {
+async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, handlingAgent = null) {
+  // LOGIC CHANGE 2026-09-15: a task executes as the agent it was addressed to.
+  // WORK-TODO #38: `agentConfig` is bound ONCE at module scope to getAgent('bridge')
+  // and never rebound, and until now processTask read it directly while
+  // processConversation already took the channel's agent as a parameter. So every
+  // TASK: message - including one a scheduled agent's own cron job posted into its
+  // own channel - ran with the BRIDGE's persona, provider, model and metrics
+  // identity. Defining agents separately bought nothing on the path that does the
+  // work.
+  //
+  // This is deliberately NOT a third mechanism: it is the SAME `handlingAgent ||
+  // agentConfig` fallback processConversation has used since 2026-03-27, with the
+  // same `|| 'bridge'` arm for a registry that failed to load, and the poll loop now
+  // passes the same `channelAgentConfig` to both.
+  //
+  // What follows the resolved agent, and what deliberately does not, is enumerated
+  // at each site below and in the commit body. The short version: the agent decides
+  // its own IDENTITY (persona, provider, model, metrics id, bulletin voice, working
+  // memory). It does not decide the ORCHESTRATOR's bookkeeping (the queue, the lock,
+  // the ops channel, the owner's action inbox, the global task history).
+  const currentAgent = handlingAgent || agentConfig;
+  const currentAgentId = currentAgent?.id || 'bridge';
+
   const task = parseTask(msg.text);
   const startTime = Date.now();
   let taskDir = null;
@@ -527,7 +549,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
   // for error notifications. Falls back to env LLM_PROVIDER or 'claude'.
   // LOGIC CHANGE 2026-09-13: resolveLlmProvider adds a per-agent LLM_PROVIDER_<AGENTID>
   // env override (highest precedence) so on-box provider config in .env survives a pull.
-  const llmProvider = resolveLlmProvider(agentConfig, agentConfig?.id || 'bridge');
+  const llmProvider = resolveLlmProvider(currentAgent, currentAgentId);
 
   try {
     // LOGIC CHANGE 2026-09-14: Refuse a task whose fields parseTask rejected before
@@ -581,7 +603,8 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
       // LOGIC CHANGE 2026-03-27: Prepend agent system_prompt to task prompt for
       // consistent agent personality and behavior. Falls back to empty string if
       // no system_prompt is defined.
-      const agentSystemPrompt = agentConfig?.system_prompt || '';
+      // LOGIC CHANGE 2026-09-15: the EXECUTING agent's prompt, not the bridge's.
+      const agentSystemPrompt = currentAgent?.system_prompt || '';
 
       // LOGIC CHANGE 2026-03-28: Phase 1 of code review pipeline.
       // reviewTask reads CLAUDE.md, repo structure, git history, and relevant files
@@ -614,7 +637,10 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
 
         let bulletinContextStr = '';
         try {
-          bulletinContextStr = bulletinBoard.formatBulletinsForContext('bridge', 10);
+          // LOGIC CHANGE 2026-09-15: the executing agent's view of the stream.
+          // processConversation has always passed its own agentId here; this site
+          // was hardcoded to 'bridge', so a task ran against the bridge's unread set.
+          bulletinContextStr = bulletinBoard.formatBulletinsForContext(currentAgentId, 10);
         } catch (bErr) {
           console.error('[bridge-agent] formatBulletinsForContext failed:', bErr.message);
         }
@@ -661,7 +687,8 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
     } else {
       // No repo specified, run in work dir
       // LOGIC CHANGE 2026-03-27: Also prepend system_prompt for non-repo tasks.
-      const agentSystemPrompt = agentConfig?.system_prompt || '';
+      // LOGIC CHANGE 2026-09-15: the executing agent's, not the bridge's.
+      const agentSystemPrompt = currentAgent?.system_prompt || '';
       prompt = agentSystemPrompt
         ? `${agentSystemPrompt}\n\n${task.instructions || task.description}`
         : (task.instructions || task.description);
@@ -700,7 +727,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
     // use claude, others use gemini. Falls back to env LLM_PROVIDER or 'claude'.
     // LOGIC CHANGE 2026-09-13: resolveLlmProvider layers a per-agent
     // LLM_PROVIDER_<AGENTID> env override on top so on-box .env config survives a pull.
-    const llmProvider = resolveLlmProvider(agentConfig, agentConfig?.id || 'bridge');
+    const llmProvider = resolveLlmProvider(currentAgent, currentAgentId);
 
     // LOGIC CHANGE 2026-09-13: Declare agentId in this scope. It was referenced in
     // the runLLM options below but never bound here, so evaluating that object
@@ -708,15 +735,22 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
     // ever spawned. That broke EVERY TASK: message - most visibly the scheduled
     // check-inbox job, which failed in zero seconds every 30 minutes.
     //
-    // Source of the value: processTask always executes as the bridge agent (see the
-    // poll loop: "TASK: messages always go to bridge agent regardless of channel"),
-    // which is why every sibling option here - system_prompt, llm_provider,
-    // llm_model - reads the module-level agentConfig. agentId comes from the same
-    // record. The `|| 'bridge'` arm covers only agentConfig being null because the
-    // registry failed to load; 'bridge' is that agent's literal id, and matches the
-    // identical idiom in processConversation and the hardcoded 'bridge' already used
-    // by clearAgentWorkingMemory and formatBulletinsForContext in this same function.
-    const agentId = agentConfig?.id || 'bridge';
+    // LOGIC CHANGE 2026-09-15: the source of the value has changed and the comment
+    // that stood here is now WRONG rather than merely stale, so it is replaced. It
+    // read "processTask always executes as the bridge agent ... which is why every
+    // sibling option here - system_prompt, llm_provider, llm_model - reads the
+    // module-level agentConfig". That was an accurate description of WORK-TODO #38,
+    // which is what this change closes: all four now read the resolved
+    // `currentAgent`, and `currentAgentId` is the same `|| 'bridge'` fallback for a
+    // registry that failed to load.
+    //
+    // This id is the METRICS identity - it is what `recordVerdict` buckets a
+    // provider/fallback verdict under (lib/llm-metrics.js). Leaving it on 'bridge'
+    // while the provider followed the agent would have been the worst of both: every
+    // agent's fallback rate billed to one counter, so the question the counter exists
+    // to answer ("what fraction of the secretary's calls fell back?") would stay
+    // unanswerable exactly when it started to differ per agent.
+    const agentId = currentAgentId;
 
     while (retryCount <= 1) {
       try {
@@ -734,7 +768,8 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
           timeout: TASK_TIMEOUT,
           claudeBin: CLAUDE_BIN,
           provider: llmProvider,
-          model: agentConfig?.llm_model,
+          // LOGIC CHANGE 2026-09-15: the executing agent's model, not the bridge's.
+          model: currentAgent?.llm_model,
           agentId,
         });
       } catch (llmErr) {
@@ -915,7 +950,13 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
         commitHash = commitMatch[1] || commitMatch[2];
       }
 
-      const bulletinResult = bulletinBoard.postBulletin('bridge', 'task_completed', {
+      // LOGIC CHANGE 2026-09-15: posted AS the agent that did the work, not as the
+      // bridge. This is not cosmetic: lib/bulletin-watcher.js:154 skips the poster
+      // when fanning out, so a story-bot task posting as 'bridge' notified story-bot
+      // about its OWN completion and left any bridge watcher silent - the fan-out
+      // inverted. It is also what makes `[type] from <agentId>` in the notification,
+      // and the bulletin stream every agent reads, say who actually ran.
+      const bulletinResult = bulletinBoard.postBulletin(currentAgentId, 'task_completed', {
         description: task.description,
         repo: task.repo || null,
         branch: task.branch || 'main',
@@ -938,6 +979,22 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
     // LOGIC CHANGE 2026-03-26: Auto-detect ACTION REQUIRED in task output and add
     // to bridge agent's activation checklist. Uses notify-owner module for
     // centralized action tracking.
+    //
+    // LOGIC CHANGE 2026-09-15: DELIBERATELY still 'bridge', and it is the one
+    // identity in this function that did NOT move to the executing agent. Two
+    // reasons, in order of weight:
+    //   1. This is the OWNER's action inbox, not the agent's identity. An ACTION
+    //      REQUIRED item is something a human must do (add an env var, create a
+    //      channel); which agent's task surfaced it is metadata, not ownership.
+    //   2. Routing it by agent would add a SILENT DROP path to the one message class
+    //      whose whole purpose is not to be lost: addTask() returns false, writing
+    //      nothing and telling nobody, for an agent with no entry in
+    //      agents/activation-checklists.json (lib/owner-tasks-store.js:243). Every
+    //      agent declared today has one, so it would work today and fail silently
+    //      for the next agent added - the worst shape of defect this repo files.
+    // `getPendingTasks()` does aggregate across all agents
+    // (lib/owner-tasks-store.js:77), so attribution is available if wanted later;
+    // it needs addTask to refuse loudly first. Recorded in WORK-TODO #38's close.
     try {
       await notifyOwner.processActionRequired(output, { agentId: 'bridge' });
     } catch (actionErr) {
@@ -1058,7 +1115,11 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null) 
     // LOGIC CHANGE 2026-03-27: Clear working memory at end of each task to prevent
     // accumulation of stale "running" entries that never get cleared.
     try {
-      memory.clearAgentWorkingMemory('bridge');
+      // LOGIC CHANGE 2026-09-15: clear the EXECUTING agent's working memory. Each
+      // agent has its own memory dir (agents/<id>/memory), so clearing 'bridge'
+      // after a story-bot task both left story-bot's stale entries in place and
+      // wiped a directory the task never wrote to.
+      memory.clearAgentWorkingMemory(currentAgentId);
     } catch (memErr) {
       console.error('[bridge-agent] Failed to clear working memory:', memErr.message);
     }
@@ -1764,6 +1825,13 @@ async function poll() {
 
     isRunning = true;
     // LOGIC CHANGE 2026-03-27: Track current task promise for graceful shutdown.
+    // LOGIC CHANGE 2026-09-15: deliberately passes NO handlingAgent, so this retry
+    // falls back to the bridge. Two reasons: this path is dead (handleRateLimit() is
+    // the only writer of rateLimitState.failedTask and has no production caller -
+    // see the note at the isBandwidthExhausted site), and `failedTask` stores only
+    // the Slack message, not the channel entry, so the agent is not recoverable here.
+    // Inventing one would be worse than the honest fallback. If the pause path is
+    // ever revived, `failedTask` must carry its channelAgentConfig with it.
     currentTaskPromise = processTask(failedMsg);
     await currentTaskPromise;
     currentTaskPromise = null;
@@ -1836,7 +1904,13 @@ async function poll() {
           // LOGIC CHANGE 2026-03-27: Track current task promise for graceful shutdown.
           // Allows shutdown handler to wait for task completion.
           // Pass channel context for proper message linking
-          currentTaskPromise = processTask(msg, channelId, queuedTask.id);
+          // LOGIC CHANGE 2026-09-15: pass `channelAgentConfig` - the SAME value this
+          // loop already passes to processConversation eighteen lines below. TASK:
+          // and ASK: now resolve their agent identically; before this, a TASK: in an
+          // agent's own channel ran as the bridge (WORK-TODO #38). `channelAgentConfig`
+          // is destructured from the channelsToPoll entry above and is null for no
+          // channel, which processTask's `handlingAgent || agentConfig` handles.
+          currentTaskPromise = processTask(msg, channelId, queuedTask.id, channelAgentConfig);
           await currentTaskPromise;
           currentTaskPromise = null;
 
@@ -1856,6 +1930,10 @@ async function poll() {
           continue;
         }
 
+        // LOGIC CHANGE 2026-09-15: the comment that stood here said "TASK: messages
+        // always go to bridge agent regardless of channel". That is no longer true and
+        // was the defect, not the design - see WORK-TODO #38 and the processTask call
+        // above. TASK: and ASK: both take the channel's agent now.
         // LOGIC CHANGE 2026-03-27: ASK: messages are routed to the agent that owns the channel.
         // Each agent processes conversations with its own personality and system_prompt.
         // LOGIC CHANGE 2026-03-28: Added isTaskProcessed() to prevent re-answering old ASK: messages.

@@ -758,6 +758,7 @@ slack-agent-bridge/
 │   ├── test-gate-honesty.test.js # THE enumerating guard for "a test invocation that can report a pass without running assertions": classification case-by-case against real runner output, plus a disk walk asserting every test-command site routes through lib/test-verdict.js, with negative controls
 │   ├── task-lock.test.js            # Tests for lib/task-lock.js (acquire/release, staleness, legacy + unparseable lock formats)
 │   ├── auto-update-defer.test.js    # Tests the deferral gate: defers while a task holds the lock, releases a stale one, escalation bound
+│   ├── task-agent-identity.test.js  # THE guard for WORK-TODO #38: a TASK: executes as the agent it was addressed to. It extracts processTask's agent resolution from bridge-agent.js's SOURCE and replays it against every declared agent record, asserts the poll loop hands processTask the same `channelAgentConfig` it already hands processConversation, and enumerates the seven identities that must follow the resolved agent (provider, persona, model, metrics id, bulletin stream, bulletin voice, working memory) plus the one that deliberately does not (the owner's ACTION REQUIRED inbox). Carries its own negative controls
 │   ├── bridge-agent-scope.test.js   # AST scope guard: catches `X is not defined` in bridge-agent.js
 │   └── silent-drop-logging.test.js  # Tests for describeSkipReason + the poll loop's skip logging
 ├── docs/
