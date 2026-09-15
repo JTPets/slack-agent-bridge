@@ -2,12 +2,14 @@
   "categories": {
     "urgent": {
       "action": "notify_immediately",
+      "priority": "high",
       "description": "Time-sensitive emails requiring immediate attention",
       "keywords": ["urgent", "asap", "emergency", "deadline today"],
       "senders": []
     },
     "important": {
       "action": "include_in_digest",
+      "priority": "medium",
       "description": "Important but not urgent emails for daily digest",
       "keywords": ["invoice", "payment", "order confirmation"],
       "senders": []
@@ -17,16 +19,23 @@
       "priority": "high",
       "extract_pricing": true,
       "description": "Vendor emails with pricing deals to cross-reference with inventory",
-      "keywords": ["sale", "discount", "promo", "clearance", "% off", "special pricing", "bulk"]
+      "keywords": ["sale", "discount", "promo", "clearance", "% off", "special pricing", "bulk"],
+      "senders": []
     },
     "newsletter": {
       "action": "ignore",
+      "priority": "low",
       "auto_unsubscribe": false,
-      "description": "Marketing emails and newsletters to skip unless auto_unsubscribe enabled"
+      "description": "Marketing emails and newsletters to skip unless auto_unsubscribe enabled",
+      "keywords": ["newsletter", "unsubscribe"],
+      "senders": []
     },
     "spam": {
       "action": "ignore",
-      "description": "Spam and unwanted emails"
+      "priority": "low",
+      "description": "Spam and unwanted emails",
+      "keywords": ["click here", "act now", "free money", "limited time"],
+      "senders": []
     }
   },
   "auto_unsubscribe_list": [],
