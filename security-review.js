@@ -36,7 +36,7 @@ const { runLLM } = require('./lib/llm-runner');
 const { assertValidRepo } = require('./lib/git-identifiers');
 const bulletinBoard = require('./lib/bulletin-board');
 const securityFollowup = require('./lib/security-followup');
-const { config } = require('./lib/config');
+const { config, getConfiguredRepos } = require('./lib/config');
 
 // ---- Config ----
 
@@ -44,12 +44,13 @@ const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 const OPS_CHANNEL_ID = process.env.OPS_CHANNEL_ID;
 const OWNER_USER_ID = 'U02QKNHHU7J';
 
-// Default repos if not specified
-const DEFAULT_REPOS = 'jtpets/slack-agent-bridge,jtpets/SquareDashboardTool';
-const REPOS = (process.env.REPOS || DEFAULT_REPOS)
-    .split(',')
-    .map((r) => r.trim())
-    .filter(Boolean);
+// LOGIC CHANGE 2026-09-15: the REPOS list and its default moved to lib/config.js
+// (getConfiguredRepos). This file used to own the only copy; the /dispatch form now
+// needs the same list, and a second hardcoded default would be the shape where the
+// two silently disagree about which repositories exist. Parsing is unchanged —
+// split, trim, drop empties — and the per-entry validation below is unchanged too,
+// because "operator-set" is a weaker guarantee than "checked".
+const REPOS = getConfiguredRepos();
 
 // Load skill prompt
 const SKILL_PATH = path.join(__dirname, 'skills', 'security-review', 'SKILL.md');

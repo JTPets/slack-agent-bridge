@@ -13,6 +13,7 @@
 
 const {
   FIELD_KEYS,
+  DISPATCH_DEFAULT_TURNS,
   matchesFieldLabel,
   validateDispatchFields,
   buildDispatchMessage,
@@ -23,7 +24,6 @@ const {
 const {
   parseTask,
   FIELD_LABELS,
-  DEFAULT_TURNS,
   MIN_TURNS,
   MAX_TURNS,
 } = require('../lib/task-parser');
@@ -54,7 +54,11 @@ describe('validateDispatchFields accepts a well-formed submission', () => {
     expect(values.instructions).toContain('npm test');
   });
 
-  test('an omitted repo is empty, an omitted branch is main, an omitted budget is the default', () => {
+  // LOGIC CHANGE 2026-09-15: a blank budget now means the FORM's default, which is
+  // the ceiling (MAX_TURNS), not the parser's DEFAULT_TURNS of 50. This test
+  // previously encoded the old default and is flipped in the same change as the
+  // behaviour, per docs/EXECUTOR-CONTRACT.md section 5.
+  test('an omitted repo is empty, an omitted branch is main, an omitted budget is the CEILING', () => {
     const { ok, values } = validateDispatchFields({
       task: 'A research task',
       repo: '',
@@ -65,7 +69,22 @@ describe('validateDispatchFields accepts a well-formed submission', () => {
     expect(ok).toBe(true);
     expect(values.repo).toBe('');
     expect(values.branch).toBe('main');
-    expect(values.turns).toBe(DEFAULT_TURNS);
+    expect(values.turns).toBe(DISPATCH_DEFAULT_TURNS);
+  });
+
+  test('the form default IS the ceiling — asserted as an identity, not as 100', () => {
+    // If these two ever stop being the same constant, the form can offer a default
+    // its own validator rejects. That is the disagreement this pins shut.
+    expect(DISPATCH_DEFAULT_TURNS).toBe(MAX_TURNS);
+  });
+
+  test('one above the form default is rejected, so the default is genuinely the top', () => {
+    const { ok, errors } = validateDispatchFields({
+      task: 't', repo: '', branch: 'main',
+      turns: String(DISPATCH_DEFAULT_TURNS + 1), instructions: 'go',
+    });
+    expect(ok).toBe(false);
+    expect(errors.turns).toContain(String(MAX_TURNS));
   });
 
   test('a repo URL and a bare name normalise exactly as the parser normalises them', () => {

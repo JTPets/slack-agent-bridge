@@ -33,8 +33,9 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
-At the 2026-09-15 size-gate pass those print **40** open items — 7 P1, 26 P2, 7 P3 — and
-**one duplicate ID, `### 43.`, which is a defect in this file.** Two items share it: the P1
+At the 2026-09-15 command-router pass those print **45** open items — 7 P1, 30 P2, 8 P3 —
+and **one duplicate ID, `### 43.`, which is a defect in this file.** (The size-gate pass
+earlier the same day printed 40 — 7/26/7; #45-#49 were filed after it.) Two items share it: the P1
 "A flattened dispatch loses its fields" and the P2 "`getRecentCompleted` sorts by a
 millisecond timestamp". They were filed on branches that picked the same next ID
 independently — the same collision this paragraph previously recorded being resolved once
@@ -66,7 +67,7 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (26)
+**P2 — real gaps, no risk to the running process** (30)
 
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
@@ -94,9 +95,14 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#40** — [Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout](#40-uncommitted-edits-in-the-live-deployment-tree--reported-not-verifiable-from-a-checkout)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
 - **#43** — [`getRecentCompleted` sorts by a millisecond timestamp, so same-millisecond tasks come back oldest-first — and it makes the suite flaky](#43-getrecentcompleted-sorts-by-a-millisecond-timestamp-so-same-millisecond-tasks-come-back-oldest-first--and-it-makes-the-suite-flaky)
+- **#45** — [Commands are verbs, names are channels — record the distinction before the namespace has both](#45-commands-are-verbs-names-are-channels--record-the-distinction-before-the-namespace-has-both)
+- **#46** — [`/dispatch` posts to one fixed channel — routing by the invoking channel needs two things that do not exist](#46-dispatch-posts-to-one-fixed-channel--routing-by-the-invoking-channel-needs-two-things-that-do-not-exist)
+- **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
+- **#49** — [`NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does](#49-natural_conversation_mode-is-off-and-nothing-establishes-what-turning-it-on-does)
 
-**P3 — nice to have / uncertain ROI** (7)
+**P3 — nice to have / uncertain ROI** (8)
 
+- **#48** — [A model list is enumerable for a local provider and is a guess for a hosted one — record the asymmetry, build neither yet](#48-a-model-list-is-enumerable-for-a-local-provider-and-is-a-guess-for-a-hosted-one--record-the-asymmetry-build-neither-yet)
 - **#36** — [Three enumerating guards each carry their own source-tree walker, and `tests/` subdirectories are enumerated by none of them](#36-three-enumerating-guards-each-carry-their-own-source-tree-walker-and-tests-subdirectories-are-enumerated-by-none-of-them)
 - **#21** — [`already_in_channel` warns five times per boot — and the obvious fix is in the wrong place](#21-already_in_channel-warns-five-times-per-boot--and-the-obvious-fix-is-in-the-wrong-place)
 - **#29** — [`gmail-unsubscribe` is a declared agent permission that no code implements](#29-gmail-unsubscribe-is-a-declared-agent-permission-that-no-code-implements)
@@ -476,6 +482,23 @@ untouched and is still the sole message path, deliberately — see #43 and
 reporting and the app configuration all exist) and should stay parked until the connection has been
 boring for a while, because the poll loop is how the task that would repair it gets dispatched.
 
+**Amended 2026-09-15 — this item is the largest of THREE ways to cut the same latency, and
+was the only one written down.** The latency an operator feels between submitting a task
+and it starting is `POLL_INTERVAL_MS` (default `30000`, `lib/config.js`), and `/dispatch`
+pays it in full because it posts a message and lets `poll()` find it. Recorded together so
+the expensive one is not chosen by default:
+
+| Option | Change | Cost |
+|---|---|---|
+| **Lower the interval** | One env var. `POLL_INTERVAL_MS=10000` → 10s worst case. Needs `docker compose up -d --force-recreate jt-agent`, not `restart`. | Steady Slack API pressure across every polled channel, all day, for a latency win only on the minority of ticks that have a message. Nothing in code changes, so nothing can regress. |
+| **Poll immediately after a command posts** | Call `poll()` once, right after `handleViewSubmission`'s `chat.postMessage` resolves. Small and additive. | Preserves every property the poll loop owns — one intake path, dedup by message `ts` in `lib/bridge-state.js`, the allowlist gate, `describeSkipReason` logging — because it triggers the *existing* path rather than adding one. Needs re-entrancy care: `poll()` must not run twice concurrently, and a failed immediate poll must be a no-op, not an error the operator sees. |
+| **Move message intake to the socket** | This item. | Changes how *every* message arrives, including the task that would repair it. Largest blast radius of the three. |
+
+The middle row is the one this repository can take today at near-zero risk, and it was
+missing from the record: the choice as filed read "30 seconds or rewrite intake". It is not
+done here — it touches the live intake path and belongs in its own change with its own
+regression test.
+
 ---
 
 ### 43. A flattened dispatch loses its fields — the connection for the fix exists, the command does not
@@ -509,7 +532,18 @@ an app-level token with `connections:write`, and `SLACK_APP_TOKEN` in `.env` (wh
 reports itself unconfigured on every boot and nothing else happens.
 **Risk:** Low to the running bridge — the poll loop is not touched either way.
 
-**Priority:** P1 | **Effort:** Medium | **Status:** open (connection landed 2026-09-14; command not built)
+**Amended 2026-09-15 — the command exists; this status was stale.** `/dispatch` was built
+on 2026-09-15 as three modules — `lib/dispatch-command.js` (handlers, ack ordering,
+authorisation), `lib/dispatch-modal.js` (the five-input modal) and `lib/dispatch-message.js`
+(the generator and its `assertRoundTrip`) — and the generator→parser round trip is pinned in
+`tests/integration.test.js`. The name is `/dispatch`, not the `/task` proposed above. Step
+6's open design decision was **decided**: it posts to `#claude-bridge` and `poll()` takes
+it, one intake path and one dedup owner. Routing to the *invoking* channel instead is now
+its own item, **#46**, with the two dependencies it turns out to have. What remains here is
+only the owner action below.
+**Regenerate:** `ls lib/dispatch-*.js && npx jest tests/dispatch-message.test.js tests/dispatch-modal.test.js tests/dispatch-command.test.js tests/dispatch-failure-paths.test.js`
+
+**Priority:** P1 | **Effort:** Medium | **Status:** open ONLY on the owner action — connection landed 2026-09-14, command built 2026-09-15; Socket Mode, the app-level token, the `/dispatch` registration and Interactivity are still owner-side (CLAUDE.md, "ACTION REQUIRED on the Slack app")
 
 ---
 
@@ -1276,6 +1310,30 @@ separate decision from the tests question: counting code lines instead of raw li
 change 16 source files and 0 test suites, while scoping tests out would change 36 test suites
 and 0 source files. They can be decided independently and should not be bundled.
 
+**Amended 2026-09-15 — a third consequence of counting raw lines: where a comment is allowed
+to live.** This repository requires per-change prose in the file itself — a dated
+`LOGIC CHANGE` comment on every logic change (`CLAUDE.md`, "Logic Change Comments"). A rule
+that counts raw lines taxes exactly that prose, and the two cheapest ways to comply are both
+wrong:
+
+- **Moving a comment that documents a line into a document.** A comment explaining *why this
+  line is what it is* — why `--single-branch` forces the ls-remote delivery check, why the
+  ollama adapter is on `/api/chat` and not the compat path — belongs **on that line**. Move
+  it into `docs/` and the line and its reason drift apart at the next edit, with nothing that
+  fails when they do. That trades a measurable problem (a long file) for an unmeasurable one
+  (doc drift), and doc-vs-reality drift is the class this repository already treats as
+  ranking above its apparent severity.
+- **Deleting it.** Already filed above as the suites case: the cheapest compliance path
+  should never be less documentation.
+
+**The distinction that does hold:** a comment establishing a *convention* — one that governs
+future changes rather than explaining the line under it — belongs in
+`docs/EXECUTOR-CONTRACT.md`, with the code pointing at it. "Argv arrays defeat a shell, not
+git's option parser" is a convention and is in the contract; "this `--` is here because
+`git log` reads it as a pathspec" is a line comment and stays on the line. A convention
+stated in eleven files is eleven things to keep in sync; a line's reason stated in a
+document is a reason nobody will find.
+
 **Not decided here, and not to be decided by an executor:** changing `MAX_LINES` semantics or
 its scope changes what every future change is measured against. It is the owner's call.
 Whichever way it goes, the change is small — `lib/file-size-gate.js` owns the enumeration and
@@ -1575,7 +1633,140 @@ back to the existing `id` — which already carries `Date.now()` plus a random s
 
 ---
 
+### 45. Commands are verbs, names are channels — record the distinction before the namespace has both
+**Filed 2026-09-15,** from the command-router pass. **This is a decision record, not a
+defect.** Nothing is broken today; what is at stake is that the first command named after
+an agent makes the namespace ambiguous permanently.
+
+**The distinction.** A *verb* is an operation with known parameters mapped to a handler:
+`/dispatch`, `check-inbox`, `status`, `help`. It may or may not involve a model — the
+inbox check (`lib/agent-task-catalogue.js` → `DETERMINISTIC_TASKS['check-inbox']` →
+`lib/email-check.js`) involves none, and calling it is a function call, not a dispatch. A
+*name* is an addressee: `secretary`, `security`, `code-bridge`. Addressing one is what a
+channel or an `@`-mention already does — `buildChannelsToPoll()` at
+`bridge-agent.js:1934` maps channel → agent, and `getAgentByChannel()` in
+`lib/agent-registry.js` is the lookup.
+
+**Why mixing them is a defect in waiting.** `/secretary check my calendar` and
+`/status secretary` look like members of one namespace and are not: the first names an
+addressee and needs a model, a persona and a turn budget; the second names an operation
+and needs none of them. A namespace where two similar-looking commands take completely
+different paths cannot be documented, cannot be tab-completed usefully, and cannot have
+one guard test — which is why `lib/command-router.js` registers verbs only and
+`tests/command-router.test.js` fails when a handler exists in code but not in the table.
+
+**The rule this records:** a command is a verb. Routing to an agent is done by the channel
+the message is in, or by a mention — never by a command name. Adding a command named after
+an agent requires revisiting this item first.
+**Priority:** P2 | **Effort:** None (the decision is the artifact) | **Status:** recorded 2026-09-15; the router enforces the verb half, nothing enforces the name half
+
+---
+
+### 46. `/dispatch` posts to one fixed channel — routing by the invoking channel needs two things that do not exist
+**Filed 2026-09-15,** from the command-router pass.
+**Problem:** `handleViewSubmission` in `lib/dispatch-command.js` posts the composed task
+message to `config.BRIDGE_CHANNEL` regardless of where `/dispatch` was invoked. Every task
+therefore runs as the bridge agent in the bridge channel, whatever channel the operator was
+standing in. The modal already records the invoking channel in `private_metadata`
+(`lib/dispatch-modal.js` → `buildModalView`), so the value is present and unused.
+**The attractive version:** post to the channel the command was invoked in. The existing
+channel→agent routing then decides the agent with **no new mechanism** — `poll()` already
+walks `channelsToPoll` and carries each channel's `agentConfig` into processing.
+**Why it is not done here — two dependencies, both real:**
+1. **A task does not execute as the channel's agent.** That is **#38**: `processTask`
+   resolves persona and provider from the module-level `agentConfig` (the bridge), not from
+   the polled channel's. Posting into the secretary's channel today would produce a task
+   that still runs as the bridge — the routing would look wired and change nothing.
+2. **A channel the poll loop does not watch swallows the task silently.** `channelsToPoll`
+   is built from *active* agents with channels (`bridge-agent.js:1934`, filtered by
+   `getActiveAgents()`), so `/dispatch` invoked in `#store-tasks`, a DM, or any planned
+   agent's channel would post a message nothing ever reads. The command must **refuse** an
+   unwatched channel in the modal — the same reject-never-degrade rule the field validators
+   already follow — not fall back to the bridge channel, which would be the silent
+   downgrade this whole path exists to remove.
+**Fix (after #38):** resolve the invoking channel against `channelsToPoll`; post there on a
+match; reject in-form with the reason on a miss. The `private_metadata` round trip and
+`tests/dispatch-command.test.js`'s failure-path coverage already exist.
+**Priority:** P2 | **Effort:** Low once #38 lands; blocked on it | **Status:** open — recorded, not started
+
+---
+
+### 47. A global provider switch must say what it changed, and must not flatten per-agent settings
+**Filed 2026-09-15,** from the provider-resolution pass. **Recorded before the feature is
+built, because the failure is in the shape, not the code.**
+**Problem:** `LLM_PROVIDER` is the global default, fourth in precedence behind the per-agent
+env override and the registry (`resolveLlmProvider`, `lib/config.js:165`; the full
+precedence and its provenance are now in `resolveAgentLlm`, `lib/agent-llm-resolver.js`).
+Any future command that sets it — "put everything on ollama" — has two ways to be wrong:
+1. **It reports nothing.** Eleven agents change behaviour and the operator has no record of
+   what each one was on. Reverting needs the previous state, and the previous state was
+   never captured.
+2. **It flattens per-agent settings.** An agent pinned by `LLM_PROVIDER_<AGENTID>` or by its
+   registry `llm_provider` must *keep* that pin: a global default is a default, and an agent
+   that was explicitly set is not expressing a preference for "whatever the default is".
+   Silently overriding it is the same defect as a clamped turn budget — a downgrade nobody
+   was told about.
+**Requirement, not a fix:** a global switch returns a per-agent before/after table with the
+**source** of each value, and touches only agents whose resolved source is the global
+default or the hard fallback. `resolveAgentLlm` already returns `provider_source` per agent
+for exactly this; `ASK: agent status` renders it today.
+**Priority:** P2 | **Effort:** Low, if built on the resolver | **Status:** open — requirement recorded, nothing built
+
+---
+
+### 49. `NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does
+**Filed 2026-09-15,** from the command-router pass. **This is a question to answer, not a
+defect to fix.**
+**Problem:** `config.NATURAL_CONVERSATION_MODE` (`lib/config.js`, default `false` —
+`process.env.NATURAL_CONVERSATION_MODE === 'true'`) gates a reply path for messages
+carrying neither `TASK:` nor `ASK:`. With it off, every such message is skipped, and the
+skip is logged by `describeSkipReason`. So the flag's *off* behaviour is well understood
+and the *on* behaviour has never been observed: no test exercises a real message through
+it, no run has been recorded with it enabled, and the blast radius is not written down
+anywhere.
+**The questions, in the order they have to be answered:**
+- Which channels does it apply to — the bridge channel only, or every polled agent channel?
+  Every channel means every incidental human remark in five channels reaches an LLM.
+- Does the allowlist still gate it? The poll loop's gate is
+  `!isUserAuthorized(msg.user) && !isBotMessage`, and a bot post bypasses it by design
+  (`lib/dispatch-command.js` header) — so a bot's own message could trigger a reply, and a
+  reply is a message.
+- What stops two agents in one channel answering, or an agent answering its own answer?
+- What does it cost per day at current message volume, and on which provider?
+**Why it matters now:** the command router and the status verb both make it cheaper to add
+things that *would* depend on this path. Nothing should, until the four questions above
+have answers.
+**Priority:** P2 | **Effort:** Low to investigate; unknown to make safe | **Status:** open — question recorded, unanswered
+
+---
+
 ## P3 — Nice to have / uncertain ROI
+
+### 48. A model list is enumerable for a local provider and is a guess for a hosted one — record the asymmetry, build neither yet
+**Filed 2026-09-15,** from the provider-resolution pass. **Recorded so that whoever builds
+a model picker does not build one list.**
+**The asymmetry.** `lib/llm-runner.js`'s ollama adapter already talks to an endpoint that
+answers this exactly: `GET /api/tags` returns the models actually pulled on that host, and
+`validateOllamaOnStartup()` calls it today. That list is **ground truth** — a name it
+returns can be run right now, a name it omits cannot.
+No hosted provider offers the equivalent. A published model list is a marketing document:
+it changes without notice, it is not scoped to the credential in `.env`, and a model on it
+may be unavailable to this account, in this region, or at this tier. Querying one answers
+"what exists" when the question is "what can this key run".
+**What this means for any model UI:**
+- For `ollama`, enumerate from `/api/tags` and treat the result as authoritative. A model
+  in `OLLAMA_MODEL` or an agent's `llm_model` that is absent from it is a **precondition
+  failure**, which is what the adapter already does rather than guessing.
+- For `claude`/`gemini`, do **not** present a list as if it were verified. Either accept a
+  free-text model id and let the call fail loudly with the provider's own error, or verify
+  one specific id with one real call before recording it. A hardcoded list in this repo
+  would go stale silently, which is the doc-drift class.
+- The two must not share a code path that implies equal confidence. `resolveAgentLlm`
+  (`lib/agent-llm-resolver.js`) already returns `model_source`, so the UI can say where a
+  model name came from without claiming it was validated.
+**Priority:** P3 | **Effort:** Low per provider; the point is not to bundle them | **Status:** open — distinction recorded, neither list built
+
+---
 
 ### 36. Three enumerating guards each carry their own source-tree walker, and `tests/` subdirectories are enumerated by none of them
 **Filed 2026-09-14,** from `docs/CANONICAL-HELPERS.md` section 13.
@@ -1755,6 +1946,22 @@ copies of the source walker). The claim that nothing can answer which commit the
 process is on was checked against HEAD and is **already filed**, inside #17 — recorded
 here as checked, not duplicated as a new item. Index regenerated from the headings, which
 also repaired four anchors that had dropped an underscore.*
+
+*Updated 2026-09-15 (command-router pass): five items filed — #45 (commands are verbs,
+names are channels), #46 (`/dispatch` posts to a fixed channel; invoking-channel routing
+needs #38 and an unwatched-channel refusal), #47 (a global provider switch must report its
+before/after and must not flatten per-agent pins), #48 (a model list is ground truth for
+ollama and a guess for a hosted provider) and #49 (`NATURAL_CONVERSATION_MODE` is off and
+its on-behaviour is unestablished). Three items amended rather than duplicated: **#4** now
+records all three ways to cut submit-to-start latency with their costs, not only the
+largest; **#43 (P1)** had a stale status — `/dispatch` was built on 2026-09-15 and only the
+owner-side Slack app configuration remains; **#44** gains the comment-placement consequence
+of counting raw lines. Two candidates were checked and **not** filed because they were
+already recorded: the "deleting documentation is the cheapest compliance path" argument
+(inside #44) and the per-agent provider override surviving `git reset --hard` (inside
+`lib/config.js`'s `resolveLlmProvider` header and CLAUDE.md). The duplicate `### 43.` is
+left as it stands — renumbering an address is the owner's call. Index and counts
+regenerated from the headings with this file's own commands.*
 
 *Last reconciled 2026-09-14: six closed entries purged (#1, #2, #12, #19, the 2026-09-13
 scratch-clone entry, and the retired-#18 references), the two unnumbered items given stable

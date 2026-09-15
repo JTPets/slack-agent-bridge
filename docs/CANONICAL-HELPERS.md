@@ -378,6 +378,39 @@ as WORK-TODO #36 rather than done as a side effect of a different change.
 
 ---
 
+## 14. Agent LLM provider resolution — **DIVERGENT** (defect: WORK-TODO #47 records the consequence)
+
+```bash
+grep -rnE "llm_provider|resolveLlmProvider|resolveAgentLlm" --include='*.js' . \
+  | grep -v node_modules | grep -v '/tests/'
+```
+
+**Canonical implementation: `resolveLlmProvider` in `lib/config.js`** for the provider,
+and since 2026-09-15 **`resolveAgentLlm` in `lib/agent-llm-resolver.js`** for the full
+answer — provider, model, adapter inputs, and the *source* of each. The resolver calls
+`resolveLlmProvider` rather than restating its precedence, so there is one owner of the
+value and one owner of the label.
+
+| Site | Reads | Verdict |
+|---|---|---|
+| `lib/config.js:165` `resolveLlmProvider` | the four-level precedence | **canonical** |
+| `lib/agent-llm-resolver.js` `resolveAgentLlm` | calls the above, adds model + adapter inputs + provenance | **canonical (superset)** |
+| `bridge-agent.js:516,689,1606` | `resolveLlmProvider(agentConfig, id)` | ✅ calls the canonical one |
+| `bridge-agent.js:723,1607` | `agentConfig?.llm_model` — inline, no helper | **DIVERGENT** — the model half was never centralised; it is now `resolveAgentLlm`'s, and these three call sites still read the field directly |
+| `lib/watercooler.js:522` | `agent.llm_provider \|\| 'gemini'` | **DIVERGENT, and on the default too.** It bypasses the per-agent `LLM_PROVIDER_<AGENTID>` override entirely — the one mechanism that survives auto-update's `git reset --hard` — and where the canonical chain falls back to `claude`, this falls back to `gemini`. An agent pinned to ollama in `.env` still runs the standup on gemini, and nothing reports the discrepancy |
+| `lib/llm-runner.js:998,1001-1003` | `a.llm_provider` for the ollama startup probe | **EQUIVALENT-BY-INTENT, DIVERGENT in fact.** It asks "does any agent use ollama?" to decide whether to probe. An agent switched to ollama purely by `LLM_PROVIDER_<AGENTID>` is invisible to it, so the probe is skipped and the provider is marked unavailable on a boot where an agent is in fact using it. The flag is reporting-only, so the cost is a wrong report, not wrong routing |
+
+**Why this row matters more than its severity suggests.** The per-agent env override
+exists *because* live registry edits have been destroyed twice by `git reset --hard`. A
+site that reads `agent.llm_provider` directly is not a style inconsistency — it is a site
+where the only override mechanism that survives a pull silently does not apply.
+
+**Extraction:** point `lib/watercooler.js:522` and `bridge-agent.js`'s three
+`llm_model` reads at `resolveAgentLlm`, and give `validateOllamaOnStartup` the resolved
+provider rather than the raw field. Not done in the change that filed this row — it
+touches the live standup and the live task path, and belongs in its own change with its
+own regression test.
+
 ## Proposed extraction order
 
 Ranked by **how much divergence each concept currently carries**, not by how easy the

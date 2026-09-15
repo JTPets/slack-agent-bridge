@@ -297,6 +297,54 @@ When a message arrives in a Slack channel, the system:
 
 If no agent is configured for a channel, the message is ignored.
 
+### Which channels exist, which are joined, which are polled — as a command
+
+Do not read a count from this file; it goes stale and nothing fails when it does.
+
+```bash
+node scripts/agent-surface.js           # the table
+node scripts/agent-surface.js --json    # the same rows, machine-readable
+```
+
+The guard is `tests/agent-surface.test.js`: it fails when an agent's output stops
+reaching anything. Three distinct facts the table separates, because they have three
+different fixes:
+
+- **Declared** — the agent has a `channel` in `agents/agents.json`.
+- **Joined** — the bridge calls `conversations.join` on it at startup. Since
+  2026-09-15 this is *every* channel a declared agent names, including a `planned`
+  agent's, because a scheduled job can be registered for a planned agent (the
+  scheduler checks `schedule` + `channel`, never `status` — WORK-TODO #3) and posting
+  to a channel the bot is not in answers `not_in_channel`.
+- **Polled** — `poll()` reads it, so a `TASK:`/`ASK:` message there is executed.
+  Built from `getActiveAgents()`, so a `planned` agent's channel is joined but never
+  polled. A scheduled job that posts a `TASK:` message into an unpolled channel
+  produces text a human can read and nothing will run.
+
+### Channels that would need to be created — PROPOSED, not created
+
+**Nothing in this repository creates a Slack channel, and no dispatch should.** The
+four agents below carry a schedule or a role and have `"channel": null`, so the
+scheduler skips them silently — unlike an unknown task name, a missing channel is not
+even reported at startup. Creating a channel is an owner action
+(`ASK: create channel #name`, which needs `channels:manage`); this is the proposal.
+
+| Agent | Status | Declared schedule | Proposed channel | What creating it would change |
+|---|---|---|---|---|
+| `jester` | **active** | `0 18 * * 5` weekly-critique | `#jester-agent` | The only **active** agent that cannot be addressed at all — no channel, no registered job, no route. Its `weekly-critique` template exists and nothing can reach it. Giving it a channel registers the job and makes the agent addressable. |
+| `social-media` | planned | `0 9 * * 1,3,5` content-calendar | `#social-media-agent` | Registers the job. It would still need `status: "planned"` removed for the channel to be **polled**, or the posted `TASK:` message reaches no executor — see #3. |
+| `marketing` | planned | `0 6 * * 1` weekly-analytics | `#marketing-agent` | Same as above. |
+| `storefront` | planned | none | `#storefront-agent` | Nothing scheduled; the agent is served by `bots/storefront.js` over HTTP, not by a channel. Lowest value of the four — listed for completeness, not recommended. |
+
+**Do not create all four to make the table tidy.** Each new channel is a channel the
+bot joins on every boot and a place output can accumulate unread. `jester` is the one
+with a concrete defect behind it; the other three are gated on the `planned` decision
+in WORK-TODO #3 and should follow it, not precede it.
+
+**`story-bot` is NOT in this table** — it already has `C0AP8CHCV1U`, which the bridge
+now joins. What it still lacks is a reader: the channel is not polled because the
+agent is `planned`. That is #3, not a channel to create.
+
 ## API Reference
 
 The `lib/agent-registry.js` module exports:

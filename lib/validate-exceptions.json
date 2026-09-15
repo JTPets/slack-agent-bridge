@@ -323,6 +323,16 @@
       "path": "tests/undelivered-work.test.js",
       "lines_when_declared": 302,
       "reason": "JUSTIFIED, PROVISIONALLY. Test suite for detectUndeliveredWork and processTask's delivery-gated cleanup — the regression guard for the three tasks lost to unconditional cleanup. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
+    },
+    {
+      "path": "tests/dispatch-modal.test.js",
+      "lines_when_declared": 338,
+      "reason": "JUSTIFIED, PROVISIONALLY. The suite for lib/dispatch-modal.js: five input blocks, the repository select sourced from REPOS, the block_id-keyed error map, and the re-run pre-fill. It crossed the limit when the select and the pre-fill were added (2026-09-15), and the assertions that carried it over are the ones that matter most — an empty REPOS falling back to a text input rather than failing the modal open, and a stale pre-filled repository being dropped rather than silently re-sent. Both are cases where Slack rejects the view and /dispatch stops working. Shortening this suite means deleting those. Same category as the other 36 test-suite entries here; whether the rule was meant to reach tests/ at all is argued on both sides and left undecided in WORK-TODO #44."
+    },
+    {
+      "path": "tests/dispatch-message.test.js",
+      "lines_when_declared": 300,
+      "reason": "JUSTIFIED, PROVISIONALLY. The suite for lib/dispatch-message.js: per-field rejection reusing tests/git-identifiers.test.js's own injection payload set, a field label inside the instructions body, and assertRoundTrip's negative controls. It crossed the limit by one line when the form's default turn budget became the ceiling (2026-09-15) and three assertions were added pinning the default to MAX_TURNS as an identity rather than as the number 100. Same category and same WORK-TODO #44 caveat as the entry above."
     }
   ]
 }
