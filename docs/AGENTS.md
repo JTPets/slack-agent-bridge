@@ -142,6 +142,143 @@ The Email Monitor can automatically unsubscribe from newsletters on behalf of th
 
 See [EMAIL-MONITOR-DESIGN.md](./EMAIL-MONITOR-DESIGN.md) for complete specification.
 
+---
+
+## How agent state is actually held — established from code, 2026-09-15
+
+Written because the summary everyone repeats ("agents are declared in `agents.json`,
+some are planned") is true and useless: it does not say *when* a definition is read,
+*which* fields the tracked file actually decides, or what a change to one requires
+before it takes effect. Those three have different answers, and the difference is
+what makes a format migration safe or not.
+
+Every claim below carries the `file:line` it was read from at `69a3922`.
+
+### What loads a definition, and when
+
+`lib/agent-registry.js:31 loadAgents()` is the **only** reader of
+`agents/agents.json`. It `fs.readFileSync`s the file on **every call** — there is no
+cache, no memoisation, no watcher. Regenerate the caller list:
+
+```bash
+grep -rn "require.*agent-registry" --include=*.js . | grep -v node_modules | grep -v '^./tests/'
+```
+
+Nothing outside `lib/agent-registry.js` opens the file by path, in `lib/`, in the
+entry points, or in `scripts/`. That chokepoint is the single most important fact
+here and everything in the migration section rests on it.
+
+So the file is re-readable at runtime — but **what the process does with it is not
+re-derived.** Three pieces of startup-only state are computed once and then outlive
+any edit:
+
+| Derived at startup, never again | Where | What a registry edit cannot change until restart |
+|---|---|---|
+| `agentConfig` — the bridge's own record | `bridge-agent.js:215-221` (`getAgent('bridge')`) | `MAX_TURNS` (`:241`), the bridge `system_prompt` (`:581`, `:661`), its provider (`:527`, `:700`) |
+| `channelsToPoll` | `bridge-agent.js:2030` calling `buildChannelsToPoll()` (`:1979`, which calls `getActiveAgents()` at `:1991`) | which channels are polled at all |
+| `activeJobs` — the cron registrations | `lib/agent-scheduler.js:32`, filled by `startScheduler()` (`:107 loadAgents()`), called at `bridge-agent.js:2126` | every schedule, its cron expression and its refusals |
+
+Everything else reads the registry **per event**, so an edit lands immediately:
+`getAgentByChannel()` on every polled message, `lib/bulletin-watcher.js:64` on every
+bulletin, `lib/command-router.js:48`, `lib/task-decomposer.js:19`,
+`lib/notify-owner.js:14`, `lib/security-followup.js:22`, `lib/watercooler.js:20`,
+`lib/agent-surface.js:22`.
+
+**So: "what does a change to a definition require before it takes effect?" has two
+answers, not one.** A change to a personality, a system prompt, a watch list, a
+permission or a `target_repo` is live on the next event. A change to a channel, a
+schedule, `status`, or any bridge-agent field is inert until
+`docker compose restart jt-agent` — and merging it reaches the box only when a human
+runs that (`CLAUDE.md` → "Self-update — DESIGNED AND TESTED, NOT WIRED"). Nothing
+reports the difference, so an edit that appears to do nothing and an edit that is
+waiting for a restart look identical.
+
+### Which fields come from the tracked file, and which from the environment
+
+**From `agents/agents.json` (tracked):** `id`, `name`, `role`, `channel`,
+`permissions`, `denied`, `priority`, `max_turns`, `memory_dir`, `status`,
+`workflow`, `merge_policy`, `deploy_policy`, `branch_prefix`, `production`,
+`target_repo`, `llm_provider`, `llm_model`, `schedule`, `watches`, `personality`,
+`system_prompt`, `activation_prefix`, `integrations`, `note`, `phone_capabilities`,
+`watercooler`.
+
+**From `.env` (untracked, owner-managed, not verifiable from a checkout):**
+`LLM_PROVIDER_<AGENTID>` — which **wins over** the registry's `llm_provider`
+(`lib/config.js:165`, provenance in `lib/agent-llm-resolver.js`); the global
+`LLM_PROVIDER`; and the channel ids `BRIDGE_CHANNEL_ID`, `OPS_CHANNEL_ID`,
+`STORE_TASKS_CHANNEL_ID`.
+
+**The finding in that split:** the bridge agent's polled channel does **not** come
+from its registry record. `buildChannelsToPoll()` pushes `BRIDGE_CHANNEL`
+(`bridge-agent.js:1982-1986`), which is `config.BRIDGE_CHANNEL` = the
+`BRIDGE_CHANNEL_ID` env var (`lib/config.js:20`). The bridge record's
+`"channel": "C0ANZUEJXEJ"` is read only by `getAgentByChannel()` and by
+`joinableChannels()`. If the two ever disagree the bridge **joins both and polls
+one**, and nothing compares them. Whether they agree on the NAS is
+**unverified — `.env` is off-limits from a checkout.**
+
+### Where a running agent's state lives other than in the file it was declared in
+
+Six durable places and four in-process ones. This is the list a format migration has
+to leave undisturbed.
+
+| Store | Owner | Keyed by | Tracked? |
+|---|---|---|---|
+| `agents/shared/channel-map.json` | `lib/slack-client.js:36/58` | channel **name** → id | gitignored |
+| `.bridge-agent-state.json` | `lib/bridge-state.js` | channel **id** → poll cursor | gitignored |
+| `agents/shared/processed-tasks.json` | `lib/bridge-state.js` | message `ts` | gitignored |
+| `agents/<id>/memory/*.json` | `memory/memory-manager.js`, `lib/memory-tiers.js` | agent **id** | gitignored except seeds |
+| `agents/shared/bulletin.json` | `lib/bulletin-board.js` | agent **id** (`agentId`, `read_by`) | gitignored |
+| `.env` | owner | var name | untracked |
+
+In-process only, lost on restart: `agentConfig` (`bridge-agent.js:215`),
+`channelsToPoll` (`:291`), `activeJobs` (`lib/agent-scheduler.js:32`),
+`lastTriggerTimes` (`lib/bulletin-watcher.js:24`).
+
+**`channel-map.json` is the one that matters and the one that is not doing its
+job.** It is a channel-name → id cache, and it is written **only** by
+`ensureChannel()` (`lib/slack-client.js:333/352/363`), which is reached only from
+`activateAgent()` and the `ASK: create channel` command. The startup join path does
+not consult it: `joinAgentChannels()` (`:388`) takes ids straight from the registry
+records. So the durable resolution cache exists, is gitignored, is the right shape —
+and the boot path has never used it.
+
+### If definitions move to a new format, do the running agents migrate, run in parallel, or break?
+
+**They migrate, in place, with no parallel period** — because `loadAgents()` is a
+real chokepoint. Ten non-test modules consume agent definitions and every one of
+them goes through it. Change what `loadAgents()` reads, keep the record shape it
+returns, and no other module has to know.
+
+One thing genuinely would break a running agent, and it is the reason this section
+was written before any code was moved:
+
+> **The channel IDs cannot be re-derived from a checkout.** Nothing in this
+> repository maps `C0AP42BT4MR` to a channel name — that needs a Slack API call. A
+> migration that replaced `channel: <id>` with `channel_name: <name>` and resolved
+> the name at startup would depend on names guessed from agent ids. A wrong guess
+> does not fail loudly: `findChannelByName` returns null, the agent's channel
+> resolves to nothing, and the bridge **stops polling a channel that worked
+> yesterday**.
+
+The avoidance is to never resolve what is already known. At migration time the six
+live ids are **seeded into the local state store**, keyed by the channel name the
+new definition declares. First boot after the migration is a cache hit for every
+existing agent; no Slack lookup runs for an agent that already worked, so no guess
+can be wrong for one. Name resolution is exercised only by an agent that has no id
+today — which is exactly the four that are already reaching nobody.
+
+**Reversibility: yes, by `git revert` alone, with no manual step and no data loss.**
+The channel ids are in git history whatever happens to the working tree, so
+reverting the migration commit restores `agents/agents.json` with its ids intact and
+`loadAgents()` reads it again. The local state file the migration writes is
+gitignored and additive — code from before the migration never looks at it, so a
+revert leaves it sitting harmlessly on disk. A channel id is not a credential; it is
+already public in this repository's history, so recording one in a commit body costs
+nothing.
+
+**Verdict: safe to proceed.** The condition is the seeding step, not the format.
+
 ## Adding a New Agent
 
 1. **Define the agent** in `agents/agents.json`:
