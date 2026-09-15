@@ -58,7 +58,9 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (24)
+**P2 — real gaps, no risk to the running process** (25)
+
+- **#43** — [`getRecentCompleted` sorts by a millisecond timestamp, so same-millisecond tasks come back oldest-first — and it makes the suite flaky](#43-getrecentcompleted-sorts-by-a-millisecond-timestamp-so-same-millisecond-tasks-come-back-oldest-first--and-it-makes-the-suite-flaky)
 
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
@@ -1303,6 +1305,60 @@ or to collapse HIGH into a `notifyOps()` post, and that is a decision about how 
 traffic the owner wants in `#sqtools-ops`, not a bug fix an executor should make alone.
 Whichever is chosen, `PRIORITY.HIGH` must stop returning `true` for a message it dropped.
 **Priority:** P2 | **Effort:** Low | **Status:** open — owner decides digest vs. ops post
+
+---
+
+### 43. `getRecentCompleted` sorts by a millisecond timestamp, so same-millisecond tasks come back oldest-first — and it makes the suite flaky
+**Filed 2026-09-15,** from an unexplained single failure during the /dispatch form work.
+Not caused by that change: `git diff origin/main...HEAD --stat` on that branch lists
+neither `lib/task-queue.js` nor `tests/task-queue.test.js`.
+
+**Verified at HEAD.** `lib/task-queue.js` `getRecentCompleted` sorts with
+`(a, b) => new Date(b.completedAt) - new Date(a.completedAt)`, and `completedAt` is
+`new Date().toISOString()` — millisecond resolution. Two tasks completed inside the same
+millisecond compare equal, `Array#sort` is stable, so they are returned in INSERTION
+order: oldest first, the opposite of the method's documented contract.
+
+**Regenerate the collision rate** (writes only to a temp dir):
+
+```bash
+node -e '
+const os=require("os"),path=require("path"),fs=require("fs");
+const {TaskQueue}=require("./lib/task-queue");
+let wrong=0,runs=2000;
+for(let i=0;i<runs;i++){
+  const f=path.join(fs.mkdtempSync(path.join(os.tmpdir(),"q-")),"q.json");
+  const q=new TaskQueue(f);
+  q.enqueue({msgTs:"1.1",channelId:"C1",text:"T1",description:"First"});
+  q.complete(q.dequeue().id,"Done1");
+  q.enqueue({msgTs:"2.2",channelId:"C1",text:"T2",description:"Second"});
+  q.complete(q.dequeue().id,"Done2");
+  if(q.getRecentCompleted(5)[0].description!=="Second") wrong++;
+}
+console.log(`oldest-first (wrong) orderings: ${wrong}/${runs}`);
+' 2>/dev/null | tail -1
+```
+
+Observed **1522/2000** in a tight loop on 2026-09-15 (node v22.22.2, in-container).
+
+**Two consequences, and the second is the reason this is filed rather than shrugged at.**
+
+1. *Live path:* `formatStatusResponse` renders `getRecentCompleted`, so `ASK: what's
+   queued` shows the owner the last five tasks in the wrong order whenever two finished
+   in the same millisecond. Cosmetic, low.
+2. *Verification integrity:* `tests/task-queue.test.js` -> `getRecentCompleted` ->
+   "returns completed tasks sorted by completion time (newest first)" fails
+   intermittently — observed **once in 25** full `npm test` runs on 2026-09-15. The full
+   suite is the gate on every commit in this repo, and a gate that goes red at random
+   trains its readers to re-run rather than to read. That is the same class as a green
+   suite that skipped: the signal stops meaning what it says.
+
+**The fix is in the source, not the test.** A test asserting the current behaviour would
+encode the defect. Either give a completed task a monotonic tiebreaker (an incrementing
+sequence, or `process.hrtime.bigint()` alongside `completedAt`) and sort on it, or fall
+back to the existing `id` — which already carries `Date.now()` plus a random suffix — when
+`completedAt` compares equal. Order within one millisecond must be total, not incidental.
+**Priority:** P2 | **Effort:** Low | **Status:** open — not touched by the /dispatch change
 
 ---
 
