@@ -514,6 +514,85 @@ ephemeral fails too, ops still hears and nothing throws.
 
 ---
 
+### The form, as changed 2026-09-15, and two things PROPOSED rather than done
+
+**Changed.**
+
+1. **The turn budget default is now the ceiling.** `DISPATCH_DEFAULT_TURNS` in
+   `lib/dispatch-message.js` is **defined as `MAX_TURNS`**, not written as `100`. The
+   parser's `DEFAULT_TURNS` (50) is unchanged and still the right default for a hand-typed
+   message with no `TURNS:` line; the form is not that, and the standing convention is
+   `TURNS: 100` on every bridge dispatch. **What enforces the ceiling, so the two cannot
+   disagree:** they are the same constant. `MAX_TURNS` is what the `parsed > MAX_TURNS`
+   rejection in `validateDispatchFields` compares against, and the default is that
+   constant, so a default above its own ceiling is not expressible and raising the ceiling
+   moves both. The tests assert the **identity** (`DISPATCH_DEFAULT_TURNS === MAX_TURNS`),
+   not the number — hardcoding either side turns them red.
+
+2. **The repository field is a select sourced from `REPOS`.** `getConfiguredRepos()` in
+   `lib/config.js` is now the single owner of that list; `security-review.js`, which had
+   the only copy of the default, calls it too. Adding a repository is a `.env` change and
+   `docker compose up -d --force-recreate jt-agent` — not an edit to a form file. The
+   field stays **optional** (a task with no repository is a legitimate dispatch), an empty
+   `REPOS` falls back to a text input rather than failing the modal open (Slack rejects a
+   `static_select` with zero options), and the list is capped at Slack's 100. **Validation
+   does not move**: the submitted payload is whatever Slack sends, so the select is a
+   convenience and `lib/git-identifiers.js` is still the boundary. **The branch field is
+   left as free text**, deliberately — a branch is per-task and is not enumerable from
+   configuration.
+
+**PROPOSED — should the form prepend the standing preamble automatically?**
+*Not changed. The owner decides; nothing was altered about what gets sent.*
+
+Every dispatch to this repository carries the same opening: read
+`docs/EXECUTOR-CONTRACT.md` in full, commit after each part, treat every supplied
+`file:line`/path/host as an unverified lead, report cited vs. actual. It is already
+written down once, in the contract, and re-typing it into every instructions body is the
+duplication this repo files as a defect anywhere else.
+
+*For:* the operator's instructions field would carry only the task-specific part, which
+is the only part that varies. A preamble typed by hand is a preamble that drifts — three
+dispatches with three slightly different versions of "treat citations as leads" is the
+same class as a hand-maintained command list. It cannot be forgotten.
+
+*Against, and these are real:*
+- **It is invisible.** The operator would no longer see the text that governs the run, so
+  a change to the prepended block changes every future dispatch with nobody reading the
+  diff at dispatch time. Today the preamble is visible in the message.
+- **It consumes the instructions budget.** The modal input is capped at 3000 characters
+  and the emitted message grows by the preamble's length, against `MAX_TURNS` work.
+- **`assertRoundTrip` constrains what it may contain.** A prepended block is part of the
+  `INSTRUCTIONS:` body, so no line in it may begin with a field label in any case —
+  including the lines quoting the contract, which names `TASK:`/`REPO:` repeatedly. A
+  preamble would have to be written to pass `matchesFieldLabel`, and a future edit to it
+  could make every dispatch refuse.
+- **A pointer may be enough.** `CLAUDE.md` already opens by telling executors to read the
+  contract first, and it is auto-read. If that is working, prepending is redundant; if it
+  is not, the fix is a check that the executor confirmed the read, not more text.
+
+*Recommendation if it is taken:* prepend a **one-line pointer**, not the preamble —
+"Read `docs/EXECUTOR-CONTRACT.md` in full before writing anything; it governs this work."
+— asserted by a test to be label-free, and rendered in the modal as a hint so it is
+visible before submission rather than only after. **Not implemented.**
+
+**REPORTED — can the modal be opened pre-filled from a previous dispatch?**
+
+**Yes, and the form half now supports it.** `buildModalView({ initial: { ... } })` takes a
+value per field; every element Slack offers here accepts one (`initial_value` on a text
+input, `initial_option` on a `static_select`). Re-running with one line changed is a form
+concern, not a new mechanism. Two edge cases are handled because Slack fails the whole
+`views.open` on either: an `initial_value` longer than the field's `max_length` is
+truncated, and an `initial_option` absent from the current `options` is dropped — so a
+repository since removed from `REPOS` loses its pre-fill instead of breaking the command.
+
+**What does NOT exist is the store.** Nothing records a submission, so there is no "last
+dispatch" to pass in. That needs a persisted file, a per-user key, a retention rule and a
+decision about whether the *instructions* body is kept (it is the largest field and the
+most likely to be stale). It is a separate change; the `initial` parameter is the seam it
+plugs into, exercised by `tests/dispatch-modal.test.js` and by nothing in production yet.
+
+---
+
 ## After each extraction (the CLAUDE.md gate)
 
 ```bash

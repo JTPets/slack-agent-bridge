@@ -19,8 +19,8 @@ const {
   toSlackErrors,
 } = require('../lib/dispatch-modal');
 
-const { FIELD_KEYS } = require('../lib/dispatch-message');
-const { DEFAULT_TURNS, MIN_TURNS, MAX_TURNS } = require('../lib/task-parser');
+const { FIELD_KEYS, DISPATCH_DEFAULT_TURNS } = require('../lib/dispatch-message');
+const { MIN_TURNS, MAX_TURNS } = require('../lib/task-parser');
 
 /** Build a view_submission `view` carrying the given raw values. */
 function submissionView(values, metadata = { channelId: 'C_CMD', userId: 'U_OWNER' }) {
@@ -57,8 +57,18 @@ describe('the modal has five separate inputs — the entire point of the form', 
     expect(new Set(blockIds).size).toBe(FIELD_KEYS.length);
   });
 
-  test('only the instructions field is multiline', () => {
-    for (const block of view.blocks.filter((b) => b.type === 'input')) {
+  // LOGIC CHANGE 2026-09-15: this previously asserted `multiline === false` on every
+  // non-instructions input, which quietly assumed every one of them was a
+  // plain_text_input. The repo field is a static_select now, and a select has no
+  // `multiline` property at all — so the old assertion would have read `undefined`
+  // and passed for the wrong reason. Scoped to text inputs, with the select asserted
+  // separately below.
+  test('only the instructions field is multiline, among the text inputs', () => {
+    const textInputs = view.blocks.filter(
+      (b) => b.type === 'input' && b.element.type === 'plain_text_input'
+    );
+    expect(textInputs.length).toBeGreaterThan(0);
+    for (const block of textInputs) {
       const expected = block.block_id === BLOCK_IDS.instructions;
       expect(block.element.multiline).toBe(expected);
     }
@@ -76,11 +86,28 @@ describe('the modal has five separate inputs — the entire point of the form', 
     expect(optional[BLOCK_IDS.turns]).toBe(true);
   });
 
-  test('the turn budget defaults to the parser default and names the parser range', () => {
+  // LOGIC CHANGE 2026-09-15: the form's default is now the CEILING, not the parser's
+  // 50. This test previously encoded the old default; it is flipped here in the same
+  // change, per docs/EXECUTOR-CONTRACT.md section 5.
+  //
+  // It asserts the IDENTITY, not the number. Writing `toBe('100')` would let the
+  // default and the ceiling drift apart the moment MAX_TURNS moved — which is the
+  // exact failure "state what enforces the ceiling" was asking about.
+  test('the turn budget defaults to the CEILING, and the default IS the ceiling', () => {
     const block = view.blocks.find((b) => b.block_id === BLOCK_IDS.turns);
-    expect(block.element.initial_value).toBe(String(DEFAULT_TURNS));
+    expect(DISPATCH_DEFAULT_TURNS).toBe(MAX_TURNS);
+    expect(block.element.initial_value).toBe(String(DISPATCH_DEFAULT_TURNS));
     expect(block.hint.text).toContain(String(MIN_TURNS));
     expect(block.hint.text).toContain(String(MAX_TURNS));
+  });
+
+  test('the default the form offers is one the validator would accept', () => {
+    const { validateDispatchFields } = require('../lib/dispatch-message');
+    const { errors } = validateDispatchFields({
+      task: 't', repo: '', branch: 'main',
+      turns: String(DISPATCH_DEFAULT_TURNS), instructions: 'do it',
+    });
+    expect(errors.turns).toBeUndefined();
   });
 
   test('the branch defaults to main', () => {
@@ -165,5 +192,147 @@ describe('toSlackErrors keys errors by block_id so they land on the right input'
 describe('the command name is declared once', () => {
   test('it is a slash command', () => {
     expect(COMMAND_NAME).toMatch(/^\/[a-z-]+$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LOGIC CHANGE 2026-09-15: the repository field is a select sourced from config,
+// and the modal can be opened pre-filled.
+// ---------------------------------------------------------------------------
+
+describe('the repository field is sourced from configuration, not hardcoded', () => {
+  const { buildInputBlock } = require('../lib/dispatch-modal');
+  const { getConfiguredRepos } = require('../lib/config');
+
+  function repoBlock(env) {
+    const saved = process.env.REPOS;
+    try {
+      if (env === undefined) delete process.env.REPOS; else process.env.REPOS = env;
+      jest.resetModules();
+      const modal = require('../lib/dispatch-modal');
+      return modal.buildModalView().blocks.find(b => b.block_id === modal.BLOCK_IDS.repo);
+    } finally {
+      if (saved === undefined) delete process.env.REPOS; else process.env.REPOS = saved;
+      jest.resetModules();
+    }
+  }
+
+  test('the options are exactly what getConfiguredRepos returns', () => {
+    const block = repoBlock('a/one,b/two, c/three ');
+    expect(block.element.type).toBe('static_select');
+    expect(block.element.options.map(o => o.value)).toEqual(['a/one', 'b/two', 'c/three']);
+  });
+
+  test('adding a repository needs no change to this file', () => {
+    const before = repoBlock('a/one').element.options.length;
+    const after = repoBlock('a/one,b/two').element.options.length;
+    expect(after).toBe(before + 1);
+  });
+
+  test('with REPOS unset it still offers the two defaults config declares', () => {
+    const block = repoBlock(undefined);
+    expect(block.element.options.map(o => o.value)).toEqual(getConfiguredRepos({}));
+  });
+
+  test('the field stays OPTIONAL — a task with no repository is legitimate', () => {
+    expect(repoBlock('a/one').optional).toBe(true);
+  });
+
+  test('an empty REPOS falls back to a text input rather than failing the modal open', () => {
+    // Slack rejects a static_select with an empty options array, which would make
+    // /dispatch stop opening entirely. Degraded field beats no command.
+    const block = repoBlock('   ,  ,');
+    expect(block.element.type).toBe('plain_text_input');
+  });
+
+  test('a select never exceeds Slack\'s 100-option cap', () => {
+    const many = Array.from({ length: 150 }, (_, i) => `o/r${i}`).join(',');
+    expect(repoBlock(many).element.options.length).toBe(100);
+  });
+
+  test('the select does not replace validation — the value is still checked', () => {
+    // A select is a convenience in the form; the submitted payload is whatever
+    // Slack sends, so the boundary stays where it was.
+    const { validateDispatchFields } = require('../lib/dispatch-message');
+    expect(validateDispatchFields({
+      task: 't', repo: 'jtpets/my;repo', branch: 'main', turns: '100', instructions: 'go',
+    }).errors.repo).toMatch(/^Rejected /);
+  });
+
+  test('buildInputBlock is exported and callable for one field', () => {
+    expect(typeof buildInputBlock).toBe('function');
+    expect(buildInputBlock('branch').block_id).toBe(BLOCK_IDS.branch);
+  });
+});
+
+describe('extractSubmission reads a select as well as a text input', () => {
+  test('a static_select value comes back from selected_option', () => {
+    const view = {
+      state: {
+        values: {
+          [BLOCK_IDS.task]: { [ACTION_ID]: { value: 'T' } },
+          [BLOCK_IDS.repo]: { [ACTION_ID]: { type: 'static_select', selected_option: { value: 'jtpets/x' } } },
+          [BLOCK_IDS.branch]: { [ACTION_ID]: { value: 'main' } },
+          [BLOCK_IDS.turns]: { [ACTION_ID]: { value: '100' } },
+          [BLOCK_IDS.instructions]: { [ACTION_ID]: { value: 'go' } },
+        },
+      },
+    };
+    expect(extractSubmission(view).repo).toBe('jtpets/x');
+  });
+
+  test('a select the operator left untouched is blank, not undefined', () => {
+    const view = { state: { values: { [BLOCK_IDS.repo]: { [ACTION_ID]: { type: 'static_select' } } } } };
+    expect(extractSubmission(view).repo).toBe('');
+  });
+});
+
+describe('the modal CAN be opened pre-filled — the re-run case', () => {
+  test('a text field takes the supplied value over its own default', () => {
+    const view = buildModalView({ initial: { branch: 'feature/x', task: 'Re-run this' } });
+    const branch = view.blocks.find(b => b.block_id === BLOCK_IDS.branch);
+    const task = view.blocks.find(b => b.block_id === BLOCK_IDS.task);
+    expect(branch.element.initial_value).toBe('feature/x');
+    expect(task.element.initial_value).toBe('Re-run this');
+  });
+
+  test('a field with no supplied value keeps its default', () => {
+    const view = buildModalView({ initial: { task: 'x' } });
+    expect(view.blocks.find(b => b.block_id === BLOCK_IDS.branch).element.initial_value).toBe('main');
+  });
+
+  test('a long instructions body is truncated to the field\'s own max_length', () => {
+    const long = 'x'.repeat(5000);
+    const block = buildModalView({ initial: { instructions: long } })
+      .blocks.find(b => b.block_id === BLOCK_IDS.instructions);
+    expect(block.element.initial_value.length).toBe(block.element.max_length);
+  });
+
+  test('the select pre-fills only with an option it actually offers', () => {
+    const saved = process.env.REPOS;
+    try {
+      process.env.REPOS = 'a/one,b/two';
+      jest.resetModules();
+      const modal = require('../lib/dispatch-modal');
+      const good = modal.buildModalView({ initial: { repo: 'b/two' } })
+        .blocks.find(b => b.block_id === modal.BLOCK_IDS.repo);
+      expect(good.element.initial_option.value).toBe('b/two');
+
+      // A repository that has since been removed from REPOS. Slack rejects an
+      // initial_option absent from options, which would fail the modal open — so
+      // the pre-fill is dropped rather than the command breaking.
+      const stale = modal.buildModalView({ initial: { repo: 'gone/away' } })
+        .blocks.find(b => b.block_id === modal.BLOCK_IDS.repo);
+      expect(stale.element.initial_option).toBeUndefined();
+    } finally {
+      if (saved === undefined) delete process.env.REPOS; else process.env.REPOS = saved;
+      jest.resetModules();
+    }
+  });
+
+  test('no initial context at all still builds the ordinary modal', () => {
+    const view = buildModalView();
+    expect(view.blocks.length).toBe(FIELD_KEYS.length);
+    expect(view.callback_id).toBe(CALLBACK_ID);
   });
 });
