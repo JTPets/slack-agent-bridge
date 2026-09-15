@@ -214,9 +214,11 @@ resource fencing for a local Ollama server.
 > `auto-update.js` exists, is fully implemented, and has 62 passing tests — and
 > **nothing starts it.** No npm script runs it (`npm run` shows only `test`,
 > `test:smoke`, `validate`), nothing in the code spawns or forks it, and the repo has no
-> compose file, Procfile or systemd unit. A check from inside the live container found
-> the compose service's `command:` starts `node bridge-agent.js` only
-> (`docs/CONFIG-SURFACE-AND-REBUILD.md`, Step 5).
+> Procfile or systemd unit. A check from inside the live container found the compose
+> service's `command:` starts `node bridge-agent.js` only
+> (`docs/CONFIG-SURFACE-AND-REBUILD.md`, Step 5) — and the tracked
+> `docker-compose.example.yml` (added 2026-09-15) is the off-box copy of that same file,
+> carrying that same command, not a second deployment.
 >
 > **What this means in practice:** merging to `main` does not change the running
 > process. A human running `docker compose restart jt-agent` on the NAS is the deploy.
