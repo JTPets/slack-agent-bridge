@@ -405,6 +405,151 @@ describe('task-queue', () => {
                 expect(recent[1].description).toBe('First');
             });
 
+            // LOGIC CHANGE 2026-09-15: the regression guard for WORK-TODO #43. The test
+            // above ("sorted by completion time") asserts the RIGHT thing and was
+            // failing at random - 25 of 40 isolated runs of this file on the base
+            // commit - because whether two completions land in the same millisecond
+            // is a race. It is kept unchanged: it did not encode the defect, the
+            // source failed to meet it. What it could not do is fail DETERMINISTICALLY,
+            // which is what these do.
+            describe('the ordering is total, not incidental (WORK-TODO #43)', () => {
+                it('returns newest-first when both entries carry the SAME completedAt', () => {
+                    const queue = new TaskQueue(queueFile);
+
+                    queue.enqueue({ msgTs: '1.1', channelId: 'C1', text: 'T1', description: 'First' });
+                    queue.complete(queue.dequeue().id, 'Done1');
+                    queue.enqueue({ msgTs: '2.2', channelId: 'C1', text: 'T2', description: 'Second' });
+                    queue.complete(queue.dequeue().id, 'Done2');
+
+                    // Force the collision the clock only sometimes produces. Without a
+                    // tiebreaker the comparator returns 0, Array#sort is stable, and
+                    // insertion order wins: 'First' comes back first, every time.
+                    const data = JSON.parse(fs.readFileSync(queueFile, 'utf8'));
+                    const stamp = new Date().toISOString();
+                    data.forEach((t) => { t.completedAt = stamp; });
+                    fs.writeFileSync(queueFile, JSON.stringify(data, null, 2), 'utf8');
+
+                    const recent = queue.getRecentCompleted(5);
+                    expect(recent.map(t => t.description)).toEqual(['Second', 'First']);
+                });
+
+                // NOT a tight timing loop. One was written here first and REMOVED: with
+                // a temp-dir cleanup per iteration it ran slowly enough that the two
+                // completions never shared a millisecond, so it reported 0/300 wrong
+                // orderings against the UNFIXED library - a guard that goes green on the
+                // defect it exists to catch. Removing the clock from the test is the fix;
+                // the before/after rates are measured by running this file repeatedly and
+                // are recorded in the commit body, not asserted here.
+                it('orders ten entries sharing ONE completedAt strictly newest-first', () => {
+                    const queue = new TaskQueue(queueFile);
+                    for (let i = 0; i < 10; i++) {
+                        queue.enqueue({ msgTs: `${i}.${i}`, channelId: 'C1', text: `T${i}`, description: `Task ${i}` });
+                        queue.complete(queue.dequeue().id, 'Done');
+                    }
+
+                    const data = JSON.parse(fs.readFileSync(queueFile, 'utf8'));
+                    const stamp = new Date().toISOString();
+                    data.forEach((t) => { t.completedAt = stamp; });
+                    fs.writeFileSync(queueFile, JSON.stringify(data, null, 2), 'utf8');
+
+                    // Every pair now ties on completedAt. A total order still reverses
+                    // insertion exactly; a partial one hands back insertion order.
+                    const recent = queue.getRecentCompleted(10);
+                    expect(recent.map(t => t.description)).toEqual([
+                        'Task 9', 'Task 8', 'Task 7', 'Task 6', 'Task 5',
+                        'Task 4', 'Task 3', 'Task 2', 'Task 1', 'Task 0',
+                    ]);
+
+                    // Totality, stated directly: no two entries compare equal.
+                    const seqs = recent.map(t => t.completionSeq);
+                    expect(new Set(seqs).size).toBe(seqs.length);
+                });
+
+                it('assigns a distinct completionSeq to every terminal transition', () => {
+                    const queue = new TaskQueue(queueFile);
+
+                    // All three terminal writers, interleaved, inside one file.
+                    for (let i = 0; i < 12; i++) {
+                        queue.enqueue({ msgTs: `${i}.${i}`, channelId: 'C1', text: `T${i}`, description: `Task ${i}` });
+                        const t = queue.dequeue();
+                        if (i % 3 === 0) queue.complete(t.id, 'Done');
+                        else if (i % 3 === 1) queue.fail(t.id, 'Boom');
+                        else queue.interrupt(t.id, 'Killed');
+                    }
+
+                    const seqs = JSON.parse(fs.readFileSync(queueFile, 'utf8')).map(t => t.completionSeq);
+                    expect(seqs.every(Number.isInteger)).toBe(true);
+                    expect(new Set(seqs).size).toBe(seqs.length);
+                });
+
+                it('gives each entry its own seq when one startup sweep recovers several', () => {
+                    const queue = new TaskQueue(queueFile);
+                    for (const [ts, desc] of [['1.1', 'A'], ['2.2', 'B'], ['3.3', 'C']]) {
+                        queue.markRunning(
+                            queue.enqueue({ msgTs: ts, channelId: 'C1', text: ts, description: desc }).id,
+                        );
+                    }
+
+                    expect(queue.recoverInterrupted()).toBe(3);
+
+                    const seqs = JSON.parse(fs.readFileSync(queueFile, 'utf8'))
+                        .filter(t => t.status === STATUS.INTERRUPTED)
+                        .map(t => t.completionSeq);
+                    expect(seqs.length).toBe(3);
+                    expect(new Set(seqs).size).toBe(3);
+                });
+
+                it('orders entries written before the field existed AFTER those carrying it', () => {
+                    const queue = new TaskQueue(queueFile);
+                    queue.enqueue({ msgTs: '9.9', channelId: 'C1', text: 'T9', description: 'New' });
+                    queue.complete(queue.dequeue().id, 'Done');
+
+                    // A row from a queue file written by the previous version: no seq,
+                    // and a completedAt LATER than the seq-bearing row, to prove the
+                    // rule is "seq first", not "whichever stamp is larger".
+                    const data = JSON.parse(fs.readFileSync(queueFile, 'utf8'));
+                    data.push({
+                        id: 'legacy-1',
+                        msgTs: '8.8',
+                        channelId: 'C1',
+                        text: 'T8',
+                        description: 'Legacy',
+                        status: STATUS.COMPLETED,
+                        enqueuedAt: new Date().toISOString(),
+                        startedAt: null,
+                        completedAt: new Date(Date.now() + 60_000).toISOString(),
+                        error: null,
+                    });
+                    fs.writeFileSync(queueFile, JSON.stringify(data, null, 2), 'utf8');
+
+                    expect(queue.getRecentCompleted(5).map(t => t.description)).toEqual(['New', 'Legacy']);
+                });
+
+                it('keeps seqs unique after cleanup() removes the current maximum', () => {
+                    const queue = new TaskQueue(queueFile);
+                    for (let i = 0; i < 3; i++) {
+                        queue.enqueue({ msgTs: `${i}.${i}`, channelId: 'C1', text: `T${i}`, description: `Task ${i}` });
+                        queue.complete(queue.dequeue().id, 'Done');
+                    }
+
+                    // Age every existing row out, so cleanup() takes the maximum with it.
+                    const aged = JSON.parse(fs.readFileSync(queueFile, 'utf8'));
+                    aged.forEach((t) => { t.completedAt = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(); });
+                    fs.writeFileSync(queueFile, JSON.stringify(aged, null, 2), 'utf8');
+                    expect(queue.cleanup()).toBe(3);
+
+                    queue.enqueue({ msgTs: '7.7', channelId: 'C1', text: 'T7', description: 'After cleanup' });
+                    queue.complete(queue.dequeue().id, 'Done');
+                    queue.enqueue({ msgTs: '8.8', channelId: 'C1', text: 'T8', description: 'Last' });
+                    queue.complete(queue.dequeue().id, 'Done');
+
+                    const rows = JSON.parse(fs.readFileSync(queueFile, 'utf8'));
+                    const seqs = rows.map(t => t.completionSeq);
+                    expect(new Set(seqs).size).toBe(seqs.length);
+                    expect(queue.getRecentCompleted(5).map(t => t.description)).toEqual(['Last', 'After cleanup']);
+                });
+            });
+
             it('respects limit parameter', () => {
                 const queue = new TaskQueue(queueFile);
 

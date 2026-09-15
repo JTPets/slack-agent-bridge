@@ -1049,6 +1049,35 @@ and `auto-update.js` to prevent task interruption during updates.
   (recorded at the next startup by `recoverInterrupted()`), or by a child-process
   kill it did survive (recorded immediately by `interrupt()`)
 
+**LOGIC CHANGE 2026-09-15: a terminal entry also carries `completionSeq`, and that — not
+`completedAt` — is what orders `getRecentCompleted()`.** `completedAt` is an ISO string at
+**millisecond** resolution, so two tasks finishing in the same millisecond compared equal;
+`Array#sort` is stable, so the tie handed them back in *insertion* order, oldest first,
+the opposite of what the method promises. That surfaced as `ASK: what's queued` showing
+the owner the wrong order, and — the reason it was P-worthy — as
+`tests/task-queue.test.js` going red at random: **25 of 40** isolated runs on the base
+commit, at one assertion.
+
+`completionSeq` is an integer assigned by `_nextCompletionSeq()` as `1 + max(seq already
+in the file)`, inside the same synchronous load → mutate → save block every write already
+uses. **It cannot tie:** it is derived to be strictly greater than every value present, so
+uniqueness holds by induction over the file, and there is no clock involved and therefore
+no resolution at which to collide. It is persisted on the entry rather than held in
+memory, so it survives a container restart — which `process.hrtime.bigint()` would not,
+its origin being per-process, so a post-restart completion would sort *before* a
+pre-restart one.
+
+All four terminal writers stamp it (`complete`, `fail`, `interrupt`, and each entry
+`recoverInterrupted()` sweeps); `_startRunning()` clears it alongside `completedAt`, so a
+re-attempt takes a fresh, higher seq. `completedAt` is still written exactly as before and
+every other reader of it is untouched (`cleanup()`'s 24-hour retention,
+`morning-digest.js`, `lib/watercooler.js`, `lib/memory-tiers.js`). Entries written before
+the field existed carry no seq and sort *after* every entry that has one — correct rather
+than a compromise, since a seq is stamped at the terminal transition, so a row lacking one
+necessarily terminated before this code ran. Guard:
+`tests/task-queue.test.js` → `describe('the ordering is total, not incidental')`, six
+tests, all six red without the fix.
+
 **LOGIC CHANGE 2026-09-14: `running` is a state the live path actually enters.** Until
 now `dequeue()` was the *sole* writer of `running` and `startedAt`, and it had **zero
 non-test callers**: the live path went `enqueue` → `complete`/`fail` with no transition

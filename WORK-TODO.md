@@ -33,17 +33,18 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
-At the 2026-09-15 command-router pass those print **45** open items — 7 P1, 30 P2, 8 P3 —
-and **one duplicate ID, `### 43.`, which is a defect in this file.** (The size-gate pass
-earlier the same day printed 40 — 7/26/7; #45-#49 were filed after it.) Two items share it: the P1
-"A flattened dispatch loses its fields" and the P2 "`getRecentCompleted` sorts by a
-millisecond timestamp". They were filed on branches that picked the same next ID
-independently — the same collision this paragraph previously recorded being resolved once
-already, recurring because "the next ID" is read by eye rather than by command. **Renumbering
-one is the owner's call, not an executor's** (an ID is an address and #43 may already be cited
-elsewhere), so it is recorded here rather than silently fixed. The preceding count also read
-38 while the command printed 39: the figure was stale *and* the duplicate was invisible to
-whoever wrote it.
+At the 2026-09-15 task-queue-ordering pass those print **45** open items — 7 P1, 30 P2,
+8 P3 — and **no duplicate ID.** (The command-router pass earlier the same day also printed
+45; the size-gate pass before it printed 40 — 7/26/7.)
+
+**The `### 43.` collision is resolved, by closure rather than by renumbering.** Two items
+shared that number: the P1 "A flattened dispatch loses its fields" and the P2
+"`getRecentCompleted` sorts by a millisecond timestamp". The second is now closed and
+purged, so one `### 43.` remains and the duplicate-ID command prints nothing. Renumbering
+was never done — an ID is an address, and the P1 #43 keeps the one it has. **The cause is
+not fixed:** "the next ID" is still read by eye rather than by the command in this block,
+which is how the collision happened twice. The duplicate-ID check above is the guard; run
+it before filing, not after.
 
 (Was 35 — 4/24/7 — after #28 was closed by the email-rules-file work; the NAS hardening pass
 then filed #41 and #42, and the additive Socket Mode connection filed #43, all on 2026-09-15.
@@ -94,11 +95,11 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#39** — [The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged](#39-the-queue-cannot-tell-a-completed-task-from-a-landed-one--nothing-here-knows-whether-a-branch-merged)
 - **#40** — [Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout](#40-uncommitted-edits-in-the-live-deployment-tree--reported-not-verifiable-from-a-checkout)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
-- **#43** — [`getRecentCompleted` sorts by a millisecond timestamp, so same-millisecond tasks come back oldest-first — and it makes the suite flaky](#43-getrecentcompleted-sorts-by-a-millisecond-timestamp-so-same-millisecond-tasks-come-back-oldest-first--and-it-makes-the-suite-flaky)
 - **#45** — [Commands are verbs, names are channels — record the distinction before the namespace has both](#45-commands-are-verbs-names-are-channels--record-the-distinction-before-the-namespace-has-both)
 - **#46** — [`/dispatch` posts to one fixed channel — routing by the invoking channel needs two things that do not exist](#46-dispatch-posts-to-one-fixed-channel--routing-by-the-invoking-channel-needs-two-things-that-do-not-exist)
 - **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
 - **#49** — [`NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does](#49-natural_conversation_mode-is-off-and-nothing-establishes-what-turning-it-on-does)
+- **#50** — [`npm test` is red in a fresh clone: 30 tests depend on a gitignored file no checkout has](#50-npm-test-is-red-in-a-fresh-clone-30-tests-depend-on-a-gitignored-file-no-checkout-has)
 
 **P3 — nice to have / uncertain ROI** (8)
 
@@ -1599,60 +1600,6 @@ Whichever is chosen, `PRIORITY.HIGH` must stop returning `true` for a message it
 
 ---
 
-### 43. `getRecentCompleted` sorts by a millisecond timestamp, so same-millisecond tasks come back oldest-first — and it makes the suite flaky
-**Filed 2026-09-15,** from an unexplained single failure during the /dispatch form work.
-Not caused by that change: `git diff origin/main...HEAD --stat` on that branch lists
-neither `lib/task-queue.js` nor `tests/task-queue.test.js`.
-
-**Verified at HEAD.** `lib/task-queue.js` `getRecentCompleted` sorts with
-`(a, b) => new Date(b.completedAt) - new Date(a.completedAt)`, and `completedAt` is
-`new Date().toISOString()` — millisecond resolution. Two tasks completed inside the same
-millisecond compare equal, `Array#sort` is stable, so they are returned in INSERTION
-order: oldest first, the opposite of the method's documented contract.
-
-**Regenerate the collision rate** (writes only to a temp dir):
-
-```bash
-node -e '
-const os=require("os"),path=require("path"),fs=require("fs");
-const {TaskQueue}=require("./lib/task-queue");
-let wrong=0,runs=2000;
-for(let i=0;i<runs;i++){
-  const f=path.join(fs.mkdtempSync(path.join(os.tmpdir(),"q-")),"q.json");
-  const q=new TaskQueue(f);
-  q.enqueue({msgTs:"1.1",channelId:"C1",text:"T1",description:"First"});
-  q.complete(q.dequeue().id,"Done1");
-  q.enqueue({msgTs:"2.2",channelId:"C1",text:"T2",description:"Second"});
-  q.complete(q.dequeue().id,"Done2");
-  if(q.getRecentCompleted(5)[0].description!=="Second") wrong++;
-}
-console.log(`oldest-first (wrong) orderings: ${wrong}/${runs}`);
-' 2>/dev/null | tail -1
-```
-
-Observed **1522/2000** in a tight loop on 2026-09-15 (node v22.22.2, in-container).
-
-**Two consequences, and the second is the reason this is filed rather than shrugged at.**
-
-1. *Live path:* `formatStatusResponse` renders `getRecentCompleted`, so `ASK: what's
-   queued` shows the owner the last five tasks in the wrong order whenever two finished
-   in the same millisecond. Cosmetic, low.
-2. *Verification integrity:* `tests/task-queue.test.js` -> `getRecentCompleted` ->
-   "returns completed tasks sorted by completion time (newest first)" fails
-   intermittently — observed **once in 25** full `npm test` runs on 2026-09-15. The full
-   suite is the gate on every commit in this repo, and a gate that goes red at random
-   trains its readers to re-run rather than to read. That is the same class as a green
-   suite that skipped: the signal stops meaning what it says.
-
-**The fix is in the source, not the test.** A test asserting the current behaviour would
-encode the defect. Either give a completed task a monotonic tiebreaker (an incrementing
-sequence, or `process.hrtime.bigint()` alongside `completedAt`) and sort on it, or fall
-back to the existing `id` — which already carries `Date.now()` plus a random suffix — when
-`completedAt` compares equal. Order within one millisecond must be total, not incidental.
-**Priority:** P2 | **Effort:** Low | **Status:** open — not touched by the /dispatch change
-
----
-
 ### 45. Commands are verbs, names are channels — record the distinction before the namespace has both
 **Filed 2026-09-15,** from the command-router pass. **This is a decision record, not a
 defect.** Nothing is broken today; what is at stake is that the first command named after
@@ -1757,6 +1704,72 @@ anywhere.
 things that *would* depend on this path. Nothing should, until the four questions above
 have answers.
 **Priority:** P2 | **Effort:** Low to investigate; unknown to make safe | **Status:** open — question recorded, unanswered
+
+---
+
+### 50. `npm test` is red in a fresh clone: 30 tests depend on a gitignored file no checkout has
+**Filed 2026-09-15,** from establishing the base state before the `getRecentCompleted`
+fix. **This is a verification-integrity item, not a feature gap:** the full suite is the
+stated gate on every commit in this repository (`docs/EXECUTOR-CONTRACT.md` §5), and in
+the environment every dispatched task actually runs in — a fresh scratch clone — that
+gate reports 30 failures that have nothing to do with the change under test.
+
+**Measured at `1e4878f`, with no working-tree change, `--runInBand`, after deleting the
+runtime artifacts left by a previous run:**
+
+```bash
+rm -f agents/shared/channel-map.json agents/shared/watercooler-state.json
+npx jest --runInBand 2>&1 | tail -5
+# Test Suites: 6 failed, 59 passed, 65 total
+# Tests:       30 failed, 2164 passed, 2194 total
+```
+
+**The cause, confirmed by making it go away.** `agents/shared/channel-map.json` is
+gitignored (`.gitignore:9`) and is the ONLY thing that maps an agent's declared
+`channel_name` to an id. A clone has never had one, so every agent resolves to no
+channel, and every assertion of the form "agents with channels" gets an empty set.
+Seeding the file with one entry per declared `channel_name` — the ids need not even be
+the real ones, which is itself the point — turns the same commit green:
+
+```bash
+# any syntactically valid ids will do; resolution is all the suites need
+printf '{"claude-bridge":"C1","code-agent":"C2","secretary-agent":"C3",
+"security-agent":"C4","email-monitor-agent":"C5","story-bot-agent":"C6"}' \
+  > agents/shared/channel-map.json
+npx jest --runInBand 2>&1 | tail -5
+# Test Suites: 65 passed, 65 total
+# Tests:       2194 passed, 2194 total
+```
+
+**The six suites:** `tests/agent-scheduler.test.js`, `tests/agent-surface.test.js`,
+`tests/bulletin-watcher.test.js`, `tests/failure-visibility.test.js`,
+`tests/multi-channel-routing.test.js`, `tests/security-followup.test.js`.
+
+**Why this is the same class as a green suite that skipped.** The repo already treats a
+gate that can go red for a non-code reason as a defect — the size half of
+`npm run validate` was red on 65 standing violations until 2026-09-15 precisely because
+"a new violation could not be told apart from the standing ones", and twice in one week
+nobody checked. This is that failure with the sign flipped: an executor who runs
+`npm test` in a scratch clone sees 30 red and must either diff the failure list by hand
+against a base run or dismiss it. Dismissing red is the habit being trained.
+
+**A second, smaller finding inside the same surface.** Some suite writes the REAL
+`agents/shared/channel-map.json` rather than a temp path — after a run it contains
+`{"test-channel":"C12345","new-channel":"C99999","my-channel":"C12345"}`. So the suite
+mutates the same ambient state its own outcome depends on. Find the writer with:
+
+```bash
+grep -rn "channel-map" tests/ | grep -v "tmpdir\|mkdtemp"
+```
+
+**Fix (not chosen here; it is a test-architecture decision):** either the six suites
+provide their own channel-map fixture and point the resolver at a temp dir (the shape
+`tests/bridge-state.test.js` and `tests/agent-activation.test.js` already use), or a
+tracked fixture file is added and the resolver prefers it under `NODE_ENV=test`. The
+first is the repo's existing convention; the second is fewer edits. Whichever is taken,
+the guard that it stays fixed is a run from a clean checkout with no
+`agents/shared/*.json` runtime artifacts present.
+**Priority:** P2 | **Effort:** Low-Medium | **Status:** open — measured and reproduced, not fixed
 
 ---
 
