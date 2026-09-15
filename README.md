@@ -139,8 +139,17 @@ The agent responds directly without cloning any repo.
 
 `lib/slack-socket.js` opens one Socket Mode WebSocket for **slash commands**. It does
 **not** carry messages: the HTTP poll loop is unchanged and is still the only path a
-`TASK:`/`ASK:` message arrives on. No command is registered yet — this is the connection
-only.
+`TASK:`/`ASK:` message arrives on.
+
+**`/dispatch`** is the one command it carries. It opens a modal with **five separate
+inputs** — task, repository, branch, turn budget, instructions — and posts the composed
+task message to `#claude-bridge`, where the poll loop picks it up like any other message.
+A form exists because Slack can flatten a pasted multi-line dispatch onto one line, at
+which point the field labels stop being line-anchored and `REPO:` swallows the rest of the
+message; five separate inputs cannot be flattened. Repository and branch are validated by
+`lib/git-identifiers.js` and **rejected, never sanitised**, with the reason shown on the
+offending input so the form stays open and nothing typed is lost. Full behaviour, and the
+failure paths, are in `CLAUDE.md` → "The `/dispatch` command".
 
 **Leaving `SLACK_APP_TOKEN` unset is supported.** The bridge starts and runs normally;
 the absence is logged and posted to `#sqtools-ops` once. Every other failure — a `xoxb-`
@@ -149,12 +158,23 @@ same way and never stops startup. An outage lasting `SOCKET_MODE_DOWN_ALERT_MS` 
 and re-posted until the connection recovers, because a library that reconnects silently
 also fails silently.
 
-**To enable it** (owner action; the bridge cannot do this itself): at
-[api.slack.com/apps](https://api.slack.com/apps) → your app → **Settings → Socket Mode**,
-turn Socket Mode on; then **Basic Information → App-Level Tokens** → generate a token with
-the `connections:write` scope; put it in `.env` as `SLACK_APP_TOKEN`; recreate the
-container (`docker compose up -d --force-recreate jt-agent` — a plain `restart` keeps the
-old environment).
+**To enable it** (owner action; the bridge cannot do this itself), at
+[api.slack.com/apps](https://api.slack.com/apps) → your app:
+
+1. **Settings → Socket Mode** — turn Socket Mode on.
+2. **Basic Information → App-Level Tokens** — generate a token with the
+   `connections:write` scope; put it in `.env` as `SLACK_APP_TOKEN`.
+3. **Features → Slash Commands → Create New Command** — command `/dispatch`, no Request
+   URL (Socket Mode does not need one), "Escape channels, users, and links" off.
+4. **Features → Interactivity & Shortcuts** — turn Interactivity **on**. Separate from
+   step 3 and required: without it the modal opens but submitting it does nothing.
+5. **Reinstall the app** — a new slash command adds the `commands` scope, which needs a
+   reinstall to take effect.
+6. Recreate the container (`docker compose up -d --force-recreate jt-agent` — a plain
+   `restart` keeps the old environment).
+
+None of the above is verifiable from this repository; the app configuration lives in
+Slack.
 
 ### Scheduled Inbox Check Variables
 

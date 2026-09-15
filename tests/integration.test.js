@@ -513,6 +513,10 @@ describe('LLM fallback is actually wired in', () => {
 // Three modules in this repo GENERATE task messages that parseTask then reads back.
 // If a generator drifts from the parser's rules, auto-generated tasks silently lose
 // their repo or instructions — so the round trip is pinned here rather than assumed.
+// LOGIC CHANGE 2026-09-15: FOUR generators. lib/dispatch-message.js joins the pin —
+// it is the slash-command form's generator, and a form that emits something the
+// parser reads differently is the same defect the form exists to remove, arriving
+// from the other direction (docs/WIRING-AND-SEAMS.md section 7, step 4).
 describe('generated task messages round-trip through parseTask', () => {
     const { parseTask } = require('../lib/task-parser');
 
@@ -565,6 +569,51 @@ describe('generated task messages round-trip through parseTask', () => {
         expect(parsed.repo).toBe('jtpets/slack-agent-bridge');
         expect(parsed.skill).toBe('security-fix');
         expect(parsed.instructions).toContain('Example finding');
+    });
+
+    test('the dispatch-modal generator parses with no rejected fields', () => {
+        const { composeDispatchMessage } = require('../lib/dispatch-message');
+
+        const { ok, message, values } = composeDispatchMessage({
+            task: 'Add a slash command and modal',
+            repo: 'JTPets/slack-agent-bridge',
+            branch: 'main',
+            turns: '100',
+            instructions: 'Read the contract.\nThen build the form.\nRun npm test.',
+        });
+
+        expect(ok).toBe(true);
+
+        const parsed = parseTask(message);
+
+        expect(parsed.errors).toEqual([]);
+        expect(parsed.description).toBe(values.task);
+        expect(parsed.repo).toBe('JTPets/slack-agent-bridge');
+        expect(parsed.branch).toBe(values.branch);
+        expect(parsed.turns).toBe(100);
+        expect(parsed.instructions).toBe(values.instructions);
+    });
+
+    test('the dispatch-modal generator round-trips with the optional fields omitted', () => {
+        const { composeDispatchMessage } = require('../lib/dispatch-message');
+
+        const { ok, message, values } = composeDispatchMessage({
+            task: 'Research the deploy path',
+            repo: '',
+            branch: '',
+            turns: '',
+            instructions: 'Read docs/WIRING-AND-SEAMS.md and report.',
+        });
+
+        expect(ok).toBe(true);
+
+        const parsed = parseTask(message);
+
+        expect(parsed.errors).toEqual([]);
+        expect(parsed.repo).toBe('');
+        expect(parsed.branch).toBe('main');
+        expect(parsed.turns).toBe(values.turns);
+        expect(parsed.instructions).toBe(values.instructions);
     });
 
     test('every agent-scheduler task template parses with no rejected fields', () => {

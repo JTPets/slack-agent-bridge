@@ -404,6 +404,50 @@ describe('the command seam', () => {
         expect(ack).toHaveBeenCalledWith({ text: 'handled' });
     });
 
+    // LOGIC CHANGE 2026-09-15: The seam now has two halves. A modal opened by a slash
+    // command comes BACK as an `interactive` envelope, so a command that opens a form
+    // is inert without this one.
+    test('interactive: no handler attached: the submission is acknowledged, never left hanging', async () => {
+        const h = harness();
+        await startSocketMode(h.deps);
+        const ack = jest.fn(async () => undefined);
+
+        await h.client.emit('interactive', { ack, body: { type: 'view_submission' } });
+
+        expect(ack).toHaveBeenCalledTimes(1);
+        expect(h.logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining('view_submission')
+        );
+    });
+
+    test('interactive: an attached handler receives the envelope and owns the ack', async () => {
+        const onInteractive = jest.fn(async ({ ack }) => ack({ response_action: 'errors', errors: {} }));
+        const h = harness();
+        await startSocketMode({ ...h.deps, onInteractive });
+        const ack = jest.fn(async () => undefined);
+
+        await h.client.emit('interactive', { ack, body: { type: 'view_submission', view: { id: 'V1' } } });
+
+        expect(onInteractive).toHaveBeenCalledTimes(1);
+        expect(onInteractive.mock.calls[0][0].body.view.id).toBe('V1');
+        expect(ack).toHaveBeenCalledWith({ response_action: 'errors', errors: {} });
+    });
+
+    test('a throwing interactive handler is contained — this module can never kill the bridge', async () => {
+        const h = harness();
+        await startSocketMode({
+            ...h.deps,
+            onInteractive: async () => { throw new Error('handler exploded'); },
+        });
+
+        const returned = h.client.handlers.interactive({ ack: jest.fn(), body: {} });
+
+        await expect(returned).resolves.toBeUndefined();
+        expect(h.logger.error).toHaveBeenCalledWith(
+            expect.stringContaining('handler exploded')
+        );
+    });
+
     test('no command is registered in this change', () => {
         // The deliverable is a connection, not a command. If a future change adds one
         // here without also adding the modal and the parser round trip, this fails and
@@ -443,26 +487,70 @@ describe('the wiring in bridge-agent.js', () => {
     });
 
     test('it is not awaited, so it can never block startup', () => {
+        // LOGIC CHANGE 2026-09-15: the call now carries the two seam handlers, so the
+        // old literal `startSocketMode()` no longer appears. The PROPERTY being pinned
+        // is unchanged and is what the regex asserts: the result is consumed with
+        // .then(), never awaited, so startup cannot block on the connection.
         expect(code).not.toMatch(/await\s+startSocketMode\s*\(/);
-        expect(source).toMatch(/startSocketMode\(\)\s*\n\s*\.then\(/);
+        expect(source).toMatch(/startSocketMode\(\{[\s\S]*?\n\s*\}\)\s*\n\s*\.then\(/);
         expect(source).toMatch(/\.catch\(\(socketErr\)/);
+    });
+
+    test('both halves of the command seam are attached, not just the command', () => {
+        // A slash command that opens a modal is inert without the interactive half:
+        // the operator submits the form and nothing ever acknowledges it.
+        expect(code).toMatch(/onSlashCommand:\s*\(envelope\)\s*=>/);
+        expect(code).toMatch(/onInteractive:\s*\(envelope\)\s*=>/);
+        expect(source).toMatch(/require\('\.\/lib\/dispatch-command'\)/);
+    });
+
+    test('the seam reuses the poll loop\u2019s allowlist rather than a second check', () => {
+        // The gate has to be here: the composed task is posted AS THE BOT, and the
+        // poll loop lets a bot post through without an allowlist check.
+        const seam = code.slice(code.indexOf('startSocketMode({'));
+        expect(seam).toMatch(/isAuthorized:\s*isUserAuthorized/);
+        expect((seam.match(/isAuthorized:\s*isUserAuthorized/g) || []).length).toBe(2);
+    });
+
+    test('the composed task is POSTED, not handed to the task path directly', () => {
+        const seam = code.slice(code.indexOf('startSocketMode({'));
+        expect(seam).toMatch(/postMessage:\s*\(args\)\s*=>\s*slack\.chat\.postMessage/);
+        expect(seam).toMatch(/bridgeChannel:\s*BRIDGE_CHANNEL/);
+        expect(seam).not.toMatch(/processTask/);
     });
 
     test('the poll loop still owns message intake — the socket subscribes to no message event', () => {
         // The dispatch constraint, made executable: this connection carries commands.
         // If it ever starts receiving messages, message intake has two owners and the
         // dedup/authorisation path in poll() is no longer the single gate.
+        //
+        // LOGIC CHANGE 2026-09-15: 'interactive' joins the allowed set. It is what a
+        // modal submission arrives on, and a slash command that opens a form is
+        // useless without it. It is NOT a message event: it is delivered only because
+        // this app opened that view, it carries no channel history, and no TASK:/ASK:
+        // message can reach the bridge through it. The guard's CLAIM is unchanged —
+        // no message intake — so the denylist below is the half that carries it, and
+        // it is widened here rather than left implied by the allowlist.
         const socketSource = fs.readFileSync(
             path.join(__dirname, '..', 'lib', 'slack-socket.js'),
             'utf8'
         );
         const subscriptions = [...socketSource.matchAll(/client\.on\(\s*'([a-z_]+)'/g)].map((m) => m[1]);
         expect(subscriptions.sort()).toEqual(
-            ['connected', 'disconnected', 'reconnecting', 'slash_commands'].sort()
+            ['connected', 'disconnected', 'reconnecting', 'slash_commands', 'interactive'].sort()
         );
-        expect(subscriptions).not.toContain('message');
-        expect(subscriptions).not.toContain('app_mention');
+        for (const messageEvent of [
+            'message',
+            'app_mention',
+            'message_changed',
+            'message_replied',
+            'events_api',
+            'slack_event',
+        ]) {
+            expect(subscriptions).not.toContain(messageEvent);
+        }
     });
+
 
     test('graceful shutdown closes the connection when one is open, but is not held open by it', () => {
         // Stopping matters so a deliberate shutdown is not reported as an outage.

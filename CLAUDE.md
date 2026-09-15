@@ -627,6 +627,9 @@ slack-agent-bridge/
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive
 │   ├── owner-tasks.js    # Owner task management: activation checklists, pending tasks, ACTION REQUIRED detection
 │   ├── notify-owner.js   # Owner notification layer, the single path for owner-facing messages: init() injects the Slack client/owner id/ops channel; notifyOps posts an operational failure to #sqtools-ops (redacted) so a lib module never needs a fourth postToOps; notifyOwner routes by PRIORITY (CRITICAL -> the secretary agent's channel when active, else a direct DM; HIGH -> logged for a digest that does not exist yet; LOW -> logged only) plus taskFailed/taskCompleted/actionRequired/rateLimitHit/rateLimitCleared. Redacts via lib/redact-secrets.js before anything leaves
+│   ├── dispatch-command.js # THE COMMAND half of /dispatch: handleSlashCommand acknowledges within Slack's three-second window and THEN opens the modal from the trigger_id; handleViewSubmission composes the submission and POSTS it to the bridge channel, where poll() picks it up like any other message (one intake path, one dedup owner) — it never calls the task path. Authorisation is this module's own gate via lib/config.js isUserAuthorized, because a bot-posted message bypasses the poll loop's allowlist by design. Neither handler ever rejects
+│   ├── dispatch-modal.js   # THE FORM half of /dispatch: buildModalView builds the five separate inputs FROM lib/dispatch-message.js's FIELD_KEYS (so form and generator cannot gain a field independently), extractSubmission reads them back out of a view_submission (Slack sends a blank optional input as null), and toSlackErrors keys a rejection by block_id so it lands on the offending input
+│   ├── dispatch-message.js # THE GENERATOR half of the /dispatch slash-command form: validateDispatchFields rejects (never sanitises) the five modal inputs — REPO:/BRANCH: through lib/git-identifiers.js, TURNS: against the parser's own MIN_TURNS/MAX_TURNS, and an instructions body carrying a line that starts with a task field label — buildDispatchMessage emits UPPERCASE line-anchored labels with INSTRUCTIONS: last, and assertRoundTrip parses the result back and THROWS on any mismatch before it can be posted. The round trip is pinned in tests/integration.test.js beside the three other generators
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
 │   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork, assertValidTargetDir. Every git call is an execFileSync argv array — no function here builds a shell command string
 │   ├── bridge-state.js    # State persistence (seam B): sole owner of .bridge-agent-state.json (per-channel poll cursors) and processed-tasks.json (task dedup); init, get/setLastChecked, isTaskProcessed, markTaskProcessed, cleanupProcessedTasks
@@ -693,6 +696,10 @@ slack-agent-bridge/
 │   ├── notify-owner.test.js     # Tests for lib/notify-owner.js (priority routing, secretary-vs-DM fallback, redaction)
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
 │   ├── heartbeat.test.js        # Tests for lib/heartbeat.js (emoji cycle, terminal reaction, failures never propagate)
+│   ├── dispatch-command.test.js # Tests for lib/dispatch-command.js: the ack precedes the modal open (a hanging views.open cannot delay it), the allowlist is the injected one, a rejected field is reported IN the form, and every failure path — modal open failure, post failure, and a post that outlives the ack window (reported as UNKNOWN, never as failed, because a confident 'failed' invites a resubmission that dispatches the task twice)
+│   ├── dispatch-failure-paths.test.js # Part four of /dispatch: a failure must never look like success. views.open failing after the ack reaches the operator AND #sqtools-ops; a rejected field keeps the modal OPEN with the reason on that input; a post that fails names the failure; a post that outlives the ack window reports the outcome as UNKNOWN rather than failed, because a confident 'failed' invites a resubmission and dedup is by message ts
+│   ├── dispatch-modal.test.js   # Tests for lib/dispatch-modal.js: five input blocks matching the generator's field list, only instructions multiline, defaults taken from the parser's own constants, and block_id-keyed error mapping
+│   ├── dispatch-message.test.js # Tests for lib/dispatch-message.js: per-field rejection reusing the identifier module's payload set, a field label inside the instructions body refused, and assertRoundTrip's negative controls (it THROWS on a lowercase label and on a silently changed field)
 │   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
 │   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo argv/`--` separators, assertValidTargetDir rejections, deploy-key paths, cleanupDir, export surface)
 │   ├── undelivered-work.test.js # Tests for detectUndeliveredWork + processTask's delivery-gated cleanup (the regression guard for the three tasks lost to unconditional cleanup)
@@ -908,8 +915,8 @@ so `REPO:` swallows the remainder and the task runs against no repository at hal
 intended turn budget. `lib/task-parser.js` is right to refuse it — `FIELD_LABELS` are
 uppercase and line-anchored by design (see "Field Label Rules"). The shape that cannot be
 flattened is a **form**, a slash command is what opens a form, and a slash command needs a
-socket. **Not built here:** no command is registered and no modal exists. See
-`docs/WIRING-AND-SEAMS.md` section 7 for what the next change must do.
+socket. **`/dispatch` is that form, built 2026-09-15** — see "The `/dispatch` command"
+below, and `docs/WIRING-AND-SEAMS.md` section 7.
 
 **Why additive and not WORK-TODO #4's replacement.** #4 proposes swapping the poll loop
 *for* Socket Mode. That is not this. The poll loop is how every task arrives, including
@@ -933,10 +940,78 @@ indistinguishable from a quiet Slack. An outage lasting `SOCKET_MODE_DOWN_ALERT_
 while it persists, and posts a recovery line when it returns. A socket that starts but
 never reaches `connected` counts as an outage. A deliberate `stop()` does not.
 
-**ACTION REQUIRED on the Slack app (the owner must do this; the bridge cannot):** enable
-Settings -> Socket Mode, generate an app-level token with `connections:write` under Basic
-Information -> App-Level Tokens, and add it to `.env` as `SLACK_APP_TOKEN`. An `.env`
-change needs `docker compose up -d --force-recreate jt-agent`, not `restart`.
+### The `/dispatch` command — a form the transport cannot flatten
+
+**LOGIC CHANGE 2026-09-15.** `/dispatch` opens a modal with **five separate inputs** —
+task, repository, branch, turn budget, instructions — and posts the composed task message
+to `#claude-bridge`, where `poll()` picks it up like any other message. Five inputs is the
+whole point: nothing typed into one of them can merge two fields, which is exactly what a
+flattened pasted block does.
+
+| Piece | Module |
+|-------|--------|
+| The two handlers, the ack ordering, the authorisation gate, every failure path | `lib/dispatch-command.js` |
+| The modal, reading a submission back, mapping a rejection to an input | `lib/dispatch-modal.js` |
+| Composing the task message and proving it round-trips | `lib/dispatch-message.js` |
+
+**It posts a message; it does not call the task path.** `processTask` is never invoked
+from the form. One intake path, one owner of deduplication (`lib/bridge-state.js`, by
+message `ts`), and a task that survives a restart because it exists as a message. The cost
+is up to `POLL_INTERVAL_MS` of latency, paid against work that runs for ten minutes.
+
+**Authorisation is the command's, not the poll loop's.** The poll loop's gate is
+`!isUserAuthorized(msg.user) && !isBotMessage` — a message posted **as the bot** goes
+through without an allowlist check, deliberately, so scheduled tasks are not dropped. The
+form's post *is* a bot post, so the `isUserAuthorized` call in the command handler is the
+**only** gate. It is the same function the poll loop uses, injected, not a second check,
+and it runs again on submission because a `view_submission` is its own envelope.
+
+**The generator is pinned to the parser.** `buildDispatchMessage` emits UPPERCASE,
+line-anchored labels with `INSTRUCTIONS:` last, and `assertRoundTrip` parses its own
+output back and **throws** on any mismatch before it can be posted. The round trip is
+asserted in `tests/integration.test.js` alongside the three other generators. A form that
+emitted something the parser read differently would be this same defect from the other
+direction.
+
+**Rejected, never sanitised, and reported in the form.** `REPO:`/`BRANCH:` go through
+`lib/git-identifiers.js`; `TURNS:` uses the parser's own `MIN_TURNS`/`MAX_TURNS` (5-100).
+Note the parser **clamps** an out-of-range turn budget and **ignores** a non-numeric one;
+the form **refuses both**, because a silent downgrade is the class of failure this change
+exists to remove. The emitted value is always in range, so the two never disagree on a
+generated message. An instructions line beginning with a field label (in any case) is also
+refused — `parseTask` searches the whole message, so such a line would become the repo
+field, or refuse the entire task.
+
+**Failure paths.** A rejected field acks with `response_action: 'errors'` keyed by
+`block_id`: the modal **stays open**, the reason sits on the offending input, nothing
+typed is lost. A `views.open` that fails after the ack reaches the operator by ephemeral
+*and* `#sqtools-ops`. **If the socket is connected but the channel post fails**, the modal
+stays open with the Slack error named and ops is told — nothing is silently dropped. If
+the post outlives the ack window (`SUBMIT_POST_TIMEOUT_MS`, 2500 ms), the outcome is
+reported as **UNKNOWN, never as failed**, and the operator is told to check the channel
+before resubmitting: a confident "failed" would invite a second submission, and dedup is
+by message `ts`, so two posts are two tasks.
+
+**ACTION REQUIRED on the Slack app (the owner must do this; the bridge cannot).** None of
+this is verifiable from a checkout — the app configuration is not in this repository.
+
+1. **Settings -> Socket Mode** — turn Socket Mode **on**.
+2. **Basic Information -> App-Level Tokens** — generate a token with the
+   `connections:write` scope and add it to `.env` as `SLACK_APP_TOKEN`.
+3. **Features -> Slash Commands -> Create New Command** — Command: **`/dispatch`**
+   (exactly; it is `COMMAND_NAME` in `lib/dispatch-modal.js`). Short description:
+   "Dispatch a task to the bridge". **No Request URL** — with Socket Mode on, Slack does
+   not ask for one. Leave "Escape channels, users, and links" **off**.
+4. **Features -> Interactivity & Shortcuts** — turn Interactivity **on**. This is
+   separate from step 3 and is **required**: without it Slack never delivers the
+   `view_submission`, so the modal opens, the operator fills it in, and submitting does
+   nothing. Again no Request URL in Socket Mode.
+5. **Reinstall the app to the workspace.** Creating a slash command adds the `commands`
+   OAuth scope, which does not take effect until reinstall.
+6. **Recreate the container** for the `.env` change:
+   `docker compose up -d --force-recreate jt-agent` — a plain `restart` reuses the old
+   environment. And merging deploys nothing on its own: see "Self-update — DESIGNED AND
+   TESTED, NOT WIRED".
 
 ### Task Queue Coordination
 
