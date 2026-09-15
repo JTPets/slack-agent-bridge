@@ -106,6 +106,12 @@ const { getAgent, loadAgents, getActiveAgents, getAgentByChannel, registryExists
 // so scripts/agent-surface.js reports the same set this file acts on.
 const { joinableChannels } = require('./lib/agent-surface');
 
+// LOGIC CHANGE 2026-09-15: THE verb -> handler table. It sources its deterministic
+// verbs from lib/agent-task-catalogue.js rather than redeclaring them, because a
+// scheduled job and an on-demand command are the same operation triggered
+// differently. Guarded by tests/command-router.test.js.
+const commandRouter = require('./lib/command-router');
+
 // LOGIC CHANGE 2026-03-26: Extracted LLM execution into lib/llm-runner.js
 // to support multiple LLM providers via LLM_PROVIDER env var.
 // LOGIC CHANGE 2026-03-26: Import RateLimitError for detecting rate limit
@@ -1180,6 +1186,40 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
     if (!questionText) {
       console.log(`[${agentId}] Empty ASK: message, skipping`);
       return;
+    }
+
+    // LOGIC CHANGE 2026-09-15: the command router, ahead of the LLM and ahead of the
+    // hand-written built-in chain below. A command is a VERB with known parameters
+    // mapped to a handler (WORK-TODO #45); a deterministic verb needs no model, no
+    // turn budget and no clone, so running one is a function call, not a dispatch.
+    //
+    // It runs only in the bridge channel, like every built-in below it: an agent
+    // channel is how an AGENT is addressed, and a verb answering there would be the
+    // verb/name mixing #45 exists to prevent.
+    //
+    // The existing isStatusQuery / isOwnerTasksQuery / isCreateChannelCommand chain
+    // below is deliberately NOT migrated here in this change — those are on the live
+    // ASK path with their own phrase-matching behaviour, and moving them is its own
+    // change. The router adds verbs; it takes none away. `runCommand` returns
+    // { handled: false } for anything it does not own, so nothing that worked before
+    // stops working.
+    if (sourceChannel === BRIDGE_CHANNEL) {
+      const routed = await commandRouter.runCommand(questionText, {
+        slack,
+        agent: agentConfig,
+        channelId: sourceChannel,
+        userId: msg.user,
+      });
+      if (routed.handled) {
+        console.log(`[${agentId}] Command \`${routed.verb}\` handled: ${msg.ts} (ok=${routed.ok})`);
+        await slack.chat.postMessage({
+          channel: sourceChannel,
+          thread_ts: msg.ts,
+          text: routed.text,
+          unfurl_links: false,
+        });
+        return;
+      }
     }
 
     // LOGIC CHANGE 2026-03-26: Check for built-in status query before calling LLM.
