@@ -73,8 +73,12 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
-At the 2026-09-16 jester pass those print **49** open items — 9 P1, 32 P2, 8 P3 — and
-**no duplicate ID** (#56 filed; nothing closed). At the 2026-09-15 agent-wiring pass
+At the **2026-09-16 audit pass** those print **48** open items — 9 P1, **31** P2, 8 P3 — and
+**no duplicate ID**. That pass purged **#45** (closed: the decision is recorded outside this
+file and the name half it said nothing enforced is enforced by
+`tests/command-router.test.js`), filed nothing, and gave every remaining item a filed date.
+Earlier the same day the jester pass printed **49** — 9 P1, 32 P2, 8 P3 (#56 filed; nothing
+closed). At the 2026-09-15 agent-wiring pass
 they printed **48** — 8 P1, 32 P2, 8 P3. (Earlier the same day: the agent-identity pass printed 44 — 7/29/8;
 the command-router pass 45; the size-gate pass 40 — 7/26/7.) That pass purged **#50**
 (closed: the suite is green in a fresh clone and no longer writes live configuration) and
@@ -112,7 +116,7 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (32)
+**P2 — real gaps, no risk to the running process** (31)
 
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
@@ -138,7 +142,6 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#39** — [The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged](#39-the-queue-cannot-tell-a-completed-task-from-a-landed-one--nothing-here-knows-whether-a-branch-merged)
 - **#40** — [Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout](#40-uncommitted-edits-in-the-live-deployment-tree--reported-not-verifiable-from-a-checkout)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
-- **#45** — [Commands are verbs, names are channels — record the distinction before the namespace has both](#45-commands-are-verbs-names-are-channels--record-the-distinction-before-the-namespace-has-both)
 - **#46** — [`/dispatch` posts to one fixed channel — routing by the invoking channel needs two things that do not exist](#46-dispatch-posts-to-one-fixed-channel--routing-by-the-invoking-channel-needs-two-things-that-do-not-exist)
 - **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
 - **#49** — [`NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does](#49-natural_conversation_mode-is-off-and-nothing-establishes-what-turning-it-on-does)
@@ -1792,35 +1795,6 @@ or to collapse HIGH into a `notifyOps()` post, and that is a decision about how 
 traffic the owner wants in `#sqtools-ops`, not a bug fix an executor should make alone.
 Whichever is chosen, `PRIORITY.HIGH` must stop returning `true` for a message it dropped.
 **Priority:** P2 | **Effort:** Low | **Status:** open — owner decides digest vs. ops post
-
----
-
-### 45. Commands are verbs, names are channels — record the distinction before the namespace has both
-**Filed 2026-09-15,** from the command-router pass. **This is a decision record, not a
-defect.** Nothing is broken today; what is at stake is that the first command named after
-an agent makes the namespace ambiguous permanently.
-
-**The distinction.** A *verb* is an operation with known parameters mapped to a handler:
-`/dispatch`, `check-inbox`, `status`, `help`. It may or may not involve a model — the
-inbox check (`lib/agent-task-catalogue.js` → `DETERMINISTIC_TASKS['check-inbox']` →
-`lib/email-check.js`) involves none, and calling it is a function call, not a dispatch. A
-*name* is an addressee: `secretary`, `security`, `code-bridge`. Addressing one is what a
-channel or an `@`-mention already does — `buildChannelsToPoll()` at
-`bridge-agent.js:1934` maps channel → agent, and `getAgentByChannel()` in
-`lib/agent-registry.js` is the lookup.
-
-**Why mixing them is a defect in waiting.** `/secretary check my calendar` and
-`/status secretary` look like members of one namespace and are not: the first names an
-addressee and needs a model, a persona and a turn budget; the second names an operation
-and needs none of them. A namespace where two similar-looking commands take completely
-different paths cannot be documented, cannot be tab-completed usefully, and cannot have
-one guard test — which is why `lib/command-router.js` registers verbs only and
-`tests/command-router.test.js` fails when a handler exists in code but not in the table.
-
-**The rule this records:** a command is a verb. Routing to an agent is done by the channel
-the message is in, or by a mention — never by a command name. Adding a command named after
-an agent requires revisiting this item first.
-**Priority:** P2 | **Effort:** None (the decision is the artifact) | **Status:** recorded 2026-09-15; the router enforces the verb half, nothing enforces the name half
 
 ---
 
