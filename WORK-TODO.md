@@ -20,6 +20,46 @@ command was removed. A figure only regenerable off-repo (on the NAS, or from the
 container) says so and names the command anyway; it is an unverified lead from a checkout,
 not a repo fact.
 
+## Every item carries a filed date, and age is therefore computable
+
+**As of the 2026-09-16 audit pass, no open item is undated.** Seventeen were — sixteen
+with no date at all, plus **#4b**, whose date sat in its heading where the check below does
+not see it. That is a third of the list, so every age-based figure was a floor rather than a fact — and age is
+the sharpest signal `lib/critique-digest.js` has. The command that proves it:
+
+```bash
+# must print nothing: every open item carries a Filed date
+node -e "
+const fs=require('fs');const lines=fs.readFileSync('WORK-TODO.md','utf8').split('\n');
+let id=null,buf=[];const out=[];
+const flush=()=>{if(id===null)return;const t=buf.join('\n');
+  if(!/\*\*Filed\s+\d{4}-\d{2}-\d{2}/i.test(t))out.push(id);};
+for(const l of lines){const h=l.match(/^### ([0-9]+[a-z]?)\. /);
+  if(h){flush();id=h[1];buf=[l];}else if(id!==null)buf.push(l);}
+flush();out.forEach(i=>console.log('UNDATED #'+i));"
+```
+
+**How the seventeen dates were derived, and what they do and do not mean.** Each is the
+commit that introduced the item's heading into this file, found with
+`git log -S'<heading or distinctive phrase>' --reverse -- WORK-TODO.md`. The derivation
+command is recorded on the item itself, so the date is checkable rather than asserted.
+Thirteen resolve to `20dc049` (2026-09-13, "re-derive backlog from the system as it
+actually runs"), one to `e2a19e2` (2026-09-13), one to `3dacba8` (2026-09-14), one to
+`20dc049` under an earlier unnumbered heading, and #4b to `9d951f3` (2026-09-14).
+
+**The caveat that matters more than the dates.** A filed date is when the item entered
+*this file in its current form*, not when the problem started. Eleven items — **#4, #5,
+#6, #7, #8, #9, #13, #14, #15, #16, #35** — have an ancestor heading in the 2026-04-05
+seed `4b6ee4a`, so their substance has been open about **five and a half months**, not
+three days. Each says so on its own entry. Reading `Filed 2026-09-13` as the age of those
+eleven understates it by that whole interval; any age report over this file should use the
+seed date for them, and the two facts are recorded separately rather than averaged into
+one misleading number. Regenerate the ancestor list with
+`git show 4b6ee4a:WORK-TODO.md | grep -nE '^### '`.
+
+**Not derivable, and not invented:** nothing. All seventeen resolved to a commit. Had one
+not, it would say so here rather than carry a guess.
+
 ## Counts — as commands, not figures
 
 ```bash
@@ -516,6 +556,7 @@ ranking axis, and the loss is of work a human was told had been saved for them.
 ---
 
 ### 3. The scheduler never checks `planned` status — CONFIRMED FIRING LIVE 2026-09-14
+**Filed 2026-09-13** (derived: `git log -S'### 3. ' --reverse -- WORK-TODO.md` -> `20dc049`, the backlog re-derivation).
 **Problem:** `startScheduler` iterates `loadAgents()` (all agents) and registers a cron
 job for any agent that has *both* a `schedule` and a `channel`
 (`lib/agent-scheduler.js:216`, `:227`). It never consults `status: "planned"`.
@@ -633,6 +674,9 @@ Regenerate the expected table before comparing: `node scripts/agent-surface.js`.
 ---
 
 ### 4. Replace HTTP polling with Slack Socket Mode (event triggers)
+**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** its ancestor heading
+"Replace HTTP polling with Slack Socket Mode" is in the 2026-04-05 seed `4b6ee4a`, so the
+idea has been open ~5.5 months and the re-derivation date understates it.
 **Source:** tomeraitz/claude-slack-bridge
 **Problem:** The bridge still polls: `setInterval(poll, POLL_INTERVAL)` at
 `bridge-agent.js:2038`, default `POLL_INTERVAL_MS=30000`. No `@slack/socket-mode`
@@ -682,6 +726,9 @@ regression test.
 ---
 
 ### 43. A flattened dispatch loses its fields — the connection for the fix exists, the command does not
+**Filed 2026-09-14** (derived: `git log -S'A flattened dispatch loses its fields' --reverse -- WORK-TODO.md` -> `3dacba8`).
+Note this is the P1 `### 43.`; the P2 item that briefly shared the number was filed `d5b0c13`
+and is closed and purged.
 **Source:** three tasks on 2026-09-14 that ran with no repository and the default turn
 budget, worked for ten to fifteen minutes each, and failed.
 **Problem:** a dispatch is a Slack **message** whose first lines carry `TASK:`/`REPO:`/
@@ -730,6 +777,8 @@ only the owner action below.
 ## P2 — Real gaps, no risk to the running process
 
 ### 4b. Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14
+**Filed 2026-09-14** (derived: `git log -S'### 4b. ' --reverse -- WORK-TODO.md`). The date
+was previously only in the heading, where the file's own undated-item check does not see it.
 **Source:** Pi→NAS migration; config-surface inventory task.
 **Evidence:** [`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) —
 full env-var inventory (56 code-read keys + 1 dynamic pattern vs 33 in `.env.example` vs
@@ -1233,6 +1282,8 @@ called by all three sites. The behavioural half is done; the duplication half is
 ---
 
 ### 34. `DEPLOY_KEY_PATH` is read but undocumented
+**Filed 2026-09-13** (derived: `git log -S'DEPLOY_KEY_PATH` is read but undocumented' --reverse -- WORK-TODO.md`
+-> `e2a19e2`, where it was an unnumbered heading; numbered `58b231d` on 2026-09-14).
 **Problem:** The scratch-clone push fix reads a new env var,
 `process.env.DEPLOY_KEY_PATH || "/bridge/.deploy_key"` (`lib/clone-lifecycle.js:173`), but it
 was never added to `CLAUDE.md`'s Environment Variables section or `.env.example`
@@ -1255,6 +1306,10 @@ heading, which cross-references could not point at).*
 ---
 
 ### 35. Per-agent memory has TTL and decay but no max-entries cap
+**Filed 2026-09-13** (derived: `20dc049`, as the unnumbered heading "Reconcile — per-agent
+memory: entry caps vs. the tiering that already landed"; numbered `58b231d` on 2026-09-14).
+**Substance is older:** ancestor heading "Per-agent memory size limits" in the 2026-04-05
+seed `4b6ee4a`.
 **Problem:** The old backlog asked for "per-agent memory size limits (max entries,
 evict oldest)." Tiered memory with TTL and time-based decay already shipped
 (`lib/memory-tiers.js` — `ttl` at `:40`, `decayMs` at `:134`; tests in
@@ -1272,6 +1327,7 @@ hits; TTL and decay are there, the count cap is not.
 ---
 
 ### 10. Split the god-files that break the repo's own 300-line rule
+**Filed 2026-09-13** (derived: `20dc049`).
 **Problem:** The repo enforces a 300-line-per-file rule (`lib/validate.js`, `MAX_LINES = 300`)
 and **65** `.js` files exceed it. Until 2026-09-15 the gate was **unconditionally red**, so a
 new violation could not be told apart from the standing ones without diffing path lists by
@@ -1541,6 +1597,7 @@ the rule in one place, and `tests/file-size-gate.test.js` has the negative contr
 ---
 
 ### 11. A helpers/utilities map and an owning-doc rule
+**Filed 2026-09-13** (derived: `20dc049`).
 **Problem:** There is no index of what the `lib/` helpers do or which doc owns each
 behaviour. `docs/` holds per-agent design docs only (no `HELPERS.md`/`UTILITIES.md` —
 `ls docs/` confirms). New code re-implements behaviour that already exists in `lib/`
@@ -1568,6 +1625,8 @@ two guards worth writing are named in the map's closing section and carried with
 ---
 
 ### 5. Mid-task `ask_on_slack` capability
+**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** ancestor heading in the
+2026-04-05 seed `4b6ee4a`.
 **Source:** tomeraitz/claude-slack-bridge
 **Problem:** Tasks run fully autonomously. If the model needs a decision mid-run it
 guesses or aborts.
@@ -1585,6 +1644,8 @@ no tool loop) this capability does not apply to them.
 ---
 
 ### 6. Structured task result format
+**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** ancestor heading in the
+2026-04-05 seed `4b6ee4a`.
 **Problem:** Task results are raw text dumps; no consistent success/failure/files/tests
 shape.
 **Fix:** define a result schema and render it as a Block Kit card. Note that Phase 3
@@ -1596,6 +1657,8 @@ that rather than re-parsing.
 ---
 
 ### 7. Task timeout escalation tiers
+**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** ancestor heading in the
+2026-04-05 seed `4b6ee4a`.
 **Problem:** `TASK_TIMEOUT_MS` (default 600000) is a single hard kill with no warning.
 No soft-timeout logic exists (`grep -in 'soft\|80%\|will be killed' bridge-agent.js` →
 nothing).
@@ -1607,6 +1670,8 @@ ops. Don't change the kill itself.
 ---
 
 ### 8. Surface deduplication in status
+**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** ancestor heading
+"Deduplication TTL surfaced in status" in the 2026-04-05 seed `4b6ee4a`.
 **Problem:** `processed-tasks.json` dedupes silently; a re-submitted task is skipped with
 no feedback to the user. Dedup is real (`CLAUDE.md` "Task Deduplication") but there is no
 reply-on-duplicate path.
@@ -1618,6 +1683,8 @@ reply-on-duplicate path.
 ---
 
 ### 9. `ASK: task history [n]` command
+**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** ancestor heading in the
+2026-04-05 seed `4b6ee4a`.
 **Problem:** The status command returns the last 5 completed tasks; there is no
 `task history N`. `grep -in 'task history' bridge-agent.js lib/task-parser.js` → nothing.
 **Fix:** add a built-in `ASK: task history 20` that reads N back from memory with
@@ -2152,6 +2219,8 @@ registry's permission model and belongs in its own item if it is ever acted on.
 ---
 
 ### 13. MCP server wrapper
+**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** ancestor heading in the
+2026-04-05 seed `4b6ee4a`.
 **Source:** tomeraitz/claude-slack-bridge
 **Idea:** expose bridge capabilities (post to Slack, read the queue, query memory) as MCP
 tools so Claude Code sessions call them directly.
@@ -2163,6 +2232,8 @@ item 5) and mostly only worth it alongside the mid-task ask capability.
 ---
 
 ### 14. Watercooler retro → LinkedIn draft
+**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** ancestor heading
+"Watercooler summary to LinkedIn draft" in the 2026-04-05 seed `4b6ee4a`.
 **Idea:** after the Friday retro, aggregate the week's highlights into a LinkedIn draft
 for review.
 **UNBLOCKED 2026-09-15.** This read "Blocked by: `story-bot` is `status: "planned"`
@@ -2185,6 +2256,8 @@ that is no longer true, so this path is live and untested.
 ---
 
 ### 15. Task complexity auto-scaling TURNS
+**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** ancestor heading in the
+2026-04-05 seed `4b6ee4a`.
 **Problem:** `TURNS` is manual (`lib/task-parser.js:13` `DEFAULT_TURNS = 50`, floor 5,
 cap 100). `analyzeComplexity()` exists (`lib/task-decomposer.js`) but its score does not
 feed TURNS.
@@ -2199,6 +2272,8 @@ affects Claude-executed tasks.
 ---
 
 ### 16. Channel-per-task archive mode
+**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** ancestor heading in the
+2026-04-05 seed `4b6ee4a`.
 **Idea:** for long-running/high-value tasks, auto-create a dedicated channel, post all
 I/O there, archive on completion.
 **Effort:** High. **ROI:** probably only audit/compliance.
