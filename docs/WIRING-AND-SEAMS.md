@@ -230,9 +230,25 @@ grep -rn "runWithFallback(\|runLLM(" --include='*.js' . \
 | `bots/storefront.js:444` | `runLLM` | ❌ one shot |
 | `lib/watercooler.js:536` | `runLLM` | ❌ one shot |
 | `lib/task-decomposer.js:341` | `runLLM` | ❌ — and the caller is itself dead (§3) |
+| `lib/weekly-critique.js` (the jester's weekly post) | `runLLM` | ❌ **by design, not by omission** — see below |
 
 This matches CLAUDE.md's "No silent fallback" section exactly: only the two
-`bridge-agent.js` entry points are on the chain; the other three live callers bypass it.
+`bridge-agent.js` entry points are on the chain; the other live callers bypass it.
+
+**LOGIC CHANGE 2026-09-16 — the fourth live `runLLM` caller bypasses the chain
+deliberately, and the reason is a security posture rather than an oversight.**
+`lib/weekly-critique.js` runs as the `jester` agent, whose definition
+(`agents/jester/agent.md`) **denies `file-system` and `github`**. The fallback chain can
+land on `claude`, and `runClaudeAdapter` spawns the CLI with
+`--dangerously-skip-permissions` in `cwd` (`lib/llm-runner.js:357`) — so an automatic
+fallback would hand the one agent explicitly denied file-system access a tool-capable
+engine, to save a weekly joke. It calls `runLLM` with the agent's resolved provider, and
+a provider failure is reported to `#sqtools-ops` instead of routed around. Visibility is
+unaffected: `runLLM` records a verdict too (`lib/llm-runner.js:309,323`), billed to
+`jester`. Defence in depth for an operator who pins him to claude on purpose:
+`maxTurns: 1` and a fresh empty temp dir as `cwd`, removed in a `finally`. Asserted in
+`tests/weekly-critique.test.js` → `describe('the call is one shot, on his provider, with
+no fallback and no working tree')`. Full rationale: `docs/JESTER-DESIGN.md` §4.
 
 **LOGIC CHANGE 2026-09-15 — both chain callers now bill to the executing agent.** Until
 WORK-TODO #38 closed, `processTask` passed `agentId: 'bridge'` on every verdict whatever

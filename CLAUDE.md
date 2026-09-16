@@ -629,6 +629,10 @@ slack-agent-bridge/
 │   ├── agent-registry.js # Agent registry loader: loadAgents, getAgent, getAgentByChannel, activateAgent
 │   ├── agent-surface.js  # THE enumerator for the declared-agent surface: buildSurface returns one row per agent (channel, joined, polled, scheduled job, provider + provenance, reader), findOrphans returns the rows whose output reaches nobody, and `activeChannels` is THE ONE membership rule — pollableChannels and joinableChannels both return it, bridge-agent.js's buildChannelsToPoll delegates to it, and the scheduler refuses anything it excludes, so resolving, joining, polling and scheduling are four consequences of one declaration or none of them. Pure: no Slack call, no write
 │   ├── agent-llm-resolver.js # THE resolver for "what is this agent running on, and where did each value come from": resolveAgentLlm returns provider, model, adapter inputs and a SOURCE for each. Calls lib/config.js resolveLlmProvider for the provider precedence rather than re-deriving it; owns the model precedence and the adapter-input mapping, which were inline at the call sites. NEVER emits a credential value — a key is reported as `key_set: true/false` plus the variable name, because this output is built to be posted to Slack
+│   ├── backlog-report.js # THE parser for WORK-TODO.md: parseBacklog/loadBacklog/stalest turn the backlog into records so "how long has this been open" is a computation rather than an impression. Pure text — no subprocess, no network. A file it cannot read is `available: false` with a reason, NEVER an empty backlog. Guarded by tests/backlog-report.test.js, whose live assertions compare its counts against WORK-TODO.md's own documented grep/awk commands rather than a hardcoded number
+│   ├── repo-history.js   # Git-derived signals about THIS repository, read from the checkout the bridge runs out of (a task's scratch clone is `--depth 1` and can answer none of it): commitsSince, claimsFrom (`Closes <ID>` vs `Addresses <ID>`, and items addressed repeatedly), revisionsSince. Every call is an execFileSync argv array. A shallow clone, a missing .git or an absent git is `available: false` — never a count of zero
+│   ├── critique-signals.js # The individual computed signals behind the jester's digest, one function per source (backlog, git claims, task outcomes, bulletins, orphaned output). Each returns `{ available, reason, ... }` and none collapses "I could not read it" into "there was nothing there". Split from lib/critique-digest.js at creation because the combined module broke the 300-line rule
+│   ├── critique-digest.js # THE material the jester is given: not a transcript but a digest of computed facts, assembled from lib/critique-signals.js. buildDigest, formatDigestForPrompt (a fact sheet, explicitly labelled UNAVAILABLE where a sensor failed), formatCoverage (what was checked, so a short post is distinguishable from a broken job) and isThin (judged on WINDOWED signals only, so a standing backlog cannot make a quiet week look eventful). Reads and computes; posts nothing, writes nothing, calls no model
 │   ├── bulletin-board.js # Inter-agent communication: postBulletin, getBulletins, markRead, cleanupOldBulletins, plus formatBulletinsForContext — THE stream every active agent sees, injected into each agent's prompt on every ASK. It carries the type, the poster, the Toronto-local time and EVERY scalar payload field (each value capped at 200 chars) via formatBulletinData; it does NOT carry the bulletin id, any link back to the work, anything past the newest 10, or anything past the 7-day retention. postBulletin REJECTS an unknown type by returning { success: false } rather than throwing, so a caller that ignores the result drops bulletins silently
 │   ├── bulletin-watcher.js # Event-driven fan-out for the bulletin board: processBulletin finds agents whose agents.json `watches.bulletin_types` includes the posted type and posts an ASK notification to each one's channel, rate-limited to one trigger per agent per RATE_LIMIT_MS (5 min)
 │   ├── config.js         # Environment variable loading, validation, and defaults
@@ -663,6 +667,7 @@ slack-agent-bridge/
 │   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update. markRunning() is the live `running` transition; dequeue() has no production caller
 │   ├── update-verifier.js # Pre-restart gate for auto-update: node --check on entry points, restart plan (guard c)
 │   ├── validate.js       # Pre-commit validation (`npm run validate`): checks bridge-agent.js loads in a subprocess, then runs the declaration-driven file-size gate (lib/file-size-gate.js). It needs a populated .env for the first check — without one it reports the missing vars and fails, which is a local-environment condition, not a code defect
+│   ├── weekly-critique.js # The jester's weekly post: deterministic task `weekly-critique`. Builds the digest (lib/critique-digest.js), resolves the critic from the SAME declaration the cron registrar reads (so the verb and the schedule cannot name different agents), and posts one critique in his channel on his provider. A THIN week calls no model at all — a model handed an empty digest and a contrarian persona produces a complaint, so the only reliable honest "nothing to report" is not to ask. Calls runLLM and NOT runWithFallback, deliberately: the chain can land on claude, whose adapter spawns a CLI with --dangerously-skip-permissions, and jester's definition denies file-system. It writes NO state of any kind and its verdict gates nothing — enforced by tests/weekly-critique.test.js, not asserted
 │   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow
 │   ├── email-check.js    # Deterministic scheduled inbox check: runInboxCheck fetches via lib/integrations/gmail.js (fetchRecentEmails), filters with lib/integrations/email-categorizer.js against agents/email-monitor/memory/rules.json, posts the summary to the email-monitor channel and escalates every failure through notify-owner. Read-only: Gmail list/get only. An empty inbox and a failed check are different statuses, reported differently
 │   ├── email-rate-limiter.js # Rate limiting for email-to-Slack pipeline: sliding window, cooldown, flood protection
@@ -702,11 +707,15 @@ slack-agent-bridge/
 │   │   └── channel-map.json     # THE tracked channel-name -> id map the suites resolve against. Its ids are deliberately fake (C0FIX*) — a real workspace id never has to appear in a tracked test to make one pass. Exists because agents/shared/channel-map.json is gitignored, so 30 assertions were red in every fresh clone (WORK-TODO #50)
 │   ├── helpers/
 │   │   ├── workspace-fixture.js # useFixtureWorkspace(): copies tests/fixtures/channel-map.json into a temp dir and points lib/bridge-state.js at the copy for the life of a suite. A suite gets a workspace instead of whichever workspace the checkout is sitting in, and a suite that RESOLVES a channel writes the copy, never the live map
+│   │   ├── critique-fixtures.js # Shared doubles for the weekly-critique suites (the jester and bridge records, a digest shaped like buildDigest()'s return value, and Slack/LLM/notifier doubles that record what they were called with), so the behaviour suite and the gating guard cannot drift into two different ideas of what the jester looks like
 │   │   ├── live-state-setup.js  # jest globalSetup: fingerprints every durable state file (agents/shared/*.json + .bridge-agent-state.json), enumerated from disk. Also exports the pure diff() the teardown compares with
 │   │   └── live-state-teardown.js # jest globalTeardown: THE guard that a test run never writes the files the deployment reads. Throws — failing the whole run — naming each file that was created, modified or deleted
 │   ├── live-state-guard.test.js # The negative controls for that guard: it runs outside every suite, so without these its only evidence of working is a green run, which is what a guard comparing nothing also produces
 │   ├── smoke.test.js            # Smoke tests: module loading, dotenv checks, export verification
 │   ├── integration.test.js      # Integration tests: critical paths, wiring, no circular deps
+│   ├── backlog-report.test.js   # Tests for lib/backlog-report.js: the parse, and THE agreement assertion — its counts must equal what WORK-TODO.md's own count commands produce, computed in the test, so it cannot go stale as the backlog changes. Also that an undated item is REPORTED rather than dropped, and that an unreadable file is distinguishable from a clean backlog
+│   ├── repo-history.test.js     # Tests for lib/repo-history.js against REAL git repositories in temp dirs. Carries THE regression test for a fabricated citation: `Closes WORK-TODO P1 #18.` (a real commit body here, 6454fb0) was read as a claim about item #1 by an optional-`#` pattern, because `P1` supplies a digit first. Also that a shallow clone is UNAVAILABLE rather than a short history — the fixture clones via `file://` because git ignores --depth for a local path
+│   ├── critique-digest.test.js  # Tests for lib/critique-digest.js and lib/critique-signals.js. THE property under test is that an UNAVAILABLE signal is never rendered as an empty one — every source is exercised in both states — plus the thinness rule (windowed signals only; a missing sensor is unknown, not quiet)
 │   ├── bug-fixes.test.js        # Regression tests for named past defects: rate-limit false positives, memory-file corruption resilience, null exit code = interrupted, stale working memory, addTask on corrupted tasks.json
 │   ├── agent-create.test.js     # Tests for lib/agent-create.js: that it creates and resolves no Slack channel, that a created definition is planned with no schedule, that every field is rejected rather than sanitised and a refusal writes nothing, and THE honesty assertion — the success verdict states that the next pull destroys the file unless it is committed
 │   ├── agent-context.test.js    # Tests for lib/agent-context.js (anti-hallucination, secretary context)
@@ -757,6 +766,8 @@ slack-agent-bridge/
 │   ├── bulletin-board.test.js   # Tests for lib/bulletin-board.js (inter-agent communication)
 │   ├── bulletin-types.test.js   # THE enumerating guard for the bulletin stream's type vocabulary: every type an agent WATCHES and every type production code POSTS must be one postBulletin accepts, both enumerated from disk. It exists because `customer_interaction` was watched by two agents and is not a valid type, so those watches could never fire and nothing failed. Also pins what the stream carries. Carries its own negative controls
 │   ├── bulletin-watcher.test.js # Tests for lib/bulletin-watcher.js (watcher matching, ASK fan-out, per-agent rate limiting)
+│   ├── weekly-critique.test.js  # BEHAVIOUR tests for lib/weekly-critique.js: that it resolves to the JESTER rather than the caller's agent (the post lands in his channel even when the bridge invoked it, on his provider, billed to his metrics id), that the call is one shot with no fallback and an empty temp cwd removed in a finally, that a thin week calls no model at all, and that every failure is reported with nothing posted
+│   ├── weekly-critique-gating.test.js # THE guard that the jester cannot gate anything, split from the behaviour suite so it is citable on its own: a source walk asserting the module names no state-mutating API (its only fs calls are mkdtemp and its own rm), a disk walk asserting exactly ONE production file calls runWeeklyCritique, a second asserting the task name is declared in exactly the catalogue and the command table, and an assertion that both consumers use the verdict only to choose what text to say. Carries its own negative controls
 │   ├── watercooler.test.js      # Tests for lib/watercooler.js (standup orchestration, agent flow)
 │   ├── task-queue.test.js       # Tests for lib/task-queue.js (queue persistence, auto-update coordination)
 │   ├── task-queue-lifecycle.test.js # THE guard that the LIVE task path drives the queue state machine: extracts the lifecycle from bridge-agent.js's source and replays it against a real queue (a module-only test cannot see an unreachable path)
@@ -783,8 +794,13 @@ slack-agent-bridge/
 │   ├── COURIER-INTAKE.md    # Courier intake page and delivery quote API documentation
 │   ├── INTEGRATION-SPEC.md  # SqTools API integration specification and security requirements
 │   ├── SMS-INTEGRATION.md    # SMS integration spec: httpSMS (primary), Twilio (fallback/voice)
+│   ├── STOREFRONT-WIDGET.md  # Storefront chat widget documentation and embedding guide
 │   ├── SOCIAL-MEDIA-DESIGN.md # Social Media Manager agent design and content strategy
-│   └── STOREFRONT-WIDGET.md  # Storefront chat widget documentation and embedding guide
+│   ├── STORY-BOT-DESIGN.md   # Story Bot agent design (was missing from this tree until 2026-09-16)
+│   ├── MARKETING-AGENT-DESIGN.md # Marketing agent design (was missing from this tree until 2026-09-16)
+│   ├── SECRETARY-PHONE-DESIGN.md # Secretary phone/voice design (was missing from this tree until 2026-09-16)
+│   ├── EMAIL-MONITOR-DESIGN.md # Email Monitor agent design (was missing from this tree until 2026-09-16)
+│   └── JESTER-DESIGN.md      # THE design of record for the jester agent: what he can actually see (established from code — no Slack history, a depth-1 clone with no repo history, a 24-hour task queue), the computed digest he is given instead of a transcript, and WHY he gates nothing. Answers WORK-TODO #53's third gap; the first (no `#jester-agent` channel) is an owner action this repository may not take
 ├── package.json          # Dependencies and npm scripts
 ├── CLAUDE.md             # Project rules and documentation (this file)
 ├── README.md             # Project overview
@@ -1374,6 +1390,30 @@ ASK: create channel channel-name
 - Returns channel ID if successful
 - If channel exists, joins it instead of failing
 - Requires `channels:manage` scope
+
+### The Jester's weekly critique — on demand
+
+```
+ASK: critique
+```
+- Runs the **same operation** the Friday 18:00 cron tick runs. Not a second route: both
+  reach `getDeterministicTask('weekly-critique').run()`, so a scheduled critique and an
+  on-demand one cannot diverge. The verb is registered in `lib/command-router.js`; the
+  work is `lib/weekly-critique.js`.
+- **It posts in the jester's channel, not in the one you typed the command in.** The
+  agent is resolved from the same declaration the cron registrar reads — the agent whose
+  `schedule.task` is `weekly-critique` — so the critique runs with his persona, his
+  provider and his metrics id whoever invoked it. The verdict names the channel it
+  actually posted into.
+- **It changes nothing.** The jester blocks, gates, approves and rejects nothing; the
+  module writes no state at all. Enforced by
+  `tests/weekly-critique-gating.test.js`, not by this paragraph.
+- A week with nothing in it produces a short post saying so, and **calls no model at
+  all** — see `docs/JESTER-DESIGN.md` §4.
+- **ACTION REQUIRED (owner):** `#jester-agent` does not exist and has never resolved, so
+  the command refuses with that reason and the cron job is refused at every boot. Create
+  it with `ASK: create channel #jester-agent`; nothing in this repository creates a Slack
+  channel. See `docs/JESTER-DESIGN.md` §7.
 
 ### Agent Definition and Activation
 Define an agent, then turn it on in this workspace. **Nothing here creates a Slack

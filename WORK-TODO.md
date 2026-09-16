@@ -33,8 +33,9 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
-At the 2026-09-15 agent-wiring pass those print **48** open items — 8 P1, 32 P2, 8 P3 —
-and **no duplicate ID.** (Earlier the same day: the agent-identity pass printed 44 — 7/29/8;
+At the 2026-09-16 jester pass those print **49** open items — 9 P1, 32 P2, 8 P3 — and
+**no duplicate ID** (#56 filed; nothing closed). At the 2026-09-15 agent-wiring pass
+they printed **48** — 8 P1, 32 P2, 8 P3. (Earlier the same day: the agent-identity pass printed 44 — 7/29/8;
 the command-router pass 45; the size-gate pass 40 — 7/26/7.) That pass purged **#50**
 (closed: the suite is green in a fresh clone and no longer writes live configuration) and
 filed **#51**–**#55**.
@@ -59,9 +60,10 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 
 *Regenerated from the headings. Do not append to it by hand; re-run the command above.*
 
-**P1 — protects or unblocks the live deployment** (8)
+**P1 — protects or unblocks the live deployment** (9)
 
 - **#55** — [The channel mapping had no reproduction path, and a deploy proved it](#55-the-channel-mapping-had-no-reproduction-path-and-a-deploy-proved-it)
+- **#56** — [`npm test` fails intermittently inside jest's globalSetup — twice, unreproduced](#56-npm-test-fails-intermittently-inside-jests-globalsetup--twice-unreproduced)
 - **#42** — [Every backup this system has lives on the box it backs up, and their liveness is checked by nothing](#42-every-backup-this-system-has-lives-on-the-box-it-backs-up-and-their-liveness-is-checked-by-nothing)
 - **#41** — [The NAS is the single point of failure for every stack and every credential, and its exposure has never been established](#41-the-nas-is-the-single-point-of-failure-for-every-stack-and-every-credential-and-its-exposure-has-never-been-established)
 - **#17** — [Nothing starts `auto-update.js` — merged code does not reach the running process](#17-nothing-starts-auto-updatejs--merged-code-does-not-reach-the-running-process)
@@ -82,7 +84,7 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#24** — [Four sibling modules resolve a shared writable path at module scope with no override — the same class as #19](#24-four-sibling-modules-resolve-a-shared-writable-path-at-module-scope-with-no-override--the-same-class-as-19)
 - **#20** — [`MAX_TURNS` names four different quantities, and the env var is dead config](#20-max_turns-names-four-different-quantities-and-the-env-var-is-dead-config)
 - **#33** — [A UTC day key is used as the store's day, so evening staff tasks are filed against tomorrow](#33-a-utc-day-key-is-used-as-the-stores-day-so-evening-staff-tasks-are-filed-against-tomorrow)
-- **#32** — [One bulletin timestamp, three renderings — and the path every agent's prompt uses emits none](#32-one-bulletin-timestamp-three-renderings--and-the-path-every-agents-prompt-uses-emits-none)
+- **#32** — [One bulletin timestamp, three renderings — no shared helper](#32-one-bulletin-timestamp-three-renderings--no-shared-helper)
 - **#34** — [`DEPLOY_KEY_PATH` is read but undocumented](#34-deploy_key_path-is-read-but-undocumented)
 - **#35** — [Per-agent memory has TTL and decay but no max-entries cap](#35-per-agent-memory-has-ttl-and-decay-but-no-max-entries-cap)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
@@ -193,6 +195,64 @@ node scripts/agent-surface.js             # and what each agent therefore gets
 **Status:** open — mechanism fixed and reproducible (`lib/channel-map-rebuild.js`,
 `scripts/channel-map.js`, guard `tests/channel-map-rebuild.test.js`); live verification
 against a real Slack workspace and off-box export of the resolved map both outstanding
+
+---
+
+### 56. `npm test` fails intermittently inside jest's globalSetup — twice, unreproduced
+**Filed 2026-09-16, second occurrence the same day.** **Two observations, message
+captured neither time — filed because of the rule #54 records, not despite it.**
+
+**What was seen, twice, with the same signature.** A full `npx jest` run failed *before
+any suite ran*, with the stack ending in
+`runGlobalHook` -> `ScriptTransformer.requireAndTranspileModule`. That is the
+`globalSetup` module (`tests/helpers/live-state-setup.js`) failing to load, not a suite
+failing. Both times the very next run, same working tree, was green.
+
+**Frequency, as far as it is measured:** 2 failures across the full-suite runs of one
+session — of the order of 35 runs, not precisely counted, so treat it as *"a few percent"*
+rather than a rate.
+
+**What was done, and what none of it established.** After the first: five warm runs,
+then `npx jest --clearCache` and three more — eight green. After the second: twelve
+consecutive isolated runs with the exit code checked and the full output redirected to a
+file, then four more reproducing the exact compound shell shape both failures occurred
+in (`git fetch && git log && git diff && npx jest`). All sixteen green. Disk was checked
+during the second hunt: 30 GB free, so it is not the fixed-allowance exhaustion that
+environment is prone to. **No cause is known and the cold-cache hypothesis is not
+supported.**
+
+**The instrumentation mistake, made TWICE, which is why there is still no message.** Both
+times the command piped jest through `tail`, so the actual error was discarded and only
+the stack frames survived. The capture that works, and that found nothing to capture on
+sixteen subsequent runs:
+```bash
+npx jest --silent > /tmp/jest-out.txt 2>&1; echo "exit=$?"; head -40 /tmp/jest-out.txt
+```
+**Never react to a failing gate through `tail`.** Next steps if it recurs: the full
+stderr from the above, and `--runInBand` to rule out a worker interaction.
+
+**Why this is filed at P1 with one data point.** #54 records the rule: *a defect in the
+apparatus that tests other work is P1 regardless of its symptom, because everything
+downstream of it is unverified while it is open.* `globalSetup` is the guard that stops
+a test run writing the configuration the deployment reads (`live-state-teardown.js`).
+A run where it fails to load is a run where that guard did not run. The symptom was one
+red run; the blast radius is every judgement made on a run that failed the same way and
+was re-run without anyone noticing — which is precisely how the `getRecentCompleted`
+flake survived, at 25 of 40.
+
+**What would make this actionable, and the mistake that stopped it being actionable
+now.** The output was piped through `tail`, so the actual error message was discarded
+and only the stack survived. **Capture the whole output of a failing gate before
+reacting to it.** Next steps if it recurs: the full stderr, and `--runInBand` to rule
+out a worker interaction.
+
+**Not claimed:** that this is a real defect rather than an environment hiccup, or that it
+is related to the change that was in flight when it appeared (four new `lib/` modules and
+five new suites, none of which `globalSetup` imports — and the second occurrence came
+*after* that work was committed and green, which weakens the connection further).
+**Priority:** P1 by the #54 rule | **Effort:** Low to instrument, unknown to fix
+**Risk:** Unknown — a gate that can fail to start is the shape #54 is about
+**Status:** open — two unreproduced observations, same signature; instrument before hunting
 
 ---
 
@@ -1135,33 +1195,40 @@ with #30's; both are named in the map's closing section.
 
 ---
 
-### 32. One bulletin timestamp, three renderings — and the path every agent's prompt uses emits none
+### 32. One bulletin timestamp, three renderings — no shared helper
 **Filed 2026-09-14,** from [`docs/CANONICAL-HELPERS.md`](docs/CANONICAL-HELPERS.md) §5.
+**Title and table corrected 2026-09-16** — the original heading said "the path every
+agent's prompt uses emits none", which was true when filed and false by the time it was
+read.
 
 | Site | Function | Renders | Consumer |
 |------|----------|---------|----------|
 | `lib/bulletin-board.js:283` | `formatBulletinsForSlack` | `Sep 14, 2:05 PM` | human, in Slack |
-| `lib/bulletin-board.js:339-365` | `formatBulletinsForContext` | **nothing** | LLM prompt, **every** agent |
-| `lib/agent-context.js:177`, `:277` | security / story-bot context | `Sep 14` | LLM prompt, those two agents |
+| `lib/bulletin-board.js:409` | `formatBulletinsForContext` | `Sep 14, 2:05 PM` — **was "nothing"; fixed at `d77cdfa`** | LLM prompt, **every** agent |
+| `lib/agent-context.js:177`, `:277` | security / story-bot context | `Sep 14` (no time) | LLM prompt, those two agents |
 
 Regenerate:
 ```bash
 grep -n "b.timestamp" lib/bulletin-board.js lib/agent-context.js
+git log --oneline -1 -L 397,420:lib/bulletin-board.js
 ```
 
-`formatBulletinsForContext` is the generic path — every agent's unread-bulletin context
-goes through it — and it emits `- [type] agentId: summary` with no time at all. An agent
-cannot tell a finding from an hour ago from one from six days ago, cannot order them, and
-has no basis for the word "recent" it will nonetheless use. Two agents get a date but no
-time because `agent-context.js` builds its own. The human view gets both.
+**What was fixed, and by what.** `formatBulletinsForContext` emitted no time at all when
+this was filed. Commit `d77cdfa` gave it an America/Toronto date and time. Nothing in this
+item was updated at the time, so the backlog carried a false statement about the generic
+prompt path for a day — caught while establishing what the `jester` agent can reach
+(`docs/JESTER-DESIGN.md` §1.2), where the bulletin stream is the only conversational input
+and "does it say when" decides whether it is usable at all.
 
-Same field, three answers to "when", one of them "not told". That is information present
-in one prompt and absent from another, for the same data — not a formatting preference.
+**What remains, and it is why this stays open.** One field is still rendered by **three
+separate inline option sets across two files**. The two special-cased agents in
+`lib/agent-context.js` still get a date and **no time**, so they cannot order two bulletins
+from the same day. That one path could be fixed while two were left behind, with nothing
+failing, is the defect: there is no shared helper to fix.
 
 **Fix.** One `formatTimestamp(date, precision)` helper (none exists anywhere in the repo),
-called by all three. Emit at least date + time into `formatBulletinsForContext`; a bulletin
-list an agent cannot order is worse than no bulletin list.
-**Priority:** P2 | **Effort:** Low | **Status:** open
+called by all three sites. The behavioural half is done; the duplication half is not.
+**Priority:** P2 | **Effort:** Low | **Status:** open — partially fixed at `d77cdfa`; no shared helper exists
 
 ---
 
@@ -1884,9 +1951,42 @@ verify its own half — but it is the only thing that closes this.
 then accumulates a weekly post); drop the schedule and keep jester as an ASK-only
 personality, which is what its checklist says it is; or build the deterministic report
 first and decide afterwards.
-**Priority:** P2 | **Effort:** Low to decide; Low-Medium for the report
+
+**2026-09-16 — the third way was taken, and gaps 2 and 3 are closed.**
+[`docs/JESTER-DESIGN.md`](docs/JESTER-DESIGN.md) is the design of record.
+
+- **Gap 3 (the input) — CLOSED.** `weekly-critique` moved from `TASK_TEMPLATES` to
+  `DETERMINISTIC_TASKS`. `lib/critique-digest.js` computes the report this item asked
+  for, over exactly the three signals named above plus three more: backlog ages joined
+  to how many times `WORK-TODO.md` was revised while an item stayed open; `Closes` vs
+  `Addresses` with **items addressed repeatedly and still open**; task outcomes,
+  durations and attempts with the queue's 24-hour retention printed beside them; what
+  merged and the fact that nothing can say what is *running* (#17); orphaned agent
+  output reused from `lib/agent-surface.js`; and bulletins, capped at five, as the only
+  conversational input.
+- **Gap 2 (the refused schedule) — CLOSED as far as this repository can close it.** The
+  job registers the moment the channel resolves: with one supplied,
+  `describeSchedule(jester)` returns `{ registered: true, kind: 'deterministic' }`.
+- **Gap 1 (the channel) — OPEN, and it is an owner action.** `#jester-agent` has never
+  resolved in any evidence this repository holds
+  (`node scripts/channel-map.js --from-git` lists it as unrecoverable). **The ASK-only
+  alternative is rejected**: the digest is the thing worth reading and it needs
+  somewhere to accumulate. `ASK: create channel #jester-agent`, then
+  `ASK: activate jester`.
+
+Also landed, because the item asked for the report and a report nobody can trigger is
+half a capability: `ASK: critique` runs the same operation on demand, registered in
+`lib/command-router.js` and reaching the same `getDeterministicTask` call the cron tick
+makes — one route, two triggers. And the thing #53 warned about is enforced rather than
+hoped for: a week with nothing in it produces a short honest post and **calls no model
+at all** (`tests/weekly-critique.test.js`), because a model handed an empty digest and a
+contrarian persona writes a complaint.
+
+**Priority:** P2 | **Effort:** remaining effort is one owner action
 **Risk:** Low
-**Status:** open — refusal is visible, decision is not made
+**Status:** open — **blocked on `ASK: create channel #jester-agent`, and on nothing
+else.** The material, the critique, the on-demand trigger and the no-gating guard are
+all landed and green.
 
 ---
 

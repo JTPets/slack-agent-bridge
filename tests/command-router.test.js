@@ -183,6 +183,76 @@ describe('runCommand', () => {
         jest.resetModules();
     });
 
+    test('the `critique` verb reaches the SAME catalogue handler as the cron job', async () => {
+        jest.resetModules();
+        const calls = [];
+        jest.doMock('../lib/weekly-critique', () => ({
+            runWeeklyCritique: async (deps) => {
+                calls.push(deps);
+                return { ok: true, status: 'ok', agentId: 'jester', channel: 'C0JESTER', posted: true };
+            },
+        }));
+        const router = require('../lib/command-router');
+        const r = await router.runCommand('critique', { slack: {}, agent: { id: 'bridge', channel: 'C0BRIDGE' } });
+        expect(r).toMatchObject({ handled: true, verb: 'critique', ok: true });
+        expect(calls).toHaveLength(1);
+        jest.dontMock('../lib/weekly-critique');
+        jest.resetModules();
+    });
+
+    test('the verdict names the channel the HANDLER posted into, not the caller\'s', async () => {
+        // Typed in the bridge channel; the critique lands in the jester's. A verdict
+        // naming C0BRIDGE would be a confident false statement about where to look.
+        jest.resetModules();
+        jest.doMock('../lib/weekly-critique', () => ({
+            runWeeklyCritique: async () => ({ ok: true, status: 'ok', agentId: 'jester', channel: 'C0JESTER', posted: true }),
+        }));
+        const router = require('../lib/command-router');
+        const r = await router.runCommand('critique', { slack: {}, agent: { id: 'bridge', channel: 'C0BRIDGE' } });
+        expect(r.text).toContain('C0JESTER');
+        expect(r.text).not.toContain('C0BRIDGE');
+        jest.dontMock('../lib/weekly-critique');
+        jest.resetModules();
+    });
+
+    test('a handler that resolves its own channel is not refused for the CALLER having none', async () => {
+        jest.resetModules();
+        jest.doMock('../lib/weekly-critique', () => ({
+            runWeeklyCritique: async () => ({ ok: true, status: 'thin', agentId: 'jester', channel: 'C0JESTER', posted: true }),
+        }));
+        const router = require('../lib/command-router');
+        const r = await router.runCommand('critique', { slack: {}, agent: null });
+        expect(r.ok).toBe(true);
+        // …whereas a handler that does NOT declare it still is:
+        const inbox = await router.runCommand('check-inbox', { slack: {}, agent: null });
+        expect(inbox.ok).toBe(false);
+        expect(inbox.text).toMatch(/needs an agent with a channel/);
+        jest.dontMock('../lib/weekly-critique');
+        jest.resetModules();
+    });
+
+    test('a critique that refuses is reported as a failure with its reason', async () => {
+        jest.resetModules();
+        jest.doMock('../lib/weekly-critique', () => ({
+            runWeeklyCritique: async () => ({ ok: false, status: 'no_channel', error: 'jester has no resolved channel (#jester-agent).' }),
+        }));
+        const router = require('../lib/command-router');
+        const r = await router.runCommand('critique', { slack: {}, agent: { id: 'bridge', channel: 'C0BRIDGE' } });
+        expect(r.ok).toBe(false);
+        expect(r.text).toContain('#jester-agent');
+        jest.dontMock('../lib/weekly-critique');
+        jest.resetModules();
+    });
+
+    test('the verb is registered as `critique`, not as the agent\'s name', async () => {
+        // WORK-TODO #45: a command is a VERB; an agent is addressed by its channel.
+        // `jester` must NOT be a command.
+        const { COMMANDS: table } = require('../lib/command-router');
+        expect(table.critique).toBeTruthy();
+        expect(table.jester).toBeUndefined();
+        expect(table['weekly-critique']).toBeUndefined();
+    });
+
     test('a handler that throws is reported, never swallowed into the LLM path', async () => {
         jest.resetModules();
         jest.doMock('../lib/email-check', () => ({ runInboxCheck: async () => { throw new Error('gmail down'); } }));

@@ -84,22 +84,41 @@ describe('agent-scheduler', () => {
         stopScheduler();
     });
 
-    describe('TASK_TEMPLATES', () => {
-        it('should have templates for all scheduled task types', () => {
-            const expectedTasks = [
-                'morning-briefing',
-                'nightly-audit',
-                'weekly-critique',
-                'draft-weekly-posts',
-                'content-calendar',
-                'weekly-analytics',
-            ];
-
-            for (const task of expectedTasks) {
-                expect(TASK_TEMPLATES[task]).toBeDefined();
+    describe('the task catalogue', () => {
+        // LOGIC CHANGE 2026-09-16: this was a HARDCODED list of six template names,
+        // including 'weekly-critique'. It went red the moment weekly-critique moved to
+        // DETERMINISTIC_TASKS (WORK-TODO #53) — correctly, but for the wrong reason: it
+        // was pinning an arrangement, not an invariant, so it would have had to be
+        // edited by hand every time a task changed kind. The invariant the scheduler
+        // actually enforces is that EVERY DECLARED AGENT SCHEDULE resolves to one
+        // handler or the other, and it is now asserted from the registry rather than
+        // from a list typed here.
+        it('every template it does declare is well formed', () => {
+            const names = Object.keys(TASK_TEMPLATES);
+            expect(names.length).toBeGreaterThan(0);
+            for (const task of names) {
                 expect(TASK_TEMPLATES[task].description).toBeTruthy();
                 expect(TASK_TEMPLATES[task].instructions).toBeTruthy();
             }
+        });
+
+        it('every task an agent SCHEDULES resolves to a template or a deterministic handler', () => {
+            // This is the condition startScheduler refuses on (`no deterministic handler
+            // and no template`), enumerated from the registry on disk. A schedule naming
+            // a task that exists in neither registry is a job that could never do
+            // anything, which is exactly what it refuses to register.
+            const { loadAgents } = require('../lib/agent-registry');
+            const scheduled = loadAgents().filter(a => a.schedule && a.schedule.task);
+            expect(scheduled.length).toBeGreaterThan(0);
+            const unresolvable = scheduled
+                .map(a => ({ id: a.id, task: a.schedule.task }))
+                .filter(({ task }) => !getTaskTemplate(task) && !getDeterministicTask(task));
+            expect(unresolvable).toEqual([]);
+        });
+
+        it('a task is a template OR a deterministic handler, never both', () => {
+            const overlap = Object.keys(TASK_TEMPLATES).filter(t => Boolean(getDeterministicTask(t)));
+            expect(overlap).toEqual([]);
         });
     });
 
