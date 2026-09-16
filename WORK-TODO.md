@@ -100,6 +100,45 @@ The index anchors follow GitHub's slugger: lowercase, drop punctuation **except*
 hyphen and underscore, spaces to hyphens. Four entries (#5, #20, #21, #34) previously
 dropped the underscore too and were therefore broken links; regenerating fixed them.
 
+## Twelve of the 48 are not engineering backlog
+
+**Filed 2026-09-16 by the audit pass.** A quarter of this file is work no branch can do.
+Mixed in with the rest it reads as a queue somebody could pick up, which is how #43 sat at
+P1 for a day after the command it asks for was already built and green.
+
+Two states, marked on the item itself so they are countable rather than remembered:
+
+- **BLOCKED — OWNER ACTION (off-repo)** — the remainder cannot be done from a branch **at
+  all**: it is a command on the NAS, a Slack app setting, or a Slack channel. Seven items:
+  **#3, #26, #40, #41, #43, #53, #55**. In every one the repository's half is landed and
+  verified; what is left is off-repo by construction.
+- **BLOCKED — OWNER DECISION** — the remainder is a choice, and the code is small once it
+  is made. Five items: **#27, #29, #37, #44, #51**. Three of them say so in their own
+  words (#29 "decision, not work"; #44 "not to be decided by an executor"; #51 "no shape
+  chosen").
+
+```bash
+# how many, and which
+grep -cE '^\*\*BLOCKED — OWNER' WORK-TODO.md
+awk '/^### [0-9]+[a-z]?\. /{id=$2}
+     /^\*\*BLOCKED — OWNER ACTION/{print "#"id" OWNER ACTION (off-repo)"}
+     /^\*\*BLOCKED — OWNER DECISION/{print "#"id" OWNER DECISION"}' WORK-TODO.md
+# split by kind
+grep -cE '^\*\*BLOCKED — OWNER ACTION' WORK-TODO.md
+grep -cE '^\*\*BLOCKED — OWNER DECISION' WORK-TODO.md
+```
+
+**What this does NOT mean.** A marked item is still open and still real; the marker says
+who can move it, not that it stopped mattering. #3 and #55 are P1 precisely because the
+thing that would settle them is a restart nobody has done.
+
+**Deliberately not marked, though it is tempting:** #17, #25, #42, #49, #52 and #54 each
+have an owner-side half **and** repo-side work still available — #25's alert text and its
+regression test, #42's age alert (the item says "(c) is buildable here"), #17's
+report-the-running-commit requirement, #52's computable direction, #54's rule needing a
+home in the tier definition, #49's answerable questions. Marking those would hide real
+work behind an owner's name, which is the opposite of the point.
+
 ## Index
 
 *Regenerated from the headings. Do not append to it by hand; re-run the command above.*
@@ -164,6 +203,10 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 ## P1 — Protects or unblocks the live deployment
 
 ### 55. The channel mapping had no reproduction path, and a deploy proved it
+**BLOCKED — OWNER ACTION (off-repo).** The mechanism, the reconstruction command and the
+guard all landed. Both remainders are the owner's: a real `docker compose restart jt-agent`
+to exercise the live resolution path for the first time, and a decision about where
+`node scripts/channel-map.js --report` output is kept off-box. Remainder for a branch: none.
 **Filed 2026-09-15,** from the incident on the evening of 2026-09-15. **P1 because it
 already happened**: a deploy left five active agents with no resolved channel and stopped
 two scheduled agents, and the recovery was a human reading identifiers out of terminal
@@ -353,6 +396,9 @@ the bridge uses. A reminder to run the command has the same failure mode as the 
 ---
 
 ### 41. The NAS is the single point of failure for every stack and every credential, and its exposure has never been established
+**BLOCKED — OWNER ACTION (off-repo).** The repo-side half landed 2026-09-15 (Step 7.9).
+Everything remaining is on the appliance: the four exposure questions, then the Step 7
+hardening order. Remainder for a branch: none.
 **Filed 2026-09-15,** from the NAS hardening pass
 ([`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) → Step 7,
 which carries the full ordered procedure, the commands, and the per-item labels).
@@ -559,6 +605,10 @@ ranking axis, and the loss is of work a human was told had been saved for them.
 ---
 
 ### 3. The scheduler never checks `planned` status — CONFIRMED FIRING LIVE 2026-09-14
+**BLOCKED — OWNER ACTION (off-repo).** Every fix part landed on `main`; the close condition
+is this item's own namesake, a claim about what the *running container* registers at startup.
+No branch can settle it. Remainder: one `docker compose restart jt-agent` on the NAS, then
+compare the startup output against the close condition restated below.
 **Filed 2026-09-13** (derived: `git log -S'### 3. ' --reverse -- WORK-TODO.md` -> `20dc049`, the backlog re-derivation).
 **Problem:** `startScheduler` iterates `loadAgents()` (all agents) and registers a cron
 job for any agent that has *both* a `schedule` and a `channel`
@@ -729,6 +779,12 @@ regression test.
 ---
 
 ### 43. A flattened dispatch loses its fields — the connection for the fix exists, the command does not
+**BLOCKED — OWNER ACTION (off-repo).** The command exists — `/dispatch` was built
+2026-09-15 and its four suites are green. Remainder is entirely Slack app configuration,
+which lives in no repository: Socket Mode on, an app-level token with `connections:write`
+in `.env` as `SLACK_APP_TOKEN`, the `/dispatch` command registered, Interactivity on, the
+app reinstalled, then `docker compose up -d --force-recreate jt-agent`. Remainder for a
+branch: none.
 **Filed 2026-09-14** (derived: `git log -S'A flattened dispatch loses its fields' --reverse -- WORK-TODO.md` -> `3dacba8`).
 Note this is the P1 `### 43.`; the P2 item that briefly shared the number was filed `d5b0c13`
 and is closed and purged.
@@ -960,6 +1016,10 @@ The first is the smaller change and closes the loop; the second is the safety ne
 ---
 
 ### 26. `docker-compose.yml` is untracked **and** unignored in the live working tree — `git clean -fd` deletes the deployment definition
+**BLOCKED — OWNER ACTION (off-repo).** The repo-side half is verified done at HEAD
+(`git check-ignore -v docker-compose.yml` -> `.gitignore:71`, exit 0;
+`git check-ignore -v docker-compose.example.yml` -> no match, exit 1). The namesake is the
+state of the **live working tree**. Remainder: one `git pull` on the NAS — and #40 first.
 **Filed 2026-09-14,** from the deployment-topology capture
 ([`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) → Step 0,
 consequence 1).
@@ -1015,6 +1075,10 @@ tree is the operation that surfaces any uncommitted local edits — answer #40 f
 ---
 
 ### 27. A task has write access to the entire live deployment, including every credential — recorded, undecided
+**BLOCKED — OWNER DECISION.** The shapes are written out against the captured compose
+(`docs/CONFIG-SURFACE-AND-REBUILD.md` Step 7.7) and the cheap ones are commented into
+`docker-compose.example.yml`. **Accepting the risk explicitly is a valid outcome and closes
+this item.** Until a shape is chosen there is nothing for a branch to build.
 **Filed 2026-09-14,** from the deployment-topology capture
 ([`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) → Step 0,
 consequence 3, which carries the full list).
@@ -1487,6 +1551,10 @@ absence as a finding rather than folding it into a green.
 ---
 
 ### 44. The 300-line rule is one rule over two different problems — scope it, or say it covers both
+**BLOCKED — OWNER DECISION.** The item states it in its own words: *not to be decided by an
+executor*. Two independent decisions (scope the rule out of `tests/`; count code lines
+rather than raw lines), each small to implement once made. Nothing is blocked on it — the
+gate is declaration-driven and green.
 **Filed 2026-09-15,** from the size-gate pass that produced #10's record. **Argued here on
 both sides and deliberately left undecided — the branch that filed this did not change the
 rule.** The gate is now declaration-driven (`lib/file-size-gate.js` +
@@ -1739,6 +1807,9 @@ pushed branch as unpushed).
 ---
 
 ### 40. Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout
+**BLOCKED — OWNER ACTION (off-repo).** Nothing here is engineering. Remainder: one
+`git status --porcelain` in `/share/CACHEDEV1_DATA/jt-agent`, then a decision per modified
+file. This repository cannot see that tree at all.
 **Filed 2026-09-14.** **Owner-supplied claim; this repository cannot confirm it.** Filed
 with that label rather than as a repo fact, because `/bridge` is off-repo.
 
@@ -1776,6 +1847,9 @@ commit it, or record why it is deliberately local.
 ---
 
 ### 37. `notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success
+**BLOCKED — OWNER DECISION.** Build the digest, or collapse HIGH into `notifyOps()`. That
+is a choice about how much traffic `#sqtools-ops` should carry, not a bug fix. The code is
+small either way; the decision is the gate.
 **Filed 2026-09-14,** from the failure-path enumeration
 ([`docs/AUTONOMOUS-LOOP-DESIGN.md`](docs/AUTONOMOUS-LOOP-DESIGN.md) section 5).
 
@@ -1877,6 +1951,9 @@ have answers.
 ---
 
 ### 51. A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it
+**BLOCKED — OWNER DECISION.** Three shapes recorded, none chosen, and the item explicitly
+forbids the obvious wrong move (*do not fix this by adding a fourth store*). Shape (b) is
+already demonstrated by `create`. Picking the shape is the gate.
 **Filed 2026-09-15.** **This is a class, filed after its third instance.** A built-in
 command that changes configuration has exactly two places to write: a tracked file, which
 `auto-update.js`'s `git reset --hard HEAD` discards on the next pull, or a gitignored
@@ -1961,6 +2038,9 @@ verify its own half — but it is the only thing that closes this.
 ---
 
 ### 53. `jester` is an active commentary agent with a weekly schedule, no channel, and no defined material
+**BLOCKED — OWNER ACTION (off-repo).** Gaps 2 and 3 closed 2026-09-16; gap 1 is a Slack
+channel, and nothing in this repository creates one. Remainder: `ASK: create channel
+#jester-agent`, then `ASK: activate jester`. Remainder for a branch: none.
 **Filed 2026-09-15.** Three separate gaps that look like one:
 
 1. **No channel, and no real name to give it.** Its checklist says "Responds via ASK in
@@ -2156,6 +2236,10 @@ among four no-ops. Do not "fix" it in the catch block; that code never runs for 
 ---
 
 ### 29. `gmail-unsubscribe` is a declared agent permission that no code implements
+**BLOCKED — OWNER DECISION.** Drop the permission and the three rules-file keys as
+aspirational, or implement it — which means a write scope, a consent flow and an
+irreversible outbound action on a keyword match. The item says so itself: *decision, not
+work*. Until it is made there is nothing for a branch to build.
 **Filed 2026-09-14,** from the same trace as #28.
 
 The email-monitor agent declares `permissions: ["gmail-read", "gmail-unsubscribe"]` and a
