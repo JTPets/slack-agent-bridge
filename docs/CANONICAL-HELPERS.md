@@ -38,7 +38,7 @@ are leads that drift — re-run the command, do not trust the number.
 ```bash
 grep -rnE "async function (post|notify|send)[A-Za-z]*\(" --include='*.js' . \
   | grep -v node_modules | grep -v '/tests/'
-# The post-site count used below (48 at the time of writing):
+# The post-site count used below (48 when written; 51 at 2026-09-16 — run it, do not read it):
 grep -rn "chat\.postMessage" --include='*.js' . | grep -v node_modules | grep -v '/tests/' | wc -l
 ```
 
@@ -319,12 +319,17 @@ downstream code parses the result. Recorded, not filed.
 grep -rn "redact(" --include='*.js' . | grep -v node_modules | grep -v '/tests/'
 ```
 
-**Canonical implementation: `lib/redact-secrets.js` `redact()`.** Applied at four sites:
-`bridge-agent.js:382` (the ops choke point), `:756` (LLM stderr to the console),
-`:921` (failure message), `lib/notify-owner.js:196` (`taskFailed`'s error string).
+**Canonical implementation: `lib/redact-secrets.js` `redact()`.** **Re-measured
+2026-09-16: SIX call sites, not four** (line numbers all drifted from the four cited
+here — `bridge-agent.js:382/:756/:921` and `lib/notify-owner.js:196`):
+`bridge-agent.js:408` (the ops choke point), `:852` (LLM stderr to the console),
+`:1068` (failure message), `lib/notify-owner.js:126` and `:129` (`notifyOps`, which
+redacts before delegating to `notifyChannel`), `:222` (`taskFailed`'s error string).
 
 No site re-implements it — there is no second scrubber — so this is not duplication. It
-is **under-application**: 48 `chat.postMessage` sites, 2 scrubbed. Counted under #1/#2.
+is **under-application**, and the ratio got *worse* while this row sat open:
+**51 `chat.postMessage` sites (was 48), 3 of them scrubbed (was 2)**. Three post sites
+were added and none redacts. Counted under #1/#2; regenerate with the two commands in §1.
 
 ## 11. Git identifier validation — **canonical, no divergence** ✅
 
@@ -376,9 +381,19 @@ grep -rn "function stripComments\|function stripCommentsAndStrings\|function lis
 | `tests/no-shell-execution.test.js` `stripCommentsAndStrings` | comments, and optionally string CONTENTS | a call-site ban must not trip on prose or on a message naming the banned API |
 | `tests/test-gate-honesty.test.js` `stripComments` | comments only; strings left intact | the thing being detected (`'npm test'`) **is** a string literal, so blanking strings would make the scan match nothing |
 
-Three guards now walk the source tree from disk (`tests/no-shell-execution.test.js`,
-`tests/timezone-explicit.test.js`, `tests/test-gate-honesty.test.js`) and each carries
-its own `listSourceFiles`.
+**CORRECTED 2026-09-16 — FOUR guards, not three.** `tests/task-agent-identity.test.js`
+added a fourth walker after this row was written. Regenerate the count rather than
+reading it:
+
+```bash
+grep -rlE 'function (stripComments|stripCommentsAndStrings|listSourceFiles|collectSourceFiles)' tests/*.js | wc -l   # 4
+```
+
+Four guards now walk the source tree from disk (`tests/no-shell-execution.test.js`,
+`tests/timezone-explicit.test.js`, `tests/test-gate-honesty.test.js`,
+`tests/task-agent-identity.test.js`) and each carries its own `listSourceFiles`. A row
+whose figure is a count, in a document about duplication, gained an instance while it sat
+open — which is the argument for WORK-TODO #36 restated by events.
 
 **EQUIVALENT, not DIVERGENT:** the two strippers produce different output by design and
 neither is wrong. The duplication is the walk plus the comment-scanner, roughly 50 lines

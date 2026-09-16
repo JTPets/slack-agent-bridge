@@ -877,7 +877,37 @@ and one that can only be remembered.
 
 ### On the repeated `already_in_channel` warnings
 
-**There are none, and there never were** — cited versus actual at `69a3922`.
+> **CORRECTED 2026-09-16 (backlog audit) — the paragraph below was confidently wrong,
+> and it contradicted WORK-TODO #21, which had already established the right answer.**
+> The grep it relies on searches this repository only, so it cannot see the emitter.
+> The warning is real and it comes from the **Slack SDK**, not from this repo's catch
+> blocks. Verified against the installed `@slack/web-api` 7.19.0:
+>
+> ```bash
+> grep -n "warnings" node_modules/@slack/web-api/dist/WebClient.js       # :205-206
+> grep -n "LogLevel.INFO" node_modules/@slack/web-api/dist/WebClient.js  # :151
+> grep -n "new WebClient" lib/slack-client.js                            # :62
+> ```
+>
+> `WebClient.js:206` does
+> `result.response_metadata.warnings.forEach(this.logger.warn.bind(this.logger))`, and
+> `:151` defaults the logger to `LogLevel.INFO` when the constructor is given no
+> `logLevel` — which is exactly how `lib/slack-client.js:62` constructs it
+> (`new WebClient(token)`). Slack returns HTTP **200** with a
+> `response_metadata.warnings` field for `already_in_channel`, so it never reaches a
+> catch block at all.
+>
+> **This is the precise mistake #21 warns against** in its own text: *"Do not 'fix' it
+> in the catch block; that code never runs for this case."* The section below reached
+> the opposite conclusion by checking only the half of the system this repository owns.
+> The fixes #21 names — pass `logLevel: LogLevel.ERROR` (or a custom logger) when
+> constructing the `WebClient`, or check membership before joining — both still apply.
+>
+> Kept rather than deleted, because the reasoning error is the useful part: a
+> repo-scoped grep is not evidence about behaviour produced by a dependency.
+
+**Superseded — read the correction above.** ~~There are none, and there never were~~ —
+cited versus actual at `69a3922`.
 `joinAgentChannels()` (`lib/slack-client.js`) treats `already_in_channel` as a
 *success*: it increments `joined` and `continue`s, logging nothing. Grep it:
 
@@ -885,8 +915,8 @@ and one that can only be remembered.
 grep -rn "already_in_channel" --include=*.js . | grep -v node_modules
 ```
 
-Every hit is a success branch or a test of one. So the change above removes no
-warning, because none exists to remove. What *does* repeat on every start is the
+Every hit **in this repository** is a success branch or a test of one — which is true,
+and is why the emitter was missed. What *does* repeat on every start is the
 single info line `[bridge-agent] Joined N/N agent channels`, and re-joining on every
 start is deliberate: a channel can be recreated while the bot is offline, and
 `conversations.join` on a channel it is already in is a no-op. What the change does

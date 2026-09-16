@@ -2408,6 +2408,18 @@ forwards those straight to `logger.warn`. **Verified**, not inferred:
 (`new WebClient(token)`). Regenerate:
 `grep -n "warnings\|LogLevel.INFO" node_modules/@slack/web-api/dist/WebClient.js`.
 
+**A document disagreed with this item, and this item was right — resolved 2026-09-16.**
+`docs/AGENTS.md` carried a section headed *"On the repeated `already_in_channel` warnings
+— **There are none, and there never were**"*, reached by grepping this repository only.
+That is the exact mistake this item's own text warns against: the emitter is the SDK, not
+a catch block here, so a repo-scoped grep cannot see it. Re-verified against the installed
+`@slack/web-api` **7.19.0** — `WebClient.js:206` forwards
+`result.response_metadata.warnings` to `logger.warn` and `:151` defaults the level to
+`INFO` when the constructor is given none, which is how `lib/slack-client.js:62`
+constructs it. `docs/AGENTS.md` now carries the correction above the superseded
+paragraph. Recorded here because a doc confidently contradicting an open item is worse
+for a reviewer than the warnings themselves.
+
 **Fix (pick one, both cheap):** pass `logLevel: LogLevel.ERROR` (or a custom `logger`) when
 constructing the `WebClient`; or check membership before joining and only call
 `conversations.join` for channels the bot is actually missing — which has the side benefit

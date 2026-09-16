@@ -10,7 +10,7 @@ not from the architecture wish-list:
 
 1. **What is actually wired?** — which modules a live process reaches, which are
    reachable only from tests, and which the LLM-fallback chain actually covers.
-2. **Where does `bridge-agent.js` (2209 lines) split?** — the cohesive seams, ranked
+2. **Where does `bridge-agent.js` split?** — the cohesive seams, ranked
    by leverage per unit of risk, with the dependencies each seam drags along and the
    test that already guards it.
 
@@ -287,7 +287,15 @@ grep -n "^// ----\|^async function \|^function \|^const .* = require" bridge-age
 | 2079–2156 | 78 | top-level startup sequence (the async IIFE that calls `poll`) | boot |
 | 2158–2209 | 52 | `gracefulShutdown` + signal handlers | lifecycle |
 
-Two functions (`processTask` 546, `processConversation` 479) are **46%** of the file.
+> **The line ranges in this table are from a 2209-line `bridge-agent.js` and the file is
+> 2469 lines at 2026-09-16** (`node -e "console.log(require('fs').readFileSync('bridge-agent.js','utf8').split('\n').length)"`).
+> Every range below the `/dispatch` and agent-identity work has shifted. The *sections*
+> and their order are unchanged, and the seams in §6 are named by content rather than by
+> line number, so they still apply — but re-run the boundary command above before
+> cutting on any number here. Checked 2026-09-16 during the backlog audit.
+
+Two functions (`processTask` 546, `processConversation` 479) were **46%** of the file at
+2209 lines; re-measure before quoting the percentage.
 
 ---
 
@@ -641,8 +649,21 @@ npm test                                 # full suite before commit
 node lib/validate.js                     # Check 2 re-counts files over 300 lines
 ```
 
-`node lib/validate.js` regenerates the over-limit file count (WORK-TODO #10 cites 59);
-each landed seam should lower `bridge-agent.js`'s own line count toward the 300 rule.
+**CORRECTED 2026-09-16 — `node lib/validate.js` does NOT regenerate that count any more.**
+Since the gate became declaration-driven (2026-09-15) it prints the over-limit list only
+when it FAILS, and it passes, so parsing its output returns 0 whatever the real number is.
+The same false negative was carried by WORK-TODO #10 and #44 and is corrected there too.
+Ask the gate for the measurement instead:
+
+```bash
+node -e "const g=require('./lib/file-size-gate');const m=g.measure().filter(f=>f.lines>300);
+  console.log(m.length+' over limit | '+m.filter(f=>f.path.startsWith('tests/')).length+' test suites | '
+    +m.filter(f=>!f.path.startsWith('tests/')).length+' source modules');"
+# -> 69 over limit | 40 test suites | 29 source modules      (2026-09-16)
+```
+
+The "#10 cites 59" above is itself stale twice over — #10 cited 65 by 2026-09-15 and 69
+now. Each landed seam should lower `bridge-agent.js`'s own line count toward the 300 rule.
 
 *Written 2026-09-13. Figures from the repo at commit `e2a19e2`; regenerate with the
 commands inline above.*
