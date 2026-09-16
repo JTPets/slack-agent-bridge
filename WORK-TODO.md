@@ -336,9 +336,24 @@ out a worker interaction.
 is related to the change that was in flight when it appeared (four new `lib/` modules and
 five new suites, none of which `globalSetup` imports — and the second occurrence came
 *after* that work was committed and green, which weakens the connection further).
+**2026-09-16 audit pass: three more runs, all green, still unreproduced.** Run with the
+capture that works, on a fresh `npm ci` in a clean container:
+`npx jest --silent > out.txt 2>&1; echo "exit=$?"` -> `exit=0` three times, 74 suites /
+2391 tests / 0 skipped each time. That is 19 consecutive green runs since the second
+observation. **This is not evidence the defect is absent** — a few-percent intermittent
+needs far more runs than this to rule out, and the item's own framing ("treat it as a few
+percent") already says so. Recorded as three more data points, not as progress.
+
+**Note for whoever picks this up:** the runner was **absent** in that container until
+`npm ci` was run (`ls node_modules/.bin/jest` -> no such file). Under the #54 rule that is
+the same class as this item — a gate that cannot start. It is an environment condition, not
+a defect here, but a hunt for this flake that begins without confirming the runner is
+installed will misread `jest: not found` as the very failure it is hunting.
+
 **Priority:** P1 by the #54 rule | **Effort:** Low to instrument, unknown to fix
 **Risk:** Unknown — a gate that can fail to start is the shape #54 is about
-**Status:** open — two unreproduced observations, same signature; instrument before hunting
+**Status:** open — two unreproduced observations, same signature; 19 green runs since;
+instrument before hunting
 
 ---
 
@@ -542,8 +557,16 @@ run outside tests, and whose startup config is currently wrong.
 topology it depends on: [`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md)
 → Step 0, consequence 2.
 
-**What the feature promises.** `detectUndeliveredWork(dir)` (`lib/clone-lifecycle.js:237-330`,
-called from `bridge-agent.js:964-981`) refuses to delete a scratch clone that holds
+**Repo-side half re-verified 2026-09-16 and it is NOT done.** The alert at
+`bridge-agent.js:1127-1133` posts `Location: <path>` and "The clone was NOT deleted so the
+work can be recovered and pushed manually" — it still says nothing about the clone being in
+container-local storage, nothing about a container recreation destroying it, and nothing
+about the `docker exec -it jt-agent sh` needed to reach the path it prints. So fix half 2,
+which this item calls Low effort and which a branch can land today, is untouched. This is
+why the item is **not** marked owner-blocked: it has real engineering work left.
+
+**What the feature promises.** `detectUndeliveredWork(dir)` (`lib/clone-lifecycle.js:237`,
+called from `bridge-agent.js:1123`; filed as `:237-330` and `:964-981`) refuses to delete a scratch clone that holds
 uncommitted changes, or local commits `git ls-remote origin` does not show on the remote,
 or whose delivery state cannot be read. It keeps the clone and posts its path to
 `#sqtools-ops` so the work can be recovered and pushed by hand. It exists because three
@@ -732,7 +755,8 @@ Regenerate the expected table before comparing: `node scripts/agent-surface.js`.
 idea has been open ~5.5 months and the re-derivation date understates it.
 **Source:** tomeraitz/claude-slack-bridge
 **Problem:** The bridge still polls: `setInterval(poll, POLL_INTERVAL)` at
-`bridge-agent.js:2038`, default `POLL_INTERVAL_MS=30000`. No `@slack/socket-mode`
+`bridge-agent.js:2353` (cited `:2038` when filed; re-checked 2026-09-16), default
+`POLL_INTERVAL_MS=30000`. No `@slack/socket-mode`
 dependency exists (`grep -c socket-mode package.json` → 0). Up to 30s latency, steady
 API pressure, and — the reason this is *more* valuable than when it was first listed —
 the poll loop's per-message skip path was the surface where messages were silently
@@ -888,9 +912,15 @@ header — because spawned-LLM stderr was surfaced verbatim to `#sqtools-ops`. I
 at exactly two of the repository's 48 `chat.postMessage` sites:
 
 ```bash
-grep -rn "chat\.postMessage" --include='*.js' . | grep -v node_modules | grep -v '/tests/' | wc -l   # 48
-grep -rn "redact(" --include='*.js' . | grep -v node_modules | grep -v '/tests/'                     # 4 call sites, 2 of them post paths
+grep -rn "chat\.postMessage" --include='*.js' . | grep -v node_modules | grep -v '/tests/' | wc -l   # 51 (2026-09-16; was 48)
+grep -rn "redact(" --include='*.js' . | grep -v node_modules | grep -v '/tests/'                     # 7 call sites, 3 of them post paths
 ```
+**Re-measured 2026-09-16: 51 post sites, 3 of them redacting** — `bridge-agent.js:408`
+(`postToOps`), `lib/notify-owner.js:126` and `:129` (`notifyOps`). The other four `redact()`
+hits are `bridge-agent.js:852`/`:1068`, `lib/notify-owner.js:222` and the definition itself
+at `lib/redact-secrets.js:75`. **The ratio got worse, not better** — three more post sites
+landed and none of them redacts, which is precisely what the closing paragraph below
+predicts happens without an enumerator.
 
 `security-review.js:89` posts **LLM-generated security findings** to `#sqtools-ops` with no
 scrubbing — the exact content class the scrubber was written for, on the one path most
@@ -1220,9 +1250,15 @@ quantities. Regenerate:
 | Binding | Quantity | Value |
 |---------|----------|-------|
 | `lib/config.js:34`, `lib/llm-runner.js:172` | env-driven **default** | 50 |
-| `lib/task-parser.js:56` | hard **ceiling** on the `TURNS:` header | 100 |
-| `lib/task-parser.js:14` `DEFAULT_TURNS` | **default when no header**, a hardcoded literal | 50 |
-| `bridge-agent.js:1498` | conversation path's **own** default *and* ceiling | 10 / 20 |
+| `lib/task-parser.js:83` | hard **ceiling** on the `TURNS:` header | 100 |
+| `lib/task-parser.js:81` `DEFAULT_TURNS` | **default when no header**, a hardcoded literal | 50 |
+| `bridge-agent.js:1742` | conversation path's **own** default *and* ceiling | 10 / 20 |
+
+**Citations re-checked 2026-09-16** — every line number in this table had drifted (filed as
+`:56`, `:14`, `:1498`); the four bindings themselves are unchanged and the item's claim
+holds. The export is at `lib/task-parser.js:488`, not `:463`. **A new consumer appeared
+while this was open:** `lib/dispatch-modal.js:23` imports `MIN_TURNS`/`MAX_TURNS` from the
+parser, so the rename in fix part 1 now has two consumers to update, not one.
 
 `bridge-agent.js:1498` is the source of the `max-turns=20` the owner observed in
 `[llm-runner] Spawning Claude in /tmp/bridge-agent (max-turns=20)` and could not place:
@@ -1280,6 +1316,13 @@ grep -rnE "toISOString\(\)\.(slice|split)" --include='*.js' . | grep -v node_mod
 | `lib/llm-metrics.js:61` `dayKey` | UTC | **yes** — documented at `:53-55` as deliberate: a stable key beats local-midnight alignment for a 7-day ratio |
 | `lib/staff-tasks.js:211`, `:318`, `:423` | UTC | **no** |
 | `morning-digest.js:477` | UTC | **no** |
+| `lib/agent-create.js:82` | UTC | **new 2026-09-15, not in the original table** |
+
+**CORRECTED 2026-09-16 — a sixth site appeared while this item was open.**
+`lib/agent-create.js:82` stamps a UTC day into the TODO text of a generated agent
+definition. Its consequence is cosmetic (a role string, not a store day), but it is the
+same idiom spreading to a new file with nothing failing — which is the argument for the
+enumerator below, restated by events rather than by assertion.
 
 `staff-tasks.js` is about the **store's** day. A UTC key rolls over at 20:00 Toronto (EDT)
 / 19:00 (EST), so a task posted at 21:00 is filed under tomorrow's date and
@@ -1407,13 +1450,25 @@ is gone or is back under the limit also fails, so the list cannot rot. This reco
 committed before any file was touched, on purpose: it is what that list was built from and what
 a later run resumes from instead of re-deriving.
 
-Regenerate every figure in this item:
+**CORRECTION 2026-09-16 — the regeneration command in this item was a FALSE NEGATIVE, and
+every figure below was stale because of it.** `npm run validate 2>&1 | grep -cE '^  - '`
+printed **0**, which reads as "no violations". It is not: the declaration-driven gate only
+prints a `  - ` list when it FAILS, and since 2026-09-15 it passes, so the command returns 0
+whether the true number is 0 or 69. A figure whose command silently returns the wrong answer
+is worse than a figure with no command — this file's own rule ("every figure carries the
+command that regenerates it") was satisfied in form and broken in fact for a day. Ask the
+gate for the measurement instead of parsing its failure output:
+
 ```bash
-# the list itself, and the count
-npm run validate 2>&1 | grep -E '^  - '
-npm run validate 2>&1 | grep -cE '^  - '
-# category split: how many are test suites
-npm run validate 2>&1 | grep -E '^  - ' | sed 's/^  - //' | grep -c '^tests/'
+# over-limit files, and the tests/source split — THE working command
+node -e "const g=require('./lib/file-size-gate');const m=g.measure().filter(f=>f.lines>300);
+  console.log(m.length+' over limit | '+m.filter(f=>f.path.startsWith('tests/')).length+' test suites | '
+    +m.filter(f=>!f.path.startsWith('tests/')).length+' source modules');"
+# the list itself
+node -e "const g=require('./lib/file-size-gate');g.measure().filter(f=>f.lines>300)
+  .sort((a,b)=>b.lines-a.lines).forEach(f=>console.log(f.lines, f.path));"
+# the gate's own verdict (green = every one of them is declared)
+npm run validate 2>&1 | grep 'declared exceptions'
 # lines vs. non-comment non-blank code, per over-limit file
 node -e "
 const fs=require('fs'),path=require('path');
@@ -1431,7 +1486,14 @@ for(const f of walk(process.cwd())){const L=fs.readFileSync(f,'utf8').split('\n'
 The rule counts `split('\n').length`, which reads one higher than `wc -l` on a
 newline-terminated file — that is why these numbers and `wc -l` disagree by one.
 
-**The largest file is `bridge-agent.js` at 2227 lines**, and it is the main agent module —
+**Figures as of 2026-09-16, from the working command above: 69 over the limit — 40 test
+suites, 29 source modules — and 69 declared exceptions, so the gate is green.** The tables
+below say 65 / 36 / 29 and were correct on 2026-09-15; the four new files are test suites
+added by the jester work. The source-module table is unchanged at 29 and every disposition
+in it still holds.
+
+**The largest file is `bridge-agent.js` at 2469 lines** (2026-09-16; it was 2227 when the
+table below was built, and the table's row still reads 2227), and it is the main agent module —
 the premise the seam work rests on. Its seams are declared in
 [`docs/WIRING-AND-SEAMS.md`](docs/WIRING-AND-SEAMS.md) §6 (A and B landed; C, D, E open).
 It is **excluded from splitting during size-limit work**: cutting the monolith inside a
@@ -1570,13 +1632,18 @@ because no one could hold the file in one read — which is what `docs/CANONICAL
 enumerates the cost of. So the rule is a **proxy for "this module has too many
 responsibilities"**, measured in lines because lines are cheap to count.
 
-**Figures, as commands.**
+**Figures, as commands. CORRECTED 2026-09-16 — the command below used to parse
+`npm run validate` output and returned 0 for everything; see #10 for why.**
 ```bash
-npm run validate 2>&1 | grep -cE '^  - '                              # 65 over the limit
-npm run validate 2>&1 | grep -E '^  - ' | sed 's/^  - //' | grep -c '^tests/'   # 36 are test suites
+node -e "const g=require('./lib/file-size-gate');const m=g.measure().filter(f=>f.lines>300);
+  console.log(m.length+' over limit | '+m.filter(f=>f.path.startsWith('tests/')).length+' test suites | '
+    +m.filter(f=>!f.path.startsWith('tests/')).length+' source modules');"
+# -> 69 over limit | 40 test suites | 29 source modules      (2026-09-16)
 ```
-**36 of 65 — 55% of every violation — are test suites**, and the largest after
-`bridge-agent.js` is `tests/llm-runner.test.js` at 1837 lines.
+**40 of 69 — 58% of every violation — are test suites**, and the largest after
+`bridge-agent.js` is `tests/llm-runner.test.js` at 1837 lines. (It was 36 of 65 when this
+was filed; the ratio moved the way the argument below predicts it would, because the four
+files added since are all suites.)
 
 **Why a suite is a different problem.** A test file's length is its **assertion count**. The
 failure mode the rule exists to prevent — one module quietly acquiring five responsibilities —
@@ -1625,7 +1692,8 @@ The rule counts `split('\n').length` — **every** line, including the prose thi
 own contract requires (`LOGIC CHANGE` comments, module headers stating why a guard exists,
 the evidence behind a decision). **Sixteen of the 29 over-limit source modules are under 300
 lines of code**, `lib/clone-lifecycle.js` at 49% comment (170 comment / 158 code) and
-`lib/notify-owner.js` at 176 comment / 192 code. Regenerate with the `node -e` snippet in
+`lib/notify-owner.js` at 176 comment / 192 code. Re-checked 2026-09-16: still 29 source
+modules, so this half of the argument is unmoved by the four files added since. Regenerate with the `node -e` snippet in
 **#10**.
 
 So the rule currently penalises a module for documenting itself, and the cheapest compliance
@@ -1897,7 +1965,16 @@ walks `channelsToPoll` and carries each channel's `agentConfig` into processing.
 **Fix (after #38):** resolve the invoking channel against `channelsToPoll`; post there on a
 match; reject in-form with the reason on a miss. The `private_metadata` round trip and
 `tests/dispatch-command.test.js`'s failure-path coverage already exist.
-**Priority:** P2 | **Effort:** Low once #38 lands; blocked on it | **Status:** open — recorded, not started
+**UNBLOCKED 2026-09-16 — dependency 1 is closed and this status was stale.** #38 ("a task
+does not execute as the channel's agent") was closed and purged by `29af5c5` on 2026-09-15,
+guarded by `tests/task-agent-identity.test.js`. So the reason this item read "blocked" no
+longer holds. Dependency 2 stands and is the actual work: `/dispatch` must **refuse** an
+invoking channel that is not in `channelsToPoll`, never fall back to the bridge channel.
+Re-verify the remaining claim: `grep -n "BRIDGE_CHANNEL" lib/dispatch-command.js` -> the
+post target is still `config.BRIDGE_CHANNEL` regardless of where the command was invoked,
+so the namesake is unchanged. Citation drift: `buildChannelsToPoll` is at
+`bridge-agent.js:2107`, not `:1934`.
+**Priority:** P2 | **Effort:** Low | **Status:** open — **unblocked**, not started
 
 ---
 
@@ -2137,8 +2214,25 @@ degrade the running bridge") does not cover this, and both of these fell through
 
 **Not proposed:** re-ranking the whole file. Two instances is a pattern, not a mandate,
 and the next filing is where this is cheapest to apply.
-**Priority:** P2 | **Effort:** None (the decision is the artifact)
-**Status:** recorded 2026-09-15 — the rule is written down; nothing enforces it
+**Why this could not be closed in the 2026-09-16 audit, and what would close it.** Its
+Effort is "None — the decision is the artifact", so on a first reading it looks done. It is
+not closeable, for a reason that is structural rather than about this item: **this file
+purges closed items, so closing a decision record deletes the decision** unless the decision
+already lives somewhere else. `grep -rn "apparatus" CLAUDE.md docs/*.md` finds nothing — the
+rule exists only here. And it is load-bearing right now: **#56 cites it by number as the
+sole justification for its P1 ranking**, so purging this would leave #56's tier unexplained.
+
+Compare #45, closed the same day: its rule was independently written into
+`lib/command-router.js:12`, `CLAUDE.md:651` and a test, so purging the item cost nothing.
+That is the difference, and it is the close condition here too — **the remainder is one
+edit: put the rule in this file's own priority-tier definition.** The tier definition
+currently reads "P1 = can brick or silently degrade the running bridge, or unblocks
+something that can", and this item exists because that sentence does not cover a defect in
+the apparatus. Amend it, then close.
+
+**Priority:** P2 | **Effort:** Low (one edit to the tier definition above, then close)
+**Status:** open — the rule is written down here and nowhere else, so closing it would
+delete it; #56 depends on it
 
 ---
 
@@ -2166,7 +2260,19 @@ may be unavailable to this account, in this region, or at this tier. Querying on
 - The two must not share a code path that implies equal confidence. `resolveAgentLlm`
   (`lib/agent-llm-resolver.js`) already returns `model_source`, so the UI can say where a
   model name came from without claiming it was validated.
-**Priority:** P3 | **Effort:** Low per provider; the point is not to bundle them | **Status:** open — distinction recorded, neither list built
+**Why this could not be closed in the 2026-09-16 audit.** Same shape as #54: its namesake
+is "record the asymmetry, build neither yet", both halves of which are satisfied — and it is
+still not closeable, because the record lives only in this file and this file purges what it
+closes. Partial traces exist in code (`lib/llm-runner.js:982` explains why the startup probe
+uses `/api/tags`; `lib/agent-llm-resolver.js` returns `model_source`), but the *decision* —
+never present a hosted provider's model list as if it were verified — is written nowhere
+else, and this item exists precisely to reach a future reader who is about to build one.
+**The remainder is one edit:** move the two-bullet rule into the document that owns provider
+behaviour (`docs/AGENTS.md`, or `CLAUDE.md`'s LLM section beside the ollama contract), then
+close this. Until then, closing it destroys the artifact.
+
+**Priority:** P3 | **Effort:** Low (move the rule to an owning doc, then close)
+**Status:** open — distinction recorded **only here**, neither list built
 
 ---
 
@@ -2176,17 +2282,26 @@ may be unavailable to this account, in this region, or at this tier. Querying on
 ```bash
 grep -rn "function stripComments\|function stripCommentsAndStrings\|function listSourceFiles" tests/*.js
 ```
-`tests/no-shell-execution.test.js`, `tests/timezone-explicit.test.js` and
-`tests/test-gate-honesty.test.js` each walk the source tree from disk and each carries its
-own copy — roughly 50 lines repeated three times. Marked **EQUIVALENT**, not DIVERGENT: the
+**CORRECTED 2026-09-16 — it is FOUR copies now, not three.**
+`tests/task-agent-identity.test.js` added a fourth while this item was open, which is what
+an un-enforced duplication item does: it records a number that the next change invalidates.
+The grep above finds all four. Regenerate the count rather than reading it:
+`grep -rlE 'function (stripComments|stripCommentsAndStrings|listSourceFiles|collectSourceFiles)' tests/*.js | wc -l` -> 4.
+
+`tests/no-shell-execution.test.js`, `tests/timezone-explicit.test.js`,
+`tests/test-gate-honesty.test.js` and `tests/task-agent-identity.test.js` each walk the
+source tree from disk and each carries its own copy — roughly 50 lines repeated four times. Marked **EQUIVALENT**, not DIVERGENT: the
 two comment scanners differ deliberately (the shell guard blanks string *contents* so prose
 naming a banned API does not trip it; the test-gate guard must leave strings intact because
 the thing it detects, `'npm test'`, **is** a string literal).
 
 **Why it was not extracted when the third copy landed.** The helper would live under
 `tests/helpers/`, and `tests/architecture-tree.test.js` enumerates `tests/*.js`
-**non-recursively** (`TRACKED_DIRS` + a flat `readdirSync`). A file three guards depend on
-would sit in a directory no guard covers. Extraction therefore means widening that
+**non-recursively** (`TRACKED_DIRS` at `:44` includes `tests`, but the walk at `:94` is a
+flat `readdirSync`). A file four guards depend on would sit in a directory no guard covers.
+**Re-verified 2026-09-16 and still true** — the four files now in `tests/helpers/` are named
+in `CLAUDE.md`'s tree but enumerated by no guard, so the tree test cannot fail when one is
+added or removed. Extraction therefore means widening that
 enumeration first, which is the actual work and is why this is an item rather than a
 side effect of the change that noticed it.
 
@@ -2207,7 +2322,10 @@ which is why it is an item.
 ---
 
 ### 21. `already_in_channel` warns five times per boot — and the obvious fix is in the wrong place
-**Filed 2026-09-14.** `joinAgentChannels` (`lib/slack-client.js:385`) calls
+**Filed 2026-09-14.** Citations re-checked 2026-09-16: `joinAgentChannels` is at
+`lib/slack-client.js:367` (filed as `:385`) and the `new WebClient(token)` construction —
+the one that actually matters, because it is the missing `logLevel` — is at `:62`, not
+`:80`. The claim is unchanged. `joinAgentChannels` (`lib/slack-client.js:367`) calls
 `conversations.join` unconditionally for every channel at startup; the bot is already in
 all of them, so every boot produces the same five warnings. Harmless, and it trains the
 reader to skip WARN lines — which matters because item #3's `not_in_channel` and item #17's
