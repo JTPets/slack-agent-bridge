@@ -77,7 +77,11 @@ At the **2026-09-20 bridge-findings pass** those print **52** open items — 9 P
 **10** P3 — and **no duplicate ID**. That pass filed **#57**–**#60**, closed nothing, and
 regenerated the index from the headings.
 
-At the **2026-09-16 audit pass** those printed **48** open items — 9 P1, **31** P2, 8 P3 — and
+At the **2026-09-16 persistence-design pass** those print **50** open items — 9 P1, **33** P2,
+8 P3 — and no duplicate ID. That pass filed **#57** and **#58** from the state enumeration and
+closed nothing. (It files more later in the same branch; run the commands rather than reading
+this sentence.)
+Earlier the same day, at the **2026-09-16 audit pass**, those printed **48** open items — 9 P1, **31** P2, 8 P3 — and
 **no duplicate ID**. That pass purged **#45** (closed: the decision is recorded outside this
 file and the name half it said nothing enforced is enforced by
 `tests/command-router.test.js`), filed nothing, and gave every remaining item a filed date.
@@ -234,12 +238,14 @@ work behind an owner's name, which is the opposite of the point.
 - **#23** — [A task killed mid-run is re-read and re-run on the next poll](#23-a-task-killed-mid-run-is-re-read-and-re-run-on-the-next-poll)
 - **#26** — [`docker-compose.yml` is untracked **and** unignored in the live working tree — `git clean -fd` deletes the deployment definition](#26-docker-composeyml-is-untracked-and-unignored-in-the-live-working-tree--git-clean--fd-deletes-the-deployment-definition)
 - **#27** — [A task has write access to the entire live deployment, including every credential — recorded, undecided](#27-a-task-has-write-access-to-the-entire-live-deployment-including-every-credential--recorded-undecided)
+- **#57** — [Two runtime files under `data/` are neither tracked nor gitignored — `git clean -fd` deletes them and `git add -A` publishes them](#57-two-runtime-files-under-data-are-neither-tracked-nor-gitignored--git-clean--fd-deletes-them-and-git-add--a-publishes-them)
 - **#24** — [Four sibling modules resolve a shared writable path at module scope with no override — the same class as #19](#24-four-sibling-modules-resolve-a-shared-writable-path-at-module-scope-with-no-override--the-same-class-as-19)
 - **#20** — [`MAX_TURNS` names four different quantities, and the env var is dead config](#20-max_turns-names-four-different-quantities-and-the-env-var-is-dead-config)
 - **#33** — [A UTC day key is used as the store's day, so evening staff tasks are filed against tomorrow](#33-a-utc-day-key-is-used-as-the-stores-day-so-evening-staff-tasks-are-filed-against-tomorrow)
 - **#32** — [One bulletin timestamp, three renderings — no shared helper](#32-one-bulletin-timestamp-three-renderings--no-shared-helper)
 - **#34** — [`DEPLOY_KEY_PATH` is read but undocumented](#34-deploy_key_path-is-read-but-undocumented)
 - **#35** — [Per-agent memory has TTL and decay but no max-entries cap](#35-per-agent-memory-has-ttl-and-decay-but-no-max-entries-cap)
+- **#58** — [The tiered memory system is implemented, documented in the present tense, and written by nothing](#58-the-tiered-memory-system-is-implemented-documented-in-the-present-tense-and-written-by-nothing)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
 - **#44** — [The 300-line rule is one rule over two different problems — scope it, or say it covers both](#44-the-300-line-rule-is-one-rule-over-two-different-problems--scope-it-or-say-it-covers-both)
 - **#11** — [A helpers/utilities map and an owning-doc rule](#11-a-helpersutilities-map-and-an-owning-doc-rule)
@@ -1302,6 +1308,51 @@ push path; none of it should be attempted without a way to verify the bridge sti
 
 ---
 
+### 57. Two runtime files under `data/` are neither tracked nor gitignored — `git clean -fd` deletes them and `git add -A` publishes them
+**Filed 2026-09-16,** from the Step 8 state enumeration
+([`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) §8.1 rows 7–8).
+
+**This is #26's class, reopened for two more files, with a second consequence #26 did not
+have.** #26 was `docker-compose.yml`: untracked *and* unignored in the live working tree,
+so the ordinary tidying command deletes it. That was closed by a `.gitignore` line. The
+same hole is open for two files the code writes and `.gitignore` never names.
+
+**Verified at HEAD.** Regenerate:
+```bash
+for f in data/staff-tasks-state.json data/catalog-cache.json data/delivery-quotes.json; do
+  printf '%-34s ' "$f"; git check-ignore -q "$f" && echo IGNORED || echo NOT-IGNORED
+done
+# -> data/staff-tasks-state.json      NOT-IGNORED
+# -> data/catalog-cache.json          NOT-IGNORED
+# -> data/delivery-quotes.json        IGNORED
+grep -n "TASKS_STATE_FILE" lib/staff-tasks.js                    # :22 writer
+grep -n "CACHE_FILE =" lib/integrations/square-catalog.js        # :19 writer
+grep -n "^data/" .gitignore                                      # only delivery-quotes.json
+```
+
+**Both directions are real, and the second is the new one.**
+- **Deleted:** `git clean -fd` in the deploy directory removes an unignored untracked file.
+  No `-x` needed — that is the whole difference between these two and every other runtime
+  file in §8.1, which is ignored and therefore skipped.
+- **Published:** an unignored file can be **committed** as easily as deleted.
+  `data/staff-tasks-state.json` carries staff names and their assignments (`agents/shared/staff.json`
+  fields: `name`, `slackId`, `role`), and this repository is going open source. A `git add -A`
+  on the box puts them in public history, where a later `git rm` does not remove them.
+
+**Fix:** add `data/` to `.gitignore` with the seeded exceptions re-included by name, the
+same inverse-rule shape `agents/*/memory/*` already uses and for the same stated reason —
+an allowlist of today's filenames fails open when a new writer appears. `data/` currently
+has exactly one legitimate tracked inhabitant candidate (none today; the directory is not
+in git at all), so the inverse rule costs nothing.
+
+**Why not fixed in the change that filed it:** that change is a design pass with no code or
+configuration edits in scope, and a `.gitignore` line has a deployment-shaped consequence
+(it changes what `git status` reports on the box) — the same reason #26 was filed rather
+than taken unilaterally.
+**Priority:** P2 | **Effort:** Low (one `.gitignore` block) | **Status:** open
+
+---
+
 ### 24. Four sibling modules resolve a shared writable path at module scope with no override — the same class as #19
 **Filed 2026-09-14, from the #19 fix.** *#19 — `tests/approval-queue.test.js` racing a
 hardcoded shared file — is closed and purged; the fix is commit `1bea22d` on
@@ -1560,6 +1611,50 @@ oldest-by-TTL when exceeded. Keep it consistent with the existing decay logic.
 hits; TTL and decay are there, the count cap is not.
 *Given a stable number this revision (it was filed as an unnumbered "Reconcile" heading).*
 **Priority:** P2 | **Effort:** Low | **Status:** open
+
+---
+
+### 58. The tiered memory system is implemented, documented in the present tense, and written by nothing
+**Filed 2026-09-16,** from the Step 8 state enumeration
+([`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) §8.2).
+
+**Distinct from #35,** which asks for a max-entries cap on those tiers. A cap on a tier
+nothing writes is a cap on nothing. This is the prior question.
+
+**Verified at HEAD.** Regenerate:
+```bash
+# the tier write API - who calls it in production?
+grep -rn "addAgentShortTerm\|promoteAgentMemory\|setAgentPermanent\|addShortTerm\|addPermanent" \
+  --include=*.js . | grep -v node_modules | grep -v '^./tests/'
+# -> only lib/memory-tiers.js (definitions) and memory/memory-manager.js (pass-throughs)
+# what bridge-agent actually calls
+grep -on "memory\.[a-zA-Z]*(" bridge-agent.js | sort -u -t: -k2
+# -> addTask, buildTaskContext, clearAgentWorkingMemory, completeTask, failTask,
+#    loadMemory, migrateAgentMemory, startupMemoryCleanup
+```
+
+`lib/memory-tiers.js` implements TTL expiry (`:118`), decay to archive (`:131`),
+auto-promotion at three re-adds (`AUTO_PROMOTE_THRESHOLD`, `:13`) and a startup sweep.
+**No production code adds a short-term, long-term or permanent entry.** So the promotion
+threshold can never be reached, the decay sweep has nothing to decay, and
+`agents/<id>/memory/{working,short-term,long-term,archive}.json` are empty by construction.
+
+**What runs instead** is the pre-tier path: `memory/tasks.json` and `memory/history.json`
+(`memory/memory-manager.js:11-13`), which are **global, not per-agent** — there is no agent
+id in either path — and reach a prompt as the **last 10** history entries (`:141`).
+`history.json` is append-only and pruned by nothing.
+
+**Why it is worth filing rather than deleting the tiers.** `docs/AGENTS.md` → "Memory
+Tiers" describes expiry, promotion, decay and archival in the present tense across four
+tables, and `CLAUDE.md`'s architecture tree lists the five files per agent. This is the
+same shape as `lib/task-decomposer.js` (`docs/WIRING-AND-SEAMS.md` §3): documentation that
+oversells what the running system does. Either the tiers get a writer or the documentation
+gets a banner — and which one is the memory-model decision, not a tidying decision.
+
+**Not a defect to fix in passing.** The design that decides it is
+[`docs/STATE-AND-MEMORY-DESIGN.md`](docs/STATE-AND-MEMORY-DESIGN.md). Until that is
+accepted, the honest repository-side action is the banner.
+**Priority:** P2 | **Effort:** Low to document; the writer is a design decision | **Status:** open
 
 ---
 

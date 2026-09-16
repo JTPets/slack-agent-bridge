@@ -797,3 +797,211 @@ untracked *and* unignored there.
 **Filed as backlog items rather than done here:** WORK-TODO #41 (exposure and the
 single-point-of-failure posture — 7.1 to 7.3) and #42 (the backups' off-box copy and
 liveness — 7.3 and 7.4). Both are P1 and both need the box.
+
+---
+
+# Step 8 — Every piece of state held outside the repository (addendum, 2026-09-16)
+
+**This is an addendum. Steps 0–7 and the Appendix above are unchanged.** Step 5 item 7
+said "runtime state files … created on first run" and corrected itself once, for the
+channel map. This step is the full enumeration that sentence stood in for: **what each
+store is, where it lives, what writes it, what reads it, what destroys it, and what its
+loss costs** — and, for each, whether it is *declared by the repository*, *learned by the
+deployment*, or *both*.
+
+**Why it is here rather than in a new document.** Step 5 is the rebuild path and this is
+the list a rebuild has to reconstruct; Step 7.3's "could the copy be restored if the NAS
+were powered off" test applies to every row below. Extending the document that already
+owns the rebuild beat opening a second one that would have to be kept in step with it.
+
+**Method.** Every row was established from code at `cdb5afd`, not from memory. The write
+surface was enumerated first, and every store below is downstream of one of these sites:
+
+```bash
+# THE write surface. Every durable store in this system is written by one of these.
+grep -rn "writeFileSync(\|appendFileSync(" --include=*.js . \
+  | grep -v node_modules | grep -v '^./tests/'
+# The path constants those sites resolve
+grep -rnE "^(const|let) [A-Z_]*(FILE|PATH|DIR|STATE)[A-Z_]* *=" --include=*.js \
+  lib/ memory/ bridge-agent.js auto-update.js bots/ | grep -v node_modules
+# Tracked / ignored / neither, for any path
+git check-ignore -v <path> ; git ls-files --error-unmatch <path>
+```
+
+## 8.0 The three categories, because they have three different failure modes
+
+| Category | Survives `git reset --hard` + pull? | Survives `git clean -fd`? | Survives container recreation? | Survives box loss? |
+|---|---|---|---|---|
+| **Tracked** (in git) | yes — and it *overwrites* any on-box edit | yes | yes | yes |
+| **Gitignored** (untracked, ignored) | yes | yes (`-fd` skips ignored; **`-fdx` does not**) | yes, if under `/bridge` | **no** |
+| **Neither tracked nor ignored** | yes | **NO — deleted** | yes | **no** |
+| **Container-local** (`$WORK_DIR`, default `/tmp/bridge-agent`) | n/a | n/a | **NO** | no |
+
+The fourth row is the one that is easy to miss: `WORK_DIR` defaults to `/tmp/bridge-agent`,
+which is neither bind mount (Step 0), so it is the container's own writable layer —
+Consequence 2 above, applied to two more files than the scratch clone it was written about.
+
+## 8.1 The enumeration
+
+Ordered by what the loss costs, worst first. **Cost is classified three ways** — *loudly
+refused* (a human is told, and the system stops rather than guessing), *silently degraded*
+(the system keeps running and produces different output with nobody told), *unnoticed*
+(nothing observable changes until someone asks a question that needed it).
+
+| # | Store | Path | Class | Declared / learned | Written by | Read by | Destroyed by | Cost of loss |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Channel map | `agents/shared/channel-map.json` | gitignored | **learned** | `resolveAgentChannel` (`lib/agent-activation.js`), `ensureChannel` (`lib/slack-client.js`), `scripts/channel-map.js` | `applyWorkspaceState()` in `lib/agent-registry.js`, via `loadAgents()` — so transitively every consumer of an agent record | `git clean -fdx`, box loss, volume loss | **Loudly refused, then silently degraded.** Boot re-resolves and posts what it could not resolve to `#sqtools-ops` — but only *declared names that are real* resolve. Everything else stops being joined, polled and scheduled at once (`activeChannels()`), so an agent does not fail, it disappears |
+| 2 | Activation decisions | `agents/shared/agent-activation.json` | gitignored | **learned** | `activateAgent`/`deactivateAgent`/`resetActivation` → `lib/bridge-state.js` | `applyWorkspaceState()` | `git clean -fdx`, box loss | **Silently degraded.** Every agent reverts to its definition's `default_status`. This file **wins over** the definition (`lib/agent-registry.js:106-112`), so losing it changes which agents run, and nothing reports the change |
+| 3 | Approval queue | `agents/shared/approval-queue.json` | gitignored | **learned** | `lib/approval-queue.js` | same, and `ASK: pending approvals` | `git clean -fdx`, box loss | **Silently degraded.** Auto-generated security tasks awaiting owner approval vanish. Nothing re-derives them — the nightly review that produced them has moved on |
+| 4 | Email filter rules | `agents/email-monitor/memory/rules.json` | **TRACKED** | **both, and that is the defect** | a human, on the box | `loadRules()` on **every** check (`lib/integrations/email-categorizer.js:89`) | `git reset --hard HEAD`, any `git checkout`/pull on the box | **Silently degraded, and this is the sharpest one.** Routing reverts to the committed file. The owner stops being shown a class of mail and is told nothing — the failure mode part 4 of the memory design exists to prevent |
+| 5 | Activation checklists | `agents/activation-checklists.json` | **TRACKED, written at runtime** | **both** | `lib/owner-tasks-store.js` (`addTask` from an `ACTION REQUIRED:` line, `completeTask`) | `ASK: my tasks`, agent readiness | `git reset --hard HEAD`, any pull | **Silently degraded.** Completed items un-complete and auto-captured owner actions disappear. Same class as #4 and as WORK-TODO **#51** |
+| 6 | Agent definitions' mutable fields | `agents/<id>/agent.md` (`default_status`, `schedule`, `llm_provider`) | **TRACKED** | **declared** | a human, on the box | `loadAgents()` | `git reset --hard HEAD` | **Silently degraded.** Already happened twice — `.gitignore`'s own comment records it: *"a tracked status field was destroyed twice by auto-update's `git reset --hard HEAD`"*. The surviving workaround is `LLM_PROVIDER_<AGENTID>` in `.env`, i.e. a second store for one field |
+| 7 | Staff task state | `data/staff-tasks-state.json` | **NEITHER tracked NOR ignored** | **learned** | `lib/staff-tasks.js:143` | assignments, overdue checks, escalation, morning digest | **`git clean -fd` — no `-x` needed**; box loss | **Silently degraded**, plus a disclosure risk: it is not ignored, so `git add -A` on the box commits staff names and assignments into a repository that is going open source |
+| 8 | Square catalog cache | `data/catalog-cache.json` (`CATALOG_CACHE_FILE`) | **NEITHER tracked NOR ignored** | **learned** | `lib/integrations/square-catalog.js` | storefront chat search | `git clean -fd`; box loss | **Unnoticed** — it re-fetches on a 1 h TTL. The disclosure risk is the same as #7: an accidental `git add -A` commits the product catalogue |
+| 9 | Bulletin stream | `agents/shared/bulletin.json` | gitignored | **learned** | `postBulletin` — five call sites | **every active agent's prompt** (`formatBulletinsForContext`, newest 10), `ASK: bulletins`, `lib/critique-signals.js` (5, in-window) | `git clean -fdx`, box loss; swept at 7 days by `cleanupOldBulletins`, whose only production caller is `morning-digest.js:485` | **Silently degraded in the prompt path.** An empty stream and a quiet week render identically to an agent. The critique digest labels its own coverage; the per-agent prompt injection does not |
+| 10 | Legacy task memory | `memory/tasks.json`, `memory/history.json`, `memory/context.json` | gitignored | **learned** | `memory/memory-manager.js` `addTask`/`completeTask`/`failTask` | `buildTaskContext()` → the **last 10** history entries into every task prompt | `git clean -fdx`, box loss | **Silently degraded.** This is the only memory the system actually writes (§8.2) and the only cross-task record it has. `history.json` is append-only and **never pruned** |
+| 11 | Task queue | `$WORK_DIR/task-queue.json` (default `/tmp/bridge-agent`) | **container-local** | **learned** | `lib/task-queue.js` | `ASK: what's queued`, `recoverInterrupted()`, `lib/critique-signals.js` | **`docker compose up -d --force-recreate`**, host reboot, `/tmp` sweep; terminal rows self-expire at **24 h** | **Silently degraded.** `recoverInterrupted()` finds nothing to recover, so a task killed by the recreation is never marked interrupted — and WORK-TODO **#22** already records that an interrupted task reaches no human anyway |
+| 12 | Task lock | `$WORK_DIR/.task-running` | **container-local** | **learned** | `lib/task-lock.js` | `lib/task-lock.js`, `evaluateTaskDeferral` (no live caller) | same as #11 | **Unnoticed, and benign.** bridge-agent clears any lock at startup, so losing it is what startup would have done |
+| 13 | Poll cursors | `.bridge-agent-state.json` | gitignored | **learned** | `lib/bridge-state.js` | `poll()` | `git clean -fdx`, box loss | **Unnoticed on its own.** The poll re-reads the newest 5 per channel; dedup (#14) is what stops re-execution. Losing **both** re-runs up to 5 messages per channel — WORK-TODO **#23** |
+| 14 | Processed-task dedup | `agents/shared/processed-tasks.json` | gitignored | **learned** | `lib/bridge-state.js` `markTaskProcessed` | `isTaskProcessed` before every `TASK:`/`ASK:` | `git clean -fdx`, box loss; entries self-expire at **7 days** (`cleanupProcessedTasks`, `lib/bridge-state.js:136`) | See #13 |
+| 15 | Inbox check window | `agents/email-monitor/memory/check-state.json` | gitignored | **learned** | `lib/email-check.js` on a successful check only | `resolveWindow()` | `git clean -fdx`, box loss | **Silently degraded into noise.** The window falls back to `EMAIL_CHECK_MAX_LOOKBACK_MS` (24 h), so up to a day of mail is re-reported as new |
+| 16 | LLM verdict counter | `agents/shared/llm-metrics.json` | gitignored | **learned** | `recordVerdict` on every LLM call | `getStats()` | `git clean -fdx`, box loss; 30-day retention (`LLM_METRICS_RETENTION_DAYS`) | **Unnoticed.** The one store whose entire job is answering a question nobody asks daily; its loss is invisible until someone asks "how often did we fall back?" |
+| 17 | Watercooler state | `agents/shared/watercooler-state.json` | gitignored | **learned** | `lib/watercooler.js` | last-standup timestamp | `git clean -fdx`, box loss | **Unnoticed** |
+| 18 | Delivery quotes | `data/delivery-quotes.json` (`DELIVERY_QUOTES_FILE`) | gitignored | **learned** | `bots/storefront.js:249` | `GET` path in the same file | `git clean -fdx`, box loss | **Silently degraded — and it is the only store holding customer PII.** Business name, contact name, phone, email, pickup and delivery addresses (`bots/storefront.js:333-373`). Unbounded, no retention rule, no backup path, and it is the one row on this page where loss is not the worst outcome |
+| 19 | Per-agent tiered memory | `agents/<id>/memory/{working,short-term,long-term,archive}.json` | gitignored by an inverse rule | **learned** | **nothing in production except `clearAgentWorkingMemory` and `startupCleanup`** — see §8.2 | `getRelevantMemory` (no production caller) | anything | **Nothing.** They are empty by construction today |
+| 20 | Seeded agent memory | `agents/<id>/memory/{context,backlog,rules}.json` | **TRACKED** (re-included by name in `.gitignore`) | **declared** | committed | as above | — | — |
+| 21 | auto-update state | `.auto-update-state.json` | gitignored | **learned** | `auto-update.js:458` | `auto-update.js` | anything | **Nothing.** Nothing starts the daemon (WORK-TODO **#17**) |
+| 22 | The environment file | `/bridge/.env` | off-repo, owner-managed | **learned** | a human | `lib/config.js` and 55 other read sites | a firmware event, box loss, a mistaken edit | **Loudly refused** for the three required keys (`validateConfig` exits); **silently degraded** for everything else, including every `LLM_PROVIDER_<AGENTID>` override |
+| 23 | The deploy key | `/bridge/.deploy_key` (`DEPLOY_KEY_PATH`) | off-repo | **learned** | a human | `lib/clone-lifecycle.js` | box loss | **Loudly refused** — pushes fail |
+| 24 | The deployment definition | `/bridge/docker-compose.yml` | off-repo, untracked on the box | **both** | a human | `docker compose` | `git clean -fd` **on the box** (the repo-side `.gitignore` line reaches the box only when someone pulls there) | **Loudly refused** — and the off-box copy is `docker-compose.example.yml` (Step 7.9) |
+| 25 | The Slack workspace | not a file | external | **learned** | Slack | everything | an owner action, an app reinstall | **Loudly refused** at boot for a name that stops resolving; **unnoticed** for a channel nobody declared (WORK-TODO **#52**) |
+
+### Two rows that are new findings, not restatements
+
+**Rows 7 and 8 — `data/` is neither tracked nor gitignored.** `.gitignore` names
+`data/delivery-quotes.json` specifically, so the other two files the code writes into that
+directory are covered by nothing. Regenerate:
+
+```bash
+for f in data/staff-tasks-state.json data/catalog-cache.json data/delivery-quotes.json; do
+  printf '%-34s ' "$f"
+  git check-ignore -q "$f" && echo IGNORED || echo NOT-IGNORED
+done
+# -> data/staff-tasks-state.json      NOT-IGNORED
+# -> data/catalog-cache.json          NOT-IGNORED
+# -> data/delivery-quotes.json        IGNORED
+```
+
+This is WORK-TODO **#26**'s class — a file the deployment needs sitting where the ordinary
+tidying command deletes it — reopened for two more files, with a second consequence #26
+did not have: an unignored runtime file can be **committed** as easily as deleted, and one
+of these two carries staff names into a repository that is going open source.
+
+**Row 4 and row 5 — two tracked files are written at runtime.** `git reset --hard HEAD` is
+the documented first step of the self-update cycle, and a human pulling on the box does the
+same thing. Both files hold decisions a person made on the box. The repository already has
+the right pattern for this and applies it to exactly one file class: activation decisions
+were moved to a gitignored file *because* the tracked equivalent was destroyed twice. Rules
+and checklists were not moved with them.
+
+## 8.2 The tiered memory system is implemented and unwired
+
+This is the largest gap between what the documentation describes and what the process does,
+and it is the reason the memory design is a redesign rather than a configuration change.
+
+```bash
+# The tier write API — who calls it in production?
+grep -rn "addAgentShortTerm\|promoteAgentMemory\|setAgentPermanent\|addShortTerm\|addPermanent" \
+  --include=*.js . | grep -v node_modules | grep -v '^./tests/'
+# -> only lib/memory-tiers.js (the definitions) and memory/memory-manager.js (the pass-through)
+
+# What bridge-agent actually calls
+grep -on "memory\.[a-zA-Z]*(" bridge-agent.js | sort -u -t: -k2
+# -> memory.addTask, memory.buildTaskContext, memory.clearAgentWorkingMemory,
+#    memory.completeTask, memory.failTask, memory.loadMemory, memory.migrateAgentMemory,
+#    memory.startupMemoryCleanup
+```
+
+`lib/memory-tiers.js` implements TTL expiry (`:118`), decay to archive (`:131`),
+auto-promotion at three re-adds (`AUTO_PROMOTE_THRESHOLD`, `:13`) and startup cleanup.
+**Nothing in production adds a short-term, long-term or permanent entry.** The promotion
+threshold can therefore never be reached, the decay sweep has nothing to decay, and the
+archive is written by nothing. `docs/AGENTS.md` → "Memory Tiers" describes all of it in the
+present tense.
+
+What runs instead is the **legacy, pre-tier** path: `memory/tasks.json` and
+`memory/history.json`, which are **global rather than per-agent** (`memory/memory-manager.js:11-13`
+resolves them next to the module, with no agent id in the path) and reach a prompt as the
+**last 10** history entries (`:141`). So the memory an agent actually has is: the ten most
+recent task outcomes of *any* agent, plus whatever is in the tracked seed `context.json`.
+
+That is not a defect to fix in passing — it is the finding the memory model in
+`docs/STATE-AND-MEMORY-DESIGN.md` is built on.
+
+## 8.3 The two retention findings, confirmed
+
+Both were supplied as leads and both are real. The figures differ from the leads and the
+difference matters.
+
+**Finding one — the commentary agent reports on seven days from a queue that holds one.**
+
+```bash
+grep -n "DEFAULT_WINDOW_DAYS" lib/critique-signals.js      # :21  -> 7
+grep -n "COMPLETED_RETENTION_MS" lib/task-queue.js         # :53  -> 24 * 60 * 60 * 1000
+```
+
+`buildDigest()` opens a 7-day window; `cleanup()` removes terminal queue rows after 24
+hours and runs at every bridge startup. Signal 3 therefore covers at most the last day of a
+seven-day claim, and less on a restart-heavy week.
+
+**It is not a silent loss, and that is the part worth recording.** `lib/critique-digest.js:194`
+prints the retention beside the counts — *"the queue retains 24 hours, so this covers AT
+MOST the last day of a 7-day window"* — so a thin task section reads as a coverage limit
+rather than as "nothing failed". The defect is that the reader sees less than it should,
+not that it lies about seeing it. A durable task record (part 3 of the design) is what
+closes it; widening `COMPLETED_RETENTION_MS` would only move the point at which a
+container recreation (row 11) empties the file anyway.
+
+**Finding two — and from ten bulletins.** Confirmed with a correction to the number:
+
+```bash
+grep -n "function formatBulletinsForContext" lib/bulletin-board.js   # :397  limit = 10
+grep -n "LIMITS = " lib/critique-signals.js                          # :37   bulletins: 5
+grep -n "DEFAULT_CLEANUP_DAYS" lib/bulletin-board.js                 # :31   7
+```
+
+Ten is the cap on the stream injected into **every agent's prompt**. The critique's own cap
+is **five**, in-window. Both sit on top of a 7-day retention swept by a single caller
+(`morning-digest.js:485`), so a week in which the digest ran before the critique loses the
+far end of the window regardless of either cap. Seven days of retention against a weekly
+schedule is exactly enough and no more — `docs/JESTER-DESIGN.md` §1.2 says so, and this
+confirms it at HEAD.
+
+## 8.3a Leads that did not survive contact with the code
+
+Reported rather than quietly corrected, per §2 of the executor contract.
+
+| Lead | Actual at `cdb5afd` |
+|---|---|
+| "a channel mapping … held entries for two agents out of seven" | **Refuted as stated.** The map was not short of entries; it held the **real** channel names. Seven of **eleven** declared `channel_name` values were a convention that named no channel in the workspace, so the lookups missed a key that had never existed (`docs/AGENTS.md` → "Declared channel name vs. the workspace's real one"). The map was correct and the declaration was fiction — the opposite diagnosis, and it is why the fix was correcting names rather than rebuilding the map |
+| "recovery required a human reading terminal scrollback" | **Not verifiable from the repository, and the repository records a different recovery.** The ids were recovered from `agents/activation-checklists.json` — a *tracked* file pairing each "Create #X" task with its "Assign channel `<ID>`" task — and the reproduction path is now `node scripts/channel-map.js --from-git`. Whether scrollback was also read on the night is an off-repo fact this cannot confirm either way |
+| "a deploy left five active agents unresolved and two scheduled agents silently stopped" | **Confirmed**, and it is the repository's own account (`docs/CONFIG-SURFACE-AND-REBUILD.md` Step 5 item 7) |
+| "Task queue and processed-task records, retained roughly twenty-four hours" | **Half right.** Task queue: 24 h (`lib/task-queue.js:53`). Processed tasks: **7 days** (`lib/bridge-state.js:136`). They are different stores with different retentions and only the first is container-local |
+| "a scheduled job's interval, edited live and destroyed twice by a hard reset" | **Confirmed as a class, corrected as to the field.** `.gitignore` records the destroyed field as the **status/activation** field, not a cron interval. Both live in the same tracked definition file, so the class is identical and the count of two is the repository's own |
+| "Per-agent provider overrides, in an environment file because a tracked file did not survive" | **Confirmed.** `LLM_PROVIDER_<AGENTID>` wins over the definition (`lib/config.js:165`), and `docs/AGENTS.md` states the reason in those terms |
+
+## 8.4 What this changes about the rebuild path
+
+Step 5 lists seven things a fresh box needs. This enumeration adds the rule that governs
+rows 1–3 and 7–18: **every one of them is learned, none of them is exported, and the only
+one with a reproduction path is the channel map.** Restoring the bridge from Step 5 gives a
+running process with no activation decisions, no approval queue, no bulletins, no task
+history and no staff task state — and the process will not say so, because with one
+exception (row 1's boot-time report) nothing in the system distinguishes an empty store
+from a store that was never there.
+
+That distinction — absent versus empty — is the property the design in
+`docs/STATE-AND-MEMORY-DESIGN.md` is built to hold, and it is the same property
+`lib/test-verdict.js`, `lib/critique-signals.js` and `fetchRecentEmails()` already hold in
+their own domains. The pattern exists in this repository three times. It is the stores that
+do not have it.
