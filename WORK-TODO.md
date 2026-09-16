@@ -1931,9 +1931,42 @@ verify its own half — but it is the only thing that closes this.
 then accumulates a weekly post); drop the schedule and keep jester as an ASK-only
 personality, which is what its checklist says it is; or build the deterministic report
 first and decide afterwards.
-**Priority:** P2 | **Effort:** Low to decide; Low-Medium for the report
+
+**2026-09-16 — the third way was taken, and gaps 2 and 3 are closed.**
+[`docs/JESTER-DESIGN.md`](docs/JESTER-DESIGN.md) is the design of record.
+
+- **Gap 3 (the input) — CLOSED.** `weekly-critique` moved from `TASK_TEMPLATES` to
+  `DETERMINISTIC_TASKS`. `lib/critique-digest.js` computes the report this item asked
+  for, over exactly the three signals named above plus three more: backlog ages joined
+  to how many times `WORK-TODO.md` was revised while an item stayed open; `Closes` vs
+  `Addresses` with **items addressed repeatedly and still open**; task outcomes,
+  durations and attempts with the queue's 24-hour retention printed beside them; what
+  merged and the fact that nothing can say what is *running* (#17); orphaned agent
+  output reused from `lib/agent-surface.js`; and bulletins, capped at five, as the only
+  conversational input.
+- **Gap 2 (the refused schedule) — CLOSED as far as this repository can close it.** The
+  job registers the moment the channel resolves: with one supplied,
+  `describeSchedule(jester)` returns `{ registered: true, kind: 'deterministic' }`.
+- **Gap 1 (the channel) — OPEN, and it is an owner action.** `#jester-agent` has never
+  resolved in any evidence this repository holds
+  (`node scripts/channel-map.js --from-git` lists it as unrecoverable). **The ASK-only
+  alternative is rejected**: the digest is the thing worth reading and it needs
+  somewhere to accumulate. `ASK: create channel #jester-agent`, then
+  `ASK: activate jester`.
+
+Also landed, because the item asked for the report and a report nobody can trigger is
+half a capability: `ASK: critique` runs the same operation on demand, registered in
+`lib/command-router.js` and reaching the same `getDeterministicTask` call the cron tick
+makes — one route, two triggers. And the thing #53 warned about is enforced rather than
+hoped for: a week with nothing in it produces a short honest post and **calls no model
+at all** (`tests/weekly-critique.test.js`), because a model handed an empty digest and a
+contrarian persona writes a complaint.
+
+**Priority:** P2 | **Effort:** remaining effort is one owner action
 **Risk:** Low
-**Status:** open — refusal is visible, decision is not made
+**Status:** open — **blocked on `ASK: create channel #jester-agent`, and on nothing
+else.** The material, the critique, the on-demand trigger and the no-gating guard are
+all landed and green.
 
 ---
 

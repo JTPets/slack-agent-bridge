@@ -906,7 +906,7 @@ even reported at startup. Creating a channel is an owner action
 
 | Agent | Status | Declared schedule | Declared channel | State after the 2026-09-15 name correction |
 |---|---|---|---|---|
-| `jester` | **active** | `0 18 * * 5` weekly-critique | `#jester-agent` | **The only one that still needs a decision.** Its checklist says "Responds via ASK in any channel, no dedicated channel needed", so `#jester-agent` is a name nothing ever created and no real name exists to substitute. It is the one **active** agent that cannot be addressed at all, and its `weekly-critique` job is refused for a stated reason at every startup. Creating `#jester-agent` is one answer; deciding jester needs no channel and removing the schedule is the other. Filed, not chosen. |
+| `jester` | **active** | `0 18 * * 5` weekly-critique | `#jester-agent` | **DECIDED 2026-09-16 — the channel is the only part left, and it is the owner's.** WORK-TODO #53 had three gaps; the material one is closed (`docs/JESTER-DESIGN.md`): `weekly-critique` is now a deterministic handler that computes a digest and posts one critique, and it is triggerable on demand as `ASK: critique`. The other answer — drop the schedule and keep him ASK-only — is **rejected**, because the digest is the thing worth reading and it has to land somewhere it accumulates. So: **create `#jester-agent`**. Until it exists his job is refused at every boot for a stated reason and the verb refuses with the same one. The checklist line "no dedicated channel needed" predates the schedule and is wrong; it is what the note below now says instead. |
 | `social-media` | planned | `0 9 * * 1,3,5` content-calendar | `#social-media` | **No channel needs creating** — the checklist records `#social-media` as created (`C0AP8CHCV1U`). It is `planned`, so `ASK: activate social-media` is the whole remaining step, and it resolves from the map or from Slack by name. |
 | `marketing` | planned | `0 6 * * 1` weekly-analytics | `#marketing` | Same: the checklist records `#marketing` as created. `ASK: activate marketing` and nothing else. Its id is not in the map, so activation resolves it against Slack by name — the path that was never exercised before the names were corrected. |
 | `storefront` | planned | none | `#store-inbox` | Nothing scheduled; the agent is served by `bots/storefront.js` over HTTP, not by a channel. `#store-inbox` exists and is already the SMS/call log channel. Listed for completeness, still not recommended. |
@@ -915,6 +915,17 @@ even reported at startup. Creating a channel is an owner action
 bot joins on every boot and a place output can accumulate unread. `jester` is the one
 with a concrete defect behind it; the other three are gated on the `planned` decision
 in WORK-TODO #3 and should follow it, not precede it.
+
+> **`#jester-agent` — ACTION REQUIRED (owner), 2026-09-16.** `ASK: create channel
+> #jester-agent`. It needs `channels:manage`, and nothing in this repository creates a
+> Slack channel. Note the ordering WORK-TODO #53 argued for and this followed: **the
+> input was decided before the channel**, because a weekly post with nothing to say is
+> worse than silence and would be the thing the agent exists to mock. The input now
+> exists (`docs/JESTER-DESIGN.md` §3), so the channel is worth creating. Once it does,
+> `ASK: activate jester` resolves and joins it, and the weekly job registers — confirmed
+> directly: with a channel supplied, `describeSchedule(jester)` returns
+> `{ registered: true, kind: 'deterministic' }`. Reverse it by clearing the `schedule:`
+> block in `agents/jester/agent.md`.
 
 **`story-bot` is NOT in this table, and is now ACTIVATED** (2026-09-15). Its channel
 already exists and its id is in the local channel map; what it lacked was an

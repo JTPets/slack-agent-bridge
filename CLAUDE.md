@@ -1391,6 +1391,30 @@ ASK: create channel channel-name
 - If channel exists, joins it instead of failing
 - Requires `channels:manage` scope
 
+### The Jester's weekly critique — on demand
+
+```
+ASK: critique
+```
+- Runs the **same operation** the Friday 18:00 cron tick runs. Not a second route: both
+  reach `getDeterministicTask('weekly-critique').run()`, so a scheduled critique and an
+  on-demand one cannot diverge. The verb is registered in `lib/command-router.js`; the
+  work is `lib/weekly-critique.js`.
+- **It posts in the jester's channel, not in the one you typed the command in.** The
+  agent is resolved from the same declaration the cron registrar reads — the agent whose
+  `schedule.task` is `weekly-critique` — so the critique runs with his persona, his
+  provider and his metrics id whoever invoked it. The verdict names the channel it
+  actually posted into.
+- **It changes nothing.** The jester blocks, gates, approves and rejects nothing; the
+  module writes no state at all. Enforced by
+  `tests/weekly-critique-gating.test.js`, not by this paragraph.
+- A week with nothing in it produces a short post saying so, and **calls no model at
+  all** — see `docs/JESTER-DESIGN.md` §4.
+- **ACTION REQUIRED (owner):** `#jester-agent` does not exist and has never resolved, so
+  the command refuses with that reason and the cron job is refused at every boot. Create
+  it with `ASK: create channel #jester-agent`; nothing in this repository creates a Slack
+  channel. See `docs/JESTER-DESIGN.md` §7.
+
 ### Agent Definition and Activation
 Define an agent, then turn it on in this workspace. **Nothing here creates a Slack
 channel** — that is an owner action.

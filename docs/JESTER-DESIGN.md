@@ -345,7 +345,58 @@ empty" pass against a broken enumerator.
 
 ---
 
-## 6. The one thing this repository cannot do
+## 6. On demand — the mechanism, reported rather than assumed
+
+**What the command mechanism in this repository actually is, at HEAD:**
+`lib/command-router.js`, a verb -> handler table added 2026-09-15. It is reached from
+`processConversation` in `bridge-agent.js:1298-1315` — so the spelling is
+**`ASK: <verb>`**, and only in the bridge channel, because an agent channel is how an
+*agent* is addressed (WORK-TODO #45). `runCommand` returns `{ handled: false }` for
+anything it does not own, so the older hand-written `isStatusQuery` / `isOwnerTasksQuery`
+ladder below it still runs.
+
+**Not `/dispatch`.** That is the Socket Mode slash command added the same day, and it
+does a different job: it composes a `TASK:` message and posts it to `#claude-bridge` for
+the poll loop. A critique is not a dispatch — it needs no repository, no clone and no
+turn budget.
+
+**`critique` is registered in that table and nowhere else.**
+
+| | |
+|---|---|
+| Verb | `critique` |
+| Kind | `scheduled` — the catalogue owns the operation, the table adds only the spelling |
+| Task | `weekly-critique` in `lib/agent-task-catalogue.js` |
+| Reached by | `getDeterministicTask('weekly-critique').run()` — **the same call the cron tick makes** |
+
+**One route, two triggers.** The cron registrar and the verb both go through
+`getDeterministicTask`, so a scheduled critique and an on-demand one cannot diverge —
+that is `lib/command-router.js`'s own stated principle and this follows it rather than
+adding a third path. `tests/command-router.test.js` asserts the verb reaches the
+catalogue handler, and `tests/weekly-critique-gating.test.js` asserts there is exactly
+one production caller of `runWeeklyCritique`.
+
+**The verb is `critique`, not `jester`.** WORK-TODO #45: a command is a verb; an agent is
+addressed by its channel. Asserted — `COMMANDS.jester` must not exist, and neither may
+the raw task name.
+
+**It posts where the handler decided, and the verdict says so.** `handleScheduledTask`
+reported `ctx.agent.channel` unconditionally, which was correct only while every
+deterministic task posted where it was pointed. The critique posts into the jester's
+channel whichever channel the verb was typed in, so the verdict now names
+`verdict.channel` when the handler supplies one (`check-inbox` does not, and is
+unchanged). A verdict naming the wrong channel would be a confident false statement about
+where to go and look.
+
+**The caller needing no channel of its own.** The entry carries
+`resolvesOwnChannel: true`, so the "needs an agent with a channel" refusal — right for
+`check-inbox`, which posts into the agent it is handed — does not fire for a handler that
+resolves its own destination. Refusing a critique because the *invoking* channel was
+unresolved would be a refusal about the wrong thing.
+
+---
+
+## 7. The one thing this repository cannot do
 
 **`#jester-agent` does not exist and has never resolved.** Reconstructing this
 workspace's channel map from git history reports it explicitly:
