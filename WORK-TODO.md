@@ -77,10 +77,9 @@ At the **2026-09-20 bridge-findings pass** those print **52** open items — 9 P
 **10** P3 — and **no duplicate ID**. That pass filed **#57**–**#60**, closed nothing, and
 regenerated the index from the headings.
 
-At the **2026-09-16 persistence-design pass** those print **50** open items — 9 P1, **33** P2,
-8 P3 — and no duplicate ID. That pass filed **#57** and **#58** from the state enumeration and
-closed nothing. (It files more later in the same branch; run the commands rather than reading
-this sentence.)
+At the **2026-09-16 persistence-design pass** those print **51** open items — 9 P1, **34** P2,
+8 P3 — and no duplicate ID. That pass filed **#57**, **#58** and **#59**, closed nothing, and is
+still in progress on its branch, so run the four commands rather than reading this sentence.
 Earlier the same day, at the **2026-09-16 audit pass**, those printed **48** open items — 9 P1, **31** P2, 8 P3 — and
 **no duplicate ID**. That pass purged **#45** (closed: the decision is recorded outside this
 file and the name half it said nothing enforced is enforced by
@@ -229,7 +228,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (33)
+**P2 — real gaps, no risk to the running process** (34)
 
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
@@ -257,6 +256,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#39** — [The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged](#39-the-queue-cannot-tell-a-completed-task-from-a-landed-one--nothing-here-knows-whether-a-branch-merged)
 - **#40** — [Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout](#40-uncommitted-edits-in-the-live-deployment-tree--reported-not-verifiable-from-a-checkout)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
+- **#59** — [A verb typed in an agent's channel is answered by a model as conversation — the same text behaves differently depending on where it is typed](#59-a-verb-typed-in-an-agents-channel-is-answered-by-a-model-as-conversation--the-same-text-behaves-differently-depending-on-where-it-is-typed)
 - **#46** — [`/dispatch` posts to one fixed channel — routing by the invoking channel needs two things that do not exist](#46-dispatch-posts-to-one-fixed-channel--routing-by-the-invoking-channel-needs-two-things-that-do-not-exist)
 - **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
 - **#49** — [`NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does](#49-natural_conversation_mode-is-off-and-nothing-establishes-what-turning-it-on-does)
@@ -2159,6 +2159,53 @@ or to collapse HIGH into a `notifyOps()` post, and that is a decision about how 
 traffic the owner wants in `#sqtools-ops`, not a bug fix an executor should make alone.
 Whichever is chosen, `PRIORITY.HIGH` must stop returning `true` for a message it dropped.
 **Priority:** P2 | **Effort:** Low | **Status:** open — owner decides digest vs. ops post
+
+---
+
+### 59. A verb typed in an agent's channel is answered by a model as conversation — the same text behaves differently depending on where it is typed
+**Filed 2026-09-16,** from the command-surface pass
+([`docs/COMMAND-SURFACE.md`](docs/COMMAND-SURFACE.md) §3).
+
+**Verified at HEAD.** Regenerate:
+```bash
+grep -n "runCommand" bridge-agent.js        # :1299, inside the gate below
+sed -n '1288,1302p' bridge-agent.js         # if (sourceChannel === BRIDGE_CHANNEL) {
+```
+
+`ASK: agents` in `#claude-bridge` runs the deterministic verb with no model. The same text
+in `#email-monitor-agent` never reaches the router — `processConversation` falls through to
+the LLM path and answers it **as a conversation with the email-monitor agent**, in that
+agent's persona, from a model that cannot see the agent surface it is being asked about.
+Identical input, two behaviours, decided by the channel and reported nowhere. The second is
+worse than a refusal because it produces a confident answer.
+
+**The gate was deliberate and its stated reason is sound; the conclusion is not.**
+`bridge-agent.js:1288-1291` says an agent channel is how an *agent* is addressed and a verb
+answering there would be the verb/name mixing the (now closed) #45 existed to prevent. That
+rule forbids `jester` being a **command name**. It does not require a verb to be
+unavailable where an agent lives.
+
+**Second half of the same defect:** even in the bridge channel the router is handed
+`agent: agentConfig` (`bridge-agent.js:1301`) — the module-scope bridge record — not
+`handlingAgent`, which the enclosing function has already resolved and passes to everything
+else. So a verb has no notion of an invoking agent at all.
+
+**Intended behaviour (the design, not the fix):** the channel is an **argument** to the
+verb, not a router for it. A verb is recognised in every polled channel; it inherits the
+invoking channel's agent, its data context and its declared capability; a verb that agent
+has no capability for is **refused with the reason** rather than silently reinterpreted;
+an unrecognised verb prints the table so "not a verb" and "a verb you may not run" are
+distinguishable.
+
+**Why it is not fixed here, and what it is really waiting on.** The refusal clause needs
+"this agent's capability" to mean something, and it does not:
+`grep -rn "permissions\|denied" --include=*.js . | grep -v node_modules | grep -v '^./tests/'`
+finds **no production reader** of either field
+([`docs/CAPABILITY-AND-ISOLATION-DESIGN.md`](docs/CAPABILITY-AND-ISOLATION-DESIGN.md) §2).
+Lifting the channel gate **without** the capability check would make every verb runnable by
+every agent, which is a widening, not a fix. The two land together or not at all.
+**Priority:** P2 | **Effort:** Low for the gate, Medium with the capability check that must accompany it
+**Status:** open — defect confirmed, intended behaviour recorded, blocked on the capability model
 
 ---
 
