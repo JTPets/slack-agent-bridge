@@ -100,6 +100,71 @@ The index anchors follow GitHub's slugger: lowercase, drop punctuation **except*
 hyphen and underscore, spaces to hyphens. Four entries (#5, #20, #21, #34) previously
 dropped the underscore too and were therefore broken links; regenerating fixed them.
 
+## Closes to addresses, 1 : 5.7 — and the cause is mostly reachability
+
+**Measured 2026-09-16 over the week ending at `92744dc`.** Every figure here regenerates:
+
+```bash
+BASE=92744dc          # the audited head; drop it to measure the current week
+git log $BASE --since='7 days ago' --oneline | wc -l
+git log $BASE --since='7 days ago' --format='%B' | grep -ciE '^Closes +(WORK-TODO +)?(P[0-9] +)?#[0-9]+'
+git log $BASE --since='7 days ago' --format='%B' | grep -ciE '^Addresses +(WORK-TODO +)?(P[0-9] +)?#[0-9]+'
+# which items, ranked
+git log $BASE --since='7 days ago' --format='%B' \
+  | grep -oiE '^Addresses +(WORK-TODO +)?(P[0-9] +)?#[0-9]+' \
+  | grep -oE '#[0-9]+' | sort | uniq -c | sort -rn
+# how much partial-credit work went to items no branch can finish
+BLOCKED=$(awk '/^### ([0-9]+[a-z]?)\. /{split($2,a,".");id=a[1]} /^\*\*BLOCKED — OWNER/{print id}' \
+            WORK-TODO.md | sort -u | paste -sd'|')
+git log $BASE --since='7 days ago' --format='%B' \
+  | grep -oiE '^Addresses +(WORK-TODO +)?(P[0-9] +)?#[0-9]+' \
+  | grep -oE '#[0-9]+' | grep -cE "^#($BLOCKED)$"
+```
+
+**107 commits, 7 `Closes`, 40 `Addresses` — 1 close per 5.7 addresses.** (Anchored to the
+line start and to an item number, so prose like "Addresses the dispatch" is excluded; one
+line naming `#4, #43, #44` counts once.)
+
+### The pattern is close conditions that no branch can reach — not items being hard
+
+This was worth testing rather than assuming, and the evidence is one-sided.
+
+**Every item closed this week had a close condition that was a claim about code in this
+repository.** The seven lines are `#18`, `#19`, `#28`, `#38`, `#43` (the P2 item that
+shared that number) and `#50` twice: a queue state machine, a path override, a sort order,
+which agent a task executes as, a suite writing live configuration. Each is settled by
+reading the repository and running a test.
+
+**The most-addressed item is #3, at seven, and it cannot be closed by a branch at all.**
+Its namesake is "CONFIRMED FIRING LIVE" — a claim about what the *running container*
+registers at startup. All three of its fix parts landed on `main`; the seventh commit that
+addressed it restated the close condition rather than meeting it, because meeting it needs
+a `docker compose restart jt-agent`. Seven rounds of honest partial credit against a target
+that is off-repo by construction.
+
+**16 of the 40 `Addresses` lines — 40% — name one of the twelve items now marked
+BLOCKED — OWNER.** Of the six most-addressed items, three (#3 ×7, #53 ×4, #17 ×3) have
+close conditions that are claims about the deployment, the Slack workspace or an owner's
+decision; that is 14 of those 26 lines.
+
+**The honest exception, so this is not read as a blanket excuse:** **#10** (×5) is
+genuinely hard and is filed that way — *Effort: High, incremental*, 29 source modules to
+split one seam at a time. **#11** (×3) and **#24** (×2) are likewise real remaining work.
+Repeated partial credit is the correct shape for those three. It is not the correct shape
+for #3.
+
+**What follows from it.** Two different things were being counted as one. An item whose
+close condition is a claim about the running deployment is not slow progress; it is
+**finished as far as a branch is concerned and waiting on a person**, and a ratio that
+mixes the two makes the repository look stalled while it is in fact blocked. The twelve
+markers above are the fix: subtract them before reading this ratio as a measure of
+engineering throughput. On the 36 items a branch can actually move, the same week's
+figure is 7 closes to 24 addresses — 1 : 3.4.
+
+**Not claimed:** that any of the 40 addresses was dishonest. Each named what it did and
+what remained, which is the contract working. The defect is in how the items were written,
+not in how they were worked.
+
 ## Twelve of the 48 are not engineering backlog
 
 **Filed 2026-09-16 by the audit pass.** A quarter of this file is work no branch can do.
