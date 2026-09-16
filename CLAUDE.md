@@ -783,8 +783,13 @@ slack-agent-bridge/
 │   ├── COURIER-INTAKE.md    # Courier intake page and delivery quote API documentation
 │   ├── INTEGRATION-SPEC.md  # SqTools API integration specification and security requirements
 │   ├── SMS-INTEGRATION.md    # SMS integration spec: httpSMS (primary), Twilio (fallback/voice)
+│   ├── STOREFRONT-WIDGET.md  # Storefront chat widget documentation and embedding guide
 │   ├── SOCIAL-MEDIA-DESIGN.md # Social Media Manager agent design and content strategy
-│   └── STOREFRONT-WIDGET.md  # Storefront chat widget documentation and embedding guide
+│   ├── STORY-BOT-DESIGN.md   # Story Bot agent design (was missing from this tree until 2026-09-16)
+│   ├── MARKETING-AGENT-DESIGN.md # Marketing agent design (was missing from this tree until 2026-09-16)
+│   ├── SECRETARY-PHONE-DESIGN.md # Secretary phone/voice design (was missing from this tree until 2026-09-16)
+│   ├── EMAIL-MONITOR-DESIGN.md # Email Monitor agent design (was missing from this tree until 2026-09-16)
+│   └── JESTER-DESIGN.md      # THE design of record for the jester agent: what he can actually see (established from code — no Slack history, a depth-1 clone with no repo history, a 24-hour task queue), the computed digest he is given instead of a transcript, and WHY he gates nothing. Answers WORK-TODO #53's third gap; the first (no `#jester-agent` channel) is an owner action this repository may not take
 ├── package.json          # Dependencies and npm scripts
 ├── CLAUDE.md             # Project rules and documentation (this file)
 ├── README.md             # Project overview

@@ -82,7 +82,7 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 - **#24** — [Four sibling modules resolve a shared writable path at module scope with no override — the same class as #19](#24-four-sibling-modules-resolve-a-shared-writable-path-at-module-scope-with-no-override--the-same-class-as-19)
 - **#20** — [`MAX_TURNS` names four different quantities, and the env var is dead config](#20-max_turns-names-four-different-quantities-and-the-env-var-is-dead-config)
 - **#33** — [A UTC day key is used as the store's day, so evening staff tasks are filed against tomorrow](#33-a-utc-day-key-is-used-as-the-stores-day-so-evening-staff-tasks-are-filed-against-tomorrow)
-- **#32** — [One bulletin timestamp, three renderings — and the path every agent's prompt uses emits none](#32-one-bulletin-timestamp-three-renderings--and-the-path-every-agents-prompt-uses-emits-none)
+- **#32** — [One bulletin timestamp, three renderings — no shared helper](#32-one-bulletin-timestamp-three-renderings--no-shared-helper)
 - **#34** — [`DEPLOY_KEY_PATH` is read but undocumented](#34-deploy_key_path-is-read-but-undocumented)
 - **#35** — [Per-agent memory has TTL and decay but no max-entries cap](#35-per-agent-memory-has-ttl-and-decay-but-no-max-entries-cap)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
@@ -1135,33 +1135,40 @@ with #30's; both are named in the map's closing section.
 
 ---
 
-### 32. One bulletin timestamp, three renderings — and the path every agent's prompt uses emits none
+### 32. One bulletin timestamp, three renderings — no shared helper
 **Filed 2026-09-14,** from [`docs/CANONICAL-HELPERS.md`](docs/CANONICAL-HELPERS.md) §5.
+**Title and table corrected 2026-09-16** — the original heading said "the path every
+agent's prompt uses emits none", which was true when filed and false by the time it was
+read.
 
 | Site | Function | Renders | Consumer |
 |------|----------|---------|----------|
 | `lib/bulletin-board.js:283` | `formatBulletinsForSlack` | `Sep 14, 2:05 PM` | human, in Slack |
-| `lib/bulletin-board.js:339-365` | `formatBulletinsForContext` | **nothing** | LLM prompt, **every** agent |
-| `lib/agent-context.js:177`, `:277` | security / story-bot context | `Sep 14` | LLM prompt, those two agents |
+| `lib/bulletin-board.js:409` | `formatBulletinsForContext` | `Sep 14, 2:05 PM` — **was "nothing"; fixed at `d77cdfa`** | LLM prompt, **every** agent |
+| `lib/agent-context.js:177`, `:277` | security / story-bot context | `Sep 14` (no time) | LLM prompt, those two agents |
 
 Regenerate:
 ```bash
 grep -n "b.timestamp" lib/bulletin-board.js lib/agent-context.js
+git log --oneline -1 -L 397,420:lib/bulletin-board.js
 ```
 
-`formatBulletinsForContext` is the generic path — every agent's unread-bulletin context
-goes through it — and it emits `- [type] agentId: summary` with no time at all. An agent
-cannot tell a finding from an hour ago from one from six days ago, cannot order them, and
-has no basis for the word "recent" it will nonetheless use. Two agents get a date but no
-time because `agent-context.js` builds its own. The human view gets both.
+**What was fixed, and by what.** `formatBulletinsForContext` emitted no time at all when
+this was filed. Commit `d77cdfa` gave it an America/Toronto date and time. Nothing in this
+item was updated at the time, so the backlog carried a false statement about the generic
+prompt path for a day — caught while establishing what the `jester` agent can reach
+(`docs/JESTER-DESIGN.md` §1.2), where the bulletin stream is the only conversational input
+and "does it say when" decides whether it is usable at all.
 
-Same field, three answers to "when", one of them "not told". That is information present
-in one prompt and absent from another, for the same data — not a formatting preference.
+**What remains, and it is why this stays open.** One field is still rendered by **three
+separate inline option sets across two files**. The two special-cased agents in
+`lib/agent-context.js` still get a date and **no time**, so they cannot order two bulletins
+from the same day. That one path could be fixed while two were left behind, with nothing
+failing, is the defect: there is no shared helper to fix.
 
 **Fix.** One `formatTimestamp(date, precision)` helper (none exists anywhere in the repo),
-called by all three. Emit at least date + time into `formatBulletinsForContext`; a bulletin
-list an agent cannot order is worse than no bulletin list.
-**Priority:** P2 | **Effort:** Low | **Status:** open
+called by all three sites. The behavioural half is done; the duplication half is not.
+**Priority:** P2 | **Effort:** Low | **Status:** open — partially fixed at `d77cdfa`; no shared helper exists
 
 ---
 

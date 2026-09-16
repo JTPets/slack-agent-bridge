@@ -163,18 +163,32 @@ not a behaviour difference.
 | Site | Function | Renders | Consumer |
 |------|----------|---------|----------|
 | `lib/bulletin-board.js:283` | `formatBulletinsForSlack` | month, day, hour, minute (`Sep 14, 2:05 PM`) | human, in Slack |
-| `lib/bulletin-board.js:339-365` | `formatBulletinsForContext` | **nothing — no timestamp is emitted at all** | LLM prompt, **every** agent |
+| `lib/bulletin-board.js:409` | `formatBulletinsForContext` | month, day, hour, minute (`Sep 14, 2:05 PM`) — **CORRECTED 2026-09-16**, see below | LLM prompt, **every** agent |
 | `lib/agent-context.js:177` / `:277` | security / story-bot context | month, day only (`Sep 14`) | LLM prompt, those two agents |
 
-The generic path — the one every agent's bulletin context goes through — drops the
-timestamp entirely, so an agent reading unread bulletins cannot tell a finding from an
-hour ago from one from six days ago, cannot order them, and cannot say "recent" with any
-basis. The two special-cased agents get a date but no time. The human view gets both.
+**CORRECTED 2026-09-16 — the worst half of this row is no longer true, and this map
+said it was for a day longer than it was.** The generic path was described here as
+dropping the timestamp entirely. It stopped doing that at commit `d77cdfa`, which
+rewrote `formatBulletinsForContext` to emit an America/Toronto date **and** time per
+bulletin (`lib/bulletin-board.js:409`). Regenerate:
 
-Same data, three answers to "when", one of which is "not told". That is not a formatting
-preference — it is information present in one prompt and absent from another.
+```bash
+grep -n "b.timestamp" lib/bulletin-board.js lib/agent-context.js
+git log --oneline -1 -L 397,420:lib/bulletin-board.js
+```
 
-**Canonical implementation:** none. There is no `formatTimestamp` anywhere.
+Found while establishing what material the `jester` agent can actually reach
+(`docs/JESTER-DESIGN.md` §1.2) — the bulletin stream is his only conversational input,
+so "does it say when" was load-bearing rather than cosmetic.
+
+**What is still DIVERGENT, and it is the row's real point:** the same field is still
+rendered by **three separate inline option sets** in two files, with the two
+special-cased agents in `lib/agent-context.js` getting a date and **no time** while both
+bulletin-board paths now get date + time. An agent reading the security or story-bot
+context still cannot order two bulletins from the same day.
+
+**Canonical implementation:** none. There is still no `formatTimestamp` anywhere, which
+is why one path could be fixed and two left behind without anything failing.
 
 ## 6. Day-bucket keys — **DIVERGENT** (defect: WORK-TODO #33)
 
