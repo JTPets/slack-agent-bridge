@@ -33,8 +33,9 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
-At the 2026-09-15 agent-wiring pass those print **48** open items — 8 P1, 32 P2, 8 P3 —
-and **no duplicate ID.** (Earlier the same day: the agent-identity pass printed 44 — 7/29/8;
+At the 2026-09-16 jester pass those print **49** open items — 9 P1, 32 P2, 8 P3 — and
+**no duplicate ID** (#56 filed; nothing closed). At the 2026-09-15 agent-wiring pass
+they printed **48** — 8 P1, 32 P2, 8 P3. (Earlier the same day: the agent-identity pass printed 44 — 7/29/8;
 the command-router pass 45; the size-gate pass 40 — 7/26/7.) That pass purged **#50**
 (closed: the suite is green in a fresh clone and no longer writes live configuration) and
 filed **#51**–**#55**.
@@ -59,9 +60,10 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 
 *Regenerated from the headings. Do not append to it by hand; re-run the command above.*
 
-**P1 — protects or unblocks the live deployment** (8)
+**P1 — protects or unblocks the live deployment** (9)
 
 - **#55** — [The channel mapping had no reproduction path, and a deploy proved it](#55-the-channel-mapping-had-no-reproduction-path-and-a-deploy-proved-it)
+- **#56** — [`npm test` failed once inside jest's globalSetup and has not been reproduced](#56-npm-test-failed-once-inside-jests-globalsetup-and-has-not-been-reproduced)
 - **#42** — [Every backup this system has lives on the box it backs up, and their liveness is checked by nothing](#42-every-backup-this-system-has-lives-on-the-box-it-backs-up-and-their-liveness-is-checked-by-nothing)
 - **#41** — [The NAS is the single point of failure for every stack and every credential, and its exposure has never been established](#41-the-nas-is-the-single-point-of-failure-for-every-stack-and-every-credential-and-its-exposure-has-never-been-established)
 - **#17** — [Nothing starts `auto-update.js` — merged code does not reach the running process](#17-nothing-starts-auto-updatejs--merged-code-does-not-reach-the-running-process)
@@ -193,6 +195,44 @@ node scripts/agent-surface.js             # and what each agent therefore gets
 **Status:** open — mechanism fixed and reproducible (`lib/channel-map-rebuild.js`,
 `scripts/channel-map.js`, guard `tests/channel-map-rebuild.test.js`); live verification
 against a real Slack workspace and off-box export of the resolved map both outstanding
+
+---
+
+### 56. `npm test` failed once inside jest's globalSetup and has not been reproduced
+**Filed 2026-09-16.** **One observation, message not captured — filed anyway because of
+the rule #54 records, not despite it.**
+
+**What was seen.** A full `npx jest` run failed before any suite ran, with the stack
+ending in `runGlobalHook` -> `ScriptTransformer.requireAndTranspileModule`. That is the
+`globalSetup` module (`tests/helpers/live-state-setup.js`) failing to load, not a suite
+failing. The very next run, same working tree, was green.
+
+**What was done, and what it did not establish.** Eight consecutive full runs since:
+five warm, then `npx jest --clearCache` and three more. All eight green — 72 suites,
+2344 tests. **The cold-cache hypothesis is therefore not supported and no cause is
+known.**
+
+**Why this is filed at P1 with one data point.** #54 records the rule: *a defect in the
+apparatus that tests other work is P1 regardless of its symptom, because everything
+downstream of it is unverified while it is open.* `globalSetup` is the guard that stops
+a test run writing the configuration the deployment reads (`live-state-teardown.js`).
+A run where it fails to load is a run where that guard did not run. The symptom was one
+red run; the blast radius is every judgement made on a run that failed the same way and
+was re-run without anyone noticing — which is precisely how the `getRecentCompleted`
+flake survived, at 25 of 40.
+
+**What would make this actionable, and the mistake that stopped it being actionable
+now.** The output was piped through `tail`, so the actual error message was discarded
+and only the stack survived. **Capture the whole output of a failing gate before
+reacting to it.** Next steps if it recurs: the full stderr, and `--runInBand` to rule
+out a worker interaction.
+
+**Not claimed:** that this is a real defect rather than an environment hiccup, or that
+it is related to the change that was in flight when it appeared (four new `lib/` modules
+and three new suites, none of which `globalSetup` imports).
+**Priority:** P1 by the #54 rule | **Effort:** Low to instrument, unknown to fix
+**Risk:** Unknown — a gate that can fail to start is the shape #54 is about
+**Status:** open — one unreproduced observation; instrument before hunting
 
 ---
 

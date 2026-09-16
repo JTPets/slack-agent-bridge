@@ -188,10 +188,50 @@ See section 3 for the exact contents.
 
 ---
 
-## 3. The digest
+## 3. The digest — exactly what he is given
 
-*(Specified in `lib/critique-digest.js`. This section is the contract; the module is
-the implementation and `tests/critique-digest.test.js` is the guard.)*
+Built by `lib/critique-digest.js` `buildDigest()` from the five sources in
+`lib/critique-signals.js`. Rendered for the prompt by `formatDigestForPrompt()`.
+Guarded by `tests/critique-digest.test.js`.
+
+**Six signals. Five are computed. One is conversational and it is the smallest.**
+
+| # | Signal | Source | What it contributes |
+|---|---|---|---|
+| 1 | **Backlog deferral** | `lib/backlog-report.js` + `revisionsSince` | Open count by tier; how many items carry **no filed date at all** (so every age is a floor); the oldest open items with their ages; and how many times `WORK-TODO.md` was edited in the window — each edit being an occasion on which every open item was in front of someone and not closed |
+| 2 | **Claimed vs done** | `lib/repo-history.js` `claimsFrom` | `Closes <ID>` against `Addresses <ID>` in commit bodies, and — the sharp one — **items addressed more than once and still open**: work that keeps being touched and keeps not finishing |
+| 3 | **Task outcomes** | `lib/task-queue.js` `getRecentCompleted` | Completed / failed / interrupted; each failure with its error and attempt number; tasks **re-run after an earlier attempt**; duration outliers against the median. **The 24-hour retention is printed beside the counts**, because without it an empty section reads as "nothing failed this week" |
+| 4 | **Merged vs running** | `commitsSince` + a stated absence | What landed in the window, and that **nothing can say which commit is running** (WORK-TODO #17). The absence is the finding and is rendered as a line, not omitted |
+| 5 | **Output that reaches nobody** | `lib/agent-surface.js` `findOrphans` | Reused, not re-derived: the same rows `node scripts/agent-surface.js` prints |
+| 6 | **Bulletins** | `lib/bulletin-board.js` | Up to **5**, in-window only. The only conversational input, and deliberately the shortest section |
+
+**Raw conversation is a minor part by construction, not by instruction.** Signal 6 is
+capped at five bulletin lines; signals 1–5 are unbounded computations over files and
+`git log`. Nothing in the digest is a Slack transcript, because §1.1 established that
+no such thing is reachable.
+
+### Three properties that are not negotiable
+
+**(a) An unavailable signal is never an empty one.** Every signal returns
+`{ available, reason, … }`. A shallow checkout, an unreadable queue or a corrupt
+bulletin file renders as `UNAVAILABLE — <reason>. Do not report this as "nothing to
+report".` A critique that went quiet because a sensor broke would be the false-green
+this repository files as its worst defect class, delivered in a voice designed to be
+believed. `tests/critique-digest.test.js` exercises every source in both states.
+
+**(b) Thinness is judged on the *windowed* signals only** — commits, terminal tasks,
+bulletins. The standing backlog is excluded on purpose: an item open for eleven days is
+not news on the twelfth, and counting it would make every week look eventful and
+guarantee the padded post §4 exists to prevent. **An unavailable signal is not thin** —
+it is unknown, and unknown is not quiet.
+
+**(c) `Closes WORK-TODO P1 #18.` means item 18.** The first version of the claim parser
+made the `#` optional and read that line — a real commit body here, `6454fb0` — as a
+claim about item **#1**, because `P1` supplies a digit first. A parser that fabricates a
+citation is worse than one that finds nothing, because the invented one is repeated to a
+human as a fact. Regression test:
+`tests/repo-history.test.js` → `describe('claimsFrom')` → the `REGRESSION` case, which
+fails against the optional-`#` pattern.
 
 ---
 
