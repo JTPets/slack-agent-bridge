@@ -77,9 +77,10 @@ At the **2026-09-20 bridge-findings pass** those print **52** open items — 9 P
 **10** P3 — and **no duplicate ID**. That pass filed **#57**–**#60**, closed nothing, and
 regenerated the index from the headings.
 
-At the **2026-09-16 persistence-design pass** those print **51** open items — 9 P1, **34** P2,
-8 P3 — and no duplicate ID. That pass filed **#57**, **#58** and **#59**, closed nothing, and is
-still in progress on its branch, so run the four commands rather than reading this sentence.
+At the **2026-09-16 persistence-design pass** those print **53** open items — 9 P1, **36** P2,
+8 P3 — and no duplicate ID. That pass filed **#57**–**#61** and closed nothing: five findings
+from a design pass that changed no code. Two of the five (**#60**, **#61**) are reported
+deliberately unfixed, and **#60**'s instance is not verifiable from a checkout at all.
 Earlier the same day, at the **2026-09-16 audit pass**, those printed **48** open items — 9 P1, **31** P2, 8 P3 — and
 **no duplicate ID**. That pass purged **#45** (closed: the decision is recorded outside this
 file and the name half it said nothing enforced is enforced by
@@ -228,7 +229,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (34)
+**P2 — real gaps, no risk to the running process** (36)
 
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
@@ -259,6 +260,8 @@ work behind an owner's name, which is the opposite of the point.
 - **#59** — [A verb typed in an agent's channel is answered by a model as conversation — the same text behaves differently depending on where it is typed](#59-a-verb-typed-in-an-agents-channel-is-answered-by-a-model-as-conversation--the-same-text-behaves-differently-depending-on-where-it-is-typed)
 - **#46** — [`/dispatch` posts to one fixed channel — routing by the invoking channel needs two things that do not exist](#46-dispatch-posts-to-one-fixed-channel--routing-by-the-invoking-channel-needs-two-things-that-do-not-exist)
 - **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
+- **#60** — [A per-agent provider override outranks a definition, so an agent's declared denial can be undone from `.env`](#60-a-per-agent-provider-override-outranks-a-definition-so-an-agents-declared-denial-can-be-undone-from-env)
+- **#61** — [Nothing watches the repository — no agent knows when `main` moves, so a merge and a deploy are unrelated events with nothing observing either](#61-nothing-watches-the-repository--no-agent-knows-when-main-moves-so-a-merge-and-a-deploy-are-unrelated-events-with-nothing-observing-either)
 - **#49** — [`NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does](#49-natural_conversation_mode-is-off-and-nothing-establishes-what-turning-it-on-does)
 - **#51** — [A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it](#51-a-command-that-writes-a-tracked-file-is-destroyed-by-the-next-pull-and-every-configuration-writing-command-shares-it)
 - **#52** — [The workspace's channels and the repository's agents have never been reconciled in either direction](#52-the-workspaces-channels-and-the-repositorys-agents-have-never-been-reconciled-in-either-direction)
@@ -2267,6 +2270,118 @@ Any future command that sets it — "put everything on ollama" — has two ways 
 default or the hard fallback. `resolveAgentLlm` already returns `provider_source` per agent
 for exactly this; `ASK: agent status` renders it today.
 **Priority:** P2 | **Effort:** Low, if built on the resolver | **Status:** open — requirement recorded, nothing built
+
+---
+
+### 60. A per-agent provider override outranks a definition, so an agent's declared denial can be undone from `.env`
+**Filed 2026-09-16,** from the persistence-design pass.
+**Reported, deliberately NOT fixed. Do not "fix" it by deleting the override** — see below.
+
+**The mechanism, verified at HEAD.** `resolveLlmProvider` (`lib/config.js:165-177`)
+resolves in this order:
+
+```bash
+sed -n '150,177p' lib/config.js
+```
+> 1. `LLM_PROVIDER_<AGENTID>` env var  2. the definition's `llm_provider`
+> 3. `LLM_PROVIDER` env var  4. `'claude'`
+
+`agents/jester/agent.md` declares `llm_provider: gemini` and **denies `file-system`**.
+`LLM_PROVIDER_JESTER=claude` in `.env` beats the declaration, and `runClaudeAdapter` spawns
+the CLI with `--dangerously-skip-permissions` (`lib/llm-runner.js:357`).
+
+**Why that contradicts a security decision rather than merely surprising someone.**
+`lib/weekly-critique.js` deliberately calls `runLLM` and **not** `runWithFallback`, and
+`docs/JESTER-DESIGN.md` §4 states the reason in those words: the chain can land on `claude`
+and *"routing him automatically onto a tool-capable engine to save a weekly joke is not a
+trade worth making."* The override reaches the same engine by configuration. The design
+avoided it by accident and left it reachable on purpose.
+
+**What §4 does carry, and it is a mitigation rather than a boundary:** `maxTurns: 1` and a
+fresh empty temp directory as `cwd`, both asserted in `tests/weekly-critique.test.js`. The
+CLI still spawns with permission checks disabled, in a writable directory, for one turn.
+
+**UNVERIFIED, and it stays unverified from any checkout:** whether the override is actually
+set. `.env` is owner-managed and off-limits (`docs/EXECUTOR-CONTRACT.md` §7), and the only
+occurrence of `LLM_PROVIDER_JESTER` in this repository is a test fixture. **The bridge
+answers it on the box, with provenance:**
+
+```bash
+node scripts/agent-surface.js | grep jester    # or: ASK: status
+# `claude (env:LLM_PROVIDER_<AGENTID>)` = the instance is live
+# `gemini (registry:agent.md)` = it is not
+```
+
+**Why the fix is not removal.** The override exists *because a tracked file did not
+survive*: an on-box edit to a tracked definition is destroyed by `git reset --hard HEAD` —
+twice observed, per `.gitignore`'s own comment — and `LLM_PROVIDER_<AGENTID>` is the only
+per-agent mechanism that survives a pull. Removing it takes the workaround and leaves the
+durability problem.
+
+**Close condition, in two parts, and the second is the item's namesake:**
+1. A durable, per-workspace place to write a per-agent provider that is neither a tracked
+   file nor `.env` — `agent_setting` in
+   [`docs/STATE-AND-MEMORY-DESIGN.md`](docs/STATE-AND-MEMORY-DESIGN.md) §2.5, which exists
+   to retire this variable.
+2. **A provider a definition denies is REFUSED at resolution with a stated reason,
+   whatever it came from** — reject-never-sanitise, the rule `lib/git-identifiers.js`
+   already applies to a repository name. That needs `denied` to be read by something, and
+   nothing reads it ([`docs/CAPABILITY-AND-ISOLATION-DESIGN.md`](docs/CAPABILITY-AND-ISOLATION-DESIGN.md) §2.1).
+
+Until (2), an owner who pins jester to claude gets what they asked for and nothing says it
+contradicts his declaration.
+**Priority:** P2 | **Effort:** Low once (1) exists | **Status:** open — reported, not fixed, and the instance is unverified from a checkout
+
+---
+
+### 61. Nothing watches the repository — no agent knows when `main` moves, so a merge and a deploy are unrelated events with nothing observing either
+**Filed 2026-09-16,** from the persistence-design pass. **Reported, not fixed.**
+
+**Verified at HEAD.** Nothing in a live path asks a remote anything about this repository:
+
+```bash
+# every rev-parse / ls-remote / remote read in production code
+grep -rnE "rev-parse|ls-remote|origin/main|git fetch|webhook" --include=*.js . \
+  | grep -v node_modules | grep -v '^./tests/'
+```
+- `auto-update.js:116,125` compares local `HEAD` against `origin/main` — **and nothing
+  starts `auto-update.js`** (WORK-TODO **#17**), so that comparison never runs.
+- `lib/clone-lifecycle.js` uses `ls-remote` to ask whether a *task's* branch was pushed.
+  That is delivery detection for one clone, not repository watching.
+- `lib/repo-history.js` reads the **local** checkout's history (`commitsSince`,
+  `claimsFrom`, `revisionsSince`) and **never fetches**, so it cannot see a commit the box
+  has not pulled.
+- There is no GitHub webhook receiver anywhere. `lib/integrations/httpsms.js` has a
+  `registerWebhook` and it is for SMS and has no caller at all.
+
+So a merge to `main` is observed by nothing, and the deploy that would follow it is a human
+typing `docker compose restart jt-agent`. The two are unrelated events and no one is told
+when they diverge — the observed **11-hour gap** was found by a person noticing.
+
+**What it would take for a merge to become an event in the shared record**
+([`docs/STATE-AND-MEMORY-DESIGN.md`](docs/STATE-AND-MEMORY-DESIGN.md) §2.1). Three pieces,
+in increasing order of what they cost:
+
+| # | Piece | Cost |
+|---|---|---|
+| 1 | **A source of merges.** Either a poll (`git ls-remote origin main` on an interval, plus a fetch to read the commits between) or a **GitHub webhook**. The poll needs no inbound path and no credential beyond the deploy key, and is the right first version. A webhook needs an inbound route to the NAS and a secret to hold, which moves the deploy decision off-box and is what `CLAUDE.md`'s "push-triggered restart" option already prices | Poll: low. Webhook: an inbound path, which `docs/CONFIG-SURFACE-AND-REBUILD.md` §7.2 spends a page arguing against opening |
+| 2 | **An event kind and a writer.** `repo.merged` rows carrying sha, author, subject, and the `Closes`/`Addresses` claims `lib/repo-history.js` `claimsFrom` already parses. The parser exists; what is missing is a fetch in front of it and a store behind it | Low, once the store exists |
+| 3 | **A reader that does something.** Without one this is a log nobody opens. The obvious consumers already exist: the critique digest's signal 4 (*"merged vs running"*, which today renders the absence as a line) and a summary's computed spine | Low |
+
+**And the signal actually worth having is not "main moved".** It is **`main` compared
+against the deployed commit** — which nothing records, because nothing can answer which
+commit the running process is on. That is **WORK-TODO #17**'s second open question, already
+filed, and it is a prerequisite rather than a consequence: piece 1 alone produces
+*"main moved"*, which is true every time anyone merges and says nothing about whether it
+matters. Paired with a deployed-commit report it produces *"main has been ahead of the
+running process for N hours"*, which is the sentence the 11-hour gap needed.
+
+**Relationship to the items already open:** #17 owns "nothing can say what is running" and
+"nothing deploys a merge". This item is the third, distinct gap — **nothing observes that
+`main` moved at all** — and it is the cheapest of the three, because a poll needs no
+inbound path, no new credential and no deployment change.
+**Priority:** P2 | **Effort:** Low for the poll; the useful version is gated on #17
+**Status:** open — reported, not fixed
 
 ---
 

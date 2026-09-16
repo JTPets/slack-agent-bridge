@@ -288,6 +288,66 @@ failure is reported to `#sqtools-ops` instead — a missed roast costs nothing.
 Defence in depth for an operator who pins him to `claude` on purpose: `maxTurns: 1` and
 a **fresh empty temp directory** as `cwd`, removed in a `finally`. Both asserted.
 
+### The no-fallback decision has a hole, and it is an environment variable — REPORTED 2026-09-16
+
+**Not fixed here, and it must not be fixed by deleting the override.** Recorded as
+WORK-TODO **#60**.
+
+The paragraph above says the chain is refused because it can land on `claude` and hand the
+one agent explicitly denied file-system access a tool-capable engine. That reasoning is
+sound and the refusal is real. **What it does not cover is an operator pinning him to
+`claude` directly**, because the per-agent environment override outranks the definition:
+
+```bash
+sed -n '150,177p' lib/config.js     # the precedence, in order, with LLM_PROVIDER_<AGENTID> first
+```
+
+> 1. `LLM_PROVIDER_<AGENTID>` env var (per-agent, on-box override)
+> 2. `agentConfig.llm_provider` (tracked registry default)
+> 3. `LLM_PROVIDER` env var (global default)
+> 4. `'claude'` (hard fallback)
+
+`agents/jester/agent.md` declares `llm_provider: gemini`. `LLM_PROVIDER_JESTER=claude` in
+`.env` beats it, `resolveCritic()` resolves the agent and `resolveAgentLlm` hands
+`runWithFallback`'s single-shot cousin whatever the environment said — **so the engine the
+design refuses to reach by accident is reachable by configuration.**
+
+**Note what the design does and does not carry here.** §4 already anticipates an operator
+who pins him to claude on purpose and answers it with defence in depth — `maxTurns: 1` and
+a fresh empty temp directory as `cwd`, both asserted. That is a real mitigation and it is
+not the same thing as a boundary: the CLI still spawns with
+`--dangerously-skip-permissions`, in a directory the process can write, for one turn.
+
+**Two things are unverified from a checkout and are stated as such rather than guessed:**
+
+- **Whether the override is set on the box.** `.env` is owner-managed and off-limits
+  (`docs/EXECUTOR-CONTRACT.md` §7), and this repository contains no occurrence of
+  `LLM_PROVIDER_JESTER` outside a test fixture. The bridge already answers the question
+  itself, on the box, with provenance — `ASK: status`, or:
+  ```bash
+  node scripts/agent-surface.js | grep jester    # PROVIDER column carries its source
+  ```
+  A `PROVIDER` reading `claude (env:LLM_PROVIDER_<AGENTID>)` is the instance; `gemini
+  (registry:agent.md)` is not.
+- **Whether `LLM_PROVIDER` globally is set to `claude`**, which reaches jester only if his
+  definition's `llm_provider` were removed — it is not, so level 2 shields him from level 3.
+
+**Why the fix is not "remove the override".** The override exists because a tracked file
+did not survive: on-box edits to a tracked definition are destroyed by
+`git reset --hard HEAD`, twice observed (`.gitignore`'s own comment), and
+`LLM_PROVIDER_<AGENTID>` is the only per-agent mechanism that survives a pull. Deleting it
+would take away the workaround and leave the durability problem. **It should be removed
+once a command can write the declaration durably** — which is
+[`STATE-AND-MEMORY-DESIGN.md`](STATE-AND-MEMORY-DESIGN.md) §2.5's `agent_setting` table,
+and is exactly what that row exists to retire.
+
+**The shape of the real fix, for when the store lands:** a provider that a definition
+*denies* should be refused at resolution with a stated reason, wherever the value came
+from — the same "reject, never sanitise, and say why" rule
+`lib/git-identifiers.js` applies to a repository name. That needs `denied` to be read by
+something, which today it is not
+([`CAPABILITY-AND-ISOLATION-DESIGN.md`](CAPABILITY-AND-ISOLATION-DESIGN.md) §2.1).
+
 ### A thin week calls no model at all
 
 `isThin` (§3) decides, and on a thin week the post is a fixed short line:
