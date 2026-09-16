@@ -235,15 +235,113 @@ fails against the optional-`#` pattern.
 
 ---
 
-## 4. The critique
+## 4. The critique — one post, per batch, in his own voice
 
-*(See `lib/weekly-critique.js`.)*
+`lib/weekly-critique.js` `runWeeklyCritique()`, reached from
+`DETERMINISTIC_TASKS['weekly-critique']` in `lib/agent-task-catalogue.js`. Guarded by
+`tests/weekly-critique.test.js` (38 tests).
+
+**`weekly-critique` moved from `TASK_TEMPLATES` to `DETERMINISTIC_TASKS`** on
+2026-09-16. As a template it posted the prose *"Review the week's activities and provide
+contrarian takes"* as a `TASK:` message with **no material attached** — and §1 shows
+why that could never have worked: the model it reached could read no Slack history and
+had a one-commit clone. It would have written something that read like a review. Same
+defect as `check-inbox` before 2026-09-14, same fix.
+
+*"Deterministic" here means the material is computed and the destination is decided by
+code.* The critique itself is a judgement, and that is the one part a model is for.
+
+### Per batch, never per task
+
+One post per run over one window. Nothing here is invoked per task, per commit or per
+event, so there is no path by which he comments on a thing while it is in flight.
+
+### It resolves to the jester, and that is tested rather than assumed
+
+The dispatch's lead — *"the identity fix has landed, so this should hold"* — is true and
+re-verified: `bridge-agent.js:1941` passes `channelAgentConfig` into `processTask`, so a
+scheduled `TASK:` executes as the channel's agent. (**Cited vs. actual:**
+`docs/WIRING-AND-SEAMS.md` §3a cites `:1913`; at HEAD it is `:1941`. Line numbers are
+leads. Regenerate with
+`grep -n "processTask(msg, channelId\|processConversation(msg, channelId" bridge-agent.js`.)
+
+**The critique does not depend on it.** It is no longer a `TASK:` message, so it never
+enters the poll loop. `resolveCritic()` derives the agent from **the same declaration the
+cron registrar reads** — the agent whose `schedule.task` is `weekly-critique` — so:
+
+- the cron tick passes jester and gets jester;
+- the on-demand verb passes whichever agent's channel the command was typed in (the
+  bridge) and **still** gets jester, his channel, his provider and his metrics id.
+
+`tests/weekly-critique.test.js` → `describe('it resolves to the jester, not to the
+caller's agent')` asserts all of that, including that the post lands in `C0JESTER` when
+the bridge invoked it.
+
+### No fallback chain — the one place this departs from the bridge's LLM path
+
+It calls `runLLM`, not `runWithFallback`. The chain can land on `claude`, whose adapter
+spawns a CLI with `--dangerously-skip-permissions` in `cwd` (`lib/llm-runner.js:357`).
+Jester's definition **denies `file-system` and `github`**; routing him automatically onto
+a tool-capable engine to save a weekly joke is not a trade worth making. A provider
+failure is reported to `#sqtools-ops` instead — a missed roast costs nothing.
+
+Defence in depth for an operator who pins him to `claude` on purpose: `maxTurns: 1` and
+a **fresh empty temp directory** as `cwd`, removed in a `finally`. Both asserted.
+
+### A thin week calls no model at all
+
+`isThin` (§3) decides, and on a thin week the post is a fixed short line:
+
+> :jester: *Weekly critique* — nothing worth the breath.
+> No commits, no finished tasks and no bulletins in the last 7 days. A quiet week is not
+> a failure and I am not going to invent one.
+
+**No model is invoked on that path.** A model handed an empty digest and a contrarian
+persona will produce a complaint, because that is what it was asked to be. The only
+reliable way to get an honest "nothing to report" is not to ask. Every post — thin or
+not — carries the coverage line from `formatCoverage()`, which names the sensors that
+ran, so a short post is evidence rather than an absence of evidence.
+
+### Failures are reported, never posted around
+
+| Outcome | What happens |
+|---|---|
+| No resolved channel | Refuses; `#sqtools-ops` is told it is an owner action; nothing posted |
+| Provider throws | Reported with the provider's error; nothing posted |
+| Provider returns empty | **A failure, not an empty post** |
+| The Slack post fails | Reported with the Slack error |
+| `notifyOps` itself fails | Logged; the task still returns its verdict rather than throwing |
+
+Reporting is `notifyOps`, **not** `taskFailed`. `taskFailed` also raises a CRITICAL owner
+notification, and a weekly CRITICAL for an agent the owner reads at his own convenience
+would train the alert to be ignored. A missed joke is an operational note.
 
 ---
 
-## 5. He cannot gate anything
+## 5. He cannot gate anything — enforced, not asserted
 
-*(See `lib/weekly-critique.js` and `tests/weekly-critique.test.js`.)*
+The constraint from §0, made executable. `tests/weekly-critique.test.js` →
+`describe('HE CANNOT GATE ANYTHING — enforced, not asserted')`:
+
+1. **It writes no state.** The module's source is walked with comments stripped and must
+   name **none** of: the approval queue, any task-queue transition, the task lock, agent
+   activation, the bulletin board, any `child_process` API, owner-task state, or any
+   durable write. Its only filesystem calls are `fs.mkdtemp` and its own `fs.rm` — the
+   test asserts that the complete set of `fs.*` calls is exactly those two.
+2. **It has one production call site.** A disk walk over every production `.js` file
+   asserts that exactly one calls `runWeeklyCritique`: `lib/agent-task-catalogue.js`. A
+   second route would fail the test.
+3. **The task name is declared in exactly two places** — the catalogue (what exists) and
+   the command table (what verb spells it). A third would be a second registry, which
+   WORK-TODO #45 forbids.
+4. **The verdict is a report.** Both consumers are asserted to use it only to choose what
+   text to say: `lib/command-router.js`'s `const ok = verdict?.ok !== false;` and
+   `lib/agent-scheduler.js`'s `return { success: verdict?.ok !== false, … }`.
+5. **The prompt says so too**, which is the weakest of the five and is not relied on:
+   *"You decide nothing and block nothing."*
+
+The guard carries its own negative controls, because assertions of the form "this list is
+empty" pass against a broken enumerator.
 
 ---
 
