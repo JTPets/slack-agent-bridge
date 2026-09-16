@@ -801,6 +801,7 @@ slack-agent-bridge/
 │   ├── MARKETING-AGENT-DESIGN.md # Marketing agent design (was missing from this tree until 2026-09-16)
 │   ├── SECRETARY-PHONE-DESIGN.md # Secretary phone/voice design (was missing from this tree until 2026-09-16)
 │   ├── EMAIL-MONITOR-DESIGN.md # Email Monitor agent design (was missing from this tree until 2026-09-16)
+│   ├── KNOWLEDGE-BASE-PROPOSAL.md # A PROPOSAL, nothing built: a business wiki staff and agents both read, one file per subject with the answer at the top and the reasoning below. Argues for a SEPARATE PRIVATE repo (this one is going open source and a wiki carries vendor terms, margins and staff matters), names the reader (storefront, planned, declares #store-inbox) and the trigger, and carries the constraint that decides it: cloneRepo clones over ANONYMOUS HTTPS and only configures the deploy key afterwards for pushing, so a private repo cannot be read today. Says plainly that vendor costs are a SqTools query, not a document
 │   └── JESTER-DESIGN.md      # THE design of record for the jester agent: what he can actually see (established from code — no Slack history, a depth-1 clone with no repo history, a 24-hour task queue), the computed digest he is given instead of a transcript, and WHY he gates nothing. Answers WORK-TODO #53's third gap; the first (no `#jester-agent` channel) is an owner action this repository may not take
 ├── package.json          # Dependencies and npm scripts
 ├── CLAUDE.md             # Project rules and documentation (this file)
