@@ -63,7 +63,7 @@ dropped the underscore too and were therefore broken links; regenerating fixed t
 **P1 — protects or unblocks the live deployment** (9)
 
 - **#55** — [The channel mapping had no reproduction path, and a deploy proved it](#55-the-channel-mapping-had-no-reproduction-path-and-a-deploy-proved-it)
-- **#56** — [`npm test` failed once inside jest's globalSetup and has not been reproduced](#56-npm-test-failed-once-inside-jests-globalsetup-and-has-not-been-reproduced)
+- **#56** — [`npm test` fails intermittently inside jest's globalSetup — twice, unreproduced](#56-npm-test-fails-intermittently-inside-jests-globalsetup--twice-unreproduced)
 - **#42** — [Every backup this system has lives on the box it backs up, and their liveness is checked by nothing](#42-every-backup-this-system-has-lives-on-the-box-it-backs-up-and-their-liveness-is-checked-by-nothing)
 - **#41** — [The NAS is the single point of failure for every stack and every credential, and its exposure has never been established](#41-the-nas-is-the-single-point-of-failure-for-every-stack-and-every-credential-and-its-exposure-has-never-been-established)
 - **#17** — [Nothing starts `auto-update.js` — merged code does not reach the running process](#17-nothing-starts-auto-updatejs--merged-code-does-not-reach-the-running-process)
@@ -198,19 +198,38 @@ against a real Slack workspace and off-box export of the resolved map both outst
 
 ---
 
-### 56. `npm test` failed once inside jest's globalSetup and has not been reproduced
-**Filed 2026-09-16.** **One observation, message not captured — filed anyway because of
-the rule #54 records, not despite it.**
+### 56. `npm test` fails intermittently inside jest's globalSetup — twice, unreproduced
+**Filed 2026-09-16, second occurrence the same day.** **Two observations, message
+captured neither time — filed because of the rule #54 records, not despite it.**
 
-**What was seen.** A full `npx jest` run failed before any suite ran, with the stack
-ending in `runGlobalHook` -> `ScriptTransformer.requireAndTranspileModule`. That is the
+**What was seen, twice, with the same signature.** A full `npx jest` run failed *before
+any suite ran*, with the stack ending in
+`runGlobalHook` -> `ScriptTransformer.requireAndTranspileModule`. That is the
 `globalSetup` module (`tests/helpers/live-state-setup.js`) failing to load, not a suite
-failing. The very next run, same working tree, was green.
+failing. Both times the very next run, same working tree, was green.
 
-**What was done, and what it did not establish.** Eight consecutive full runs since:
-five warm, then `npx jest --clearCache` and three more. All eight green — 72 suites,
-2344 tests. **The cold-cache hypothesis is therefore not supported and no cause is
-known.**
+**Frequency, as far as it is measured:** 2 failures across the full-suite runs of one
+session — of the order of 35 runs, not precisely counted, so treat it as *"a few percent"*
+rather than a rate.
+
+**What was done, and what none of it established.** After the first: five warm runs,
+then `npx jest --clearCache` and three more — eight green. After the second: twelve
+consecutive isolated runs with the exit code checked and the full output redirected to a
+file, then four more reproducing the exact compound shell shape both failures occurred
+in (`git fetch && git log && git diff && npx jest`). All sixteen green. Disk was checked
+during the second hunt: 30 GB free, so it is not the fixed-allowance exhaustion that
+environment is prone to. **No cause is known and the cold-cache hypothesis is not
+supported.**
+
+**The instrumentation mistake, made TWICE, which is why there is still no message.** Both
+times the command piped jest through `tail`, so the actual error was discarded and only
+the stack frames survived. The capture that works, and that found nothing to capture on
+sixteen subsequent runs:
+```bash
+npx jest --silent > /tmp/jest-out.txt 2>&1; echo "exit=$?"; head -40 /tmp/jest-out.txt
+```
+**Never react to a failing gate through `tail`.** Next steps if it recurs: the full
+stderr from the above, and `--runInBand` to rule out a worker interaction.
 
 **Why this is filed at P1 with one data point.** #54 records the rule: *a defect in the
 apparatus that tests other work is P1 regardless of its symptom, because everything
@@ -227,12 +246,13 @@ and only the stack survived. **Capture the whole output of a failing gate before
 reacting to it.** Next steps if it recurs: the full stderr, and `--runInBand` to rule
 out a worker interaction.
 
-**Not claimed:** that this is a real defect rather than an environment hiccup, or that
-it is related to the change that was in flight when it appeared (four new `lib/` modules
-and three new suites, none of which `globalSetup` imports).
+**Not claimed:** that this is a real defect rather than an environment hiccup, or that it
+is related to the change that was in flight when it appeared (four new `lib/` modules and
+five new suites, none of which `globalSetup` imports — and the second occurrence came
+*after* that work was committed and green, which weakens the connection further).
 **Priority:** P1 by the #54 rule | **Effort:** Low to instrument, unknown to fix
 **Risk:** Unknown — a gate that can fail to start is the shape #54 is about
-**Status:** open — one unreproduced observation; instrument before hunting
+**Status:** open — two unreproduced observations, same signature; instrument before hunting
 
 ---
 
