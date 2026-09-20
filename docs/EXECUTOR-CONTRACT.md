@@ -172,6 +172,16 @@ stop.
   `TURNS:`, `SKILL:` are optional. A label is recognised **only UPPERCASE at the start
   of a line**; a non-canonical spelling (`repo:`, `Repo:`) **refuses the whole task**
   rather than silently downgrading it (`FIELD_LABELS`, `lib/task-parser.js`).
+- **`INSTRUCTIONS:` is required in the enforced sense as of 2026-09-20, not just the
+  documented one.** Only `INSTRUCTIONS:` has a multiline capture; every other label
+  takes the rest of its own line. A body written under a `TASK:` one-liner with no
+  `INSTRUCTIONS:` label used to parse clean and deliver **only that one line** to the
+  executor — which is how a 634-byte dispatch reached an agent as 70 bytes on
+  2026-09-20, with nothing reported. Unclaimed body text below the header block is now
+  recorded in `task.errors` and the task is refused, so the failure is a posted Slack
+  message rather than an executor working from a description. Guard:
+  `tests/dispatch-body-delivery.test.js`. **If you are composing a dispatch by hand,
+  the body goes under `INSTRUCTIONS:`.**
 - **`TURNS:` default 50, minimum 5, ceiling 100** (`MIN_TURNS`/`MAX_TURNS`,
   `lib/task-parser.js:55-56`); out-of-range values are clamped, non-numeric ignored. On
   a max-turns hit the task retries **once** with doubled turns, capped at 100. Dispatch
