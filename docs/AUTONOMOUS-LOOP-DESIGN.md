@@ -12,6 +12,17 @@ say so to the owner — do not quietly implement the other choice.
 exist before any of it can be built, three of which are being built alongside this
 document; the fourth is not.
 
+**A second document describes the regime actually operated, and D1 is not it.**
+[`DISPATCH-AND-BATCH-MODEL.md`](DISPATCH-AND-BATCH-MODEL.md) (filed 2026-09-20, a proposal
+in the same sense as this one) records the owner's nightly **batch** cycle: one dated
+integration branch per batch, gated once, reviewed and merged by a person in the morning.
+It states which decisions below it reuses — **D2** (the merged tree is what the suite must
+be run against), **D3** (no auto-revert, no auto-fix on a red `main`) and **§3**'s
+external-iteration-limit argument — and which it replaces for that regime: **D1**, because
+there a human *is* the gate. **Nothing in this document is changed by it**, and the two are
+not alternatives to be merged: this one is about a machine loop in one repository, that one
+about a human-gated cycle across three.
+
 ---
 
 ## 1. The loop
