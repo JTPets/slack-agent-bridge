@@ -77,6 +77,15 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+At the **2026-09-20 blocker re-verification pass** those print **65** open items — **10** P1,
+**45** P2, **10** P3 — and **no duplicate ID**. That pass closed nothing and filed **#73** (the
+deploy step in use kills a running task without ever signalling the bridge) and **#74** (the
+update gate's delivery branch cannot fire). **The index was REGENERATED, not appended to, and
+that moved a row:** #23 had been sitting after #72 in the index while its heading sits between
+#22 and #71 in the body — hand-appended when #71/#72 were filed by the pass recorded in the
+next paragraph, which is exactly what this file's index note warns against. The index now
+equals its own regeneration.
+
 At the **2026-09-20 drain-one pass** those print **63** open items — **9** P1, **44** P2,
 **10** P3 — and **no duplicate ID**. That pass filed **#71** (`ASK:` is invisible to every
 update gate) and **#72** (two answers to "is a task running?"), closed nothing, and added
@@ -265,19 +274,20 @@ work behind an owner's name, which is the opposite of the point.
 
 *Regenerated from the headings. Do not append to it by hand; re-run the command above.*
 
-**P1 — protects or unblocks the live deployment** (9)
+**P1 — protects or unblocks the live deployment** (10)
 
 - **#55** — [The channel mapping had no reproduction path, and a deploy proved it](#55-the-channel-mapping-had-no-reproduction-path-and-a-deploy-proved-it)
 - **#56** — [`npm test` fails intermittently inside jest's globalSetup — twice, unreproduced](#56-npm-test-fails-intermittently-inside-jests-globalsetup--twice-unreproduced)
 - **#42** — [Every backup this system has lives on the box it backs up, and their liveness is checked by nothing](#42-every-backup-this-system-has-lives-on-the-box-it-backs-up-and-their-liveness-is-checked-by-nothing)
 - **#41** — [The NAS is the single point of failure for every stack and every credential, and its exposure has never been established](#41-the-nas-is-the-single-point-of-failure-for-every-stack-and-every-credential-and-its-exposure-has-never-been-established)
 - **#17** — [Nothing starts `auto-update.js` — merged code does not reach the running process](#17-nothing-starts-auto-updatejs--merged-code-does-not-reach-the-running-process)
+- **#73** — [The deploy step in use kills a running task without ever signalling the bridge — every guard in the update protocol is bypassed by the one command that actually deploys](#73-the-deploy-step-in-use-kills-a-running-task-without-ever-signalling-the-bridge--every-guard-in-the-update-protocol-is-bypassed-by-the-one-command-that-actually-deploys)
 - **#25** — [The preserved scratch clone does not survive a container recreation — silent data loss inside the feature that prevents silent data loss](#25-the-preserved-scratch-clone-does-not-survive-a-container-recreation--silent-data-loss-inside-the-feature-that-prevents-silent-data-loss)
 - **#3** — [The scheduler never checks `planned` status — CONFIRMED FIRING LIVE 2026-09-14](#3-the-scheduler-never-checks-planned-status--confirmed-firing-live-2026-09-14)
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (44)
+**P2 — real gaps, no risk to the running process** (45)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -285,9 +295,10 @@ work behind an owner's name, which is the opposite of the point.
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
 - **#31** — [Three definitions of "is this a rate-limit failure?", and the morning digest tells the owner tasks will auto-retry when nothing will](#31-three-definitions-of-is-this-a-rate-limit-failure-and-the-morning-digest-tells-the-owner-tasks-will-auto-retry-when-nothing-will)
 - **#22** — [An interrupted task reaches no human](#22-an-interrupted-task-reaches-no-human)
+- **#23** — [A task killed mid-run is re-read and re-run on the next poll](#23-a-task-killed-mid-run-is-re-read-and-re-run-on-the-next-poll)
 - **#71** — [`ASK:` is invisible to every update gate — a conversation can be restarted mid-answer](#71-ask-is-invisible-to-every-update-gate--a-conversation-can-be-restarted-mid-answer)
 - **#72** — [Two answers to "is a task running?", and nothing makes them agree](#72-two-answers-to-is-a-task-running-and-nothing-makes-them-agree)
-- **#23** — [A task killed mid-run is re-read and re-run on the next poll](#23-a-task-killed-mid-run-is-re-read-and-re-run-on-the-next-poll)
+- **#74** — [The update gate's delivery branch cannot fire — "the finish line is delivery" is true of the record and not of the gate](#74-the-update-gates-delivery-branch-cannot-fire--the-finish-line-is-delivery-is-true-of-the-record-and-not-of-the-gate)
 - **#26** — [`docker-compose.yml` is untracked **and** unignored in the live working tree — `git clean -fd` deletes the deployment definition](#26-docker-composeyml-is-untracked-and-unignored-in-the-live-working-tree--git-clean--fd-deletes-the-deployment-definition)
 - **#27** — [A task has write access to the entire live deployment, including every credential — recorded, undecided](#27-a-task-has-write-access-to-the-entire-live-deployment-including-every-credential--recorded-undecided)
 - **#62** — [Two runtime files under `data/` are neither tracked nor gitignored — `git clean -fd` deletes them and `git add -A` publishes them](#62-two-runtime-files-under-data-are-neither-tracked-nor-gitignored--git-clean--fd-deletes-them-and-git-add--a-publishes-them)
@@ -422,7 +433,26 @@ against a real Slack workspace and off-box export of the resolved map both outst
 ---
 
 ### 56. `npm test` fails intermittently inside jest's globalSetup — twice, unreproduced
-**Filed 2026-09-16, second occurrence the same day.** **Two observations, message
+**Filed 2026-09-16, second occurrence the same day.**
+
+> **A DIFFERENT intermittent was captured 2026-09-20, with its message, and it is NOT this
+> one.** Recorded here so the two are not conflated and so nobody reads it as this item
+> explained. Signature: a *suite* fails (not `globalSetup`), with
+> `ENOENT: no such file or directory, scandir '<repo>/test-data-staff-tasks'` thrown from
+> `lib/file-size-gate.js:57` inside `tests/file-size-gate.test.js`. **Diagnosed, unlike this
+> item.** `tests/staff-tasks.test.js:28` puts its temp directory at
+> `path.join(__dirname, '..', 'test-data-staff-tasks')` — **inside the repository root** —
+> creating it at `:36` and removing it at `:45`. `measure()` in `lib/file-size-gate.js:54-71`
+> walks that same root recursively: it sees `test-data-staff-tasks` in one `readdirSync`, and
+> by the time it recurses into it the other jest worker has removed it. A parallel-worker
+> race, not a cold cache. Observed once in 3 full runs that session; the two full runs
+> immediately after were green (80 suites, 2507 tests, 0 skipped, exit 0, twice — the
+> two-consecutive-greens bar), and the two racing suites run together passed 8 of 8.
+> **The fix is not in the walker**: no test-scoped directory should be created inside the
+> tree five separate guards enumerate — `os.tmpdir()`, which
+> `tests/helpers/workspace-fixture.js` already uses. See **#36**, which owns the walkers and
+> now records that this is a reliability cost and not only a duplication one. Not fixed in
+> the pass that found it: that dispatch was read-only plus record correction. **Two observations, message
 captured neither time — filed because of the rule #54 records, not despite it.**
 
 **What was seen, twice, with the same signature.** A full `npx jest` run failed *before
@@ -640,11 +670,58 @@ and merging a commit is exactly the step that is not connected to the running pr
 This is the deploy path itself.
 
 **It would not start cleanly today either (verified here).** `validateConfig()`
-(`auto-update.js:803-823`) hard-fails when `LOCAL_REPO_DIR` does not exist, and the
-default is the dead Pi path `/home/jtpets/jt-agent` (`auto-update.js:40`). Observed:
+(`auto-update.js:908-930` — cited here as `:803-823` until 2026-09-20; the drain-one merge
+`fdf489d` added ~105 lines above it) hard-fails when `LOCAL_REPO_DIR` does not exist, and
+the default is the dead Pi path `/home/jtpets/jt-agent` (`auto-update.js:46`, cited as
+`:40`). Observed:
 `node auto-update.js` with no `LOCAL_REPO_DIR` exits **1**. Under `restart:
 unless-stopped` that is a restart loop — so `LOCAL_REPO_DIR` must be set *before*
 anything starts this daemon. Whether the live `.env` sets it is unverified from here.
+
+**THIS ITEM HAS THREE LAYERS, AND ONLY THE FIRST WAS WRITTEN DOWN.** Recorded here
+2026-09-20 so the next person does not fix layer 1 and rediscover layers 2 and 3 afterwards.
+Everything above this paragraph is layer 1.
+
+**Layer 2 — the restart mechanism is `process.exit(0)`, which restarts something only if
+the exiting process is the container's main process.** `checkForUpdates()` ends at
+`await deps.exit(RESTART_EXIT_CODE)` (`auto-update.js:847`; `RESTART_EXIT_CODE = 0` at
+`:53`), and the whole design rests on one sentence in that file's header: *"the supervisor
+re-runs `npm install && node bridge-agent.js` on exit — exiting IS the restart"*
+(`auto-update.js:10-11`). That is true for PID 1 and false for anything else. Docker
+applies `restart: unless-stopped` when the container's main process exits, not when any
+process inside it does. So a daemon started **alongside** the bridge — backgrounded in the
+`command:`, or forked from `bridge-agent.js` — would verify the commit, write its state,
+post to `#sqtools-ops`, exit 0, and **restart nothing**: guards (a)–(d) would all pass and
+the deploy would silently not happen. Shape (a) in the table below is the one this bites,
+and the table does not say so.
+
+**Layer 3 — PID 1 in this container is `sh`, not `node`.** The live `command:` is
+`sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"`
+(`docker-compose.example.yml:83`), and compose passes it as `["sh","-c","..."]`. `sh` does
+not `exec` the last command of an `&&` chain — it forks it and waits. Measured on `dash`,
+which is Debian's `/bin/sh` and therefore `node:20`'s:
+
+```bash
+/bin/sh -c 'true && sleep 3' &  SHPID=$!; sleep 0.5; ps -eo pid,ppid,args | grep '[s]leep 3'
+#   734   729 /bin/sh -c true && sleep 3
+#   736   734 sleep 3          <- node's position: a CHILD of sh, not sh itself
+```
+
+So the exit in layer 2 is an exit by a grandchild of the container's main process. It ends
+that process and nothing else. Regenerate on the box — nothing in this repository can:
+`docker exec -i jt-agent ps -eo pid,ppid,args` (expect PID 1 = `sh -c "npm ci && …"`).
+
+**The three compound.** Starting the daemon (layer 1) without also making the exiting
+process PID 1 (layers 2 and 3) produces the worst available outcome: a self-update that
+reports success to `#sqtools-ops`, records `restartedIntoCommit` so guard (c) refuses to
+try that commit again, and leaves the old code running. That is strictly worse than today's
+honest "nothing deploys". Whatever shape is chosen must state which process ends up as PID
+1; `exec` in the `command:`, an `init:`/`entrypoint:` change, or a supervisor are the
+candidates, and the compose file is off-repo so none of them is reachable from a branch.
+
+**A fourth consequence of layer 3, which belongs to #73 rather than here:** because PID 1 is
+`sh` and nothing forwards signals, `docker compose restart` never delivers SIGTERM to
+`bridge-agent.js` at all.
 
 **A green suite for an unstarted daemon.** `tests/auto-update-restart.test.js`,
 `tests/auto-update-defer.test.js` and `tests/update-verifier.test.js` pass (62 tests) by
@@ -686,6 +763,110 @@ observable.
 run outside tests, and whose startup config is currently wrong.
 
 ---
+
+---
+
+### 73. The deploy step in use kills a running task without ever signalling the bridge — every guard in the update protocol is bypassed by the one command that actually deploys
+**Filed 2026-09-20,** by the pass that re-verified the four standing "known blocker" claims.
+**This item exists because a 2026-09-20 pass considered it and decided NOT to file it** — its
+note reads *"What can still kill a task mid-flight is a manual `docker compose restart`, which
+respects none of the protocol. Filing a second item would have split #17."* That judgement is
+reversed here on new evidence: the failure is worse than "respects none of the protocol". The
+bridge is not asked to stand down and refuse; **it is never told anything at all.**
+
+**Priority:** P1 | **Effort:** Low to document the hazard; the fix is off-repo | **Status:**
+OPEN — repo-side evidence complete, remedy is a deployment change
+
+**Why it is not just #17 restated.** #17 is *"merged code does not reach the running
+process"*. This is the reverse direction: *the thing that does make it reach the running
+process destroys work on the way*. #17's remainder is an owner decision about a deploy
+mechanism; this is a property of the mechanism already in daily use. They share a cause
+(layer 3 of #17 — PID 1 is `sh`) and have different remedies.
+
+**The finding, in three steps, all regenerable from a checkout except where stated.**
+
+1. **`bridge-agent.js` has a graceful shutdown and it is good.** `gracefulShutdown()`
+   (`bridge-agent.js:2684-2685` registers it for `SIGTERM`/`SIGINT`) stops the scheduler,
+   closes the socket, posts `:wave: Bridge agent shutting down gracefully` to `#sqtools-ops`,
+   and **waits up to 60 s for the running task** (`SHUTDOWN_TIMEOUT`, `:2664`) before
+   `process.exit(0)`.
+2. **It never runs under `docker compose restart`.** The signal goes to PID 1, and PID 1 is
+   the `command:`'s `sh`, not `node` (#17, layer 3). `dash` does not forward signals to the
+   child it is waiting on. Measured — the child installs a `SIGTERM` handler and never sees
+   one:
+
+   ```bash
+   # child.js: process.on('SIGTERM', ...console.log('CHILD: received SIGTERM')...)
+   /bin/sh -c "true && node child.js" & SHPID=$!
+   sleep 1; kill -TERM $SHPID; sleep 2
+   ps -eo pid,ppid,args | grep '[c]hild.js'
+   #   757     1 node .../child.js        <- alive, REPARENTED to init
+   # child stdout: "CHILD: up" then "CHILD: still alive after 6s".
+   # "CHILD: received SIGTERM" is never printed.
+   ```
+
+   The compose file sets no `init:`, no `stop_signal:`, no `stop_grace_period:` and no
+   `entrypoint:` (`grep -nE "init:|stop_signal:|stop_grace_period:|entrypoint:"
+   docker-compose.example.yml` prints nothing), so there is nothing to forward the signal and
+   Docker's default ~10 s grace applies before `SIGKILL` reaches everything in the container.
+3. **So the task is `SIGKILL`ed, and `processTask`'s `finally` does not run.** The
+   consequences are each already filed and are listed here only because nothing connects them
+   to the command that triggers them: the task lock is not released (`lib/task-lock.js`
+   `release()` is in that `finally`, `bridge-agent.js:1335`); the scratch clone is never
+   classified by `detectUndeliveredWork` so unpushed commits are neither preserved-with-alert
+   nor cleaned; the heartbeat's terminal reaction is never added, which is exactly the state
+   `alreadyProcessed()` does not match (**#23** — the message is re-read and re-run next
+   poll); the queue entry stays `running` until the next startup's `recoverInterrupted()`,
+   whose verdict reaches no human (**#22**).
+
+**Every guard built for this is bypassed, and the bypass is silent.** The task lock, the
+deferral gate, drain-one's refusal and the `delivery` verdict are all consulted by
+`auto-update.js` — and `auto-update.js` is started by nothing (#17). `docker compose restart`
+reads none of them. It is not that the protocol decides to proceed; the protocol is not
+invoked. The observable to the operator is a task that stops answering.
+
+**`--force-recreate` is worse, and this is the half the durability table now records.**
+`WORK_DIR` defaults to `/tmp/bridge-agent` (`.env.example:78`), which is neither bind mount,
+so it is the container's writable layer. A `restart` keeps it; a `--force-recreate` — which
+**every `.env` change requires** — discards it:
+
+| File | Where | `restart` | `up -d --force-recreate` |
+|---|---|---|---|
+| `$WORK_DIR/.task-running` | container layer | survives | **discarded** |
+| `$WORK_DIR/task-queue.json` | container layer | survives | **discarded** |
+| `$WORK_DIR/.update-pending` | container layer | survives | **discarded** |
+| scratch clones (`$WORK_DIR/task-*`) | container layer | survive | **discarded** (#25) |
+| `agents/shared/processed-tasks.json` | `/bridge` bind mount | survives | survives |
+| `.bridge-agent-state.json` | `/bridge` bind mount | survives | survives |
+
+Regenerate the classification: `grep -n "^WORK_DIR=" .env.example` and
+`docs/CONFIG-SURFACE-AND-REBUILD.md` → §8.1 rows 11, 12 and 26. **Confirmed here as asked:
+a recreate silently drops a pending update marker.** In isolation that is benign — the
+updater re-marks on its next cycle, and `auto-update.js` even has the recovery path for it
+(`clearUpdatePending({ reason: 'local head is already the remote head' })`,
+`auto-update.js:587`). What is *not* benign is the same event dropping `task-queue.json`:
+`recoverInterrupted()` then finds nothing, so a task the recreate just killed is never even
+recorded as interrupted. The row that says so is row 11 of that table.
+
+**Unverified, and it decides how bad this is:** whether the live `/bridge/.env` overrides
+`WORK_DIR` to a path under `/bridge`. Nothing in this repository can answer it. On the NAS:
+`grep -n "^WORK_DIR=" /share/CACHEDEV1_DATA/jt-agent/.env` (names only — never print the
+value of anything else in that file).
+
+**Shapes, none chosen — and the first two are off-repo, which is why this is filed rather
+than fixed.**
+
+| Shape | What changes | What it costs |
+|---|---|---|
+| (a) Make `node` PID 1 | `command: sh -c "npm ci && … && exec node bridge-agent.js"` — one `exec`. SIGTERM then reaches `gracefulShutdown()` and a running task gets its 60 s. | The compose file is untracked and off-repo (#26), so this repository cannot make it true. Also raises the grace period question: Docker's default is 10 s and the handler wants 60, so `stop_grace_period: 90s` goes with it or the handler is killed mid-wait. |
+| (b) Bind-mount `WORK_DIR` | The lock, the queue, the marker and preserved clones survive a recreate. | Same off-repo constraint; interacts with #25 and with the read-only-`/bridge` shape in #27. |
+| (c) Announce the hazard where the operator reads it | A line in `docs/EXECUTOR-CONTRACT.md` §7 and `CLAUDE.md`'s deploy block saying a restart kills a running task **uncleanly** and naming `ASK: what's queued` as the pre-flight check. | Reachable from a branch. Landed with this item. It does not fix anything; it stops the hazard being invisible. |
+
+**Do not read (c) as the fix.** It is the honest half this repository can do.
+
+**Related:** #17 (shares layer 3, opposite direction), #25 (the clone half), #22 and #23 (what
+an uncleanly killed task costs), #72 (the two answers to "is a task running?"), #26 (why (a)
+and (b) are off-repo), #71 (`ASK:` is outside every gate anyway).
 
 ---
 
@@ -1499,6 +1680,20 @@ added to prevent, reachable through the lock's own failure path.
 which is why this is P2 and not P1. It becomes live the moment #17 is wired, and it is a
 prerequisite for wiring it.
 
+**A SECOND divergence, in the opposite direction — added 2026-09-20 by the re-verification
+pass.** The example above is *poll refuses while the updater sees idle*. The reverse also
+exists and is reachable without any lock failure. `isRunning` is cleared at
+`bridge-agent.js:2162`, the statement after `await currentTaskPromise` — but the queue's
+terminal write happens **inside** `processTask` and is wrapped in its own try/catch
+(`bridge-agent.js:1047-1055` for the success path, `:1261-1268` for the failure path), which
+logs `Queue complete failed` and carries on. So a terminal write that throws leaves the entry
+`running` on disk while `poll()` goes back to accepting work: the bridge starts a second task,
+and `evaluateTaskDeferral()` sees two live entries and defers a deploy that is not actually
+blocked. Bounded, unlike the first direction — the orphan ages out at the staleness threshold
+(30 min at defaults) — but it is the same defect: two mechanisms, no agreement, and the
+disagreement is invisible from either side. **#74** is a third instance of the same shape, on
+the delivery field rather than the status.
+
 **Suggested shape, not a decision.** Either make `poll()` read the lock rather than a
 boolean (one mechanism, one answer, and it then also survives a restart), or make a failed
 `acquire()` refuse the dispatch instead of proceeding without a lock — the second inverts a
@@ -1506,10 +1701,111 @@ deliberate trade-off recorded in the code and should not be done without re-argu
 Whichever is chosen, the guard is a test that the two answers cannot diverge, not a comment
 saying they do not.
 
-**Related:** #17 (this is on its critical path), #23, #71.
+**Related:** #17 (this is on its critical path), #23, #71, #73 (the deploy step that bypasses
+both mechanisms entirely), #74 (the same shape on the delivery field).
 **Priority:** P2 | **Effort:** Low-Medium.
 
 **Status:** open (filed 2026-09-20)
+
+---
+
+### 74. The update gate's delivery branch cannot fire — "the finish line is delivery" is true of the record and not of the gate
+**Filed 2026-09-20,** answering the open question the re-verification pass was asked to settle:
+*does a task whose delivery permanently fails hold a pending update forever?* **It does not,
+and the reason it does not is that the branch which would make it do so is unreachable from
+production code.** The question was worth asking — "waits for a 90-minute dispatch" and "waits
+forever because Slack failed" are different decisions and only the first was chosen — and the
+answer is that neither decision is being taken by the mechanism that appears to take it.
+
+**Priority:** P2 | **Effort:** Low (a negative control, or an honest comment) | **Status:**
+OPEN — behaviour is correct, the claim about it is not
+
+**The gate.** `checkTaskQueue()` (`auto-update.js:251`) counts a fourth kind of live work
+beside pending and running:
+
+```js
+const isTerminal = t => t.status !== 'pending' && t.status !== 'running';
+const allUndelivered = queue.filter(t => isTerminal(t) && !deliveryRecorded(t));   // :298
+```
+
+`deliveryRecorded()` (`lib/task-queue.js:134-138`) is false only when the row carries a
+`delivery` key whose value is `null` or a non-object.
+
+**Why that is unreachable.** Every terminal status write in `lib/task-queue.js` is paired,
+in the same `_load()` → mutate → `_save()` block, with a `normalizeDelivery()` write — and
+`normalizeDelivery()` (`:107-119`) **never returns `null`**; a caller that passes nothing gets
+`{ delivered: false, detail: 'the caller recorded no delivery verdict' }`.
+
+| terminal status written | line | paired delivery write | line |
+|---|---|---|---|
+| `COMPLETED` | `:398` | `normalizeDelivery(delivery)` | `:401` |
+| `FAILED` | `:426` | `normalizeDelivery(delivery)` | `:429` |
+| `INTERRUPTED` (live) | `:466` | `normalizeDelivery(delivery)` | `:469` |
+| `INTERRUPTED` (startup sweep) | `:501` | `normalizeDelivery({delivered:false,…})` | `:510` |
+
+`delivery: null` is written in exactly two places, and the status is **not** terminal at
+either: `enqueue()` (`:238`, `pending`) and `_startRunning()` (`:321`, `running`).
+
+**Demonstrated, not only read.** Driving a real `TaskQueue` and then asking the real gate:
+
+```bash
+WORK_DIR=$SCRATCH node -e "
+const {TaskQueue}=require('./lib/task-queue');const q=new TaskQueue(process.env.WORK_DIR+'/task-queue.json');
+const mk=(ts,d)=>{const t=q.enqueue({msgTs:ts,channelId:'C',text:'x',description:d});q.markRunning(t.id);return t.id;};
+q.complete(mk('1','complete, no verdict'));
+q.fail(mk('2','fail, no verdict'),'boom');
+q.interrupt(mk('3','interrupt, no verdict'),'killed');
+mk('4','left running'); q.recoverInterrupted();"
+# terminal rows: 4 of 4 | terminal rows with delivery null/non-object: 0
+
+WORK_DIR=$SCRATCH node -e "console.log(require('./auto-update.js').checkTaskQueue())"
+# { hasActive: false, pending: 0, running: null, awaitingDelivery: 0, staleIgnored: 0 }
+```
+
+And the operator's exact scenario — `complete(id, outcome, { delivered: false, detail: 'the
+task result post to the ops channel failed' })`, which is literally what `processTask` passes
+at `bridge-agent.js:1047-1053` when the post fails — yields `deliveryRecorded = true` and
+`hasActive: false`. **A permanently failed delivery does not hold an update. It is recorded as
+a loss and the update proceeds.** That is the behaviour the operator would have chosen; it is
+simply not produced by the mechanism the comments credit.
+
+**What actually protects the post window,** since something must: the result post happens
+*before* the terminal write, so during it the entry is still `running` and is caught by
+`liveRunning` — plus the task lock, which `processTask` releases only in its `finally`
+(`bridge-agent.js:1335`), after both. The ordering is real and is asserted by
+`tests/task-delivery-signal.test.js`. The `delivery` field's working value is the **durable
+record of a loss** (`{ delivered: false }` on the row, plus the `:rotating_light:` ops post at
+`bridge-agent.js:1026-1032`), which is worth having. It is the *gate* half that is inert.
+
+**The guard is green against a state production cannot produce.**
+`tests/auto-update-defer.test.js:483` writes `{ ...base, status: 'completed', delivery: null }`
+**by hand** and asserts the update defers. It passes. It proves the gate reads the field; it
+proves nothing about any task reaching that state. This is the repository's own recurring
+class — the 62 green tests for a daemon nothing starts (#17), the vacuous Phase-3 gate that
+#61 was filed for — arriving one layer down.
+
+**Three statements to correct or qualify, listed so the fix is bounded.**
+- `CLAUDE.md` → DRAIN-ONE step 4: *"`evaluateTaskDeferral()` keys on that verdict, not on the
+  status"*. It reads the verdict; at HEAD the discrimination is done by the status. Corrected
+  in the same change as this item.
+- `auto-update.js:283-295` — the `THE FINISH LINE IS DELIVERY, NOT STATUS` comment.
+- `lib/task-queue.js:92-93` — *"the entry is still in flight as far as any reader is
+  concerned, whatever its status says"*, describing a combination no writer emits.
+
+**Shapes, none chosen.** (a) Keep the branch as defence in depth against a future writer and
+say so in the comment — cheapest, and honest. (b) Give it a negative control: a test that
+fails if any `TaskQueue` method can leave a terminal row without a verdict, which turns the
+unreachability into a guarded invariant instead of an accident. (c) Delete the branch — **not
+recommended**: it is the only thing standing between a future terminal writer and a restart
+over an undelivered result. (b) is the shape that matches how this repo closes a class.
+
+**Do not fix this by making a failed delivery hold the update.** That is the decision the
+operator did not take, and it would convert one Slack outage into a permanently refused
+bridge (drain-one refuses every new dispatch while an update is pending).
+
+**Related:** #72 (the sibling: two answers to "is a task running?" — see its second divergence
+direction, added the same day), #22 (an interrupted task reaches no human), #17 (none of this
+fires today), #39 (a claim is not a fact, one layer out).
 
 ---
 
@@ -2042,6 +2338,15 @@ for(const f of walk(process.cwd())){const L=fs.readFileSync(f,'utf8').split('\n'
 ```
 The rule counts `split('\n').length`, which reads one higher than `wc -l` on a
 newline-terminated file — that is why these numbers and `wc -l` disagree by one.
+
+**Re-run 2026-09-20 at `f13e012`, same working command: 72 over the limit — 42 test suites,
+30 source modules — and `npm run validate` reports "72 declared exceptions, each with a
+recorded reason", so the gate is still green.** The three since 2026-09-16 are all from the
+delivery-signal and drain-one merges: `lib/update-drain.js` (373),
+`tests/update-drain.test.js` (393) and `tests/task-delivery-signal.test.js` (389);
+**`auto-update.js` is now 985 lines, not the 879 recorded in the source-module table below**
+(`node -e "const g=require('./lib/file-size-gate');console.log(g.measure().find(f=>f.path==='auto-update.js').lines)"`).
+Its disposition — split deferred because nothing starts the daemon — is unchanged.
 
 **Figures as of 2026-09-16, from the working command above: 69 over the limit — 40 test
 suites, 29 source modules — and 69 declared exceptions, so the gate is green.** The tables
@@ -3024,6 +3329,13 @@ process). Raising or removing the ceiling before a restart can no longer land mi
 longer runs with *more* chances to be interrupted in flight, not fewer. Land the deploy-path
 work, then this.
 
+**The gate is #17 AND #73, corrected 2026-09-20.** Naming #17 alone would let this land the
+moment the daemon is wired, while the restart that actually lands mid-task today — a manual
+`docker compose restart` — remains unguarded and, per #73, does not even deliver SIGTERM, so
+a longer run is exposed for longer to a kill that skips `gracefulShutdown()`'s 60-second
+wait entirely. The rationale above is strengthened by that finding, not weakened; only the
+named precondition was incomplete.
+
 **Related, not duplicated:** **#20** records that `MAX_TURNS` names four different quantities
 and that the env var is dead config. That is a naming/wiring defect; this item is about what
 the ceiling should *be*. Both touch `lib/task-parser.js`; neither subsumes the other.
@@ -3318,6 +3630,20 @@ side effect of the change that noticed it.
 `listSourceFiles` and both stripper variants into `tests/helpers/source-scan.js`, keeping
 the two stripping modes as an explicit option rather than merging them.
 
+**2026-09-20 — it is FIVE walkers, and the duplication now has a reliability cost, not only
+a maintenance one.** The fifth is not in `tests/` at all: `measure()` in
+`lib/file-size-gate.js:54-71` walks the same tree from production code, and it is the one
+that failed. A full `npm test` went red with
+`ENOENT ... scandir '<repo>/test-data-staff-tasks'` because `tests/staff-tasks.test.js:28`
+creates its temp directory **inside the repository root** and removes it at `:45` while
+another jest worker is mid-walk. Every one of the five walkers has the same
+discover-then-recurse shape and none tolerates a directory vanishing between the two, so any
+of them can catch this; the file-size gate simply drew the short straw. Two consequences for
+the fix above: a shared `listSourceFiles` would make the ENOENT tolerance a **one-line** fix
+instead of five, and the real repair is upstream — nothing test-scoped should be written into
+the tree the guards enumerate (`os.tmpdir()`, as `tests/helpers/workspace-fixture.js` already
+does). Full capture and the green runs that bracket it: **#56**'s 2026-09-20 note.
+
 **It has a concrete cost already.** `tests/test-gate-honesty.test.js` is **364 lines** and
 is the **one file this branch newly pushed over the repo's 300-line rule** — `npm run validate`
 goes 63 -> 64 over-limit files (`npm run validate 2>&1 | grep -cE '^  - '`, compared against
@@ -3480,6 +3806,43 @@ I/O there, archive on completion.
 ---
 
 ## Revision trail
+
+*Updated 2026-09-20 (blocker re-verification pass, at `f13e012`; docs and register only —
+no behaviour change, nothing closed). The pass re-checked four standing "known blocker"
+claims that were being trusted because nobody had re-checked them. Two were stale, one was
+stale in both halves, and one held. **The verdicts, with their evidence, now live in
+`docs/EXECUTOR-CONTRACT.md` §7 → "The four standing 'known blocker' claims"**, because that
+file is what every dispatched executor reads first and is therefore where a stale standing
+rule does its damage. Summary: (1) *no access to the SqTools repo* — **TRUE**, but enforced
+only by the absence of a credential, not by any allowlist, and `jtpets/SquareDashboardTool`
+is in `DEFAULT_REPOS` so the `/dispatch` form actively offers it (#57). (2) *`spawn E2BIG`,
+prompt passed as argv* — **STALE**, fixed on 2026-09-20; the prompt goes over stdin
+(`lib/llm-runner.js:408`) and no path passes a prompt in argv. (3) *`REPO:`/`BRANCH:` reach a
+shell string* — **STALE**, fixed 2026-09-14; and the fix is to the class, not to two labels
+(`tests/no-shell-execution.test.js`). (4) *the self-update loop runs every 5 minutes and does
+not honour the task lock* — **STALE IN BOTH HALVES**; it has honoured the lock since
+2026-09-14 and it does not run at all (#17).*
+
+*Two items filed by that pass, and one earlier judgement reversed.* **#73** *records that the
+deploy step actually in use — `docker compose restart jt-agent` — kills a running task
+without ever delivering SIGTERM to it, because PID 1 is the compose `command:`'s `sh` and
+nothing forwards signals, so `gracefulShutdown()`'s 60-second wait never runs. The
+2026-09-20 bridge-findings pass considered this and deliberately did not file it ("filing a
+second item would have split #17"); that is reversed here on the SIGTERM evidence, which was
+not available then.* **#74** *answers the open question about a permanently failed delivery:
+it does NOT hold a pending update, because the branch that would make it do so is
+unreachable from production code — all four terminal writers stamp a delivery object, so
+`isTerminal && !deliveryRecorded` cannot be true for any row this code writes. The guard for
+it (`tests/auto-update-defer.test.js:483`) is green against a hand-written state.*
+
+*Three existing items amended rather than duplicated:* **#17** *gains layers 2 and 3 — the
+`process.exit(0)` restart works only for PID 1, and PID 1 is `sh` — so a future pass that
+fixes layer 1 alone would produce a self-update that reports success and deploys nothing;*
+**#72** *gains a second divergence direction (a terminal queue write that throws leaves the
+entry `running` while `poll()` accepts new work);* **#59**'s *sequencing gate is corrected
+from "#17" to "#17 and #73".* **#10**'s *figures were re-run (72 over the limit, 42 suites /
+30 modules; `auto-update.js` is 985 lines, not 879). Counts and index regenerated from the
+headings — which moved #23 back to its heading position after a hand-append.*
 
 *Updated 2026-09-20 (close-reconciliation pass, docs only — no code, no image change):*
 *(1) **#61 purged.** It was closed by `723dfed` ("Closes WORK-TODO #61", merged `5749d08`)
