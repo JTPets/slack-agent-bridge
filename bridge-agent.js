@@ -196,6 +196,13 @@ const { redact } = require('./lib/redact-secrets');
 // docs/WIRING-AND-SEAMS.md. Pure fs/execFileSync helpers with no bridge state.
 const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-lifecycle');
 
+// LOGIC CHANGE 2026-09-20: install the target repo's own dependencies in the scratch
+// clone before the LLM runs. Without this, Phase-3's test command found no node_modules
+// and could only ever classify runner_absent — every repo dispatch's verification was
+// vacuous (WORK-TODO #61). An install failure is a HARNESS failure that stops the
+// dispatch; see lib/dependency-install.js.
+const { installDependencies } = require('./lib/dependency-install');
+
 // LOGIC CHANGE 2026-09-14: Additive Slack Socket Mode connection for slash commands.
 // It does NOT carry messages: the poll loop below is untouched and remains the only
 // path a TASK:/ASK: message arrives on. See lib/slack-socket.js and
@@ -574,6 +581,37 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
       taskDir = path.join(WORK_DIR, dirName);
       cloneRepo(task.repo, task.branch, taskDir);
       cwd = taskDir;
+
+      // LOGIC CHANGE 2026-09-20: install the clone's dependencies BEFORE the LLM runs
+      // (WORK-TODO #61). This is what makes Phase 3's test gate real: `npm test` in a
+      // clone with no node_modules exits 127 (`jest: not found`), which validateOutput
+      // can only ever score runner_absent — so verification has never once run against
+      // work a dispatch produced. Pre-LLM and fail-hard by decision: an agent that
+      // cannot install can still write a branch it cannot verify, which puts the owner
+      // back to merging on a claim. An install failure is a HARNESS failure (the bridge
+      // is broken), classified and reported distinctly from a test failure (the branch
+      // is broken) and a timeout — never collapsed into one. A repo with no recognised
+      // manifest installs nothing and proceeds (research/audit and no-dependency tasks).
+      const install = installDependencies(taskDir);
+      if (install.harnessFailure) {
+        await postToOps(
+          `:rotating_light: *Dispatch stopped — HARNESS failure (install), not a code failure.*\n` +
+          `Task: ${task.description}\n` +
+          `Repo: ${task.repo} (branch: ${task.branch}) — ecosystem: \`${install.ecosystem}\`\n` +
+          `Outcome: \`${install.outcome}\`\n${install.reason}\n` +
+          `No branch was produced: the bridge could not prepare the clone, so nothing was verified.\n` +
+          `\`\`\`\n${(install.output || '').trim().slice(-1200)}\n\`\`\`\n` +
+          `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
+        ).catch(postErr => {
+          console.error('[bridge-agent] Could not post install-harness failure:', postErr.message);
+        });
+        throw new Error(`HARNESS FAILURE — dependency install: ${install.reason}`);
+      }
+      if (install.ran) {
+        console.log(`[bridge-agent] Installed ${install.ecosystem} dependencies (${install.command})`);
+      } else {
+        console.log(`[bridge-agent] No dependency install: ${install.reason}`);
+      }
 
       // LOGIC CHANGE 2026-03-26: Load skill template from skills/<skill>/SKILL.md
       // if SKILL field is specified. Prepends skill content to the prompt.
