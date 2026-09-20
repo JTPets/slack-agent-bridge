@@ -136,7 +136,7 @@ it the check that turns a confabulation into something visible rather than somet
 inherited, and it is buildable before anything in part 3 of the persistence design lands.
 `docs/STATE-AND-MEMORY-DESIGN.md` specifies what it renders; **note what it will report at
 HEAD**, which is the point of building it early: three of the four tiers are empty by
-construction (WORK-TODO **#58**).
+construction (WORK-TODO **#63**).
 
 ```bash
 # what `agents` and `queue` would render, today, with no new code

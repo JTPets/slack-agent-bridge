@@ -56,7 +56,7 @@ supplier relationships, pricing logic and staff matters. None of that can ship w
 public repository, and "we will remember to strip it before we flip the switch" is not a
 control — a `git rm` does not remove anything from history.
 
-This is not hypothetical here. WORK-TODO **#57**, filed from the state enumeration the same
+This is not hypothetical here. WORK-TODO **#62**, filed from the state enumeration the same
 day as this proposal, is exactly this failure in miniature: `data/staff-tasks-state.json`
 holds staff names and is neither tracked nor gitignored, so an ordinary `git add -A` on the
 box commits them. A wiki in this repository is that mistake made deliberately and at scale.

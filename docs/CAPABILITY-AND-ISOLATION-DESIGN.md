@@ -422,7 +422,7 @@ giving a later reader something to compare against.
 1. **Invert the capability model** — an allow list over a closed, enumerated vocabulary,
    with the guard test that makes it configuration rather than prose (§3.2). This is the
    prerequisite for `docs/COMMAND-SURFACE.md` §3's refusal clause, which is why WORK-TODO
-   **#59** says the two land together or not at all.
+   **#64** says the two land together or not at all.
 2. **Accept the separation rule** — no agent holds both a mail credential and a production
    data path (§5) — **before** anything is built that would make an agent hold both.
 3. **Answer the privacy questions in §6**, or record explicitly that they are deferred and
@@ -430,6 +430,6 @@ giving a later reader something to compare against.
 
 **And one repository-side change that needs no decision:** §2.1's finding should not sit
 only in this document. Either the two fields get a reader or the documentation gets a
-banner saying they are declarative — the same choice WORK-TODO **#58** poses for the memory
+banner saying they are declarative — the same choice WORK-TODO **#63** poses for the memory
 tiers, for the same reason, and `docs/AGENTS.md` → "Permissions Model" is the paragraph
 that currently reads as though enforcement exists.

@@ -75,7 +75,7 @@ about a name.
 | **Live routing rules** (what `rules.json` becomes) | They change without a deploy, they are per-workspace, and a tracked file is destroyed by a pull (§8.1 row 4) |
 | **Per-agent provider pins** | Same reason. This is what retires the `.env` workaround — see the part-six finding |
 | **Checklist completions** | Learned half of a declared template |
-| **Staff task assignments** | Append-heavy, queried by day. Also removes half of WORK-TODO **#57** |
+| **Staff task assignments** | Append-heavy, queried by day. Also removes half of WORK-TODO **#62** |
 | **Delivery quote requests** (customer PII) | The one store with a compliance dimension; it needs a retention rule, and a retention rule over a JSON array is a script nobody runs |
 | **Dispatch submissions** | The pre-fill store `buildModalView({ initial })` has no source for (`docs/WIRING-AND-SEAMS.md` §7) |
 
@@ -87,7 +87,7 @@ about a name.
 | **Live task queue** (in-flight rows) | Hot, local, and must work when the store is down. Terminal rows **append to the record**; the live queue stays a file |
 | **Working memory** | Per-task scratch, cleared after the task. It is session state and dies with the session by design |
 | **LLM verdict counter** | Already an aggregate: roughly `days × agents` rows with a 30-day retention, read by one command. Putting a pre-aggregated 300-row counter in a database buys a query language for a question that is already answered by a function call. **Keep it a file** — and this row exists to show the rule cuts both ways |
-| **Square catalog cache** | A cache with a 1-hour TTL. It re-fetches. `.gitignore` is the only thing it needs (#57) |
+| **Square catalog cache** | A cache with a 1-hour TTL. It re-fetches. `.gitignore` is the only thing it needs (#62) |
 | **`.env`, the deploy key, the compose file** | Credentials and deployment definition. They belong off-box and encrypted (Step 5), and **never** in a store the bridge can write |
 
 ## 1.3 The rule, stated once so a future store can be placed without re-arguing
@@ -439,7 +439,7 @@ no id, no link back to the work** (§8.1 row 9). An agent cannot see what anothe
 beyond that, and nothing records what happened.
 
 **And the per-agent memory that would hold it is empty by construction** — WORK-TODO
-**#58**, established in §8.2: `lib/memory-tiers.js` implements TTL, decay, archive and
+**#63**, established in §8.2: `lib/memory-tiers.js` implements TTL, decay, archive and
 auto-promotion, and no production code adds a short-term, long-term or permanent entry.
 
 ## 4.2 Assessed against `lib/memory-tiers.js` — keep the vocabulary, replace the store
@@ -458,7 +458,7 @@ three of its four ideas transfer unchanged.
 **WORK-TODO #35 dissolves rather than being fixed.** It asks for a max-entries cap per
 tier. Under this model a cap belongs on **what reaches a prompt** (§4.7), and the record is
 uncapped on purpose. A cap on a tier that nothing writes would have capped nothing anyway
-(#58).
+(#63).
 
 ## 4.3 The shared record is short-term memory
 

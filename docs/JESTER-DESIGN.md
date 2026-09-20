@@ -291,7 +291,7 @@ a **fresh empty temp directory** as `cwd`, removed in a `finally`. Both asserted
 ### The no-fallback decision has a hole, and it is an environment variable — REPORTED 2026-09-16
 
 **Not fixed here, and it must not be fixed by deleting the override.** Recorded as
-WORK-TODO **#60**.
+WORK-TODO **#65**.
 
 The paragraph above says the chain is refused because it can land on `claude` and hand the
 one agent explicitly denied file-system access a tool-capable engine. That reasoning is
