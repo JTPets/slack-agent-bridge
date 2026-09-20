@@ -59,6 +59,9 @@ describe('Bug 1: Rate limit detection (re-enabled for fallback)', () => {
       const child = new EventEmitter();
       child.stdout = new EventEmitter();
       child.stderr = new EventEmitter();
+      // LOGIC CHANGE 2026-09-20: the prompt now goes over stdin, so a fake child
+      // needs a writable stdin or runClaudeAdapter throws on child.stdin.end().
+      child.stdin = Object.assign(new EventEmitter(), { end: jest.fn(), write: jest.fn() });
       setImmediate(() => {
         child.stdout.emit('data', 'rate limit exceeded but task completed fine');
         child.emit('close', 0);
@@ -239,6 +242,9 @@ describe('Bug 3: Exit code null handling', () => {
       const child = new EventEmitter();
       child.stdout = new EventEmitter();
       child.stderr = new EventEmitter();
+      // LOGIC CHANGE 2026-09-20: the prompt now goes over stdin, so a fake child
+      // needs a writable stdin or runClaudeAdapter throws on child.stdin.end().
+      child.stdin = Object.assign(new EventEmitter(), { end: jest.fn(), write: jest.fn() });
       setImmediate(() => {
         child.stdout.emit('data', 'partial output');
         child.emit('close', null); // null = killed by signal
@@ -259,6 +265,9 @@ describe('Bug 3: Exit code null handling', () => {
       const child = new EventEmitter();
       child.stdout = new EventEmitter();
       child.stderr = new EventEmitter();
+      // LOGIC CHANGE 2026-09-20: the prompt now goes over stdin, so a fake child
+      // needs a writable stdin or runClaudeAdapter throws on child.stdin.end().
+      child.stdin = Object.assign(new EventEmitter(), { end: jest.fn(), write: jest.fn() });
       setImmediate(() => {
         child.emit('close', null);
       });
@@ -277,6 +286,9 @@ describe('Bug 3: Exit code null handling', () => {
       const child = new EventEmitter();
       child.stdout = new EventEmitter();
       child.stderr = new EventEmitter();
+      // LOGIC CHANGE 2026-09-20: the prompt now goes over stdin, so a fake child
+      // needs a writable stdin or runClaudeAdapter throws on child.stdin.end().
+      child.stdin = Object.assign(new EventEmitter(), { end: jest.fn(), write: jest.fn() });
       setImmediate(() => {
         child.stderr.emit('data', 'signal: SIGTERM');
         child.emit('close', null);

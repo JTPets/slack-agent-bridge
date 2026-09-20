@@ -115,6 +115,42 @@ const { exec } = require('child_process');
 exec(`claude --print "${message}"`); // NEVER DO THIS
 ```
 
+#### An argv array is not a place to put a prompt — MAX_ARG_STRLEN
+
+**LOGIC CHANGE 2026-09-20.** `runClaudeAdapter` (`lib/llm-runner.js`) passes the prompt on
+the child's **stdin**, not as the `-p` argv entry. Linux caps a **single argv entry** at
+`MAX_ARG_STRLEN` = `32 * PAGE_SIZE` = **131072 bytes**, independently of the much larger
+total argv/environ limit that `getconf ARG_MAX` reports. Exceeding it fails at `execve`
+with `E2BIG`.
+
+**Measured, not read off the constant** — the largest prompt that could exec was
+**131071 bytes**; 131072 failed. Regenerate on any host:
+
+```bash
+node -e "
+const {spawn}=require('child_process');
+const t=n=>{try{spawn('/bin/true',['-p','x'.repeat(n)]).on('error',()=>{});return true}catch(e){return false}};
+let lo=1,hi=400000;while(lo<hi){const m=(lo+hi+1)>>1;t(m)?lo=m:hi=m-1}
+console.log('largest single argv entry =',lo,'bytes');"
+```
+
+**Why an ordinary dispatch hit it.** `buildPrompt()` (`lib/code-review-pipeline.js`, section
+4) embeds the cloned repo's `CLAUDE.md` **verbatim**, and this file is ~127 KB on its own
+(`wc -c CLAUDE.md`). Every dispatch against this repository was therefore sitting within a
+couple of KB of a hard `execve` failure, and crossed it on 2026-09-20: `spawn E2BIG`, two
+seconds, no work attempted.
+
+**Two properties of that failure worth remembering.** It is thrown **synchronously** out of
+`spawn()` — it never reaches a `child.on('error')` handler, which is why the adapter's
+error path did not report it. And it is raised by the kernel at `execve`, so **no mocked
+`child_process` can reproduce it**: every existing suite mocked spawn and all of them
+stayed green. The guard is `tests/llm-runner-prompt-size.test.js`, which spawns for real.
+
+**The standing rule:** a value of unbounded size — a prompt, a file's contents, an assembled
+context — goes over **stdin**, never into argv. Stdin is preferred over a temp file here
+because a prompt can carry sensitive context: a pipe has no on-disk lifetime, no file mode
+to get wrong, and no cleanup path that a failure branch can miss.
+
 ### Logic Change Comments
 - **Every logic change gets a LOGIC CHANGE comment** — When modifying business logic, add a dated comment explaining what changed and why
 
@@ -728,6 +764,7 @@ slack-agent-bridge/
 │   ├── agent-registry.test.js   # Tests for lib/agent-registry.js (includes activation helpers)
 │   ├── config.test.js           # Tests for lib/config.js
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
+│   ├── llm-runner-prompt-size.test.js # THE regression guard for the 2026-09-20 `spawn E2BIG` dispatch failure. It is the one suite here that spawns for REAL (against a stub binary written to a temp dir), because E2BIG is raised by execve and a mocked child_process will happily accept an argv entry of any size — which is exactly why no other suite caught it. Asserts the platform limit is where it is claimed to be, that a prompt at and well past MAX_ARG_STRLEN now runs with every byte delivered, that a realistic prompt carrying this repo's own CLAUDE.md runs, and that the prompt is no longer in argv at all
 │   ├── memory-tiers.test.js     # Tests for lib/memory-tiers.js (TTL, auto-promote, cleanup)
 │   ├── message-detection.test.js # Tests for isTaskMessage/isConversationMessage
 │   ├── owner-tasks.test.js      # Tests for lib/owner-tasks.js (checklists, pending tasks)
