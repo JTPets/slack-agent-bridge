@@ -775,6 +775,7 @@ slack-agent-bridge/
 │   ├── dispatch-failure-paths.test.js # Part four of /dispatch: a failure must never look like success. views.open failing after the ack reaches the operator AND #sqtools-ops; a rejected field keeps the modal OPEN with the reason on that input; a post that fails names the failure; a post that outlives the ack window reports the outcome as UNKNOWN rather than failed, because a confident 'failed' invites a resubmission and dedup is by message ts
 │   ├── dispatch-modal.test.js   # Tests for lib/dispatch-modal.js: five input blocks matching the generator's field list, only instructions multiline, defaults taken from the parser's own constants, and block_id-keyed error mapping
 │   ├── dispatch-message.test.js # Tests for lib/dispatch-message.js: per-field rejection reusing the identifier module's payload set, a field label inside the instructions body refused, and assertRoundTrip's negative controls (it THROWS on a lowercase label and on a silently changed field)
+│   ├── dispatch-body-delivery.test.js # THE regression guard for the 2026-09-20 "the dispatch body never reached the executor" failure. Two halves, because either alone is insufficient: that a body carrying no INSTRUCTIONS: label is REPORTED in task.errors rather than dropped in silence (the silence was the defect — the old parser returned errors: [] and the prompt fell back to the one-line TASK: description), and that a sentinel string in a well-formed body survives every hop from the raw Slack message text through parseTask and buildPrompt to the bytes the CLI receives on stdin. Like tests/llm-runner-prompt-size.test.js it SPAWNS FOR REAL, against a stub binary that copies stdin to stdout, because a mocked child_process accepts any payload and proves nothing about delivery
 │   ├── command-router.test.js   # THE guard for the command table: it enumerates `async function handle*` from lib/command-router.js's own source and fails when one is not reachable from the table — a command that exists in code but not in the table. Also fails when a deterministic task is neither a registered verb nor an explicit NOT_COMMANDS entry, when a TASK_TEMPLATES name or an agent id is registered as a verb, and when help stops rendering from the table. Carries its own negative controls
 │   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
 │   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo argv/`--` separators, assertValidTargetDir rejections, deploy-key paths, cleanupDir, export surface)
@@ -1363,6 +1364,38 @@ fragment "repo: runWithFallback had" inside an INSTRUCTIONS body produced
 A label written in a non-canonical form (`repo:`, `Repo:`) is **not silently
 ignored** — it is reported and the whole task is refused, so a mis-typed label can
 never quietly downgrade a task to "no repo".
+
+**LOGIC CHANGE 2026-09-20: body text that no label claims is refused too.** Every
+single-line field (`TASK:`, `REPO:`, `BRANCH:`, `TURNS:`, `SKILL:`) captures the
+remainder of its **own line only**; `INSTRUCTIONS:` is the one label whose capture is
+multiline (`[\s\S]+`, greedy to the end of the message). So a dispatch written as a
+`TASK:` one-liner followed by paragraphs of body — with no `INSTRUCTIONS:` label
+anywhere — parsed to `instructions: ''` and `errors: []`, and the prompt builders fell
+back to `task.instructions || task.description` (`lib/code-review-pipeline.js:302`,
+`bridge-agent.js:684` and `:693-694`). **The executor received the one-line description
+and nothing else.** Observed 2026-09-20: a 634-byte body delivered 70 bytes, no error
+raised, and the executor correctly refused to fabricate a payload it had not been given.
+
+`findUnclaimedLines()` now reports any non-blank line, **below the first field-label
+line**, that no label claims, and `parseTask` records it in `task.errors` — so
+`processTask` refuses the task and posts the reason to Slack. Three boundaries are
+deliberate:
+
+- **It does not promote the stray text to `instructions`.** Guessing which of an
+  operator's paragraphs were meant as instructions is the "sanitise rather than reject"
+  failure this parser refuses everywhere else. Every in-repo generator emits
+  `INSTRUCTIONS:` unconditionally (`lib/agent-scheduler.js:91`,
+  `lib/dispatch-message.js:220`, `lib/security-followup.js:210`,
+  `lib/task-decomposer.js:550`), so unclaimed content means a human wrote the message by
+  hand and the label is missing.
+- **A bare `TASK: do the thing` is unaffected.** It has no body to lose, so no error, and
+  the description-fallback keeps working.
+- **A banner ABOVE the header block is not reported.** `lib/security-followup.js:205`
+  opens its remediation message with a `:warning:` line before `TASK:`; that is Slack
+  presentation, not a dropped body. Scanning starts at the first field-label line.
+
+The guard is `tests/dispatch-body-delivery.test.js`, which also spawns a real process to
+prove a well-formed body reaches the CLI byte for byte.
 
 ### Field Value Rules
 

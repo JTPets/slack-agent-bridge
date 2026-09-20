@@ -212,8 +212,9 @@ work behind an owner's name, which is the opposite of the point.
 
 *Regenerated from the headings. Do not append to it by hand; re-run the command above.*
 
-**P1 — protects or unblocks the live deployment** (9)
+**P1 — protects or unblocks the live deployment** (10)
 
+- **#61** — [The scratch clone never installs dependencies, so every dispatch's Phase-3 verification is vacuous](#61-the-scratch-clone-never-installs-dependencies-so-every-dispatchs-phase-3-verification-is-vacuous)
 - **#55** — [The channel mapping had no reproduction path, and a deploy proved it](#55-the-channel-mapping-had-no-reproduction-path-and-a-deploy-proved-it)
 - **#56** — [`npm test` fails intermittently inside jest's globalSetup — twice, unreproduced](#56-npm-test-fails-intermittently-inside-jests-globalsetup--twice-unreproduced)
 - **#42** — [Every backup this system has lives on the box it backs up, and their liveness is checked by nothing](#42-every-backup-this-system-has-lives-on-the-box-it-backs-up-and-their-liveness-is-checked-by-nothing)
@@ -274,6 +275,59 @@ work behind an owner's name, which is the opposite of the point.
 - **#16** — [Channel-per-task archive mode](#16-channel-per-task-archive-mode)
 
 ## P1 — Protects or unblocks the live deployment
+
+### 61. The scratch clone never installs dependencies, so every dispatch's Phase-3 verification is vacuous
+**Filed 2026-09-20,** from the same session that traced the dropped dispatch body.
+**P1 because it makes the repo's own verification gate report nothing at all** — not a
+wrong answer, an absent one — on every repo task the bridge has ever run.
+
+**The finding, established by absence.** Nothing in the scratch-clone lifecycle installs
+dependencies. `cloneRepo` (`lib/clone-lifecycle.js`) clones `--depth 1` and configures the
+push remote; it runs no package manager. The enumeration:
+
+```bash
+grep -rn "'npm'\|\"npm\"\|npm ci\|npm install" --include=*.js . \
+  | grep -v node_modules | grep -v '^./tests/'
+```
+
+Every hit is in `auto-update.js` (never started — see #17) or `lib/update-verifier.js`
+(the smoke gate, which runs against the deploy checkout, not a scratch clone). `cloneRepo`
+appears in none of them.
+
+**The consequence.** `validateOutput` (`lib/code-review-pipeline.js:364`) runs the repo's
+test command in that clone. With no `node_modules`, `npm test` exits 127 with
+`jest: not found`. `lib/test-verdict.js` classifies that as `runner_absent` and
+`findingFor` makes it a blocking finding, so the gate goes red — **which is correct, and
+is the only reason this is not silent.** The bridge's own code review reported it as a
+failed gate on 2026-09-20 rather than as a hiccup. But a gate that can only ever report
+"runner absent" verifies nothing: Phase 3 has never once run a test against work a
+dispatch produced.
+
+**Not fixed here, deliberately.** The fix is not one line — it is a set of decisions the
+owner should make rather than an executor:
+
+- **Where it runs.** A pre-LLM install in `cloneRepo`, or inside `validateOutput` just
+  before the test command. The first pays the cost on every repo task including
+  research/audit tasks that never run tests; the second pays it only when a test is about
+  to run, but moves a network operation into the verification phase.
+- **`npm ci` or `npm install`.** `npm ci` requires a `package-lock.json` (this repo has one
+  as of 2026-09-13; an arbitrary `REPOS` entry may not) and fails hard when it is absent or
+  out of sync. `npm install` always works and pins nothing.
+- **Cost and bound.** `npm ci` here takes tens of seconds against the network. It needs its
+  own timeout, separate from `TASK_TIMEOUT_MS`, and a failure has to be classified — an
+  install that fails is *also* `runner_absent`, and must not be reported as a test failure
+  in the repo under review.
+- **Repos with no `package.json`, or a non-npm toolchain.** `createExecutionPlan` already
+  defaults `testScript` to `npm test` for any repo whose `package.json` has no test script,
+  including repos that have no `package.json` at all.
+
+**Definition of done.** A repo task's Phase-3 run reports a real assertion count for at
+least one repo in `REPOS`; an install failure is classified distinctly from a test failure;
+`tests/test-gate-honesty.test.js` still passes, and the install site is named in
+`docs/WIRING-AND-SEAMS.md`.
+
+**Related:** #25 (the scratch clone's lifecycle), #17 (why `auto-update.js`'s npm calls are
+dead code).
 
 ### 55. The channel mapping had no reproduction path, and a deploy proved it
 **BLOCKED — OWNER ACTION (off-repo).** The mechanism, the reconstruction command and the
