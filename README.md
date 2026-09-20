@@ -227,6 +227,7 @@ resource fencing for a local Ollama server.
 |----------|---------|-------------|
 | `LOCAL_REPO_DIR` | `/home/jtpets/jt-agent` | Path to the agent's own repo. **Load-bearing:** `validateConfig()` exits 1 when the path does not exist, and this default is the dead Pi path — so unset is a hard startup failure, not a fallback. Set it explicitly before anything starts this daemon. |
 | `CHECK_INTERVAL_MS` | `300000` | Git poll interval (5 min) |
+| `UPDATE_PENDING_STALE_MS` | `4 × CHECK_INTERVAL_MS` (20 min) | How long the drain-one pending-update marker may go unrefreshed before the bridge treats it as an orphan, clears it and reports it. A heartbeat, **not** a ceiling on how long an update may wait — there is no ceiling, and an update is never forced. |
 
 ## Auto-Update
 

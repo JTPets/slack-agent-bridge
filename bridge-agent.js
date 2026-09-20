@@ -175,6 +175,10 @@ const { reviewTask, createExecutionPlan, buildPrompt, validateOutput } = require
 // auto-update half is also not live - nothing starts auto-update.js.
 const taskQueue = require('./lib/task-queue');
 const taskLock = require('./lib/task-lock');
+// LOGIC CHANGE 2026-09-20: DRAIN-ONE. The poll loop refuses a new dispatch while a
+// self-update is waiting to apply, so the update waits for ONE task rather than for
+// however long work keeps arriving. See lib/update-drain.js.
+const updateDrain = require('./lib/update-drain');
 
 // LOGIC CHANGE 2026-03-28: Added agent-context module for injecting real data into ASK prompts.
 // Prevents hallucination by giving agents (especially secretary) actual calendar events,
@@ -425,6 +429,59 @@ async function postToOps(text) {
   } catch (err) {
     console.error('[bridge-agent] Failed to post to #sqtools-ops:', err.message);
     return false;
+  }
+}
+
+// ---- Drain-one: is a self-update waiting? ----
+
+// LOGIC CHANGE 2026-09-20: one-shot so an unexpected throw in the drain check is
+// reported to a human once, not once per message per poll. The console line is not
+// rate-limited — a container log can afford the repetition, #sqtools-ops cannot.
+let drainCheckFailureReported = false;
+
+/**
+ * Should the next dispatch be refused because a self-update is pending?
+ *
+ * Also sweeps an ORPHANED marker on the way past. That sweep is not a ceiling on how
+ * long an update may wait — a live updater refreshes its marker every check interval,
+ * so a marker whose heartbeat stopped belongs to a process that is gone, and honouring
+ * it would leave the bridge silently accepting no work at all for an update that is
+ * never coming. It is surfaced, never silent (lib/update-drain.js builds the verdict;
+ * this posts it).
+ *
+ * Degrades OPEN, deliberately. If the check itself throws, dispatches are accepted —
+ * which is exactly the behaviour that existed before drain-one. Refusing every task
+ * forever because a marker file could not be parsed would be a worse outcome than the
+ * race drain-one exists to close, and it would be indistinguishable from a dead bridge.
+ *
+ * @returns {{ refuse: boolean, state: object }}
+ */
+function drainStateForDispatch() {
+  try {
+    const sweep = updateDrain.clearIfStale();
+    if (sweep.verdict) {
+      postToOps(`:unlock: ${sweep.verdict}`).catch(postErr => {
+        console.error('[bridge-agent] Failed to post stale pending-update verdict:', postErr.message);
+      });
+    }
+
+    const state = updateDrain.inspect();
+    // A stale marker that could NOT be removed still does not refuse: its verdict
+    // above already told a human the file needs removing by hand.
+    return { refuse: state.pending && !state.stale, state };
+  } catch (err) {
+    console.error('[bridge-agent] Pending-update check threw; accepting dispatches:', err.message);
+    if (!drainCheckFailureReported) {
+      drainCheckFailureReported = true;
+      postToOps(
+        `:warning: *The pending-update check threw* — ${err.message}\n` +
+        `Dispatches are being ACCEPTED (the behaviour before drain-one existed), so a self-update ` +
+        `could restart a task that starts from now on. Reported once per process.`
+      ).catch(postErr => {
+        console.error('[bridge-agent] Failed to post drain-check failure:', postErr.message);
+      });
+    }
+    return { refuse: false, state: { pending: false, stale: false, commit: null } };
   }
 }
 
@@ -2033,6 +2090,49 @@ async function poll() {
 
           // Parse task to get description for queue
           const taskData = parseTask(msg.text);
+
+          // ---- DRAIN-ONE: refuse a new dispatch while an update is waiting ----
+          // LOGIC CHANGE 2026-09-20. This is the half that BOUNDS the wait. The
+          // updater already stood aside for a running task (evaluateTaskDeferral,
+          // auto-update.js), but its wait was bounded by the ARRIVAL RATE of new
+          // dispatches, not by one task: a back-to-back succession of healthy tasks
+          // defers a deploy forever. Refusing here means the only task an update can
+          // wait for is the one already in flight.
+          //
+          // REFUSED, NEVER SWALLOWED. The reason goes back to the channel the task
+          // was typed in and the message is marked processed so it is not re-refused
+          // every POLL_INTERVAL_MS. This repo has already had one silent-drop defect
+          // on this exact path — a body with no `INSTRUCTIONS:` label was dropped and
+          // the executor ran on the one-line description with nothing reported — and
+          // the fix there was to refuse and NAME what was dropped. Same shape here: a
+          // race is eventually noticed, a disappearance is not.
+          const drain = drainStateForDispatch();
+          if (drain.refuse) {
+            console.warn(
+              `[bridge-agent] Refusing dispatch ${msg.ts}: a self-update is pending ` +
+              `(${drain.state.commit || 'unknown commit'})`
+            );
+            try {
+              await slack.chat.postMessage({
+                channel: channelId,
+                thread_ts: msg.thread_ts || msg.ts,
+                text: redact(updateDrain.describeRefusal(drain.state, taskData.description)),
+                unfurl_links: false,
+              });
+            } catch (refusalErr) {
+              // The refusal itself failing is the one thing worse than the refusal.
+              // Say so somewhere else before giving up on telling anyone.
+              console.error('[bridge-agent] Could not post dispatch refusal:', refusalErr.message);
+              await postToOps(
+                `:rotating_light: *A dispatch was refused for a pending update and the refusal could not be posted.*\n` +
+                `Task: ${taskData.description || 'unknown'}\n` +
+                `Channel: <#${channelId}> — ${refusalErr.message}\n` +
+                `The operator has not been told their task was dropped.`
+              );
+            }
+            markTaskProcessed(msg.ts);
+            continue;
+          }
 
           // Enqueue task before processing (persists to disk for auto-update coordination)
           const queue = taskQueue.getQueue();

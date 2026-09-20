@@ -241,6 +241,7 @@ const POLL_INTERVAL = 5000;
 | `TASK_LOCK_STALE_MS` | Age at which a task lock is treated as orphaned and released. Must exceed the longest a task can legitimately run. | `2 × TASK_TIMEOUT_MS + 600000` (30 min at defaults) |
 | `INSTALL_TIMEOUT_MS` | Hard timeout for installing a scratch clone's own dependencies (`lib/dependency-install.js`). Separate from `TASK_TIMEOUT_MS` so a hung install cannot eat the LLM turn allowance; a timeout is a HARNESS failure with its own message. Raise it if a slow network causes false harness failures. | `300000` (5 min) |
 | `UPDATE_DEFER_ALERT_MS` | How long one self-update may be deferred before every cycle escalates to `#sqtools-ops` | `3600000` (60 min) |
+| `UPDATE_PENDING_STALE_MS` | How long the DRAIN-ONE pending-update marker (`$WORK_DIR/.update-pending`) may go unrefreshed before the bridge treats it as an orphan, clears it and reports it. **This is a heartbeat, not a ceiling on the wait** — a live updater refreshes it every `CHECK_INTERVAL_MS`, so a marker this quiet belongs to a process that is gone, and honouring it would leave the bridge silently refusing every dispatch for an update that is never coming. | `4 × CHECK_INTERVAL_MS` (20 min at defaults) |
 | `WORK_DIR` | Base dir for temp clones | `/tmp/bridge-agent` |
 | `REPOS` | Comma-separated repos. Read by `getConfiguredRepos()` in `lib/config.js` — the single owner of the list — for the nightly security review AND for the `/dispatch` form's repository select. Adding a repository is this variable plus `docker compose up -d --force-recreate jt-agent`; it is not a code change | `jtpets/slack-agent-bridge,jtpets/SquareDashboardTool` |
 | `CLAUDE_RATE_LIMIT_PAUSE` | Initial pause duration (ms) when rate limit/bandwidth exhausted | `1800000` |
@@ -701,6 +702,7 @@ slack-agent-bridge/
 │   ├── approval-queue.js # Manual approval queue for auto-generated tasks: queueTask, approveTask, rejectTask
 │   ├── task-decomposer.js # Automated task decomposition: analyzeComplexity, decomposeTask, findAgentForTask, subtask management
 │   ├── task-lock.js      # Sole owner of $WORK_DIR/.task-running: acquire/release plus the staleness rule that stops an orphaned lock freezing self-update
+│   ├── update-drain.js   # Sole owner of $WORK_DIR/.update-pending, the DRAIN-ONE marker: once an update is known, bridge-agent.js REFUSES new dispatches, so the update waits for ONE task instead of for however long work keeps arriving. markPending/inspect/clear/clearIfStale/describeRefusal. THERE IS NO CEILING — a pending update may wait indefinitely, is never forced, and never kills a task; the staleness rule is a HEARTBEAT on `lastSeenAt` (a marker no updater is refreshing is an orphan, and honouring it would leave the bridge silently accepting no work at all), never a deadline on `since`, which grows without limit. Errs toward pending, like the task lock errs toward held. Decides and describes; does no I/O beyond the marker, no Slack call, no git call
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update. markRunning() is the live `running` transition; dequeue() has no production caller
 │   ├── update-verifier.js # Pre-restart gate for auto-update: node --check on entry points, restart plan (guard c)
@@ -823,7 +825,8 @@ slack-agent-bridge/
 │   ├── test-gate-honesty.test.js # THE enumerating guard for "a test invocation that can report a pass without running assertions": classification case-by-case against real runner output, plus a disk walk asserting every test-command site routes through lib/test-verdict.js, with negative controls
 │   ├── toolchain-support.test.js # THE enumerating guard that the SUPPORTED TOOLCHAINS table in CLAUDE.md describes what lib/dependency-install.js actually detects: it reads detectEcosystem's OWN source for every `ecosystem:` name and every manifest filename it tests for, and fails when one has no row in the table — so an ecosystem added to the code without a declared image status is a red test, not a silently stale list. Also fails when the table claims an ecosystem the code cannot detect. Carries its own negative controls
 │   ├── task-lock.test.js            # Tests for lib/task-lock.js (acquire/release, staleness, legacy + unparseable lock formats)
-│   ├── auto-update-defer.test.js    # Tests the deferral gate: defers while a task holds the lock, releases a stale one, escalation bound
+│   ├── auto-update-defer.test.js    # Tests the deferral gate: defers while a task holds the lock, releases a stale one, escalation bound. Also DRAIN-ONE's updater half: the marker is written before the deferral decision (so it covers the apply window too), cleared before the exit and on every abort path, and — THE task-0 assertion — a `completed` queue entry whose DELIVERY is not yet recorded still defers, while the same entry with a recorded verdict lets the update proceed
+│   ├── update-drain.test.js         # Tests lib/update-drain.js AND THE GUARD that the poll loop actually refuses: a source walk over bridge-agent.js's TASK: branch asserting the drain is consulted BEFORE the enqueue, that a refusal is posted in the channel it was typed in, marked processed so it is not re-refused every poll, escalated when the refusal itself cannot be posted, and never falls through to being queued or run. Also that the check degrades OPEN — a throw accepts dispatches, because refusing everything forever is worse than the race and looks identical to a dead bridge. Carries its own negative controls
 │   ├── task-agent-identity.test.js  # THE guard for WORK-TODO #38: a TASK: executes as the agent it was addressed to. It extracts processTask's agent resolution from bridge-agent.js's SOURCE and replays it against every declared agent record, asserts the poll loop hands processTask the same `channelAgentConfig` it already hands processConversation, and enumerates the seven identities that must follow the resolved agent (provider, persona, model, metrics id, bulletin stream, bulletin voice, working memory) plus the one that deliberately does not (the owner's ACTION REQUIRED inbox). Carries its own negative controls
 │   ├── bridge-agent-scope.test.js   # AST scope guard: catches `X is not defined` in bridge-agent.js
 │   └── silent-drop-logging.test.js  # Tests for describeSkipReason + the poll loop's skip logging
@@ -1377,6 +1380,71 @@ can defer an update indefinitely — deliberately, because the alternative is ki
 work. That case is bounded by visibility, not by a timer: once one update has been
 deferred continuously for `UPDATE_DEFER_ALERT_MS` (default 60 min), every subsequent cycle
 escalates to `#sqtools-ops`. The update is never forced.
+
+### DRAIN-ONE — the half that bounds the wait
+
+> **The bridge half of this is live; the updater half is not.** The poll loop's refusal
+> is live code on the path every task arrives on — it simply never fires, because
+> nothing writes the marker: `auto-update.js` is started by nothing (WORK-TODO #17).
+> Read everything about the updater as "would, once started".
+
+**LOGIC CHANGE 2026-09-20.** Deferral alone stands aside for a running task, but its
+wait is bounded by the **arrival rate of new dispatches**, not by one task: a
+back-to-back succession of healthy tasks defers a deploy forever, and the paragraph
+above accepts that explicitly. Drain-one adds the missing half.
+
+1. An update becomes **PENDING** the moment the loop finds one — recorded in
+   `$WORK_DIR/.update-pending` by `lib/update-drain.js`, **before** the deferral gate is
+   evaluated and also on the path where nothing is running, because the apply phase
+   (reset, pull, `npm install`, smoke test) is itself minutes in which the poll loop
+   would start a task the imminent restart would kill.
+2. While an update is pending, **new dispatches are REFUSED**, with the reason posted
+   back to the channel the task was typed in. **That refusal is what bounds the wait** —
+   without it the bridge waits on arrival rate.
+3. The **current** task is allowed to finish. One task, not a queue to empty.
+4. The update applies when that task is **confirmed finished**, which means
+   **result delivered** — see the `delivery` verdict in "Task Queue Coordination" above.
+   `evaluateTaskDeferral()` keys on that verdict, not on the status, not on the process
+   having returned and not on the lock having been released.
+5. **There is NO CEILING.** A pending update may wait indefinitely. It is never forced
+   and no task is ever killed for it.
+
+**Two shapes were considered and rejected:** plain deferral (starves — it is the state
+this replaces) and queue-to-empty (still waits on arrival rate, one level up).
+
+**A refused dispatch is never silent.** The reason goes to the source channel as a
+thread reply and the message is marked processed so it is not re-refused every
+`POLL_INTERVAL_MS`; a refusal that cannot be posted escalates to `#sqtools-ops` saying
+the operator has *not* been told. This matches the shape of the 2026-09-20
+unclaimed-body fix: refuse and name what was refused. A race is eventually noticed; a
+disappearance is not. **The operator's task is not held anywhere — it must be
+resubmitted**, and the refusal says so in those words.
+
+**The marker's staleness rule is a heartbeat, not a deadline.** `since` (when the
+update was first noticed) grows without limit; `lastSeenAt` is refreshed on every check
+interval. `UPDATE_PENDING_STALE_MS` is measured on `lastSeenAt` only. A marker whose
+heartbeat stopped belongs to a process that is gone, and honouring it would leave the
+bridge **silently accepting no work at all** for an update that is never coming — the
+worst failure this mechanism can produce. Such a marker is cleared and reported, by
+whichever side sees it first, and the verdict says in those words that nothing was
+cancelled, forced or hurried.
+
+**The check degrades OPEN.** If reading the marker throws, dispatches are **accepted** —
+the behaviour that existed before drain-one. Refusing every task forever because a file
+could not be parsed is worse than the race being closed, and is indistinguishable from a
+dead bridge. It is reported once per process.
+
+**`ASK:` is not covered, deliberately and statedly.** `processConversation` takes no
+task lock and writes no queue entry, so a conversation is invisible to this gate and to
+the deferral gate before it — an update can restart one mid-answer. That is a real gap,
+not a claim of coverage: an `ASK:` is a single short LLM call and is re-askable, whereas
+a `TASK:` is up to `TASK_TIMEOUT_MS` of work that may hold a scratch clone. Filed as
+WORK-TODO #71.
+
+Guards: `tests/update-drain.test.js` (the module, plus a source walk proving the poll
+loop actually refuses) and `tests/auto-update-defer.test.js` → the two `drain-one`
+describes (the marker lifecycle, and that a `completed` entry whose delivery is not
+recorded still defers).
 
 ### Task Decomposition
 
