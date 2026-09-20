@@ -592,7 +592,30 @@ TESTED, NOT WIRED"). The commands act on the *running* process they are typed in
 
 ## Permissions Model
 
-Permissions are declarative and enforced at the agent level:
+> **CORRECTED 2026-09-16 — the sentence below said permissions are "enforced at the
+> agent level". They are not enforced by anything.** `permissions` and `denied` are parsed
+> into every agent record and read by **no production code**, and neither field is
+> validated against any vocabulary, so a typo widens silently. Regenerate:
+>
+> ```bash
+> grep -rn "permissions\|denied" --include=*.js . | grep -v node_modules | grep -v '^./tests/'
+> # -> morning-digest.js:225  the STRING 'permission denied' in an error matcher
+> # -> lib/agent-create.js:73,74  WRITING the fields into a new definition
+> # -> lib/llm-runner.js:357, lib/weekly-critique.js:31  the --dangerously-skip-permissions flag
+> ```
+>
+> The "Denied Permissions" subsection below is the same error: a `denied` array **blocks
+> nothing** today. The one denial that is actually load-bearing — `jester`'s
+> `file-system` — is held by three lines of `lib/weekly-critique.js` (a `runLLM` call
+> instead of `runWithFallback`, `maxTurns: 1`, an empty temp `cwd`), not by the field that
+> names it. Full report and the proposed replacement:
+> [`CAPABILITY-AND-ISOLATION-DESIGN.md`](CAPABILITY-AND-ISOLATION-DESIGN.md) §2.
+>
+> Kept rather than rewritten, because the permission **vocabulary** below is still the list
+> a capability model would start from — it is the word "enforced" that was false.
+
+Permissions are declarative. They are **not** enforced; the list below is a vocabulary,
+not a control:
 
 ### Permission Types
 - `github` - Full GitHub access (read/write)

@@ -2,8 +2,12 @@
 
 **Format this file declares for itself, and is now in.** One `###` heading per **open**
 item. Stable numeric IDs, never reused and never renumbered — order *within* a tier is the
-rank, the number is only an address for cross-references. **Closed items are purged, not
-struck through:** the git history and the `Closes <ID>` commit body are the record, and a
+rank, the number is only an address for cross-references. **The one exception, and its
+rule:** when two branches allocate the same number, the side already on `main` keeps it and
+the unmerged side is renumbered before it lands, because the merged addresses are the ones
+already cited elsewhere. An ID that has ever been on `main` is never renumbered. That has
+happened once — `#57`–`#61` on 2026-09-20, now `#62`–`#66`; **#67** is the class.
+**Closed items are purged, not struck through:** the git history and the `Closes <ID>` commit body are the record, and a
 file that keeps its own dead entries stops being readable as a list of work. The index
 below is **regenerated from the headings**, never appended to.
 
@@ -73,11 +77,23 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+At the **2026-09-20 rebase/renumber pass** those print **59** open items — 10 P1, **39** P2,
+10 P3 — and **no duplicate ID**. That pass closed nothing and filed one item (**#67**, the
+ID-collision class). It landed the five persistence/capability findings below as **#62**–**#66**
+(filed on their branch as #57–#61, renumbered because `main` had taken those numbers first),
+and regenerated the index from the headings.
+
 At the **2026-09-20 bridge-findings pass** those print **52** open items — 9 P1, **33** P2,
 **10** P3 — and **no duplicate ID**. That pass filed **#57**–**#60**, closed nothing, and
 regenerated the index from the headings.
 
-At the **2026-09-16 audit pass** those printed **48** open items — 9 P1, **31** P2, 8 P3 — and
+At the **2026-09-16 persistence-design pass** those printed **53** open items — 9 P1, **36** P2,
+8 P3 — and no duplicate ID, measured on that branch before it was rebased onto `main`. It filed
+five findings and closed nothing: a design pass that changed no code. **They were filed as
+#57–#61 and are #62–#66 here** — `main` had already taken 57–61, and the rebase renumbered
+them (see the collision entry below). Two of the five (**#65**, **#66**) are reported
+deliberately unfixed, and **#65**'s instance is not verifiable from a checkout at all.
+Earlier the same day, at the **2026-09-16 audit pass**, those printed **48** open items — 9 P1, **31** P2, 8 P3 — and
 **no duplicate ID**. That pass purged **#45** (closed: the decision is recorded outside this
 file and the name half it said nothing enforced is enforced by
 `tests/command-router.test.js`), filed nothing, and gave every remaining item a filed date.
@@ -99,6 +115,14 @@ was never done — an ID is an address, and the P1 #43 keeps the one it has. **T
 not fixed:** "the next ID" is still read by eye rather than by the command in this block,
 which is how the collision happened twice. The duplicate-ID check above is the guard; run
 it before filing, not after.
+
+**It has since happened a third time, across five numbers, and the class is now filed as
+#67.** `#57`–`#61` were allocated independently by two branches cut from the same base and
+were resolved by renumbering the unmerged side to `#62`–`#66` — the opposite disposition to
+`#43`'s, and #67 records why neither disposition is a fix. Note what the sentence above got
+right and what it missed: reading the next ID by eye *is* the mechanism, but running the
+duplicate-ID command before filing would not have caught either case, because the colliding
+side was not in the tree yet.
 
 The index anchors follow GitHub's slugger: lowercase, drop punctuation **except**
 hyphen and underscore, spaces to hyphens. Four entries (#5, #20, #21, #34) previously
@@ -225,7 +249,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (33)
+**P2 — real gaps, no risk to the running process** (39)
 
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
@@ -234,12 +258,14 @@ work behind an owner's name, which is the opposite of the point.
 - **#23** — [A task killed mid-run is re-read and re-run on the next poll](#23-a-task-killed-mid-run-is-re-read-and-re-run-on-the-next-poll)
 - **#26** — [`docker-compose.yml` is untracked **and** unignored in the live working tree — `git clean -fd` deletes the deployment definition](#26-docker-composeyml-is-untracked-and-unignored-in-the-live-working-tree--git-clean--fd-deletes-the-deployment-definition)
 - **#27** — [A task has write access to the entire live deployment, including every credential — recorded, undecided](#27-a-task-has-write-access-to-the-entire-live-deployment-including-every-credential--recorded-undecided)
+- **#62** — [Two runtime files under `data/` are neither tracked nor gitignored — `git clean -fd` deletes them and `git add -A` publishes them](#62-two-runtime-files-under-data-are-neither-tracked-nor-gitignored--git-clean--fd-deletes-them-and-git-add--a-publishes-them)
 - **#24** — [Four sibling modules resolve a shared writable path at module scope with no override — the same class as #19](#24-four-sibling-modules-resolve-a-shared-writable-path-at-module-scope-with-no-override--the-same-class-as-19)
 - **#20** — [`MAX_TURNS` names four different quantities, and the env var is dead config](#20-max_turns-names-four-different-quantities-and-the-env-var-is-dead-config)
 - **#33** — [A UTC day key is used as the store's day, so evening staff tasks are filed against tomorrow](#33-a-utc-day-key-is-used-as-the-stores-day-so-evening-staff-tasks-are-filed-against-tomorrow)
 - **#32** — [One bulletin timestamp, three renderings — no shared helper](#32-one-bulletin-timestamp-three-renderings--no-shared-helper)
 - **#34** — [`DEPLOY_KEY_PATH` is read but undocumented](#34-deploy_key_path-is-read-but-undocumented)
 - **#35** — [Per-agent memory has TTL and decay but no max-entries cap](#35-per-agent-memory-has-ttl-and-decay-but-no-max-entries-cap)
+- **#63** — [The tiered memory system is implemented, documented in the present tense, and written by nothing](#63-the-tiered-memory-system-is-implemented-documented-in-the-present-tense-and-written-by-nothing)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
 - **#44** — [The 300-line rule is one rule over two different problems — scope it, or say it covers both](#44-the-300-line-rule-is-one-rule-over-two-different-problems--scope-it-or-say-it-covers-both)
 - **#11** — [A helpers/utilities map and an owning-doc rule](#11-a-helpersutilities-map-and-an-owning-doc-rule)
@@ -251,8 +277,11 @@ work behind an owner's name, which is the opposite of the point.
 - **#39** — [The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged](#39-the-queue-cannot-tell-a-completed-task-from-a-landed-one--nothing-here-knows-whether-a-branch-merged)
 - **#40** — [Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout](#40-uncommitted-edits-in-the-live-deployment-tree--reported-not-verifiable-from-a-checkout)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
+- **#64** — [A verb typed in an agent's channel is answered by a model as conversation — the same text behaves differently depending on where it is typed](#64-a-verb-typed-in-an-agents-channel-is-answered-by-a-model-as-conversation--the-same-text-behaves-differently-depending-on-where-it-is-typed)
 - **#46** — [`/dispatch` posts to one fixed channel — routing by the invoking channel needs two things that do not exist](#46-dispatch-posts-to-one-fixed-channel--routing-by-the-invoking-channel-needs-two-things-that-do-not-exist)
 - **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
+- **#65** — [A per-agent provider override outranks a definition, so an agent's declared denial can be undone from `.env`](#65-a-per-agent-provider-override-outranks-a-definition-so-an-agents-declared-denial-can-be-undone-from-env)
+- **#66** — [Nothing watches the repository — no agent knows when `main` moves, so a merge and a deploy are unrelated events with nothing observing either](#66-nothing-watches-the-repository--no-agent-knows-when-main-moves-so-a-merge-and-a-deploy-are-unrelated-events-with-nothing-observing-either)
 - **#49** — [`NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does](#49-natural_conversation_mode-is-off-and-nothing-establishes-what-turning-it-on-does)
 - **#51** — [A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it](#51-a-command-that-writes-a-tracked-file-is-destroyed-by-the-next-pull-and-every-configuration-writing-command-shares-it)
 - **#52** — [The workspace's channels and the repository's agents have never been reconciled in either direction](#52-the-workspaces-channels-and-the-repositorys-agents-have-never-been-reconciled-in-either-direction)
@@ -260,6 +289,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#54** — [Two defects deferred on scope grounds were load-bearing — the deferral judgement, not the filing, is what failed](#54-two-defects-deferred-on-scope-grounds-were-load-bearing--the-deferral-judgement-not-the-filing-is-what-failed)
 - **#57** — [Before the bridge is given a private-repo credential — the constraints, not the plan](#57-before-the-bridge-is-given-a-private-repo-credential--the-constraints-not-the-plan)
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
+- **#67** — [IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide](#67-ids-are-allocated-at-write-time-from-an-append-only-list-so-two-branches-cut-from-the-same-base-always-collide)
 
 **P3 — nice to have / uncertain ROI** (10)
 
@@ -1302,6 +1332,51 @@ push path; none of it should be attempted without a way to verify the bridge sti
 
 ---
 
+### 62. Two runtime files under `data/` are neither tracked nor gitignored — `git clean -fd` deletes them and `git add -A` publishes them
+**Filed 2026-09-16,** from the Step 8 state enumeration
+([`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) §8.1 rows 7–8).
+
+**This is #26's class, reopened for two more files, with a second consequence #26 did not
+have.** #26 was `docker-compose.yml`: untracked *and* unignored in the live working tree,
+so the ordinary tidying command deletes it. That was closed by a `.gitignore` line. The
+same hole is open for two files the code writes and `.gitignore` never names.
+
+**Verified at HEAD.** Regenerate:
+```bash
+for f in data/staff-tasks-state.json data/catalog-cache.json data/delivery-quotes.json; do
+  printf '%-34s ' "$f"; git check-ignore -q "$f" && echo IGNORED || echo NOT-IGNORED
+done
+# -> data/staff-tasks-state.json      NOT-IGNORED
+# -> data/catalog-cache.json          NOT-IGNORED
+# -> data/delivery-quotes.json        IGNORED
+grep -n "TASKS_STATE_FILE" lib/staff-tasks.js                    # :22 writer
+grep -n "CACHE_FILE =" lib/integrations/square-catalog.js        # :19 writer
+grep -n "^data/" .gitignore                                      # only delivery-quotes.json
+```
+
+**Both directions are real, and the second is the new one.**
+- **Deleted:** `git clean -fd` in the deploy directory removes an unignored untracked file.
+  No `-x` needed — that is the whole difference between these two and every other runtime
+  file in §8.1, which is ignored and therefore skipped.
+- **Published:** an unignored file can be **committed** as easily as deleted.
+  `data/staff-tasks-state.json` carries staff names and their assignments (`agents/shared/staff.json`
+  fields: `name`, `slackId`, `role`), and this repository is going open source. A `git add -A`
+  on the box puts them in public history, where a later `git rm` does not remove them.
+
+**Fix:** add `data/` to `.gitignore` with the seeded exceptions re-included by name, the
+same inverse-rule shape `agents/*/memory/*` already uses and for the same stated reason —
+an allowlist of today's filenames fails open when a new writer appears. `data/` currently
+has exactly one legitimate tracked inhabitant candidate (none today; the directory is not
+in git at all), so the inverse rule costs nothing.
+
+**Why not fixed in the change that filed it:** that change is a design pass with no code or
+configuration edits in scope, and a `.gitignore` line has a deployment-shaped consequence
+(it changes what `git status` reports on the box) — the same reason #26 was filed rather
+than taken unilaterally.
+**Priority:** P2 | **Effort:** Low (one `.gitignore` block) | **Status:** open
+
+---
+
 ### 24. Four sibling modules resolve a shared writable path at module scope with no override — the same class as #19
 **Filed 2026-09-14, from the #19 fix.** *#19 — `tests/approval-queue.test.js` racing a
 hardcoded shared file — is closed and purged; the fix is commit `1bea22d` on
@@ -1560,6 +1635,50 @@ oldest-by-TTL when exceeded. Keep it consistent with the existing decay logic.
 hits; TTL and decay are there, the count cap is not.
 *Given a stable number this revision (it was filed as an unnumbered "Reconcile" heading).*
 **Priority:** P2 | **Effort:** Low | **Status:** open
+
+---
+
+### 63. The tiered memory system is implemented, documented in the present tense, and written by nothing
+**Filed 2026-09-16,** from the Step 8 state enumeration
+([`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) §8.2).
+
+**Distinct from #35,** which asks for a max-entries cap on those tiers. A cap on a tier
+nothing writes is a cap on nothing. This is the prior question.
+
+**Verified at HEAD.** Regenerate:
+```bash
+# the tier write API - who calls it in production?
+grep -rn "addAgentShortTerm\|promoteAgentMemory\|setAgentPermanent\|addShortTerm\|addPermanent" \
+  --include=*.js . | grep -v node_modules | grep -v '^./tests/'
+# -> only lib/memory-tiers.js (definitions) and memory/memory-manager.js (pass-throughs)
+# what bridge-agent actually calls
+grep -on "memory\.[a-zA-Z]*(" bridge-agent.js | sort -u -t: -k2
+# -> addTask, buildTaskContext, clearAgentWorkingMemory, completeTask, failTask,
+#    loadMemory, migrateAgentMemory, startupMemoryCleanup
+```
+
+`lib/memory-tiers.js` implements TTL expiry (`:118`), decay to archive (`:131`),
+auto-promotion at three re-adds (`AUTO_PROMOTE_THRESHOLD`, `:13`) and a startup sweep.
+**No production code adds a short-term, long-term or permanent entry.** So the promotion
+threshold can never be reached, the decay sweep has nothing to decay, and
+`agents/<id>/memory/{working,short-term,long-term,archive}.json` are empty by construction.
+
+**What runs instead** is the pre-tier path: `memory/tasks.json` and `memory/history.json`
+(`memory/memory-manager.js:11-13`), which are **global, not per-agent** — there is no agent
+id in either path — and reach a prompt as the **last 10** history entries (`:141`).
+`history.json` is append-only and pruned by nothing.
+
+**Why it is worth filing rather than deleting the tiers.** `docs/AGENTS.md` → "Memory
+Tiers" describes expiry, promotion, decay and archival in the present tense across four
+tables, and `CLAUDE.md`'s architecture tree lists the five files per agent. This is the
+same shape as `lib/task-decomposer.js` (`docs/WIRING-AND-SEAMS.md` §3): documentation that
+oversells what the running system does. Either the tiers get a writer or the documentation
+gets a banner — and which one is the memory-model decision, not a tidying decision.
+
+**Not a defect to fix in passing.** The design that decides it is
+[`docs/STATE-AND-MEMORY-DESIGN.md`](docs/STATE-AND-MEMORY-DESIGN.md). Until that is
+accepted, the honest repository-side action is the banner.
+**Priority:** P2 | **Effort:** Low to document; the writer is a design decision | **Status:** open
 
 ---
 
@@ -2067,6 +2186,53 @@ Whichever is chosen, `PRIORITY.HIGH` must stop returning `true` for a message it
 
 ---
 
+### 64. A verb typed in an agent's channel is answered by a model as conversation — the same text behaves differently depending on where it is typed
+**Filed 2026-09-16,** from the command-surface pass
+([`docs/COMMAND-SURFACE.md`](docs/COMMAND-SURFACE.md) §3).
+
+**Verified at HEAD.** Regenerate:
+```bash
+grep -n "runCommand" bridge-agent.js        # :1299, inside the gate below
+sed -n '1288,1302p' bridge-agent.js         # if (sourceChannel === BRIDGE_CHANNEL) {
+```
+
+`ASK: agents` in `#claude-bridge` runs the deterministic verb with no model. The same text
+in `#email-monitor-agent` never reaches the router — `processConversation` falls through to
+the LLM path and answers it **as a conversation with the email-monitor agent**, in that
+agent's persona, from a model that cannot see the agent surface it is being asked about.
+Identical input, two behaviours, decided by the channel and reported nowhere. The second is
+worse than a refusal because it produces a confident answer.
+
+**The gate was deliberate and its stated reason is sound; the conclusion is not.**
+`bridge-agent.js:1288-1291` says an agent channel is how an *agent* is addressed and a verb
+answering there would be the verb/name mixing the (now closed) #45 existed to prevent. That
+rule forbids `jester` being a **command name**. It does not require a verb to be
+unavailable where an agent lives.
+
+**Second half of the same defect:** even in the bridge channel the router is handed
+`agent: agentConfig` (`bridge-agent.js:1301`) — the module-scope bridge record — not
+`handlingAgent`, which the enclosing function has already resolved and passes to everything
+else. So a verb has no notion of an invoking agent at all.
+
+**Intended behaviour (the design, not the fix):** the channel is an **argument** to the
+verb, not a router for it. A verb is recognised in every polled channel; it inherits the
+invoking channel's agent, its data context and its declared capability; a verb that agent
+has no capability for is **refused with the reason** rather than silently reinterpreted;
+an unrecognised verb prints the table so "not a verb" and "a verb you may not run" are
+distinguishable.
+
+**Why it is not fixed here, and what it is really waiting on.** The refusal clause needs
+"this agent's capability" to mean something, and it does not:
+`grep -rn "permissions\|denied" --include=*.js . | grep -v node_modules | grep -v '^./tests/'`
+finds **no production reader** of either field
+([`docs/CAPABILITY-AND-ISOLATION-DESIGN.md`](docs/CAPABILITY-AND-ISOLATION-DESIGN.md) §2).
+Lifting the channel gate **without** the capability check would make every verb runnable by
+every agent, which is a widening, not a fix. The two land together or not at all.
+**Priority:** P2 | **Effort:** Low for the gate, Medium with the capability check that must accompany it
+**Status:** open — defect confirmed, intended behaviour recorded, blocked on the capability model
+
+---
+
 ### 46. `/dispatch` posts to one fixed channel — routing by the invoking channel needs two things that do not exist
 **Filed 2026-09-15,** from the command-router pass.
 **Problem:** `handleViewSubmission` in `lib/dispatch-command.js` posts the composed task
@@ -2125,6 +2291,118 @@ Any future command that sets it — "put everything on ollama" — has two ways 
 default or the hard fallback. `resolveAgentLlm` already returns `provider_source` per agent
 for exactly this; `ASK: agent status` renders it today.
 **Priority:** P2 | **Effort:** Low, if built on the resolver | **Status:** open — requirement recorded, nothing built
+
+---
+
+### 65. A per-agent provider override outranks a definition, so an agent's declared denial can be undone from `.env`
+**Filed 2026-09-16,** from the persistence-design pass.
+**Reported, deliberately NOT fixed. Do not "fix" it by deleting the override** — see below.
+
+**The mechanism, verified at HEAD.** `resolveLlmProvider` (`lib/config.js:165-177`)
+resolves in this order:
+
+```bash
+sed -n '150,177p' lib/config.js
+```
+> 1. `LLM_PROVIDER_<AGENTID>` env var  2. the definition's `llm_provider`
+> 3. `LLM_PROVIDER` env var  4. `'claude'`
+
+`agents/jester/agent.md` declares `llm_provider: gemini` and **denies `file-system`**.
+`LLM_PROVIDER_JESTER=claude` in `.env` beats the declaration, and `runClaudeAdapter` spawns
+the CLI with `--dangerously-skip-permissions` (`lib/llm-runner.js:357`).
+
+**Why that contradicts a security decision rather than merely surprising someone.**
+`lib/weekly-critique.js` deliberately calls `runLLM` and **not** `runWithFallback`, and
+`docs/JESTER-DESIGN.md` §4 states the reason in those words: the chain can land on `claude`
+and *"routing him automatically onto a tool-capable engine to save a weekly joke is not a
+trade worth making."* The override reaches the same engine by configuration. The design
+avoided it by accident and left it reachable on purpose.
+
+**What §4 does carry, and it is a mitigation rather than a boundary:** `maxTurns: 1` and a
+fresh empty temp directory as `cwd`, both asserted in `tests/weekly-critique.test.js`. The
+CLI still spawns with permission checks disabled, in a writable directory, for one turn.
+
+**UNVERIFIED, and it stays unverified from any checkout:** whether the override is actually
+set. `.env` is owner-managed and off-limits (`docs/EXECUTOR-CONTRACT.md` §7), and the only
+occurrence of `LLM_PROVIDER_JESTER` in this repository is a test fixture. **The bridge
+answers it on the box, with provenance:**
+
+```bash
+node scripts/agent-surface.js | grep jester    # or: ASK: status
+# `claude (env:LLM_PROVIDER_<AGENTID>)` = the instance is live
+# `gemini (registry:agent.md)` = it is not
+```
+
+**Why the fix is not removal.** The override exists *because a tracked file did not
+survive*: an on-box edit to a tracked definition is destroyed by `git reset --hard HEAD` —
+twice observed, per `.gitignore`'s own comment — and `LLM_PROVIDER_<AGENTID>` is the only
+per-agent mechanism that survives a pull. Removing it takes the workaround and leaves the
+durability problem.
+
+**Close condition, in two parts, and the second is the item's namesake:**
+1. A durable, per-workspace place to write a per-agent provider that is neither a tracked
+   file nor `.env` — `agent_setting` in
+   [`docs/STATE-AND-MEMORY-DESIGN.md`](docs/STATE-AND-MEMORY-DESIGN.md) §2.5, which exists
+   to retire this variable.
+2. **A provider a definition denies is REFUSED at resolution with a stated reason,
+   whatever it came from** — reject-never-sanitise, the rule `lib/git-identifiers.js`
+   already applies to a repository name. That needs `denied` to be read by something, and
+   nothing reads it ([`docs/CAPABILITY-AND-ISOLATION-DESIGN.md`](docs/CAPABILITY-AND-ISOLATION-DESIGN.md) §2.1).
+
+Until (2), an owner who pins jester to claude gets what they asked for and nothing says it
+contradicts his declaration.
+**Priority:** P2 | **Effort:** Low once (1) exists | **Status:** open — reported, not fixed, and the instance is unverified from a checkout
+
+---
+
+### 66. Nothing watches the repository — no agent knows when `main` moves, so a merge and a deploy are unrelated events with nothing observing either
+**Filed 2026-09-16,** from the persistence-design pass. **Reported, not fixed.**
+
+**Verified at HEAD.** Nothing in a live path asks a remote anything about this repository:
+
+```bash
+# every rev-parse / ls-remote / remote read in production code
+grep -rnE "rev-parse|ls-remote|origin/main|git fetch|webhook" --include=*.js . \
+  | grep -v node_modules | grep -v '^./tests/'
+```
+- `auto-update.js:116,125` compares local `HEAD` against `origin/main` — **and nothing
+  starts `auto-update.js`** (WORK-TODO **#17**), so that comparison never runs.
+- `lib/clone-lifecycle.js` uses `ls-remote` to ask whether a *task's* branch was pushed.
+  That is delivery detection for one clone, not repository watching.
+- `lib/repo-history.js` reads the **local** checkout's history (`commitsSince`,
+  `claimsFrom`, `revisionsSince`) and **never fetches**, so it cannot see a commit the box
+  has not pulled.
+- There is no GitHub webhook receiver anywhere. `lib/integrations/httpsms.js` has a
+  `registerWebhook` and it is for SMS and has no caller at all.
+
+So a merge to `main` is observed by nothing, and the deploy that would follow it is a human
+typing `docker compose restart jt-agent`. The two are unrelated events and no one is told
+when they diverge — the observed **11-hour gap** was found by a person noticing.
+
+**What it would take for a merge to become an event in the shared record**
+([`docs/STATE-AND-MEMORY-DESIGN.md`](docs/STATE-AND-MEMORY-DESIGN.md) §2.1). Three pieces,
+in increasing order of what they cost:
+
+| # | Piece | Cost |
+|---|---|---|
+| 1 | **A source of merges.** Either a poll (`git ls-remote origin main` on an interval, plus a fetch to read the commits between) or a **GitHub webhook**. The poll needs no inbound path and no credential beyond the deploy key, and is the right first version. A webhook needs an inbound route to the NAS and a secret to hold, which moves the deploy decision off-box and is what `CLAUDE.md`'s "push-triggered restart" option already prices | Poll: low. Webhook: an inbound path, which `docs/CONFIG-SURFACE-AND-REBUILD.md` §7.2 spends a page arguing against opening |
+| 2 | **An event kind and a writer.** `repo.merged` rows carrying sha, author, subject, and the `Closes`/`Addresses` claims `lib/repo-history.js` `claimsFrom` already parses. The parser exists; what is missing is a fetch in front of it and a store behind it | Low, once the store exists |
+| 3 | **A reader that does something.** Without one this is a log nobody opens. The obvious consumers already exist: the critique digest's signal 4 (*"merged vs running"*, which today renders the absence as a line) and a summary's computed spine | Low |
+
+**And the signal actually worth having is not "main moved".** It is **`main` compared
+against the deployed commit** — which nothing records, because nothing can answer which
+commit the running process is on. That is **WORK-TODO #17**'s second open question, already
+filed, and it is a prerequisite rather than a consequence: piece 1 alone produces
+*"main moved"*, which is true every time anyone merges and says nothing about whether it
+matters. Paired with a deployed-commit report it produces *"main has been ahead of the
+running process for N hours"*, which is the sentence the 11-hour gap needed.
+
+**Relationship to the items already open:** #17 owns "nothing can say what is running" and
+"nothing deploys a merge". This item is the third, distinct gap — **nothing observes that
+`main` moved at all** — and it is the cheapest of the three, because a poll needs no
+inbound path, no new credential and no deployment change.
+**Priority:** P2 | **Effort:** Low for the poll; the useful version is gated on #17
+**Status:** open — reported, not fixed
 
 ---
 
@@ -2440,6 +2718,83 @@ and that the env var is dead config. That is a naming/wiring defect; this item i
 the ceiling should *be*. Both touch `lib/task-parser.js`; neither subsumes the other.
 
 **Not decided here:** the value of N, the wall-clock bound, or what counts as a "checkpoint".
+
+---
+
+### 67. IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide
+
+**Filed 2026-09-20** (this working session; no prior heading — `git log -S'IDs are allocated at WRITE time' -- WORK-TODO.md` returns only the commit that adds this item).
+
+**Priority:** P2 | **Effort:** small if the answer is a check; unbounded if the answer is a scheme change | **Status:** OPEN — class recorded with three observed instances, nothing implemented
+
+**The mechanism.** "The next ID" is `max(existing) + 1`, read by eye from this file at the
+moment an item is written. Two branches cut from the same base therefore read the same
+maximum and allocate the same numbers, and neither can see the other. Nothing detects it
+until they meet. The duplicate-ID command in "Counts — as commands, not figures" is the
+detector, and it runs **after** the collision exists, not before it.
+
+```bash
+# the allocator, such as it is — the largest ID currently in the file
+grep -oE '^### [0-9]+' WORK-TODO.md | grep -oE '[0-9]+' | sort -n | tail -1
+# the detector, which only fires once both sides are in one tree
+grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
+```
+
+**Three observed instances. Two in this repository, one in the other, all within five days.**
+
+1. **`### 43.` — 2026-09-15.** Two items shared the number: the P1 "A flattened dispatch
+   loses its fields" and a P2 "`getRecentCompleted` sorts by a millisecond timestamp". It
+   was resolved by **closure**, not renumbering — the P2 was fixed and purged, so one
+   `### 43.` remained. Recorded in the "Counts" section above, whose own words are *"the
+   cause is not fixed"*. Regenerate: `git log --oneline -S'The \`### 43.\` collision is resolved' -- WORK-TODO.md`
+   → `3d7ad70`.
+
+2. **`### 57.`–`### 61.` — 2026-09-16 / 2026-09-20, five numbers at once.** Both branches
+   were cut from `cdb5afd` (2026-09-15), whose highest ID was **56**.
+   `claude/brave-cannon-d9lev7` filed 57–61 (`d2288cf`, `115b059`) and merged to `main`;
+   `claude/blissful-ritchie-6mmwoi` filed 57–61 (`34a3c9a`, `38de61a`, `09ac630`) and did
+   not. Resolved by renumbering the unmerged side to **62–66** during the rebase that adds
+   this item — `main`'s addresses win, because they are already cited elsewhere. Regenerate:
+
+   ```bash
+   git merge-base origin/main <the-unmerged-branch>          # -> cdb5afd
+   git show cdb5afd:WORK-TODO.md | grep -oE '^### [0-9]+' | grep -oE '[0-9]+' | sort -n | tail -1   # -> 56
+   ```
+
+3. **SqTools `BACKLOG-408` / `BACKLOG-409` — 2026-09-20, the same day as instance 2.**
+   **Cited as prior art from the other repository, not as something this repo owns or can
+   verify.** It matters only because it establishes the class is not a property of this
+   file's conventions: the same allocator, in a differently-formatted backlog, produced the
+   same failure on the same day.
+
+**Why "the duplicate-ID check is the guard" is not an answer.** It is a *detector*, and it
+detects at merge time — by which point both sides have bodies, cross-references and commit
+messages citing the colliding numbers. Instance 2 cost a reverse-map proof over 243 lines to
+show the renumber changed no content. A detector that fires after the cost has been incurred
+has not prevented anything.
+
+**Two shapes, neither chosen here.**
+
+- **Allocate at merge rather than at write.** A branch files items with a placeholder and
+  the number is assigned when it lands. Removes the collision entirely; costs every
+  in-branch cross-reference the ability to name its target, and every commit body the
+  ability to say `Closes <ID>` before the merge — which is exactly the claim the contract
+  requires. That trade is the whole decision and it is not obvious.
+- **Key items by something that cannot collide** (a slug, a date-ordinal, the filing
+  commit's short SHA). Removes the collision and keeps in-branch citability; costs the
+  property the file's own header calls load-bearing — *"the number is only an address for
+  cross-references"* — because addresses stop being orderable by eye, and every existing
+  `#NN` reference in this file, in `docs/`, and in commit history would then name a scheme
+  that no longer allocates.
+
+**A third, cheaper, and not a fix:** a pre-flight step in the executor contract — fetch
+`origin/main` and re-read the maximum immediately before writing a heading. It narrows the
+window to the length of one branch; it does not close it, because the window *is* the
+branch. Worth recording so it is not mistaken for a solution.
+
+**Not decided here, and deliberately not implemented:** which shape, whether the existing
+`#NN` addresses are migrated or grandfathered, and whether the problem is worth a scheme
+change at this rate of collision.
 
 ## P3 — Nice to have / uncertain ROI
 
