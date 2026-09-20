@@ -820,6 +820,7 @@ slack-agent-bridge/
 │   ├── redact-secrets.test.js   # Tests for lib/redact-secrets.js (value-driven and pattern-driven scrubbing)
 │   ├── review-findings.test.js  # Tests for lib/review-findings.js and validateOutput's verdict. THE guard that recurrence is answered by rule identifier and not by prose: it asserts two renderings of one rule are different strings AND the same finding
 │   ├── test-gate-honesty.test.js # THE enumerating guard for "a test invocation that can report a pass without running assertions": classification case-by-case against real runner output, plus a disk walk asserting every test-command site routes through lib/test-verdict.js, with negative controls
+│   ├── toolchain-support.test.js # THE enumerating guard that the SUPPORTED TOOLCHAINS table in CLAUDE.md describes what lib/dependency-install.js actually detects: it reads detectEcosystem's OWN source for every `ecosystem:` name and every manifest filename it tests for, and fails when one has no row in the table — so an ecosystem added to the code without a declared image status is a red test, not a silently stale list. Also fails when the table claims an ecosystem the code cannot detect. Carries its own negative controls
 │   ├── task-lock.test.js            # Tests for lib/task-lock.js (acquire/release, staleness, legacy + unparseable lock formats)
 │   ├── auto-update-defer.test.js    # Tests the deferral gate: defers while a task holds the lock, releases a stale one, escalation bound
 │   ├── task-agent-identity.test.js  # THE guard for WORK-TODO #38: a TASK: executes as the agent it was addressed to. It extracts processTask's agent resolution from bridge-agent.js's SOURCE and replays it against every declared agent record, asserts the poll loop hands processTask the same `channelAgentConfig` it already hands processConversation, and enumerates the seven identities that must follow the resolved agent (provider, persona, model, metrics id, bulletin stream, bulletin voice, working memory) plus the one that deliberately does not (the owner's ACTION REQUIRED inbox). Carries its own negative controls
@@ -983,10 +984,54 @@ distinct from a CODE failure (tests ran and failed) — an agent that cannot ins
 still write a branch it cannot verify, which puts the owner back to merging on a claim. A
 repo with no recognised manifest installs nothing and proceeds (research/audit tasks).
 Bounded by `INSTALL_TIMEOUT_MS`, separate from `TASK_TIMEOUT_MS` so a hung install cannot
-eat the turn allowance. **Python is detected and attempted but end-to-end python is
-UNVERIFIED** — no python repo is cloned in tests and `pip` availability in the deployed
-image is off-box; if `pip` is absent the dispatch fails as `INSTALLER_ABSENT` (a clear
-refusal), never a silent skip.
+eat the turn allowance. **Python is detected and attempted, and this image cannot serve
+it: `python3` is present but `pip` is absent** (operator-supplied, 2026-09-20 — see
+"Supported toolchains" immediately below). Every python dispatch therefore fails as
+`INSTALLER_ABSENT`, a clear refusal, never a silent skip. End-to-end python remains
+UNVERIFIED: no python repo is cloned in any test here, and the deployed image is off-box.
+
+#### Supported toolchains — a STATED list, because an unstated one drifts
+
+**The bridge installs a scratch clone's dependencies with whatever is baked into the
+`jt-agent` image, and that image serves exactly one ecosystem today.** The list is stated
+rather than left implied because the failure it prevents is not "a dispatch refuses" — a
+refusal is correct and loud — it is a toolchain that is *present but different from the
+one the target repo runs on*, which produces a green here that is not a green on the box.
+That is the same class as a Postgres-major mismatch.
+
+| Ecosystem | Manifest (`detectEcosystem`) | Installer | Status in the `jt-agent` image |
+|-----------|------------------------------|-----------|--------------------------------|
+| **node** | `package.json`; a `package-lock.json` or `npm-shrinkwrap.json` selects `npm ci` over `npm install` | `npm` | **SUPPORTED.** node and npm *are* the image (`image: node:20`) |
+| **python** | `requirements.txt`, `pyproject.toml`, `setup.py` | `python3 -m pip` | **NOT SUPPORTED.** `python3` is present, `pip` is not, so every python dispatch refuses with `INSTALLER_ABSENT`. WORK-TODO **#68** |
+| **`none`** *(anything else)* | no recognised manifest | nothing is run | **NOT DETECTED.** Nothing is installed and the task proceeds — the research/audit and no-dependency case, not a refusal |
+
+**The python row is operator-supplied and dated, not regenerable from a checkout.**
+On 2026-09-20, on the NAS:
+
+```bash
+docker exec -i jt-agent sh -c 'python3 -m pip --version'
+# /usr/bin/python3: No module named pip
+```
+
+Re-run that command to re-establish it; nothing in this repository can.
+
+**Anything not on the list refuses loudly, and that is the design, not a gap.**
+`lib/dependency-install.js` classifies an absent installer as `INSTALLER_ABSENT` — a
+HARNESS failure that stops the dispatch **before** the LLM writes anything, distinct from
+the repo's own tests failing. The table and the code agree by test, not by prose:
+`tests/toolchain-support.test.js` reads `detectEcosystem`'s own source and fails when an
+ecosystem name or a manifest filename appears there without a row here.
+
+**Why "supported" is a stronger claim than "the binary is present".** The estate is three
+repos — two node (`jtpets/slack-agent-bridge`, `jtpets/SquareDashboardTool`) and one
+python (`jtpets/dayz-discord-bot`: pytest, `setup.py`, no lockfile). That python repo's
+working test setup is **pytest-asyncio 0.21.2**, pinned in *prose only* — its `setup.py`
+declares the dependency unpinned and 1.4.0 produces errors (operator-supplied 2026-09-20;
+unverified here, and unverifiable — the bridge has no access to that repository, see
+WORK-TODO #57). An image resolving a different version would install cleanly, run the
+suite, and report a green that does not hold where the code actually runs. **Adding a
+toolchain to this image is therefore adding a pin that can drift from the target repo's**,
+and every row above owes that statement before it may say SUPPORTED.
 
 **Cleanup now gates on delivery.** `detectUndeliveredWork(dir)` in
 `lib/clone-lifecycle.js` (called from `processTask` in `bridge-agent.js`)
