@@ -77,6 +77,16 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+At the **2026-09-20 close-reconciliation pass** those print **61** open items — **9** P1,
+**42** P2, 10 P3 — and **no duplicate ID**. That pass **purged #61**, filed **#69** and
+**#70**, and regenerated the index from the headings. #61 had been closed by `723dfed`
+(merged `5749d08`) four days earlier and left in the file: `git show 723dfed --stat --
+WORK-TODO.md` prints nothing. **So the two figures below are wrong by one in the direction
+nobody could see** — both passes counted #61 as open when its closing commit had already
+landed, which is the whole of **#69**. They are left as written rather than corrected,
+because each is a dated observation of what the commands printed at the time, and
+overwriting them would erase the evidence for the item they produced.
+
 At the **2026-09-20 image-toolchain pass** those print **60** open items — 10 P1, **40** P2,
 10 P3 — and **no duplicate ID**. That pass filed one item (**#68**, the bridge image's
 node-only toolchain), closed nothing, and added its index row by hand at the head of the
@@ -211,11 +221,16 @@ Two states, marked on the item itself so they are countable rather than remember
   **#3, #26, #40, #41, #43, #53, #55**. In every one the repository's half is landed and
   verified; what is left is off-repo by construction.
 - **BLOCKED — OWNER DECISION** — the remainder is a choice, and the code is small once it
-  is made. Six items as of 2026-09-20: **#27, #29, #37, #44, #51, #68**. Four of them say
-  so in their own words (#29 "decision, not work"; #44 "not to be decided by an executor";
-  #51 "no shape chosen"; #68 "no shape is invented here"). The heading above counts twelve
-  because it is dated 2026-09-16; **#68** makes it thirteen. Run the commands below rather
-  than reading either figure.
+  is made. **Five items as of the 2026-09-20 close-reconciliation pass: #27, #29, #37,
+  #44, #51.** Three of them say so in their own words (#29 "decision, not work"; #44 "not
+  to be decided by an executor"; #51 "no shape chosen").
+  **#68 was on this list and has been UNMARKED**, not closed: the probe recorded on it
+  established that PEP 668 forces a per-clone venv, which is repo-side work reachable from
+  a branch, and the rule stated two paragraphs below — that marking an item with an
+  owner-side half *and* available repo-side work "would hide real work behind an owner's
+  name" — then applies to it. **#70, filed by the same pass, is deliberately not marked**
+  for the same reason: a tracked `Dockerfile` and a `build:` key are commits, even though
+  the rebuild is not. Run the commands below rather than reading any of these figures.
 
 ```bash
 # how many, and which
@@ -243,9 +258,8 @@ work behind an owner's name, which is the opposite of the point.
 
 *Regenerated from the headings. Do not append to it by hand; re-run the command above.*
 
-**P1 — protects or unblocks the live deployment** (10)
+**P1 — protects or unblocks the live deployment** (9)
 
-- **#61** — [The scratch clone never installs dependencies, so every dispatch's Phase-3 verification is vacuous](#61-the-scratch-clone-never-installs-dependencies-so-every-dispatchs-phase-3-verification-is-vacuous)
 - **#55** — [The channel mapping had no reproduction path, and a deploy proved it](#55-the-channel-mapping-had-no-reproduction-path-and-a-deploy-proved-it)
 - **#56** — [`npm test` fails intermittently inside jest's globalSetup — twice, unreproduced](#56-npm-test-fails-intermittently-inside-jests-globalsetup--twice-unreproduced)
 - **#42** — [Every backup this system has lives on the box it backs up, and their liveness is checked by nothing](#42-every-backup-this-system-has-lives-on-the-box-it-backs-up-and-their-liveness-is-checked-by-nothing)
@@ -256,8 +270,9 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (40)
+**P2 — real gaps, no risk to the running process** (42)
 
+- **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
@@ -297,6 +312,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#54** — [Two defects deferred on scope grounds were load-bearing — the deferral judgement, not the filing, is what failed](#54-two-defects-deferred-on-scope-grounds-were-load-bearing--the-deferral-judgement-not-the-filing-is-what-failed)
 - **#57** — [Before the bridge is given a private-repo credential — the constraints, not the plan](#57-before-the-bridge-is-given-a-private-repo-credential--the-constraints-not-the-plan)
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
+- **#69** — [A commit that says `Closes #N` while #N stays in the file is undetectable — the convention and the record are never reconciled](#69-a-commit-that-says-closes-n-while-n-stays-in-the-file-is-undetectable--the-convention-and-the-record-are-never-reconciled)
 - **#67** — [IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide](#67-ids-are-allocated-at-write-time-from-an-append-only-list-so-two-branches-cut-from-the-same-base-always-collide)
 
 **P3 — nice to have / uncertain ROI** (10)
@@ -313,59 +329,6 @@ work behind an owner's name, which is the opposite of the point.
 - **#16** — [Channel-per-task archive mode](#16-channel-per-task-archive-mode)
 
 ## P1 — Protects or unblocks the live deployment
-
-### 61. The scratch clone never installs dependencies, so every dispatch's Phase-3 verification is vacuous
-**Filed 2026-09-20,** from the same session that traced the dropped dispatch body.
-**P1 because it makes the repo's own verification gate report nothing at all** — not a
-wrong answer, an absent one — on every repo task the bridge has ever run.
-
-**The finding, established by absence.** Nothing in the scratch-clone lifecycle installs
-dependencies. `cloneRepo` (`lib/clone-lifecycle.js`) clones `--depth 1` and configures the
-push remote; it runs no package manager. The enumeration:
-
-```bash
-grep -rn "'npm'\|\"npm\"\|npm ci\|npm install" --include=*.js . \
-  | grep -v node_modules | grep -v '^./tests/'
-```
-
-Every hit is in `auto-update.js` (never started — see #17) or `lib/update-verifier.js`
-(the smoke gate, which runs against the deploy checkout, not a scratch clone). `cloneRepo`
-appears in none of them.
-
-**The consequence.** `validateOutput` (`lib/code-review-pipeline.js:364`) runs the repo's
-test command in that clone. With no `node_modules`, `npm test` exits 127 with
-`jest: not found`. `lib/test-verdict.js` classifies that as `runner_absent` and
-`findingFor` makes it a blocking finding, so the gate goes red — **which is correct, and
-is the only reason this is not silent.** The bridge's own code review reported it as a
-failed gate on 2026-09-20 rather than as a hiccup. But a gate that can only ever report
-"runner absent" verifies nothing: Phase 3 has never once run a test against work a
-dispatch produced.
-
-**Not fixed here, deliberately.** The fix is not one line — it is a set of decisions the
-owner should make rather than an executor:
-
-- **Where it runs.** A pre-LLM install in `cloneRepo`, or inside `validateOutput` just
-  before the test command. The first pays the cost on every repo task including
-  research/audit tasks that never run tests; the second pays it only when a test is about
-  to run, but moves a network operation into the verification phase.
-- **`npm ci` or `npm install`.** `npm ci` requires a `package-lock.json` (this repo has one
-  as of 2026-09-13; an arbitrary `REPOS` entry may not) and fails hard when it is absent or
-  out of sync. `npm install` always works and pins nothing.
-- **Cost and bound.** `npm ci` here takes tens of seconds against the network. It needs its
-  own timeout, separate from `TASK_TIMEOUT_MS`, and a failure has to be classified — an
-  install that fails is *also* `runner_absent`, and must not be reported as a test failure
-  in the repo under review.
-- **Repos with no `package.json`, or a non-npm toolchain.** `createExecutionPlan` already
-  defaults `testScript` to `npm test` for any repo whose `package.json` has no test script,
-  including repos that have no `package.json` at all.
-
-**Definition of done.** A repo task's Phase-3 run reports a real assertion count for at
-least one repo in `REPOS`; an install failure is classified distinctly from a test failure;
-`tests/test-gate-honesty.test.js` still passes, and the install site is named in
-`docs/WIRING-AND-SEAMS.md`.
-
-**Related:** #25 (the scratch clone's lifecycle), #17 (why `auto-update.js`'s npm calls are
-dead code).
 
 ### 55. The channel mapping had no reproduction path, and a deploy proved it
 **BLOCKED — OWNER ACTION (off-repo).** The mechanism, the reconstruction command and the
@@ -1024,16 +987,100 @@ only the owner action below.
 
 ## P2 — Real gaps, no risk to the running process
 
+### 70. This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start
+**Filed 2026-09-20,** by the pass that recorded #68's probe evidence. **It ranks above #68
+in this tier because #68 is one symptom of it** — "there is nowhere for a root
+`RUN apt-get install` to go" is not a fact about python, it is a fact about the
+deployment's shape, and every future need for a system package, a compiled extension, a
+CA bundle or a second runtime lands on the same wall.
+
+**The finding, established by absence.** Three facts, all regenerable from a checkout:
+
+```bash
+grep -n "image:\|build:\|user:\|command:\|NPM_CONFIG_PREFIX" docker-compose.example.yml
+git log --all --oneline --diff-filter=A --name-only | grep -i dockerfile   # prints nothing
+```
+
+- **`image: node:20`** (`docker-compose.example.yml:64`) is a stock upstream tag.
+- **There is no `build:` key**, and **no `Dockerfile` has ever existed** in this repository
+  or anywhere in its history — established at `claude/intelligent-wright-312i8c`, merged as
+  `8ad5791`, and re-run at this commit.
+- **What resembles a build is the compose `command:`** (`docker-compose.example.yml:83`):
+  `sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"`,
+  running as **`user: "1000:100"`** (`:66`), installing into a bind mount because
+  `NPM_CONFIG_PREFIX: /bridge/.npm-global` (`:73`) redirects npm's global prefix there.
+
+**Three consequences, in the order they will be felt.**
+
+1. **No reproducibility.** Installation happens at *start*, not at build, so the running
+   toolchain is whatever resolved at the last restart. `npm ci` does pin this repo's own
+   dependency tree from the committed `package-lock.json` — that half is sound, and was
+   fixed deliberately on 2026-09-13. **The other two inputs are pinned by nothing:**
+   `npm install -g @anthropic-ai/claude-code` names no version, and `node:20` is a floating
+   tag. A restart in six months runs a different Claude CLI and a different Node 20 against
+   the same commit, and no artifact anywhere records which ones the process is on. That is
+   the same class as the gitignored-lockfile problem, one layer up, and #17's open question
+   — "is the running process on current `main`?" — does not even reach it: knowing the
+   commit would still not tell you the toolchain.
+2. **Every start pays a full install**, including a restart whose only purpose is to deploy
+   a one-line change. The bridge's only deploy mechanism is a restart (see #17), so this
+   cost is paid on the critical path of every deploy.
+3. **There is no place for anything that needs root.** This is the one that is already
+   biting: it is exactly why **#68** is stuck, and `apt-get` in the `command:` would fail
+   on permissions at every start inside a `restart: unless-stopped` service — a restart
+   loop with no shell. Shape (d) in #68 (run as root) is rejected for widening #27's blast
+   radius, which leaves no unprivileged answer at all within the current shape.
+
+**PRIOR ART, cited and not read.** A worked example of the alternative already runs on this
+same NAS: **SqTools' merge-gate runner builds a real image and installs at build time.**
+That establishes the pattern is viable in this estate, on this hardware, under this
+operator — it is not a theoretical improvement. **This is cited from the operator's
+account only.** The dispatch that filed this item was scoped to this repository alone, so
+nothing here has read that runner's compose file, Dockerfile, build output or any other
+artifact of it. **No claim about its contents should be read into this entry** — only that
+such a thing exists and works on this NAS. Verifying it is a separate dispatch against
+`jtpets/SquareDashboardTool`.
+
+**The runner is NOT reusable as a container, and the reason is a security property, not an
+inconvenience.** The gate runner's design deliberately **holds no credential** — that is
+what lets it execute branch code. **This service is the opposite: it holds
+`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `GEMINI_API_KEY`, the Google OAuth trio and the git
+deploy key**, and it executes LLM-authored code in scratch clones (#27). **The two must
+never share a container or an image.** What transfers is the *pattern* — a tracked
+Dockerfile, a `build:` key, install-at-build, a pinned base — and nothing else. A future
+reader tempted to "just point jt-agent at the gate runner's image" should read this
+paragraph as the refusal.
+
+**Not designed here, deliberately.** The shapes are #68's (a) and (b), and choosing one is
+an owner decision with an off-repo half. What this item adds is that the choice is **not
+about python**: it is about whether this deployment has a build step at all, and it should
+be made once, on those terms, rather than re-litigated by the next dispatch that needs a
+system package.
+
+**Definition of done.** A tracked `Dockerfile` and a `build:` key exist, with the base image
+and the Claude CLI both **pinned by version**; `docs/CONFIG-SURFACE-AND-REBUILD.md` names
+the build in the rebuild path; and the rebuild is performed on the NAS. The last is an
+owner action (#26, #17) — the first two are reachable from a branch and are not blocked.
+
+**Related:** #68 (the first symptom, and blocked on this), #27 (why running as root is
+rejected), #26 and #17 (the live compose is off-repo and nothing here deploys), #41 (the
+NAS as the single point of failure this image would be rebuilt on).
+
 ### 68. The bridge image serves node only, for an estate that is one-third python — and it is not a config edit
 **Filed 2026-09-20,** by the dispatch sent to add python and pip to the image; it stopped
 at the image boundary rather than inventing one. **P2 because nothing running is
 degraded** — the refusal is correct, loud and pre-LLM — but one of the three repositories
 in the estate cannot be dispatched to at all.
 
-**BLOCKED — OWNER DECISION.** The repository half is done (the toolchain list is stated in
-three places and guarded by a test). What remains is choosing an image shape and rebuilding
-the container, and neither is reachable from a branch: this repository does not define the
-image, and a `docker compose` command on the NAS is not a commit.
+**NO LONGER BLOCKED — OWNER DECISION, as of the 2026-09-20 probe.** It carried that marker
+on the strength of "the repository half is done": the toolchain list was stated in three
+places and guarded by a test, and all that remained was an image shape and a rebuild,
+neither reachable from a branch. **The probe moved repo-side work back into scope** — PEP
+668 means `lib/dependency-install.js` must create a per-clone venv, and that is a commit.
+The marker is removed rather than kept alongside a caveat, because this file's own rule is
+that marking an item with an owner-side half *and* available repo-side work "would hide
+real work behind an owner's name". The image half is still an owner action (#70, #26, #17)
+and the DoD still cannot be met without it.
 
 **The finding.** `lib/dependency-install.js` (merged 2026-09-20, `723dfed`) detects a
 python repo from `requirements.txt`/`pyproject.toml`/`setup.py` and runs
@@ -1071,10 +1118,55 @@ git log --all --oneline --diff-filter=A --name-only | grep -i dockerfile   # pri
   no equivalent, so appending `apt-get install python3-pip` would fail on permissions at
   every start, inside a `restart: unless-stopped` service — a restart loop with no shell.
 
-**Does `python3` being present mean pip can be added alone?** The *interpreter* does not
-need installing, so this is narrower than "install python". But it is not therefore a
-one-liner, for two reasons that must be checked on the box before any shape is chosen —
-**both UNVERIFIED from a checkout**, and this item does not assert them:
+**THE PROBE HAS BEEN RUN, AND IT SETTLES BOTH QUESTIONS AGAINST THE CURRENT APPROACH.**
+**Operator-supplied, on the NAS, from the running `jt-agent` container, 2026-09-20 — not
+regenerable from a checkout, and not verified here.** Four facts:
+
+| Probe | Output |
+|-------|--------|
+| `python3 -m ensurepip --version` | `No module named ensurepip` |
+| `cat /etc/os-release` | Debian GNU/Linux 12 (bookworm) |
+| `python3 -V` | Python 3.11.2 |
+| `ls /usr/lib/python3*/EXTERNALLY-MANAGED` | the file **EXISTS** |
+
+Re-run them with the command in the section below; nothing in this repository can.
+
+**What each one breaks.**
+
+1. **`ensurepip` is absent, so pip cannot be bootstrapped from what is installed.** Debian
+   splits `ensurepip` out of `python3` into `python3-venv`/`python3-pip`, and this image
+   does not carry it. `apt-get install python3-pip` needs root; the compose `command:`
+   runs as `user: "1000:100"` and there is no build step to run it in (#70). So the
+   cheapest shape does not exist: there is nothing already on the box to bootstrap from.
+2. **PEP 668 is in force.** `EXTERNALLY-MANAGED` is present on a bookworm `python3`, so a
+   system-wide install refuses. `python3 -m pip install -r requirements.txt` — the **exact**
+   command `detectEcosystem` emits (`lib/dependency-install.js`) — would fail **even with
+   pip installed**. Adding pip to the image is therefore necessary and **not sufficient**.
+
+**So the shape of this item has changed: python support is a CODE change as well as an
+image change.** The per-clone virtualenv this item raised as a contingency under its PEP
+668 question is no longer a contingency — it is the required shape.
+`lib/dependency-install.js` must create a venv inside the scratch clone and install into
+it, rather than emitting a system-wide `python3 -m pip install`.
+
+**A consequence that follows from fact 1 and needs its own probe before a shape is
+chosen — UNVERIFIED, stated as a derivation, not as a fact about the box.** `python3 -m
+venv` uses `ensurepip` to place pip inside the new environment, so with `ensurepip` absent
+`python3 -m venv <dir>` is expected to fail unless `--without-pip` is passed — which
+produces an environment that cannot install anything. **If that holds, the venv does not
+replace the image change; it stacks a code change on top of one.** The image would still
+have to supply a pip source (`python3-venv`/`python3-pip`, or a vendored `virtualenv`/`uv`),
+and only then can the venv step do its job. Confirm on the box before choosing:
+
+```bash
+docker exec -i jt-agent sh -c 'python3 -m venv /tmp/probe-venv && /tmp/probe-venv/bin/pip --version'
+```
+
+**Does `python3` being present mean pip can be added alone? No — ANSWERED 2026-09-20
+by the probe above.** The *interpreter* does not need installing, so this is narrower than
+"install python". It is nonetheless not a one-liner, and the two reasons this item said
+must be checked on the box have now both been checked and both came back against the
+cheap shapes. The command that produced them, kept so the finding is re-establishable:
 
 ```bash
 # On the NAS. What the image actually is, and what the two blockers below actually do.
@@ -1082,25 +1174,29 @@ docker exec -i jt-agent sh -c 'cat /etc/os-release | head -2; python3 -V; \
   python3 -m ensurepip --version; ls /usr/lib/python3*/EXTERNALLY-MANAGED'
 ```
 
-1. **ensurepip.** Debian-derived images conventionally ship `python3` with `ensurepip`
-   split into a separate package, so `python3 -m ensurepip` may not be able to bootstrap
-   pip from what is already installed. If it works, the cheapest shape exists; if it does
-   not, shape (c) below needs a download.
-2. **PEP 668.** A Debian bookworm-or-later `python3` marks its environment
-   externally-managed, and a system-wide `pip install` then refuses regardless of shape.
-   If that marker is present, `python3 -m pip install -r requirements.txt` — the exact
-   command `detectEcosystem` returns — would fail **even with pip installed**, and the fix
-   is a per-clone virtualenv rather than a package. That would make this item a code change
-   in `lib/dependency-install.js` as well as an image change, which is precisely why the
-   probe runs before the shape is picked.
+1. **ensurepip — ABSENT.** Debian splits `ensurepip` out of `python3`, and this image does
+   not have it: `python3 -m ensurepip --version` -> `No module named ensurepip`. So pip
+   cannot be bootstrapped from what is already installed. **The cheapest shape does not
+   exist**, and shape (c) below is eliminated rather than merely weakest.
+2. **PEP 668 — IN FORCE.** `/usr/lib/python3*/EXTERNALLY-MANAGED` exists on this
+   Debian 12 (bookworm) / Python 3.11.2 image, so a system-wide `pip install` refuses.
+   `python3 -m pip install -r requirements.txt` — the exact command `detectEcosystem`
+   returns — would fail **even with pip installed**. The fix is a per-clone virtualenv,
+   which makes this item **a code change in `lib/dependency-install.js` as well as an
+   image change**. That is precisely why the probe ran before a shape was picked, and it
+   is the reason this item is no longer purely an owner decision.
 
-**The shapes, with their costs. None is chosen here.**
+**The shapes, with their costs. None is chosen here — but the probe has cut the list from
+four to two, and put a code change under both survivors.** (a) and (b) are the only shapes
+left standing, and **neither is sufficient on its own**: PEP 668 means whichever one
+supplies pip, `lib/dependency-install.js` still has to stop emitting a system-wide
+`python3 -m pip install` and create a per-clone venv instead.
 
 | Shape | What changes | What it costs |
 |-------|--------------|---------------|
 | (a) `Dockerfile` + `build:` | A new tracked `Dockerfile` (`FROM node:20`, a root `RUN` installing pip), a `build:` key in compose, `docker compose build` in the rebuild path. | A build artifact and a build step this deployment has never had; the image stops being a stock upstream tag, so it is now something to keep patched. Deploy becomes build-then-restart. |
 | (b) A base image carrying both runtimes | One line: `image:` points at a tag that already has node and pip. | Pins node and python *together*, to someone else's pairing; upgrading either means re-choosing the image. Still an image change the operator must make. |
-| (c) Unprivileged pip bootstrap in the `command:` | No root, no Dockerfile — a `get-pip.py` or `ensurepip` step writing into the bind mount. | Runs at **every container start**, needs network at boot, and pins nothing unless a version is pinned by hand. It makes the bridge's own startup depend on a third-party download. Weakest of the three, and it does not survive the PEP 668 check above. |
+| (c) Unprivileged pip bootstrap in the `command:` | No root, no Dockerfile — a `get-pip.py` or `ensurepip` step writing into the bind mount. | **ELIMINATED by the 2026-09-20 probe, on both halves.** `ensurepip` is absent, so there is nothing on the box to bootstrap *from* — it would have to be `get-pip.py`, downloaded at every container start, making the bridge's own startup depend on a third-party download. And PEP 668 is in force, so the pip it produced would refuse the install anyway. |
 | (d) Run the container as root | Makes `apt-get` work in the `command:`. | **Rejected.** It widens exactly the blast radius #27 records, to buy a package install. |
 
 **The constraint that outlives whichever shape is chosen — and the reason this item exists
@@ -1120,21 +1216,29 @@ loudly** — which is what `lib/dependency-install.js` already does. The list is
 an ecosystem the list does not declare.
 
 **Definition of done.**
-1. The probe in "Does `python3` being present mean pip can be added alone?" is run on the
-   NAS and its output recorded here, because it decides between the shapes and decides
-   whether `lib/dependency-install.js` needs a virtualenv step.
-2. A shape is chosen and the image carries pip.
-3. The python row in all three statements of the list moves to SUPPORTED **with its pin
+1. ~~The probe is run on the NAS and its output recorded here.~~ **DONE 2026-09-20** —
+   operator-supplied, recorded above. It decided both questions: shape (c) is out, and
+   `lib/dependency-install.js` does need a virtualenv step.
+2. **`lib/dependency-install.js` installs a python clone's dependencies into a per-clone
+   venv** rather than system-wide, with the venv's own failure modes mapped onto the
+   existing three outcomes (a venv that cannot be created is `INSTALLER_ABSENT`, not
+   `INSTALL_FAILED`). **This half is repo-side work, reachable from a branch** — it is
+   testable through the injected runner `tests/dependency-install.test.js` already uses —
+   though it cannot be proved end to end until the image carries pip.
+3. A shape ((a) or (b)) is chosen and the image carries pip.
+4. The python row in all three statements of the list moves to SUPPORTED **with its pin
    named** — which version of pip, and what stops it drifting from what
    `dayz-discord-bot` runs on.
-4. **The closing evidence is a dispatch, not a checkout.** A TASK: against a python repo
+5. **The closing evidence is a dispatch, not a checkout.** A TASK: against a python repo
    installs its dependencies and Phase 3 reports a real assertion count, the same bar #61
-   was closed against. That needs the repo reachable (#57) as well as the image rebuilt.
+   was closed against (#61 is closed and purged — `723dfed`, `git log -S'### 61. ' -- WORK-TODO.md`). That needs the repo reachable (#57) as well as the image rebuilt.
 
-**Related:** #61 (the install step this depends on), #57 (the bridge cannot reach
-`dayz-discord-bot` at all — a prerequisite for the DoD above), #27 (why shape (d) is
-rejected), #26 and #17 (why an image change is an owner action: the live compose is
-off-repo and nothing here deploys).
+**Related:** **#70 — the architectural finding this is one symptom of: there is no build
+step at all, which is why there is nowhere for a root `RUN` to go. #70 ranks above this
+item.** #61 (the install step this depends on; closed and purged by `723dfed`), #57 (the
+bridge cannot reach `dayz-discord-bot` at all — a prerequisite for the DoD above), #27
+(why shape (d) is rejected), #26 and #17 (why an image change is an owner action: the live
+compose is off-repo and nothing here deploys).
 
 ### 4b. Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14
 **Filed 2026-09-14** (derived: `git log -S'### 4b. ' --reverse -- WORK-TODO.md`). The date
@@ -2841,6 +2945,69 @@ the ceiling should *be*. Both touch `lib/task-parser.js`; neither subsumes the o
 
 ---
 
+### 69. A commit that says `Closes #N` while #N stays in the file is undetectable — the convention and the record are never reconciled
+**Filed 2026-09-20,** by the pass that purged #61 four days after it was closed. Sibling of
+**#67**: that one is about how IDs are *allocated*, this one is about whether a close is
+ever *applied*.
+
+**The two halves of the convention, stated by this file's own header.** Closed items are
+**purged** ("the git history and the `Closes <ID>` commit body are the record"), and a
+commit claims the closure in its body. **Nothing joins them.** So a close that never
+purged and a close that never happened produce byte-identical file state, and the only
+thing distinguishing them is a commit body nobody re-reads.
+
+**One observed instance, at HEAD until this commit.** `723dfed` (merged as `5749d08`,
+2026-09-20) ends `Closes WORK-TODO #61.` and lists the DoD checks that ran. It never
+touched this file:
+
+```bash
+git show 723dfed --stat -- WORK-TODO.md   # prints nothing
+git log -1 --format=%B 723dfed | grep -i '^Closes'
+```
+
+#61 therefore stayed open in the body, in the index, and in every count for four days —
+**including the counts written into this file by two later passes**, which observed 60 open
+items when 59 was the truth. The item was genuinely done; the file said otherwise and no
+check could tell.
+
+**Why the existing signals do not catch it.** `lib/repo-history.js` `claimsFrom()` already
+parses `Closes`/`Addresses` out of commit bodies, and `lib/backlog-report.js`
+`parseBacklog()` already parses the open items out of this file. **Both halves exist and
+nothing joins them.** `lib/critique-digest.js` consumes both and reports on claim *volume*
+(the closes-to-addresses ratio above), never on claim *truth*.
+
+**Suggested shape, NOT a decision and NOT implemented here.** A check that fails when a
+`Closes #N` commit reachable from `main` leaves `#N` present in `WORK-TODO.md` at that same
+commit — the join of the two parsers named above. Left open: whether it is a jest suite, a
+`npm run validate` step, or a report in the weekly digest; and how to treat an ID closed on
+one branch and re-used for a cross-reference on another.
+
+**The trap that must be designed for, because getting it wrong makes the check worse than
+nothing.** It needs **git history**, and history is exactly what this repository's own
+execution environment does not have: `cloneRepo` clones **`--depth 1`**
+(`lib/clone-lifecycle.js:139,147`), so every scratch clone a dispatch runs in is shallow. A
+naive implementation reads an empty or truncated log, finds no `Closes` lines, and
+**passes** — a green that means "I could not look", reported as "nothing is wrong". That is
+the same defect class as the skip-green in `lib/test-verdict.js` and as the vacuous Phase-3
+gate that #61 was filed for.
+
+**So the shallow case must FAIL LOUDLY, not pass.** The prior art is already in this
+repository and should be reused rather than re-derived: `lib/repo-history.js`'s
+`historyGate()` returns `{ available: false, reason: 'the checkout is a shallow clone —
+history is truncated and any count from it would be wrong' }`, and every function there
+returns `available: false` rather than a count of zero. The check must surface that as a
+failed/unavailable verdict, never as a pass.
+
+**Definition of done.** A check exists that fails on a `Closes #N` commit leaving #N in the
+file; it is red against `723dfed`+`WORK-TODO.md`-at-`8ad5791` as a negative control; and it
+fails loudly rather than passing on a shallow clone, with that shallow behaviour asserted
+by its own test — since a guard whose failure mode is a silent pass is the thing being
+guarded against.
+
+**Related:** #67 (the sibling class — ID allocation, same file, same convention), #39 (the
+queue cannot tell a completed task from a landed one — the same "a claim is not a fact"
+shape one layer out), #36 (enumerating guards and their source-tree walkers).
+
 ### 67. IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide
 
 **Filed 2026-09-20** (this working session; no prior heading — `git log -S'IDs are allocated at WRITE time' -- WORK-TODO.md` returns only the commit that adds this item).
@@ -3226,6 +3393,28 @@ I/O there, archive on completion.
 ---
 
 ## Revision trail
+
+*Updated 2026-09-20 (close-reconciliation pass, docs only — no code, no image change):*
+*(1) **#61 purged.** It was closed by `723dfed` ("Closes WORK-TODO #61", merged `5749d08`)
+on 2026-09-20 and the closing commit never touched this file — `git show 723dfed --stat --
+WORK-TODO.md` prints nothing. Its body lists the DoD checks that ran; per this file's own
+convention that body and the git history are the record.*
+*(2) **#69 filed** — the class the above exposes: a `Closes #N` commit that leaves #N in
+the file is byte-identical to no close at all, so nothing can detect it. Suggested shape
+recorded, not implemented; the shallow-clone trap is recorded with it.*
+*(3) **#70 filed and ranked above #68** — this service has no build step; #68 is one
+symptom of that. Cites SqTools' merge-gate runner as prior art **from the operator's
+account only** (this repository cannot read that repo, #57), and states why the runner's
+container is not reusable here: it deliberately holds no credential and this service holds
+several.*
+*(4) **#68 updated** with four operator-supplied probe facts from the running container
+(no `ensurepip`; Debian 12 bookworm; Python 3.11.2; `EXTERNALLY-MANAGED` present). Both of
+its open questions are answered and both answers break the current approach: shape (c) is
+eliminated and python support is now a code change in `lib/dependency-install.js` as well
+as an image change. Its **BLOCKED — OWNER DECISION** marker was removed on the strength of
+that repo-side half.*
+*(5) **Index regenerated from the headings** and verified identical to its own
+regeneration; counts re-run: **61** open — **9** P1, **42** P2, **10** P3, no duplicate ID.*
 
 *Updated 2026-09-20 (bridge-findings pass, from a working session): four items filed —
 **#57** (the constraints that must hold before the bridge is given a private-repo
