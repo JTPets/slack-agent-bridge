@@ -66,6 +66,9 @@ describe('llm-runner module', () => {
       const mockChild = new EventEmitter();
       mockChild.stdout = new EventEmitter();
       mockChild.stderr = new EventEmitter();
+      // LOGIC CHANGE 2026-09-20: the prompt now goes over stdin, so a fake child
+      // needs a writable stdin or runClaudeAdapter throws on child.stdin.end().
+      mockChild.stdin = Object.assign(new EventEmitter(), { end: jest.fn(), write: jest.fn() });
 
       setImmediate(() => {
         if (stdout) mockChild.stdout.emit('data', stdout);
@@ -85,6 +88,9 @@ describe('llm-runner module', () => {
       const mockChild = new EventEmitter();
       mockChild.stdout = new EventEmitter();
       mockChild.stderr = new EventEmitter();
+      // LOGIC CHANGE 2026-09-20: the prompt now goes over stdin, so a fake child
+      // needs a writable stdin or runClaudeAdapter throws on child.stdin.end().
+      mockChild.stdin = Object.assign(new EventEmitter(), { end: jest.fn(), write: jest.fn() });
 
       setImmediate(() => {
         mockChild.emit('error', new Error(errorMessage));
@@ -208,15 +214,24 @@ describe('llm-runner module', () => {
         claudeBin: '/custom/claude',
       });
 
+      // LOGIC CHANGE 2026-09-20: This assertion previously encoded the defect - it
+      // required the prompt to BE the `-p` argv entry, which is exactly what failed
+      // at execve with E2BIG once the prompt passed MAX_ARG_STRLEN (131072 bytes).
+      // The prompt is no longer in argv at all; it goes over stdin, so stdio[0] is
+      // 'pipe' rather than 'ignore'.
       expect(mockSpawn).toHaveBeenCalledWith(
         '/custom/claude',
-        ['-p', 'my prompt', '--output-format', 'text', '--max-turns', '20', '--dangerously-skip-permissions'],
+        ['-p', '--output-format', 'text', '--max-turns', '20', '--dangerously-skip-permissions'],
         expect.objectContaining({
           cwd: '/test/dir',
           timeout: 120000,
-          stdio: ['ignore', 'pipe', 'pipe'],
+          stdio: ['pipe', 'pipe', 'pipe'],
         })
       );
+
+      // The prompt must still actually reach the child - over stdin.
+      const child = mockSpawn.mock.results[0].value;
+      expect(child.stdin.end).toHaveBeenCalledWith('my prompt');
     });
 
     test('uses default values when options not provided', async () => {
@@ -295,6 +310,9 @@ describe('llm-runner module', () => {
         const mockChild = new EventEmitter();
         mockChild.stdout = new EventEmitter();
         mockChild.stderr = new EventEmitter();
+        // LOGIC CHANGE 2026-09-20: the prompt now goes over stdin, so a fake child
+        // needs a writable stdin or runClaudeAdapter throws on child.stdin.end().
+        mockChild.stdin = Object.assign(new EventEmitter(), { end: jest.fn(), write: jest.fn() });
 
         setImmediate(() => {
           mockChild.stdout.emit('data', 'chunk1 ');
@@ -1655,6 +1673,9 @@ describe('llm-runner module', () => {
         const child = new EventEmitter();
         child.stdout = new EventEmitter();
         child.stderr = new EventEmitter();
+        // LOGIC CHANGE 2026-09-20: the prompt now goes over stdin, so a fake child
+        // needs a writable stdin or runClaudeAdapter throws on child.stdin.end().
+        child.stdin = Object.assign(new EventEmitter(), { end: jest.fn(), write: jest.fn() });
         setImmediate(() => {
           child.stdout.emit('data', 'partial output');
           child.emit('close', null);
@@ -1676,6 +1697,9 @@ describe('llm-runner module', () => {
         const child = new EventEmitter();
         child.stdout = new EventEmitter();
         child.stderr = new EventEmitter();
+        // LOGIC CHANGE 2026-09-20: the prompt now goes over stdin, so a fake child
+        // needs a writable stdin or runClaudeAdapter throws on child.stdin.end().
+        child.stdin = Object.assign(new EventEmitter(), { end: jest.fn(), write: jest.fn() });
         setImmediate(() => {
           child.stderr.emit('data', 'FATAL: out of memory\n');
           child.emit('close', null, 'SIGKILL');

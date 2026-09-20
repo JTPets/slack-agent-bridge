@@ -73,7 +73,11 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
-At the **2026-09-16 audit pass** those print **48** open items — 9 P1, **31** P2, 8 P3 — and
+At the **2026-09-20 bridge-findings pass** those print **52** open items — 9 P1, **33** P2,
+**10** P3 — and **no duplicate ID**. That pass filed **#57**–**#60**, closed nothing, and
+regenerated the index from the headings.
+
+At the **2026-09-16 audit pass** those printed **48** open items — 9 P1, **31** P2, 8 P3 — and
 **no duplicate ID**. That pass purged **#45** (closed: the decision is recorded outside this
 file and the name half it said nothing enforced is enforced by
 `tests/command-router.test.js`), filed nothing, and gave every remaining item a filed date.
@@ -220,7 +224,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (31)
+**P2 — real gaps, no risk to the running process** (33)
 
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
@@ -253,9 +257,13 @@ work behind an owner's name, which is the opposite of the point.
 - **#52** — [The workspace's channels and the repository's agents have never been reconciled in either direction](#52-the-workspaces-channels-and-the-repositorys-agents-have-never-been-reconciled-in-either-direction)
 - **#53** — [`jester` is an active commentary agent with a weekly schedule, no channel, and no defined material](#53-jester-is-an-active-commentary-agent-with-a-weekly-schedule-no-channel-and-no-defined-material)
 - **#54** — [Two defects deferred on scope grounds were load-bearing — the deferral judgement, not the filing, is what failed](#54-two-defects-deferred-on-scope-grounds-were-load-bearing--the-deferral-judgement-not-the-filing-is-what-failed)
+- **#57** — [Before the bridge is given a private-repo credential — the constraints, not the plan](#57-before-the-bridge-is-given-a-private-repo-credential--the-constraints-not-the-plan)
+- **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
 
-**P3 — nice to have / uncertain ROI** (8)
+**P3 — nice to have / uncertain ROI** (10)
 
+- **#58** — [A spawn that fails with `error` never clears Node's `timeout` kill-timer](#58-a-spawn-that-fails-with-error-never-clears-nodes-timeout-kill-timer)
+- **#60** — [If the bridge is ever to act on the NAS, the capability is an allowlisted command set — not a shell](#60-if-the-bridge-is-ever-to-act-on-the-nas-the-capability-is-an-allowlisted-command-set--not-a-shell)
 - **#48** — [A model list is enumerable for a local provider and is a guess for a hosted one — record the asymmetry, build neither yet](#48-a-model-list-is-enumerable-for-a-local-provider-and-is-a-guess-for-a-hosted-one--record-the-asymmetry-build-neither-yet)
 - **#36** — [Three enumerating guards each carry their own source-tree walker, and `tests/` subdirectories are enumerated by none of them](#36-three-enumerating-guards-each-carry-their-own-source-tree-walker-and-tests-subdirectories-are-enumerated-by-none-of-them)
 - **#21** — [`already_in_channel` warns five times per boot — and the obvious fix is in the wrong place](#21-already_in_channel-warns-five-times-per-boot--and-the-obvious-fix-is-in-the-wrong-place)
@@ -2301,7 +2309,160 @@ delete it; #56 depends on it
 
 ---
 
+### 57. Before the bridge is given a private-repo credential — the constraints, not the plan
+
+**Filed 2026-09-20** (this working session; no prior heading — `git log -S'Before the bridge is given a private-repo credential' -- WORK-TODO.md` returns only the commit that adds this item).
+
+**Priority:** P2 | **Effort:** design record now; the work is gated on a decision that has not been taken | **Status:** OPEN — constraints recorded, nothing proposed
+
+**The bridge has never had access to `JTPets/SquareDashboardTool`, and that is deliberate.**
+Every bridge task to date has been on the bridge itself. A dispatch on 2026-09-20 confirmed
+the boundary holds: `git clone --depth 1 --branch main -- https://github.com/JTPets/SquareDashboardTool.git`
+failed in 0s with `fatal: could not read Username for 'https://github.com': No such device
+or address`. Nothing broke — the clone failed closed, with no credential to leak. **This item
+is about what must be true before that boundary is extended, not about extending it.**
+
+The clone path at HEAD is `cloneRepo` in `lib/clone-lifecycle.js:139` (and its `main`
+fallback at `:147`), using `execFileSync` with an argv array.
+
+**Constraint 1 — READ-ONLY deploy key, never a PAT with write scope.** The bridge pushes
+nothing; Claude Code inside the task does the pushing, with its own credential. A write-scoped
+token on the bridge would grant every branch it ever clones the ability to write to SqTools.
+Note `DEPLOY_KEY_PATH` is already read but undocumented — **#34**.
+
+**Constraint 2 — the credential must never be reachable from a container that runs branch
+code.** `npm ci` executes install scripts from whatever branch was cloned, so "clone the
+branch, then run the install" and "hold a credential in that process's environment or
+filesystem" cannot both be true. SqTools **BACKLOG-402** is the precedent for this
+separation — **cited as prior art from the other repository, not as something this repo
+owns or can verify**. Related here: **#27** (a task already has write access to the entire
+live deployment, including every credential) — that item is the reason this constraint is
+not merely theoretical.
+
+**Constraint 3 — `--depth 1` breaks anything that reads git history, and fails QUIETLY.**
+A shallow clone does not error when asked for history; it returns a truncated, wrong answer.
+Observed consequence in the other repository: a SqTools backlog reconciler reported
+"0 IDs with Closes" rather than erroring. **This repository already got this right and the
+pattern is worth copying rather than re-deriving:** `lib/repo-history.js:104` returns
+`{ available: false, reason: 'the checkout is a shallow clone — history is truncated and any
+count from it would be wrong' }` — an explicit unavailable, never a count of zero. Anything
+given a shallow SqTools clone must do the same.
+
+**What is NOT decided here:** whether the bridge gets SqTools access at all, by what
+mechanism, or when. No credential, mount, or compose change is proposed by this item.
+
+### 59. The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound
+
+**Filed 2026-09-20** (this working session; decision taken by the owner in that session).
+
+**Priority:** P2 | **Effort:** medium | **Status:** OPEN — decision taken, **sequenced behind the deploy path (see below)**
+
+**Confirmed from code at HEAD:** `DEFAULT_TURNS = 50`, `MIN_TURNS = 5`, `MAX_TURNS = 100`
+(`lib/task-parser.js:81-83`); an out-of-range `TURNS:` is clamped at `:201`. On a max-turns
+hit the task retries once with doubled turns, capped at 100.
+
+**The cap is doing two jobs, and is only good at one.**
+
+1. **Preventing an infinite loop — still essential.** An agent that never terminates must be
+   stopped by something.
+2. **Bounding cost — a poor proxy.** A "turn" is a one-line `grep` or a full suite run. The
+   two differ by orders of magnitude in time and tokens, so a turn count bounds neither.
+
+**DECISION TAKEN (owner, 2026-09-20):** replace the hard turn ceiling with
+
+- a **stall detector** — abort when N consecutive turns add no new checkpoint, which targets
+  the actual failure the cap was protecting against (a loop), and
+- a **wall-clock ceiling** as the outer bound, because wall-clock is what matters for an
+  overnight run.
+
+**SEQUENCING — this does not land first.** It is gated on the deploy path being settled
+(**#17**: nothing starts `auto-update.js`, so merged code does not reach the running
+process). Raising or removing the ceiling before a restart can no longer land mid-task means
+longer runs with *more* chances to be interrupted in flight, not fewer. Land the deploy-path
+work, then this.
+
+**Related, not duplicated:** **#20** records that `MAX_TURNS` names four different quantities
+and that the env var is dead config. That is a naming/wiring defect; this item is about what
+the ceiling should *be*. Both touch `lib/task-parser.js`; neither subsumes the other.
+
+**Not decided here:** the value of N, the wall-clock bound, or what counts as a "checkpoint".
+
 ## P3 — Nice to have / uncertain ROI
+
+### 58. A spawn that fails with `error` never clears Node's `timeout` kill-timer
+
+**Filed 2026-09-20** (found while fixing the `E2BIG` dispatch failure; **pre-existing**, reproduced against `origin/main`).
+
+**Priority:** P3 | **Effort:** small | **Status:** OPEN — diagnosed, not fixed
+
+`runClaudeAdapter` passes Node's `timeout` option to `spawn` (`lib/llm-runner.js`, default
+`DEFAULT_TIMEOUT` = 600000 ms). Node arms that option's internal kill-timer at spawn and
+clears it on the child's `'exit'`. **A spawn that fails emits `'error'` and never `'exit'`,
+so the timer is never cleared** and keeps the event loop referenced for the full timeout —
+ten minutes at the default.
+
+**This is not the E2BIG defect and was not introduced by fixing it.** Reproduced against
+`origin/main:lib/llm-runner.js` before any change:
+
+```
+ORIGINAL REJECTED: Spawn failed: spawn /nonexistent/claude ENOENT 4 ms
+ORIGINAL EXIT=124 (timed out — event loop never drained)
+```
+
+With an explicit short timeout the drain time equals the timeout exactly, which is what
+identifies the timer as the cause:
+
+```
+REJECTED: Spawn failed: spawn /nonexistent/claude ENOENT 7 ms
+DRAINED at 1507 ms          # timeout: 1500
+```
+
+**What it does and does not cost.** The task's rejection is immediate (single-digit ms), so
+**no user-visible delay and no wrong answer** — this is why it is P3. In the long-running
+bridge a stray timer per failed spawn is bounded and self-clearing. It bites test runs: it is
+why `tests/llm-runner-prompt-size.test.js` passes an explicit short `timeout` in its
+missing-binary case, with a comment pointing here. `process._getActiveHandles()` reports **0**
+while the process still will not exit, so this is easy to misdiagnose as a handle leak — it is
+a timer, which that API does not list.
+
+**The realistic trigger is a wrong `CLAUDE_BIN`** (default `/usr/local/bin/claude`), i.e. an
+`ENOENT` at spawn.
+
+**Fix shape (not implemented):** stop passing `timeout` to `spawn` and own the deadline with
+an `unref()`'d timer cleared on both `'exit'` and `'error'`. **This is the code path every
+dispatch takes**, so the change wants its own task and its own proof, not a drive-by.
+
+### 60. If the bridge is ever to act on the NAS, the capability is an allowlisted command set — not a shell
+
+**Filed 2026-09-20** (this working session).
+
+**Priority:** P3 | **Effort:** n/a — **DEFERRED behind #57 and the constraints it records** | **Status:** DEFERRED, recorded so the shape is not re-litigated later
+
+**Why this is written down before it is wanted.** The NAS runs **production Postgres**, and
+the SqTools gate's deploy key and `runner.env` sit in the same directory. A general "run this
+on the NAS" capability puts both inside the blast radius of any prompt that reaches the
+bridge. The shape has to be settled before the capability is built, because the cheap version
+(hand it a shell) is the one that cannot be walked back.
+
+**The shape, if it is ever built:** a **fixed, validated list** of permitted operations —
+not command execution. Each entry names its executable and the exact shape of each argument;
+anything not on the list is refused, not escaped.
+
+**The one that matters first** is `sh gate-host.sh <branch>` with a **validated** branch
+argument — it is what an unattended overnight gate queue needs, and it is a single operation
+with a single argument, which is the easiest possible case to allowlist.
+
+**This repository already has both halves of the pattern**, so the argument-validation half
+is not new work here: `lib/git-identifiers.js` (reject, never sanitise) and every `git` call
+in `lib/clone-lifecycle.js` going through `execFileSync` with an argv array and a `--`
+separator, enumerated repo-wide by `tests/no-shell-execution.test.js`.
+
+**Deferred behind:** **#57** (no credential exists, and its constraints are unsettled) and
+**#27** (a task already has write access to the entire live deployment). Building a NAS
+capability before those are resolved would widen a blast radius that is already recorded as
+undecided.
+
+**Not decided here:** whether this is built at all.
 
 ### 48. A model list is enumerable for a local provider and is a guess for a hosted one — record the asymmetry, build neither yet
 **Filed 2026-09-15,** from the provider-resolution pass. **Recorded so that whoever builds
@@ -2536,6 +2697,53 @@ I/O there, archive on completion.
 ---
 
 ## Revision trail
+
+*Updated 2026-09-20 (bridge-findings pass, from a working session): four items filed —
+**#57** (the constraints that must hold before the bridge is given a private-repo
+credential), **#59** (turn cap vs stall detection — owner decision taken, sequenced behind
+**#17**), **#58** (a spawn that fails with `error` never clears Node's `timeout`
+kill-timer — pre-existing, found while fixing the E2BIG defect) and **#60** (an allowlisted
+command set rather than a shell, if the bridge is ever to act on the NAS — DEFERRED).*
+
+*Three candidates from that session were **checked against HEAD and deliberately NOT
+filed**, because each was already recorded or already closed. Recording the check rather
+than duplicating the item:*
+
+- *"The self-update loop does not honour the task lock." **Not true at HEAD.**
+  `auto-update.js:563` calls `evaluateTaskDeferral()` (defined `:312`), which consults
+  `taskLock.inspect()` and `taskLock.releaseIfStale()` (`:315`, `:325`) **before** any git
+  mutation; the deferral gate is documented in `CLAUDE.md` → "Task lock and self-update
+  deferral". The stated **consequence** — that multi-turn work cannot be dispatched safely —
+  is real, but for a different reason, and it is **already filed as #17**: nothing starts
+  `auto-update.js` (`node -e "console.log(Object.keys(require('./package.json').scripts))"`
+  → `[ 'test', 'test:smoke', 'validate' ]`), so the 5-minute loop
+  (`CHECK_INTERVAL_MS`, `auto-update.js:41`, `setInterval` at `:852`) **is not running at
+  all**. What can still kill a task mid-flight is a manual `docker compose restart`, which
+  respects none of the protocol. Filing a second item would have split #17.*
+
+- *"`REPO:` and `BRANCH:` are untrusted Slack input reaching a shell string." **Already
+  closed at HEAD.** The shape asked for — validate against a character class first, then
+  pass as an argv slot, never interpolated — is what the code does:
+  `git(['clone', '--depth', '1', '--branch', branch, '--', url, targetDir])` via
+  `execFileSync` (`lib/clone-lifecycle.js:139`, fallback `:147`, `execFileSync` at `:134`),
+  with values rejected — never sanitised — by `lib/git-identifiers.js`. The class is
+  enumerated repo-wide by `tests/no-shell-execution.test.js`. The 2026-09-20 clone failure
+  quoted `... --branch main -- https://github.com/...`, which shows the `--` separator
+  already in place.*
+
+- *"The `/repo` read-only mount is a real boundary, never to be made writable." **Already
+  recorded, in two places**, so no new item: `docs/CONFIG-SURFACE-AND-REBUILD.md:154` ("`/repo`
+  is read-only, and that is a real boundary", with the mount at `:30`/`:51` and the
+  asymmetry with `/bridge` at `:187`), and `docs/EXECUTOR-CONTRACT.md` §7, which states
+  "Never propose making it writable" as a standing rule on every dispatched executor.*
+
+*The **E2BIG dispatch failure** found and fixed in that session is **not** carried as an
+item here, because this file purges closed items — the commit body and the git history are
+the record. The durable facts it produced (the measured 131071-byte single-argv ceiling, the
+command that regenerates it, why `buildPrompt` reached it, and the standing "unbounded values
+go over stdin, never argv" rule) are in `CLAUDE.md` → "An argv array is not a place to put a
+prompt — MAX_ARG_STRLEN", and the guard is `tests/llm-runner-prompt-size.test.js`.*
+
 
 The per-revision "what changed since last time" narrative that used to live here has been
 removed. It had grown to ~190 lines that restated items already stated above, recorded
