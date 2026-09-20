@@ -130,6 +130,7 @@ The agent responds directly without cloning any repo.
 | `POLL_INTERVAL_MS` | `30000` | How often to check Slack (ms) |
 | `MAX_TURNS` | `50` | Default max LLM turns per task |
 | `TASK_TIMEOUT_MS` | `600000` | Hard timeout per task (10 min) |
+| `INSTALL_TIMEOUT_MS` | `300000` | Hard timeout for installing a scratch clone's dependencies (5 min). Separate from `TASK_TIMEOUT_MS`; a timeout is a harness failure |
 | `WORK_DIR` | `/tmp/bridge-agent` | Temp directory for clones |
 | `GITHUB_ORG` | - | Default org for short repo names |
 | `SLACK_APP_TOKEN` | - | App-level token (`xapp-`) for the additive Socket Mode connection. Unset = Socket Mode off, which is a supported state — see below |

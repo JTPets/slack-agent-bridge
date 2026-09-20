@@ -104,6 +104,27 @@ command beside it rather than trusting the number.
 
 ---
 
+## 2a. The scratch-clone dependency install — wired 2026-09-20
+
+`lib/dependency-install.js` has exactly one production caller: `processTask` in
+`bridge-agent.js`, which calls `installDependencies(taskDir)` **immediately after
+`cloneRepo(...)` and before Phase 1 (`reviewTask`) and the LLM**. That position is the
+whole point (WORK-TODO #61): the install is what makes Phase 3's test gate real rather
+than vacuous — before it, `npm test` in a clone with no `node_modules` exited 127 and
+`validateOutput` could only ever score `runner_absent`.
+
+- **Install site:** `bridge-agent.js` `processTask`, in the `if (task.repo)` block right
+  after the clone (regenerate: `grep -n "installDependencies" bridge-agent.js`).
+- **Fail-hard:** a HARNESS outcome (`install.harnessFailure`) posts a distinct
+  `:rotating_light:` ops message and `throw`s before any prompt is built — no branch, no
+  code, no vacuous verification. Distinct from Phase 3's CODE-failure post
+  (`validateOutput`, `tests ran and failed`) and its own `runner_absent` safety net.
+- **Not baked here:** the bridge's own tooling is installed at container start
+  (`docker-compose.example.yml` `command:`), not by this module. This module installs the
+  *target* repo's deps into the clone that owns them.
+
+---
+
 ## 3. Dead / unwired code (no production caller)
 
 Reachable only from tests — a live process never loads these:

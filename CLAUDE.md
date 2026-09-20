@@ -239,6 +239,7 @@ const POLL_INTERVAL = 5000;
 | `MAX_TURNS` | CC max turns per task | `50` |
 | `TASK_TIMEOUT_MS` | Hard kill timeout in ms | `600000` |
 | `TASK_LOCK_STALE_MS` | Age at which a task lock is treated as orphaned and released. Must exceed the longest a task can legitimately run. | `2 × TASK_TIMEOUT_MS + 600000` (30 min at defaults) |
+| `INSTALL_TIMEOUT_MS` | Hard timeout for installing a scratch clone's own dependencies (`lib/dependency-install.js`). Separate from `TASK_TIMEOUT_MS` so a hung install cannot eat the LLM turn allowance; a timeout is a HARNESS failure with its own message. Raise it if a slow network causes false harness failures. | `300000` (5 min) |
 | `UPDATE_DEFER_ALERT_MS` | How long one self-update may be deferred before every cycle escalates to `#sqtools-ops` | `3600000` (60 min) |
 | `WORK_DIR` | Base dir for temp clones | `/tmp/bridge-agent` |
 | `REPOS` | Comma-separated repos. Read by `getConfiguredRepos()` in `lib/config.js` — the single owner of the list — for the nightly security review AND for the `/dispatch` form's repository select. Adding a repository is this variable plus `docker compose up -d --force-recreate jt-agent`; it is not a code change | `jtpets/slack-agent-bridge,jtpets/SquareDashboardTool` |
@@ -688,6 +689,7 @@ slack-agent-bridge/
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
 │   ├── channel-map-rebuild.js # THE reproduction path for the workspace channel mapping (WORK-TODO #55): reconstructFromHistory() recovers the ids from agents/agents.json as it stood when the markdown migration deleted it, joining on the AGENT ID so a name correction cannot orphan one; resolveDeclaredChannels() asks Slack what the declared names mean HERE, via the same resolveAgentChannel() the boot path calls. A value already resolved against the live workspace always beats a reconstructed one. Creates no channel, writes no tracked file
 │   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork, assertValidTargetDir. Every git call is an execFileSync argv array — no function here builds a shell command string
+│   ├── dependency-install.js # Installs a scratch clone's OWN dependencies BEFORE the LLM runs, so Phase-3's test gate is real instead of vacuous (WORK-TODO #61): detectEcosystem (node -> npm ci/npm install, python -> python3 -m pip) and installDependencies, which returns one of three failure outcomes NEVER collapsed into one — INSTALL_FAILED / INSTALLER_ABSENT / TIMED_OUT are all HARNESS failures the caller stops the dispatch on, distinct from a CODE failure (tests ran and failed) and a pass. A repo with no recognised manifest installs nothing and proceeds. No shell: spawnSync with an argv array. Bounded by INSTALL_TIMEOUT_MS
 │   ├── bridge-state.js    # State persistence (seam B): sole owner of .bridge-agent-state.json (per-channel poll cursors) and processed-tasks.json (task dedup); init, get/setLastChecked, isTaskProcessed, markTaskProcessed, cleanupProcessedTasks
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
 │   ├── slack-socket.js   # ADDITIVE Slack Socket Mode connection, commands only. startSocketMode() opens one WebSocket for slash commands and NEVER throws: no SLACK_APP_TOKEN, a malformed token, a missing dependency or a rejected handshake each resolve to `{ started: false, reason }` and are reported to #sqtools-ops. The dependency is required lazily so it cannot break bridge-agent's load. Reconnection is the library's; an outage lasting SOCKET_MODE_DOWN_ALERT_MS reaches a human and re-posts until it recovers. Registers NO command — the seam is `onSlashCommand`
@@ -780,6 +782,7 @@ slack-agent-bridge/
 │   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
 │   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo argv/`--` separators, assertValidTargetDir rejections, deploy-key paths, cleanupDir, export surface)
 │   ├── undelivered-work.test.js # Tests for detectUndeliveredWork + processTask's delivery-gated cleanup (the regression guard for the three tasks lost to unconditional cleanup)
+│   ├── dependency-install.test.js # Tests for lib/dependency-install.js: ecosystem detection (node ci-vs-install, python, none), every classification via an injected runner, AND the three outcomes produced for real — a real out-of-sync `npm ci` proving the HARNESS classification, a real `npm ci` then a failing `node --test` proving the CODE classification, and the same then a passing suite proving a pass
 │   ├── bridge-state.test.js     # Tests for lib/bridge-state.js (poll cursors, legacy migration, processed-task dedup; temp-dir CRUD)
 │   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management, joinAgentChannels)
 │   ├── slack-socket.test.js     # Tests for lib/slack-socket.js: THE guard for the additivity contract (every failure mode resolves inert instead of throwing), that a rejection message never echoes the token it rejected, that an outage reaches a human and a recovery does too, and that bridge-agent.js starts the connection AFTER the poll interval is armed and does not await it
@@ -962,6 +965,28 @@ Each repo task is executed in a fresh scratch clone under `WORK_DIR`
 block used to delete that clone unconditionally — so when a push never landed
 (a READ-ONLY clone, or a failed push), the agent's commits lived only in the
 clone and cleanup erased them. Three tasks were lost this way.
+
+**Dependencies install before the LLM runs (`lib/dependency-install.js`, WORK-TODO
+#61).** Right after `cloneRepo`, `processTask` calls `installDependencies(taskDir)`.
+Without it, Phase-3's test command ran in a clone with no `node_modules`: `npm test`
+exited 127 (`jest: not found`), `lib/test-verdict.js` scored it `runner_absent`, and the
+gate could only ever report that — every repo dispatch's verification was vacuous. The
+step detects the ecosystem (a `package.json` → `npm ci` with a lockfile, else
+`npm install`; a `requirements.txt`/`pyproject.toml`/`setup.py` → `python3 -m pip`) and
+runs it. **The bridge's own tooling (node, npm, jest, the Claude CLI) is NOT installed
+here** — it is baked into the container at start (`docker-compose.example.yml`
+`command:` runs `npm ci && npm install -g @anthropic-ai/claude-code`); a *target* repo's
+deps cannot be baked because the bridge dispatches to arbitrary repos, so they install
+into the clone that owns them. **An install failure STOPS the dispatch before any code is
+written**, reported as a HARNESS failure (`INSTALL_FAILED`/`INSTALLER_ABSENT`/`TIMED_OUT`)
+distinct from a CODE failure (tests ran and failed) — an agent that cannot install can
+still write a branch it cannot verify, which puts the owner back to merging on a claim. A
+repo with no recognised manifest installs nothing and proceeds (research/audit tasks).
+Bounded by `INSTALL_TIMEOUT_MS`, separate from `TASK_TIMEOUT_MS` so a hung install cannot
+eat the turn allowance. **Python is detected and attempted but end-to-end python is
+UNVERIFIED** — no python repo is cloned in tests and `pip` availability in the deployed
+image is off-box; if `pip` is absent the dispatch fails as `INSTALLER_ABSENT` (a clear
+refusal), never a silent skip.
 
 **Cleanup now gates on delivery.** `detectUndeliveredWork(dir)` in
 `lib/clone-lifecycle.js` (called from `processTask` in `bridge-agent.js`)
