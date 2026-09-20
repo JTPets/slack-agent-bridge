@@ -558,6 +558,16 @@ docker compose logs -f jt-agent
 # deploys. An .env change needs `up -d --force-recreate`, not `restart` — restart
 # reuses the existing container and its baked-in environment.
 # See "Self-update — DESIGNED AND TESTED, NOT WIRED" above.
+#
+# THAT RESTART KILLS A RUNNING TASK, UNCLEANLY. bridge-agent.js has a SIGTERM handler
+# that waits up to 60s for the current task (gracefulShutdown, :2684) and it NEVER RUNS:
+# PID 1 is the compose command's `sh`, not node, and sh does not forward signals to the
+# child it is waiting on, so the task is SIGKILLed when Docker's grace period expires.
+# The lock is not released, nothing is posted, the scratch clone is not checked for
+# unpushed commits, and the message is re-read and re-run next poll. Check
+# `ASK: what's queued` before restarting. WORK-TODO #73.
+# A `--force-recreate` additionally DISCARDS $WORK_DIR (/tmp/bridge-agent by default):
+# the task lock, task-queue.json, .update-pending and every preserved scratch clone.
 
 # Cron jobs. <repo> is the repo path as the cron host sees it; on the NAS the
 # host path is /share/CACHEDEV1_DATA/jt-agent, and the in-container path differs.
@@ -1404,8 +1414,20 @@ above accepts that explicitly. Drain-one adds the missing half.
 3. The **current** task is allowed to finish. One task, not a queue to empty.
 4. The update applies when that task is **confirmed finished**, which means
    **result delivered** — see the `delivery` verdict in "Task Queue Coordination" above.
-   `evaluateTaskDeferral()` keys on that verdict, not on the status, not on the process
-   having returned and not on the lock having been released.
+   `evaluateTaskDeferral()` reads that verdict, not the process having returned and not the
+   lock having been released.
+
+   **Accuracy note, 2026-09-20 (WORK-TODO #74).** This step used to say the gate keys on the
+   verdict *"not on the status"*. It reads the verdict — the code is there
+   (`auto-update.js:298`) — but at HEAD that branch **cannot fire**: all four terminal writers
+   in `lib/task-queue.js` stamp a delivery object in the same block as the status (`:398/:401`,
+   `:426/:429`, `:466/:469`, `:501/:510`), and `normalizeDelivery()` never returns `null`, so
+   `isTerminal && !deliveryRecorded` is unreachable for any row this code writes. **A delivery
+   that permanently fails is recorded as `delivered: false` and does NOT hold an update** —
+   which is the intended behaviour, just not produced by the mechanism this paragraph credited.
+   What protects the post window is that the result post precedes the terminal write, so the
+   entry is still `running` during it. The verdict's working value is the durable record of a
+   loss; the gate half is defence in depth against a future writer. #74 records the shapes.
 5. **There is NO CEILING.** A pending update may wait indefinitely. It is never forced
    and no task is ever killed for it.
 

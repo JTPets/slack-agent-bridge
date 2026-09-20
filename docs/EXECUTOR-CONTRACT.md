@@ -183,7 +183,7 @@ stop.
   `tests/dispatch-body-delivery.test.js`. **If you are composing a dispatch by hand,
   the body goes under `INSTRUCTIONS:`.**
 - **`TURNS:` default 50, minimum 5, ceiling 100** (`MIN_TURNS`/`MAX_TURNS`,
-  `lib/task-parser.js:55-56`); out-of-range values are clamped, non-numeric ignored. On
+  `lib/task-parser.js:81-83` — cited here as `:55-56` until 2026-09-20); out-of-range values are clamped, non-numeric ignored. On
   a max-turns hit the task retries **once** with doubled turns, capped at 100. Dispatch
   bridge work with `TURNS: 100`.
 - **You are in a scratch clone, never the live tree.** Each repo task runs in a fresh
@@ -213,6 +213,14 @@ stop.
   `docker compose restart jt-agent` on the NAS. **Never report a change as deployed, and
   never verify a fix against the live bridge, on the strength of having pushed it.** See
   "Self-update — DESIGNED AND TESTED, NOT WIRED" in `CLAUDE.md`.
+- **That restart kills a running task, and does not even signal the bridge first.**
+  `bridge-agent.js` has a `SIGTERM` handler that waits up to 60 s for the running task
+  (`gracefulShutdown()`, registered at `:2684`) — **it never runs.** PID 1 is the compose
+  `command:`'s `sh`, not `node`, and `sh` does not forward signals to the child it is
+  waiting on, so the task is `SIGKILL`ed when Docker's grace period expires. Nothing is
+  released, nothing is posted, the scratch clone is never checked for unpushed commits, and
+  the message is re-read and re-run on the next poll. **Before asking for a restart, check
+  `ASK: what's queued`.** Full evidence and the three candidate fixes: WORK-TODO **#73**.
 - **An environment change needs the container recreated, not restarted.**
   `docker compose up -d --force-recreate jt-agent` — a plain `restart` reuses the
   existing container and its baked-in environment, so the new value never lands.
@@ -223,6 +231,75 @@ stop.
   per-agent override belongs in `.env` as `LLM_PROVIDER_<AGENTID>`.
 - **Never log a token, key or `.env` value.** Name the variable, never the value — in
   logs, in Slack posts, in commit messages, in your report.
+
+## 7.1 The four standing "known blocker" claims — status re-verified at HEAD
+
+Four claims about this repository circulate in dispatch prompts as *"all filed, none fixed"*.
+**Three of the four are stale.** They were re-checked on 2026-09-20 at `f13e012`; the table is
+the verdict, and each row carries the command that re-establishes it. **Re-run them rather
+than trusting this table** — that is the whole point of the table existing. A rule followed
+against a condition that no longer holds is not caution, it is a cost with no benefit: the
+"no multi-turn bridge work" rule was gating real work on blocker 4, which cannot occur.
+
+| # | The standing claim | Verdict at `f13e012` |
+|---|---|---|
+| 1 | *No access to the SqTools repo — deliberate* | **TRUE**, with a caveat that changes what you may rely on. See below. |
+| 2 | *`spawn E2BIG` — the prompt is passed as a command-line argument* | **STALE.** Fixed 2026-09-20. |
+| 3 | *`REPO:`/`BRANCH:` are untrusted Slack input reaching a shell string* | **STALE.** Fixed 2026-09-14, and to the class, not to two labels. |
+| 4 | *The self-update loop runs every 5 minutes and does not honour the task lock* | **STALE IN BOTH HALVES.** It has honoured the lock since 2026-09-14, and it does not run at all. |
+
+**1 — the SqTools boundary holds, but nothing enforces it except the absence of a
+credential.** There is no repository allowlist on the dispatch path: `isValidRepo`
+(`lib/git-identifiers.js`) checks the *shape* `owner/name`, never membership, and the `REPOS`
+env var is read only by the nightly security review and by the `/dispatch` form's select
+(`getConfiguredRepos`, `lib/config.js:198`; the only consumers are `security-review.js:53`
+and `lib/dispatch-modal.js:69`). `cloneRepo` clones over **anonymous HTTPS**
+(`https://github.com/${repo}.git`, `lib/clone-lifecycle.js:136`) and configures the deploy key
+only afterwards, for pushing — so a private repository fails closed at the clone with no
+credential to leak, which is what a 2026-09-20 dispatch observed (#57). **Two consequences
+worth knowing:** `jtpets/SquareDashboardTool` is in `DEFAULT_REPOS`, so the `/dispatch` form
+*offers* it and selecting it produces a 0-second clone failure, not a refusal; and any
+*public* repository of valid shape can be cloned today. Regenerate:
+`grep -n "DEFAULT_REPOS" lib/config.js` and `grep -rn "getConfiguredRepos" --include=*.js .`
+
+**2 — the prompt goes over stdin.** `runClaudeAdapter` builds an argv array of flags only
+(`lib/llm-runner.js:369-374`) and writes the prompt with `child.stdin.end(promptText)`
+(`:408`). **No path passes a prompt in argv:** the claude CLI is spawned from exactly one
+place (`grep -rn "claudeBin" --include=*.js . | grep -v node_modules | grep -v tests/` →
+`lib/llm-runner.js:351,385`), and the other two adapters are HTTP. The guard is
+`tests/llm-runner-prompt-size.test.js`, which spawns for real because a mocked
+`child_process` accepts an argv entry of any size.
+
+**3 — and the fix is to the class.** `cloneRepo` (`lib/clone-lifecycle.js:127`) runs
+`execFileSync('git', args)` (`:134`) with `--` before the positionals
+(`['clone','--depth','1','--branch',branch,'--',url,targetDir]`, `:139`, fallback `:147`),
+values rejected — never sanitised — at the boundary and again at the sink. **On the "was it
+scoped to two labels?" question: no.** Every `child_process` call site in the repository uses
+an argv array; `grep -rnE "spawn\(|spawnSync\(|execFileSync\(|execFile\(" --include=*.js . |
+grep -v node_modules | grep -v '^./tests/'` returns 14 sites and none builds a command string.
+The other Slack-controlled fields reach no shell either: `SKILL:` is validated as a single
+path segment and indexes `skills/<skill>/SKILL.md` (`bridge-agent.js:686`); `TASK:` and
+`INSTRUCTIONS:` reach the prompt, which is now stdin; `targetDir` is
+`path.join(WORK_DIR, 'task-<msg.ts>')` and is shape-asserted by `assertValidTargetDir`. The
+enumerating guard for the class is `tests/no-shell-execution.test.js` — cite it, not a grep.
+
+**4 — stale in both halves, and they are independent.**
+*Half one:* `checkForUpdates()` calls `evaluateTaskDeferral()` at `auto-update.js:643`,
+**before** the first git mutation (`deps.gitResetHard()` at `:708`); the gate itself
+(`:343`) consults `taskLock.releaseIfStale()` (`:346`) and `taskLock.inspect()` (`:356`).
+*Half two:* **nothing starts `auto-update.js`** —
+`node -e "console.log(Object.keys(require('./package.json').scripts))"` → `[ 'test',
+'test:smoke', 'validate' ]`, and
+`grep -rn "auto-update" --include=*.js --include=*.json . | grep -v node_modules | grep -v
+package-lock | grep -v '^./tests/'` returns only comments, doc prose and the file's own body.
+There is no Procfile, systemd unit or supervisor config. So the 5-minute cadence
+(`CHECK_INTERVAL_MS`, `auto-update.js:47`, `setInterval` at `:957`) is not running. WORK-TODO
+**#17**, which now also records why fixing that alone is not enough (layers 2 and 3).
+
+**What blocker 4 was protecting against is real, and arrives by another route.** A manual
+`docker compose restart jt-agent` kills a running task and never signals the bridge — see the
+deploy bullets in §7 and WORK-TODO **#73**. Do not read "blocker 4 is stale" as "long
+dispatches are now safe"; read it as "the danger has a different name and a different item".
 
 ## 8. Forbidden
 

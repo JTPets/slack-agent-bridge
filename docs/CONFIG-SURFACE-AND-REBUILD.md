@@ -839,7 +839,14 @@ git check-ignore -v <path> ; git ls-files --error-unmatch <path>
 
 The fourth row is the one that is easy to miss: `WORK_DIR` defaults to `/tmp/bridge-agent`,
 which is neither bind mount (Step 0), so it is the container's own writable layer —
-Consequence 2 above, applied to two more files than the scratch clone it was written about.
+Consequence 2 above, applied to three more files than the scratch clone it was written about.
+**Updated 2026-09-20:** drain-one (`fdf489d`) added a third container-local coordination file,
+`$WORK_DIR/.update-pending` — row **26** below. The complete container-local set is now the
+task lock (12), the task queue (11), the pending-update marker (26) and the scratch clones
+themselves. All four are kept by `docker compose restart` and discarded by
+`docker compose up -d --force-recreate`, which **every `.env` change requires**. The
+operational consequence of that asymmetry — and the separate finding that a plain `restart`
+`SIGKILL`s a running task without ever signalling it — is WORK-TODO **#73**.
 
 ## 8.1 The enumeration
 
@@ -874,6 +881,7 @@ refused* (a human is told, and the system stops rather than guessing), *silently
 | 22 | The environment file | `/bridge/.env` | off-repo, owner-managed | **learned** | a human | `lib/config.js` and 55 other read sites | a firmware event, box loss, a mistaken edit | **Loudly refused** for the three required keys (`validateConfig` exits); **silently degraded** for everything else, including every `LLM_PROVIDER_<AGENTID>` override |
 | 23 | The deploy key | `/bridge/.deploy_key` (`DEPLOY_KEY_PATH`) | off-repo | **learned** | a human | `lib/clone-lifecycle.js` | box loss | **Loudly refused** — pushes fail |
 | 24 | The deployment definition | `/bridge/docker-compose.yml` | off-repo, untracked on the box | **both** | a human | `docker compose` | `git clean -fd` **on the box** (the repo-side `.gitignore` line reaches the box only when someone pulls there) | **Loudly refused** — and the off-box copy is `docker-compose.example.yml` (Step 7.9) |
+| 26 | Pending-update marker | `$WORK_DIR/.update-pending` | **container-local** | **learned** | `lib/update-drain.js` `markPending`, via `auto-update.js` (no live caller — **#17**) | `drainStateForDispatch()` in `bridge-agent.js:459` on **every** `TASK:` — the live half | same as #11 | **Unnoticed, and benign in isolation.** Losing it stops dispatches being refused, which is the pre-drain-one behaviour; a live updater re-marks on its next cycle and `checkForUpdates()` clears it explicitly when the head already matches (`auto-update.js:587`). What is *not* benign is that the same event takes row 11 with it |
 | 25 | The Slack workspace | not a file | external | **learned** | Slack | everything | an owner action, an app reinstall | **Loudly refused** at boot for a name that stops resolving; **unnoticed** for a channel nobody declared (WORK-TODO **#52**) |
 
 ### Two rows that are new findings, not restatements
