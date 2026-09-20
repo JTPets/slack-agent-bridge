@@ -1099,3 +1099,105 @@ access to that repository, WORK-TODO #57). An image resolving a different versio
 install cleanly, run the suite and report a green that does not hold on the box. That is
 the same class as a Postgres-major mismatch, and it is why the list above is a list of
 **supported** toolchains rather than a list of installed binaries.
+
+---
+
+# Step 10 — What `/repo:ro` actually exposes, and a `WORK_DIR` correction (addendum, 2026-09-20)
+
+**This is an addendum to a dated snapshot. Steps 0–9 and the Appendix above are
+unchanged** — they record what was observed from inside the running container on
+2026-09-14 and are not rewritten here. Two statements made in those steps are corrected
+below, in place of editing them.
+
+## 10.1 Correction to Step 0, consequence 3 — `:ro` is an integrity boundary, not a confidentiality one
+
+Consequence 3 says of the SqTools mount: *"A task executor with a shell inside this
+container cannot write to it. Not 'is asked not to': cannot. That mount flag is the reason
+a bridge-side compromise, a prompt injection, or a plainly mistaken task cannot damage
+SqTools."*
+
+**Every clause of that is correct, and the section is incomplete in a way that has been
+read as a stronger claim than it makes.** It enumerates the `/bridge` blast radius
+file by file and enumerates nothing for `/repo`, so the mount reads as out of reach.
+It is not:
+
+| Direction | Verdict | Enforced by |
+|---|---|---|
+| Write `/repo` | **Cannot** | the `:ro` flag, in the kernel. **Never remove it.** |
+| Read `/repo` | **Can, and nothing is in the way** | nothing |
+
+`/repo` is `/share/CACHEDEV1_DATA/sqtools/app` — SqTools' **production working tree**, not
+a checkout of its repository. This document already names, without having read them, what
+such a tree carries: Step 6 lists "its own `.env`" among the SqTools things at `/repo` that
+must not be touched, and Step 5 item 5 records that a deploy key sits beside a tree of this
+kind. **Nothing under `/repo` was read to establish this correction, and nothing should be:
+that the path is readable by the process is the finding.**
+
+**The execution-location question, which decides whether this matters, answered from the
+code** (repository-verified, regenerable from any checkout):
+
+| Question | Answer | Site |
+|---|---|---|
+| Where does a dispatch's clone live? | `path.join(WORK_DIR, 'task-<ts>')` — a path **in this container** | `bridge-agent.js:646`, `lib/config.js:41` |
+| Where does the agent CLI run? | an ordinary **child process** of the bridge, `--dangerously-skip-permissions`, `cwd` = the clone | `lib/llm-runner.js:385` (argv `:369-374`), from `bridge-agent.js:896-897` with `cwd` set at `:648` |
+| Does a dispatch run code before any review or test? | **yes** — the clone's own `npm ci`, i.e. the branch's dependency install scripts | `bridge-agent.js:660` → `lib/dependency-install.js:161` |
+| Is there a second container, or a route to one? | **no** | `grep -rn "docker\.sock\|dockerode" --include=*.js . \| grep -v node_modules` → nothing; `docs/COMMAND-SURFACE.md` §5 |
+
+`cwd` is a working directory. It is not a root, not a namespace and not a permission. So a
+dispatch against **any** repository of valid shape — `isValidRepo` admits any public one —
+runs code in the same mount namespace as `/repo`, and the first such code runs before the
+LLM's first turn.
+
+**No code in this repository reads `/repo`** (`grep -rnE "['\"\`]/repo(/|['\"\`:])"
+--include=*.js --include=*.json --include=*.yml . | grep -v node_modules` → only two test
+files using `/repo` as a dummy `repoDir` string), which
+`docs/CAPABILITY-AND-ISOLATION-DESIGN.md:306` and `docs/JESTER-DESIGN.md:174` already
+record independently. **The mount therefore serves no feature this repository can name.**
+Its origin is not establishable from here: every commit mentioning it is a documentation
+pass observing it (`git log --oneline -S "sqtools/app"` → `9d951f3`, `04af5c3`, `bbf9a7d`,
+`9017b24`, `fb51d5a`).
+
+Filed with the shapes as **WORK-TODO #75**; `docs/EXECUTOR-CONTRACT.md` §7 and §7.1 row 1
+now carry the executor-facing version. §7.7's line *"The `:ro` on `/repo` is the one
+containment boundary this deployment has"* should be read with the table above: it is the
+one containment boundary, and it contains writes.
+
+## 10.2 Correction to Step 0 consequence 2 / §8.1 — `WORK_DIR` may be a bind mount on the live box
+
+Consequence 2 and the §8.1 durability rows derive "`/tmp/bridge-agent` is container-local
+storage" from the compose file **as captured 2026-09-14** (Appendix; reproduced at
+`docker-compose.example.yml:75-80`), which declares two mounts and neither covers `/tmp`.
+
+On **2026-09-20** the operator ran `docker inspect jt-agent` and reports `/tmp/bridge-agent`
+as a **bind mount from `/share/CACHEDEV1_DATA/jt-agent/work`**. If that holds, the
+"discarded on `--force-recreate`" verdict is wrong for the task lock, `task-queue.json`,
+`.update-pending` and preserved scratch clones.
+
+**This cannot be an `.env` override** — a `WORK_DIR=` value moves the path, it cannot make
+`/tmp/bridge-agent` a bind mount; only a `volumes:` entry does. So **the live compose has
+gained a third volume since the 2026-09-14 capture, and both the Appendix here and
+`docker-compose.example.yml` are stale as rebuild artifacts**: a rebuild from either would
+silently reinstate the container-layer behaviour. That is #26's class — the compose file
+belongs to no repository, so it drifts and nothing notices.
+
+**Neither source is assumed.** Settle it on the NAS and update the Appendix, the example
+file, WORK-TODO **#73** and **#25** together:
+
+```bash
+grep -n "volumes:" -A 6 /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml
+docker inspect -f '{{range .Mounts}}{{.Source}} -> {{.Destination}} (rw={{.RW}}){{"\n"}}{{end}}' jt-agent
+grep -n "^WORK_DIR=" /share/CACHEDEV1_DATA/jt-agent/.env   # names only — never print the file
+```
+
+## 10.3 What this step changed, and what it did not
+
+**Changed in this repository:** `docs/EXECUTOR-CONTRACT.md` §7 (two bullets) and §7.1 row 1;
+`WORK-TODO.md` #73, #25, #27 corrected and **#75** filed; this addendum.
+
+**Deliberately not changed:** `docker-compose.example.yml:77-79`, whose comment beside the
+mount line carries the same incomplete claim (*"the one real containment boundary … a
+bridge-side mistake or prompt injection cannot damage that system"* — accurate about damage,
+read as a claim about reach), and the missing third `volumes:` entry. The dispatch that
+produced this addendum forbade compose edits. Both are recorded as remainder on #75 and #73.
+
+**Nothing was read under `/repo`, and no mount, container or deployment was altered.**
