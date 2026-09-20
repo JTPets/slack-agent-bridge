@@ -305,6 +305,11 @@
       "reason": "JUSTIFIED, PROVISIONALLY. Test suite for THE enumerating guard that no test invocation can report a pass without assertions having run, case-by-case against real runner output plus a disk walk. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
     },
     {
+      "path": "tests/task-delivery-signal.test.js",
+      "lines_when_declared": 389,
+      "reason": "JUSTIFIED, PROVISIONALLY. Test suite for THE guard that a finished task is a DELIVERED task: a source walk over processTask's three terminal regions asserting the result post precedes the terminal queue write and the lock release, plus a replay against a real TaskQueue, plus its own negative controls — which are half its length and are the reason the ordering assertions are not vacuous. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
+    },
+    {
       "path": "tests/auto-update-defer.test.js",
       "lines_when_declared": 357,
       "reason": "JUSTIFIED, PROVISIONALLY. Test suite for the deferral gate — defers while a task holds the lock, releases a stale one, bounds the escalation. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."

@@ -406,6 +406,12 @@ async function unreact(channel, timestamp, emoji) {
   }
 }
 
+// LOGIC CHANGE 2026-09-20: returns whether the post actually landed. It previously
+// returned undefined on both paths, so a caller could not tell a delivered message
+// from a swallowed one even when it mattered — and on the task path it matters: the
+// interruption notice IS that task's result. Existing callers ignore the value and
+// are unaffected; the behaviour on failure is unchanged (log, never throw), because
+// a Slack outage must not fail the work that was reporting through it.
 async function postToOps(text) {
   try {
     await slack.chat.postMessage({
@@ -415,8 +421,10 @@ async function postToOps(text) {
       text: redact(text),
       unfurl_links: false,
     });
+    return true;
   } catch (err) {
     console.error('[bridge-agent] Failed to post to #sqtools-ops:', err.message);
+    return false;
   }
 }
 
@@ -890,7 +898,10 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
       const safeStderr = llmStderr ? redact(llmStderr) : '';
       const stderrNote = safeStderr ? `\n\`\`\`\n${safeStderr.slice(-1000)}\n\`\`\`` : '';
       console.log(`[bridge-agent] Task interrupted${signalNote} - likely container restart${safeStderr ? `; stderr: ${safeStderr.slice(-500)}` : ''}`);
-      await postToOps(`:warning: Task interrupted${signalNote} (likely container restart) after ${elapsed}s.${stderrNote}\nSource: <${msgLink(msg.ts, sourceChannel)}|source>`);
+      // LOGIC CHANGE 2026-09-20: this post IS the interrupted task's result — there
+      // is no other output to deliver — so its outcome is captured and recorded on
+      // the queue entry below rather than discarded.
+      const interruptDelivered = await postToOps(`:warning: Task interrupted${signalNote} (likely container restart) after ${elapsed}s.${stderrNote}\nSource: <${msgLink(msg.ts, sourceChannel)}|source>`);
       // stderrNote is built from safeStderr (already redacted); postToOps redacts again defensively.
       taskSuccess = true; // Don't mark as failure
       if (memoryTaskId) {
@@ -912,7 +923,16 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
       // cannot reach: the bridge process itself being killed.
       if (queueId) {
         try {
-          taskQueue.getQueue().interrupt(queueId, `Task interrupted${signalNote} after ${elapsed}s (likely container restart)`);
+          taskQueue.getQueue().interrupt(
+            queueId,
+            `Task interrupted${signalNote} after ${elapsed}s (likely container restart)`,
+            {
+              delivered: interruptDelivered === true,
+              detail: interruptDelivered === true
+                ? 'interruption notice posted to the ops channel'
+                : 'the interruption notice post to the ops channel failed',
+            }
+          );
         } catch (queueErr) {
           console.error('[bridge-agent] Queue interrupt failed:', queueErr.message);
         }
@@ -922,20 +942,57 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
 
     // LOGIC CHANGE 2026-03-26: Use notify-owner module for task completion notification.
     // LOGIC CHANGE 2026-04-01: Pass llmProvider to surface which engine handled the task.
-    await notifyOwner.taskCompleted(task, truncate(output), {
+    //
+    // LOGIC CHANGE 2026-09-20: the return value is no longer discarded. THIS IS THE
+    // DELIVERY OF THE TASK'S RESULT and it is the only copy — `output` is a local
+    // that is gone when this function returns, and `memory.completeTask` stores a
+    // 500-character truncation, not the result. `notifyOwner.taskCompleted` returns
+    // a BOOLEAN and `notifyChannel` returns false on a Slack failure instead of
+    // throwing (lib/notify-owner.js), so a dropped return value meant a task whose
+    // output reached nobody was written to the queue as `completed`, byte-identical
+    // to one the owner read. That is the signal an update gate has to trust to know
+    // a task is finished, so it is now recorded rather than assumed.
+    const resultDelivered = await notifyOwner.taskCompleted(task, truncate(output), {
       elapsed,
       sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
       llmProvider: usedProvider,
     });
+
+    // Never a silent null: a failed delivery is announced (best effort — the ops
+    // channel is where the result itself just failed to land, so this may fail too)
+    // AND recorded durably on the queue entry below, which does not depend on Slack.
+    if (!resultDelivered) {
+      console.error(
+        `[bridge-agent] Task ${msg.ts} finished but its RESULT WAS NOT DELIVERED to Slack. ` +
+        `The output is not recoverable from this process.`
+      );
+      await postToOps(
+        `:rotating_light: *Task finished but its result was not delivered.*\n` +
+        `Task: ${task.description}\n` +
+        `The completion post to this channel failed, so the task output reached nobody and is gone. ` +
+        `Recorded as \`delivered: false\` on the queue entry.\n` +
+        `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
+      );
+    }
 
     // LOGIC CHANGE 2026-03-27: Mark task as successful for heartbeat cleanup.
     taskSuccess = true;
     console.log(`[bridge-agent] Task ${msg.ts} done (${elapsed}s)`);
 
     // LOGIC CHANGE 2026-04-01: Mark task as completed in queue for auto-update coordination.
+    // LOGIC CHANGE 2026-09-20: carries the delivery verdict. The terminal write stays
+    // strictly AFTER the delivery above — that ordering is what makes "this entry is
+    // terminal" mean "the result was delivered, or its loss was recorded", which is
+    // the signal lib/update-drain.js gates a restart on. The ordering is asserted by
+    // tests/task-delivery-signal.test.js, not left to this comment.
     if (queueId) {
       try {
-        taskQueue.getQueue().complete(queueId, `Success in ${elapsed}s`);
+        taskQueue.getQueue().complete(queueId, `Success in ${elapsed}s`, {
+          delivered: resultDelivered === true,
+          detail: resultDelivered === true
+            ? 'task result posted to the ops channel'
+            : 'the task result post to the ops channel failed',
+        });
       } catch (queueErr) {
         console.error('[bridge-agent] Queue complete failed:', queueErr.message);
       }
@@ -1114,20 +1171,42 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
     // Posts to ops channel and sends critical DM to owner.
     // LOGIC CHANGE 2026-04-01: Pass llmProvider to surface which engine was being used when task failed.
     // Uses the configured provider since the error occurred during LLM execution.
-    await notifyOwner.taskFailed(task, err, {
+    // LOGIC CHANGE 2026-09-20: the return value is no longer discarded, for the same
+    // reason as the completion path above. `taskFailed` returns
+    // `{ opsPosted, ownerNotified }` (lib/notify-owner.js) and neither throws on a
+    // Slack failure — a failure report that reached nobody was recorded as a clean
+    // `failed` entry, which is the one message class that must not go quiet.
+    // `opsPosted` is the delivery: the DM is a CRITICAL-priority escalation on top
+    // of it, not a substitute, and it is false whenever no ownerId is configured.
+    const failureReport = await notifyOwner.taskFailed(task, err, {
       elapsed,
       sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
       llmProvider: llmProvider || 'claude',
     });
+    const failureDelivered = failureReport?.opsPosted === true
+      || failureReport?.ownerNotified === true;
+    if (!failureDelivered) {
+      console.error(
+        `[bridge-agent] Task ${msg.ts} FAILED and the failure report reached nobody ` +
+        `(ops post and owner notification both failed).`
+      );
+    }
 
     // LOGIC CHANGE 2026-03-27: taskSuccess remains false, heartbeat.stop(false)
     // will add :x: emoji in finally block.
     console.error(`[bridge-agent] Task ${msg.ts} failed (${elapsed}s):`, safeErrMsg);
 
     // LOGIC CHANGE 2026-04-01: Mark task as failed in queue for auto-update coordination.
+    // LOGIC CHANGE 2026-09-20: carries the delivery verdict for the failure report,
+    // after the report above, for the reason given at the completion path.
     if (queueId) {
       try {
-        taskQueue.getQueue().fail(queueId, safeErrMsg);
+        taskQueue.getQueue().fail(queueId, safeErrMsg, {
+          delivered: failureDelivered,
+          detail: failureDelivered
+            ? 'failure report posted to the ops channel or DMed to the owner'
+            : 'the failure report reached neither the ops channel nor the owner',
+        });
       } catch (queueErr) {
         console.error('[bridge-agent] Queue fail failed:', queueErr.message);
       }

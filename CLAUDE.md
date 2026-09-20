@@ -812,6 +812,7 @@ slack-agent-bridge/
 │   ├── watercooler.test.js      # Tests for lib/watercooler.js (standup orchestration, agent flow)
 │   ├── task-queue.test.js       # Tests for lib/task-queue.js (queue persistence, auto-update coordination)
 │   ├── task-queue-lifecycle.test.js # THE guard that the LIVE task path drives the queue state machine: extracts the lifecycle from bridge-agent.js's source and replays it against a real queue (a module-only test cannot see an unreachable path)
+│   ├── task-delivery-signal.test.js # THE guard that a finished task is a DELIVERED task. Two halves: a source walk over processTask's three terminal regions (success/failure/interrupted) asserting the result post PRECEDES the terminal queue write and that the lock is released only after all of them — the ordering held before this suite but was incidental, and an incidental ordering is what lib/update-drain.js would have been gating a restart on; and a replay against a REAL TaskQueue proving the verdict is durable, that a caller recording nothing gets an explicit `delivered: false` rather than an optimistic default, and that a completed task whose post FAILED is distinguishable from one whose post landed. Carries its own negative controls
 │   ├── task-decomposer.test.js  # Tests for lib/task-decomposer.js (complexity analysis, decomposition, agent routing)
 │   ├── security-followup.test.js # Tests for lib/security-followup.js (finding parsing, task generation)
 │   ├── approval-queue.test.js   # Tests for lib/approval-queue.js (queueing, approval/rejection, commands)
@@ -1190,6 +1191,40 @@ and `auto-update.js` to prevent task interruption during updates.
 - `interrupted`: Task was interrupted — by a kill the bridge did not survive
   (recorded at the next startup by `recoverInterrupted()`), or by a child-process
   kill it did survive (recorded immediately by `interrupt()`)
+
+**LOGIC CHANGE 2026-09-20: every terminal entry also carries a `delivery` verdict, and
+that — not the status — is what "this task is finished" means.** `completed` used to mean
+"`processTask` reached its end", which is a different fact from "the result reached a
+human". `notifyOwner.taskCompleted()` returns a **boolean** and `notifyChannel()` returns
+`false` on a Slack failure rather than throwing (`lib/notify-owner.js`); `processTask`
+awaited it and **discarded the value**, then wrote `complete()` regardless. The task's
+`output` is a local variable that is gone when the function returns and
+`memory.completeTask` keeps only a 500-character truncation — so a task whose result
+reached nobody was, in the only durable record there is, byte-identical to one the owner
+read.
+
+That matters on its own, and it is load-bearing for the drain-one update gate below:
+applying an update **restarts the process**, so a gate keyed on "the process returned" or
+"the lock released" is keyed on a signal that can lie. `complete()`, `fail()` and
+`interrupt()` now each take the delivery verdict as a parameter and stamp it in the same
+`_load()` → mutate → `_save()` block as the status, and `recoverInterrupted()` stamps an
+explicit non-delivery. Three states are kept apart deliberately:
+
+| `delivery` | Meaning |
+|------------|---------|
+| `{ delivered: true, detail, at }` | the post was accepted by Slack |
+| `{ delivered: false, detail, at }` | it was attempted and failed — **a loss, recorded** |
+| `null` | not yet recorded; the entry is in flight whatever its status says |
+| *key absent* | the row predates this field and cannot block anything (`deliveryRecorded()`) |
+
+A caller that passes no verdict gets `delivered: false` with `DELIVERY_NOT_RECORDED`,
+never an optimistic default. A failed delivery is **surfaced twice** — an ops post and the
+durable `delivered: false` — because the channel the result just failed to reach is also
+the only place a notice about it could go. The guard is
+`tests/task-delivery-signal.test.js`, which reads `processTask`'s own source to assert the
+post precedes the terminal write and that the lock is released only after both; the
+ordering held before that suite existed, but nothing asserted it, and an ordering that
+holds by accident is not a guarantee.
 
 **LOGIC CHANGE 2026-09-15: a terminal entry also carries `completionSeq`, and that — not
 `completedAt` — is what orders `getRecentCompleted()`.** `completedAt` is an ISO string at
