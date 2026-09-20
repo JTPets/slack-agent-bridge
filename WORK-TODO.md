@@ -77,6 +77,13 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+At the **2026-09-20 drain-one pass** those print **63** open items — **9** P1, **44** P2,
+**10** P3 — and **no duplicate ID**. That pass filed **#71** (`ASK:` is invisible to every
+update gate) and **#72** (two answers to "is a task running?"), closed nothing, and added
+their two index rows; re-run the index command above if it has drifted. Both were found by
+the task-0 trace the dispatch required before the drain was built, not by looking for
+backlog items — which is the argument for that step.
+
 At the **2026-09-20 close-reconciliation pass** those print **61** open items — **9** P1,
 **42** P2, 10 P3 — and **no duplicate ID**. That pass **purged #61**, filed **#69** and
 **#70**, and regenerated the index from the headings. #61 had been closed by `723dfed`
@@ -270,7 +277,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (42)
+**P2 — real gaps, no risk to the running process** (44)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -278,6 +285,8 @@ work behind an owner's name, which is the opposite of the point.
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
 - **#31** — [Three definitions of "is this a rate-limit failure?", and the morning digest tells the owner tasks will auto-retry when nothing will](#31-three-definitions-of-is-this-a-rate-limit-failure-and-the-morning-digest-tells-the-owner-tasks-will-auto-retry-when-nothing-will)
 - **#22** — [An interrupted task reaches no human](#22-an-interrupted-task-reaches-no-human)
+- **#71** — [`ASK:` is invisible to every update gate — a conversation can be restarted mid-answer](#71-ask-is-invisible-to-every-update-gate--a-conversation-can-be-restarted-mid-answer)
+- **#72** — [Two answers to "is a task running?", and nothing makes them agree](#72-two-answers-to-is-a-task-running-and-nothing-makes-them-agree)
 - **#23** — [A task killed mid-run is re-read and re-run on the next poll](#23-a-task-killed-mid-run-is-re-read-and-re-run-on-the-next-poll)
 - **#26** — [`docker-compose.yml` is untracked **and** unignored in the live working tree — `git clean -fd` deletes the deployment definition](#26-docker-composeyml-is-untracked-and-unignored-in-the-live-working-tree--git-clean--fd-deletes-the-deployment-definition)
 - **#27** — [A task has write access to the entire live deployment, including every credential — recorded, undecided](#27-a-task-has-write-access-to-the-entire-live-deployment-including-every-credential--recorded-undecided)
@@ -1423,6 +1432,84 @@ The first is the smaller change and closes the loop; the second is the safety ne
 **Priority:** P2 | **Effort:** Low-Medium.
 
 **Status:** open (re-verified 2026-09-14)
+
+---
+
+### 71. `ASK:` is invisible to every update gate — a conversation can be restarted mid-answer
+**Filed 2026-09-20,** by the drain-one pass, which covered `TASK:` and deliberately did not
+cover this. Stated rather than left as an implied claim of coverage.
+
+**The finding.** `processConversation` takes **no task lock** and writes **no queue entry**.
+Regenerate:
+
+```bash
+grep -n "taskLock\.\|taskQueue\.\|updateDrain\." bridge-agent.js | sed -n '1,40p'
+# every hit is in processTask, the poll loop's TASK: branch, or startup — none in
+# processConversation
+```
+
+So an `ASK:` is invisible to all three gates: `evaluateTaskDeferral()` sees no lock and no
+live queue row, drain-one never refuses one, and a restart lands on it mid-answer. The
+observable is a question that is simply never answered.
+
+**Why it was scoped out of the drain-one change rather than folded in.** An `ASK:` is a
+single short LLM call and is trivially re-askable; a `TASK:` is up to `TASK_TIMEOUT_MS` of
+work that may hold a scratch clone with unpushed commits (#25). The costs are not
+comparable, and widening the gate to refuse conversations would make the bridge mute during
+every pending update — including to the operator trying to ask what is going on, which is
+exactly when they would ask.
+
+**Not decided here.** Three shapes, none chosen: (a) leave it, and say so — a lost `ASK:` is
+a re-typed question; (b) give `processConversation` a lightweight lock so the updater waits
+for it, but never refuse one; (c) refuse `ASK:` too while an update is pending, accepting
+the muteness. (b) is the only one that changes the restart behaviour without the cost of (c).
+
+**Related:** #17 (nothing starts the updater, so none of this fires today), #22, #23.
+**Priority:** P2 | **Effort:** Low for (a) or (b).
+
+**Status:** open (filed 2026-09-20)
+
+---
+
+### 72. Two answers to "is a task running?", and nothing makes them agree
+**Filed 2026-09-20,** by the drain-one pass's task-0 trace.
+
+**The finding.** The poll loop's re-entrancy guard and the update gate consult **different
+mechanisms**:
+
+```bash
+grep -n "if (isRunning) return;" bridge-agent.js        # the poll loop's guard
+grep -n "let isRunning" bridge-agent.js                 # a module-scope in-memory boolean
+grep -n "taskLock.acquire\|taskLock.inspect" bridge-agent.js auto-update.js
+```
+
+- `poll()` returns early on `isRunning`, a **module-scope boolean in this process's memory**.
+- `evaluateTaskDeferral()` (auto-update.js) reads `$WORK_DIR/.task-running` and
+  `task-queue.json`, **on disk, from another process**.
+
+They agree today because `processTask` writes the lock and `poll()` sets `isRunning` around
+the same `await`. Nothing enforces that, and **`taskLock.acquire()` is best effort by
+design** (`bridge-agent.js`, "a task that cannot write its lock still runs"). So a lock
+write that fails leaves `isRunning === true` — the bridge correctly refusing new work — and
+**no lock on disk**, with the updater seeing an idle bridge and restarting into the task.
+The task is killed and the operator is told nothing, which is the exact failure the lock was
+added to prevent, reachable through the lock's own failure path.
+
+**It is currently unreachable in practice** — `auto-update.js` is started by nothing (#17) —
+which is why this is P2 and not P1. It becomes live the moment #17 is wired, and it is a
+prerequisite for wiring it.
+
+**Suggested shape, not a decision.** Either make `poll()` read the lock rather than a
+boolean (one mechanism, one answer, and it then also survives a restart), or make a failed
+`acquire()` refuse the dispatch instead of proceeding without a lock — the second inverts a
+deliberate trade-off recorded in the code and should not be done without re-arguing it.
+Whichever is chosen, the guard is a test that the two answers cannot diverge, not a comment
+saying they do not.
+
+**Related:** #17 (this is on its critical path), #23, #71.
+**Priority:** P2 | **Effort:** Low-Medium.
+
+**Status:** open (filed 2026-09-20)
 
 ---
 

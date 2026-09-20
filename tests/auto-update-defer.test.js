@@ -37,6 +37,9 @@ process.env.WORK_DIR = WORK_DIR;
 
 const LOCK_FILE = path.join(WORK_DIR, '.task-running');
 const QUEUE_FILE = path.join(WORK_DIR, 'task-queue.json');
+// LOGIC CHANGE 2026-09-20 (drain-one): the pending-update marker bridge-agent.js
+// reads to decide whether to refuse a new dispatch.
+const MARKER_FILE = path.join(WORK_DIR, '.update-pending');
 
 const autoUpdate = require('../auto-update');
 const taskLock = require('../lib/task-lock');
@@ -137,6 +140,7 @@ beforeEach(() => {
     errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     fs.rmSync(LOCK_FILE, { force: true });
     fs.rmSync(QUEUE_FILE, { force: true });
+    fs.rmSync(MARKER_FILE, { force: true });
 });
 
 afterEach(() => {
@@ -352,5 +356,188 @@ describe('deferral escalation bound', () => {
         const newPosts = deps.posts.slice(postsBefore).join('\n');
         expect(newPosts).toMatch(/holding/i);
         expect(newPosts).not.toMatch(/deferred for 1[0-9][0-9]m/);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// DRAIN-ONE — the marker lifecycle, and the DELIVERY signal the gate keys on
+// ---------------------------------------------------------------------------
+//
+// Drain-one adds the half deferral was missing. Deferral alone stands aside for a
+// running task, but its wait is bounded by the ARRIVAL RATE of new dispatches: a
+// back-to-back succession of healthy tasks defers a deploy forever. Marking the
+// update PENDING is what makes bridge-agent.js refuse new dispatches, so the only
+// task the update can wait for is the one already in flight.
+//
+// The marker is real here — these write and read the actual file in the temp
+// WORK_DIR, because a mocked marker would prove nothing about the thing two
+// processes coordinate through.
+
+/** The marker as it is on disk, or null. */
+function readMarker() {
+    if (!fs.existsSync(MARKER_FILE)) return null;
+    return JSON.parse(fs.readFileSync(MARKER_FILE, 'utf8'));
+}
+
+describe('drain-one: an update that must wait is recorded as PENDING', () => {
+    test('an update arriving mid-task marks itself pending and does NOT restart the task', async () => {
+        taskLock.acquire({ msgTs: '9.1', description: 'long refactor', lockFile: LOCK_FILE });
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+
+        // The task is untouched: nothing pulled, nothing exited, lock still held.
+        expect(deps.exit).not.toHaveBeenCalled();
+        expect(deps.calls).not.toContain('gitPull');
+        expect(fs.existsSync(LOCK_FILE)).toBe(true);
+
+        // And the refusal half is now armed.
+        const marker = readMarker();
+        expect(marker).not.toBeNull();
+        expect(marker.commit).toBe(NEW_HEAD);
+    });
+
+    test('the marker is written BEFORE the deferral decision, so it covers the apply window too', async () => {
+        // Nothing running: the update proceeds. The marker must still have existed
+        // during reset/pull/npm/smoke — minutes in which the poll loop would
+        // otherwise start a task the imminent restart would kill.
+        const seen = [];
+        const deps = makeDeps({
+            gitResetHard: jest.fn(() => {
+                seen.push(fs.existsSync(MARKER_FILE));
+                return { success: true };
+            }),
+        });
+
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(seen).toEqual([true]);
+    });
+
+    test('the marker is cleared before the exit, never left for the restarted process', async () => {
+        const deps = makeDeps({
+            exit: jest.fn(async () => {
+                deps.calls.push('exit');
+                // Guard (d)'s reasoning applied to the marker: there is no "after"
+                // an exit, so the marker has to be gone by the time we get here or
+                // the new process refuses every dispatch for an update that landed.
+                expect(fs.existsSync(MARKER_FILE)).toBe(false);
+            }),
+        });
+
+        await autoUpdate.checkForUpdates(deps);
+        expect(deps.exit).toHaveBeenCalled();
+    });
+
+    test('an aborted update clears the marker — a refused commit must not refuse work forever', async () => {
+        const deps = makeDeps({
+            verifyEntryPoints: jest.fn(() => ({
+                ok: false,
+                checked: [],
+                missing: [],
+                failures: [{ file: 'bridge-agent.js', error: 'SyntaxError' }],
+            })),
+        });
+
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.exit).not.toHaveBeenCalled();
+        expect(fs.existsSync(MARKER_FILE)).toBe(false);
+    });
+
+    test('a manual restart that already applied the merge clears the marker on the next cycle', async () => {
+        // Deploys are manual today (WORK-TODO #17): a human runs
+        // `docker compose restart jt-agent` and the merge lands with this loop none
+        // the wiser. Without this, every dispatch would be refused until the marker
+        // went stale.
+        const deps = makeDeps();
+        taskLock.acquire({ msgTs: '9.2', description: 'holding', lockFile: LOCK_FILE });
+        await autoUpdate.checkForUpdates(deps);
+        expect(fs.existsSync(MARKER_FILE)).toBe(true);
+
+        taskLock.release(LOCK_FILE);
+        deps.getLocalHead.mockReturnValue(NEW_HEAD); // the restart applied it
+
+        await autoUpdate.checkForUpdates(deps);
+        expect(fs.existsSync(MARKER_FILE)).toBe(false);
+    });
+});
+
+describe('drain-one: the gate keys on DELIVERY, not on the task having stopped', () => {
+    // THE point of task 0. Applying an update restarts the process, so "finished"
+    // has to mean RESULT DELIVERED — a task that completed and never posted is, in
+    // every durable record, identical to one that never ran. These two tests differ
+    // ONLY in the delivery verdict; the status is `completed` in both.
+
+    const base = {
+        id: 'q1',
+        msgTs: '9.9',
+        description: 'a task that has stopped running',
+        status: 'completed',
+        enqueuedAt: new Date().toISOString(),
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+    };
+
+    test('a completed task whose result is NOT yet delivered still defers the update', async () => {
+        writeQueue([{ ...base, delivery: null }]);
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.exit).not.toHaveBeenCalled();
+        expect(deps.calls).not.toContain('gitPull');
+        expect(deps.posts.join('\n')).toMatch(/not yet delivered/i);
+    });
+
+    test('the same task WITH a recorded delivery lets the update proceed', async () => {
+        writeQueue([{
+            ...base,
+            delivery: { delivered: true, detail: 'task result posted to the ops channel', at: new Date().toISOString() },
+        }]);
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.calls).toContain('gitPull');
+        expect(deps.exit).toHaveBeenCalled();
+    });
+
+    test('a recorded NON-delivery is still finished — the loss is known, the task is over', async () => {
+        // The gate waits for the verdict, not for a happy one. A task whose post
+        // failed is over; refusing to ever deploy again because of it would be a
+        // permanent freeze caused by one Slack outage.
+        writeQueue([{
+            ...base,
+            delivery: { delivered: false, detail: 'the task result post failed', at: new Date().toISOString() },
+        }]);
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.exit).toHaveBeenCalled();
+    });
+
+    test('a row written before the delivery field existed cannot freeze deploys', async () => {
+        // No `delivery` key at all. Treating a pre-change row as in-flight would
+        // freeze every deploy for the queue's retention window the first time this
+        // code met an existing task-queue.json.
+        writeQueue([base]);
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.exit).toHaveBeenCalled();
+    });
+
+    test('an undelivered entry old enough to be an orphan is ignored, and said so', async () => {
+        const old = new Date(Date.now() - (10 * 60 * 60 * 1000)).toISOString();
+        writeQueue([{ ...base, enqueuedAt: old, startedAt: old, completedAt: old, delivery: null }]);
+
+        const deps = makeDeps();
+        await autoUpdate.checkForUpdates(deps);
+
+        expect(deps.exit).toHaveBeenCalled();
+        expect(deps.posts.join('\n')).toMatch(/stale task-queue entr/i);
     });
 });

@@ -28,6 +28,12 @@ const fs = require('fs');
 const path = require('path');
 const { verifyEntryPoints, runSmokeTest, planRestart } = require('./lib/update-verifier');
 const taskLock = require('./lib/task-lock');
+const updateDrain = require('./lib/update-drain');
+// LOGIC CHANGE 2026-09-20: the DELIVERY predicate, not a re-derivation of it. This
+// file only ever READS task-queue.json, so it takes the predicate rather than the
+// class - but it must ask the same question lib/task-queue.js answers, or the gate
+// and the record would disagree about what "finished" means.
+const { deliveryRecorded } = require('./lib/task-queue');
 
 // Configuration from environment variables
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
@@ -53,6 +59,11 @@ const RESTART_EXIT_CODE = 0;
 const WORK_DIR = process.env.WORK_DIR || '/tmp/bridge-agent';
 const TASK_LOCK_FILE = path.join(WORK_DIR, '.task-running');
 const TASK_QUEUE_FILE = path.join(WORK_DIR, 'task-queue.json');
+// LOGIC CHANGE 2026-09-20 (drain-one): the pending-update marker bridge-agent.js
+// reads to decide whether to refuse a new dispatch. Same WORK_DIR as the lock and
+// the queue, because the three are one coordination surface between two processes
+// in one container. Owned by lib/update-drain.js; this file only names the path.
+const UPDATE_PENDING_FILE = updateDrain.DEFAULT_MARKER_FILE;
 
 // LOGIC CHANGE 2026-09-14: Replaced the in-process "wait up to 5 minutes then
 // restart anyway" loop (TASK_WAIT_INTERVAL_MS / TASK_WAIT_MAX_ATTEMPTS) with a
@@ -238,7 +249,7 @@ function npmInstall() {
  * @returns {{ hasActive: boolean, pending: number, running: object|null, staleIgnored: number }}
  */
 function checkTaskQueue({ staleAfterMs, now } = {}) {
-    const empty = { hasActive: false, pending: 0, running: null, staleIgnored: 0 };
+    const empty = { hasActive: false, pending: 0, running: null, awaitingDelivery: 0, staleIgnored: 0 };
     try {
         if (!fs.existsSync(TASK_QUEUE_FILE)) {
             return empty;
@@ -269,13 +280,33 @@ function checkTaskQueue({ staleAfterMs, now } = {}) {
         const allRunning = queue.filter(t => t.status === 'running');
         const liveRunning = allRunning.filter(t => !isStale(t, 'startedAt'));
 
+        // LOGIC CHANGE 2026-09-20: THE FINISH LINE IS DELIVERY, NOT STATUS.
+        //
+        // Applying an update restarts the process, so "this task is finished" has to
+        // mean its RESULT WAS DELIVERED - a task that completed and never posted is,
+        // in every durable record, identical to one that never ran. The terminal
+        // queue write happens strictly AFTER the result post and now carries that
+        // post's verdict (lib/task-queue.js), so an entry with no verdict recorded is
+        // still in flight whatever its status says.
+        //
+        // This does not change the behaviour of any entry written before that field
+        // existed: deliveryRecorded() returns true for a row with no `delivery` key
+        // at all, precisely so a pre-change queue file cannot freeze every deploy the
+        // first time this code runs against it.
+        const terminalStamp = t => (t.completedAt ? 'completedAt' : (t.startedAt ? 'startedAt' : 'enqueuedAt'));
+        const isTerminal = t => t.status !== 'pending' && t.status !== 'running';
+        const allUndelivered = queue.filter(t => isTerminal(t) && !deliveryRecorded(t));
+        const liveUndelivered = allUndelivered.filter(t => !isStale(t, terminalStamp(t)));
+
         const staleIgnored = (allPending.length - livePending.length)
-            + (allRunning.length - liveRunning.length);
+            + (allRunning.length - liveRunning.length)
+            + (allUndelivered.length - liveUndelivered.length);
 
         return {
-            hasActive: livePending.length > 0 || liveRunning.length > 0,
+            hasActive: livePending.length > 0 || liveRunning.length > 0 || liveUndelivered.length > 0,
             pending: livePending.length,
             running: liveRunning[0] || null,
+            awaitingDelivery: liveUndelivered.length,
             staleIgnored,
         };
     } catch (err) {
@@ -348,9 +379,16 @@ function evaluateTaskDeferral({ staleAfterMs, now } = {}) {
     }
 
     if (queue.hasActive) {
-        const detail = queue.running
-            ? `running: ${queue.running.description || 'unknown'}`
-            : `${queue.pending} pending task(s)`;
+        // LOGIC CHANGE 2026-09-20: `awaitingDelivery` is reported FIRST when present,
+        // because it is the reason a reader would otherwise not believe: an entry
+        // whose status already reads `completed` but whose result has not been
+        // delivered. Naming it as "the queue is not drained" would send whoever reads
+        // the ops post looking for a running task that is not there.
+        const detail = queue.awaitingDelivery > 0
+            ? `${queue.awaitingDelivery} task(s) finished but their results are not yet delivered`
+            : queue.running
+                ? `running: ${queue.running.description || 'unknown'}`
+                : `${queue.pending} pending task(s)`;
         return {
             defer: true,
             reason: `the task queue is not drained (${detail})`,
@@ -541,6 +579,12 @@ async function checkForUpdates(overrides = {}) {
         // No update needed
         if (localHead === remoteHead) {
             console.log(`No updates available. Current: ${localHead.substring(0, 7)}`);
+            // LOGIC CHANGE 2026-09-20 (drain-one): nothing is pending any more, so
+            // stop refusing dispatches. This is also the recovery path after a
+            // MANUAL `docker compose restart` applied the merge out from under this
+            // loop - the commit landed, the marker did not know, and without this
+            // line every dispatch would be refused until the marker went stale.
+            deps.clearUpdatePending({ reason: 'local head is already the remote head' });
             return;
         }
 
@@ -549,10 +593,46 @@ async function checkForUpdates(overrides = {}) {
         // real alert becomes noise nobody reads.
         if (state.failedCommit && state.failedCommit === remoteHead) {
             console.log(`Skipping ${remoteHead.substring(0, 7)}: failed verification earlier, awaiting a newer commit`);
+            // This commit is never going to land, so refusing work on its account
+            // would be a permanent refusal for an update that does not exist.
+            deps.clearUpdatePending({ reason: 'the pending commit failed verification and will not be retried' });
             return;
         }
 
         console.log(`Update available: ${localHead.substring(0, 7)} -> ${remoteHead.substring(0, 7)}`);
+
+        // ---- DRAIN-ONE: the update is PENDING from this moment ----
+        // LOGIC CHANGE 2026-09-20. Marked BEFORE the deferral gate is evaluated, not
+        // after, and that ordering is the whole mechanism: from the instant an update
+        // is known, bridge-agent.js refuses NEW dispatches, so the only task this
+        // update can ever wait for is the one already in flight. ONE task, not a
+        // queue to empty - a queue to empty waits on how often work arrives, which is
+        // not a bound at all.
+        //
+        // It is also set on the path where nothing is running, because the apply
+        // phase itself (reset, pull, npm install, smoke test) takes minutes during
+        // which the poll loop would happily start a task the imminent restart would
+        // kill. That window is the original race, one level down.
+        //
+        // NO CEILING. This never forces an update and never kills a task. The marker
+        // is cleared on every path out of this function - applied, aborted, refused
+        // by a guard, or thrown out of - because a marker left behind refuses work
+        // forever. See lib/update-drain.js for why its staleness rule is a heartbeat
+        // and not a deadline.
+        const marked = deps.markUpdatePending({
+            commit: remoteHead,
+            reason: `update ${remoteHead.substring(0, 7)} is waiting to apply`,
+        });
+        if (!marked.marked) {
+            // Best effort, and never silent: without the marker, new dispatches are
+            // NOT refused, which is exactly the behaviour that existed before
+            // drain-one - degraded, not broken, and now said out loud.
+            await deps.postToOps(
+                `:warning: Auto-update: could not record ${remoteHead.substring(0, 7)} as pending ` +
+                `(${marked.error}). The update still defers for a running task, but new dispatches will ` +
+                `NOT be refused while it waits, so the wait is unbounded.`
+            );
+        }
 
         // ---- DEFERRAL GATE: never mutate the tree under a running task ----
         // LOGIC CHANGE 2026-09-14: This check moved to BEFORE `git reset --hard`
@@ -629,6 +709,7 @@ async function checkForUpdates(overrides = {}) {
         if (!resetResult.success) {
             console.error('Git reset failed:', resetResult.error);
             await deps.postToOps(`❌ Auto-update: git reset --hard HEAD failed - ${resetResult.error}`);
+            deps.clearUpdatePending({ reason: 'git reset failed; this update is not landing' });
             return;
         }
         console.log('Reset local changes with git reset --hard HEAD');
@@ -638,6 +719,7 @@ async function checkForUpdates(overrides = {}) {
         if (!pullResult.success) {
             console.error('Git pull failed:', pullResult.error);
             await deps.postToOps(`❌ Auto-update: git pull failed - ${pullResult.error}`);
+            deps.clearUpdatePending({ reason: 'git pull failed; this update is not landing' });
             return;
         }
 
@@ -657,6 +739,7 @@ async function checkForUpdates(overrides = {}) {
                 state,
                 deps
             });
+            deps.clearUpdatePending({ reason: 'update aborted: entry point failed `node --check`' });
             return;
         }
         console.log(`Syntax check passed for ${verification.checked.length} entry point(s)`);
@@ -678,6 +761,7 @@ async function checkForUpdates(overrides = {}) {
                 state,
                 deps
             });
+            deps.clearUpdatePending({ reason: 'update aborted: npm install failed' });
             return;
         }
         console.log('npm install completed successfully');
@@ -703,6 +787,7 @@ async function checkForUpdates(overrides = {}) {
                 state,
                 deps
             });
+            deps.clearUpdatePending({ reason: 'update aborted: smoke test failed' });
             return;
         }
         console.log('Smoke test passed');
@@ -723,6 +808,7 @@ async function checkForUpdates(overrides = {}) {
                 `not restarting - ${plan.reason}. The new code is on disk and will be live after the ` +
                 `next manual container restart.`
             );
+            deps.clearUpdatePending({ reason: 'not restarting for this commit; the new code awaits a manual restart' });
             return;
         }
 
@@ -740,6 +826,7 @@ async function checkForUpdates(overrides = {}) {
                 `:warning: Auto-update: pulled ${newHead.substring(0, 7)} but could not write the state file ` +
                 `(${saved.error}). Not restarting - exiting now would re-pull this commit on every boot.`
             );
+            deps.clearUpdatePending({ reason: 'state file unwritable; not restarting' });
             return;
         }
 
@@ -751,10 +838,24 @@ async function checkForUpdates(overrides = {}) {
         );
         console.log(`Successfully updated to ${shortHash}, exiting for restart`);
 
+        // LOGIC CHANGE 2026-09-20 (drain-one): clear the marker BEFORE the exit, for
+        // the same reason guard (b) writes state before the exit - there is no
+        // "after" an exit. A marker that survived the restart would have the new
+        // process refusing every dispatch for an update that has already applied.
+        deps.clearUpdatePending({ reason: `update ${shortHash} applied; restarting` });
+
         await deps.exit(RESTART_EXIT_CODE);
 
     } catch (error) {
         console.error('Update check failed:', error.message);
+        // LOGIC CHANGE 2026-09-20 (drain-one): an unexpected throw must not leave the
+        // bridge refusing every dispatch for an update that is not proceeding. The
+        // next cycle re-marks it if the update is still there.
+        try {
+            deps.clearUpdatePending({ reason: `update check threw: ${error.message}` });
+        } catch (clearErr) {
+            console.error('Failed to clear the pending-update marker:', clearErr.message);
+        }
         await deps.postToOps(`❌ Auto-update: Unexpected error - ${error.message}`);
     }
 }
@@ -776,6 +877,10 @@ const DEFAULT_DEPS = {
     runSmokeTest,
     planRestart,
     evaluateTaskDeferral,
+    // LOGIC CHANGE 2026-09-20 (drain-one): injected like everything else here so the
+    // marker lifecycle is assertable without a real filesystem race.
+    markUpdatePending: (opts) => updateDrain.markPending({ ...opts, markerFile: UPDATE_PENDING_FILE }),
+    clearUpdatePending: (opts) => updateDrain.clear({ ...opts, markerFile: UPDATE_PENDING_FILE }),
     postToOps,
     exit: flushAndExit
 };
@@ -873,6 +978,7 @@ module.exports = {
     gitResetTo,
     checkTaskQueue,
     evaluateTaskDeferral,
+    UPDATE_PENDING_FILE,
     RESTART_EXIT_CODE,
     DEFAULT_DEPS
 };

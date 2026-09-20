@@ -385,6 +385,34 @@ the lock is the only thing that would tell it a task is in flight.
   `tests/smoke.test.js` loads it, which matters because the smoke suite is guard (a)
   part 3 of the self-update and this module is on both entry points' critical path.
 
+### Not a seam either — `lib/update-drain.js` (2026-09-20)
+The lock's mirror image, and the second file both entry points share. The lock tells the
+updater "stand aside"; the drain marker tells the bridge "accept nothing new". Together
+they are drain-one: an update waits for **one** task instead of for however long work
+keeps arriving.
+
+> **Live today: only the `bridge-agent.js` half, and it never fires.** The refusal is
+> live code in `poll()`, on the path every task arrives on — but nothing writes the
+> marker, because `auto-update.js` is never started (§1). A manual
+> `docker compose restart` still ignores all of this and kills the running task. That
+> is unchanged and is still the gap.
+
+- **Owns:** `$WORK_DIR/.update-pending` — `markPending`, `inspect`, `clear`,
+  `clearIfStale`, `describeRefusal`.
+- **Why it exists:** deferral alone is bounded by the **arrival rate** of dispatches,
+  not by one task. Refusing new work while an update waits is what turns an unbounded
+  wait into a single task's worth.
+- **Callers:** `auto-update.js` (marks on finding an update, before the deferral gate;
+  clears on every path out — applied, aborted, guard-refused, thrown) and
+  `bridge-agent.js` (`drainStateForDispatch()`, consulted before `queue.enqueue` in the
+  poll loop's `TASK:` branch, plus the orphan sweep).
+- **Two clocks, deliberately:** `since` (how long this update has waited — unbounded,
+  reported) and `lastSeenAt` (a heartbeat refreshed every check interval). Staleness is
+  measured on `lastSeenAt` **only**. It is not a ceiling on the wait; there is none.
+- **Guarded by:** `tests/update-drain.test.js` (the module, and a source walk proving
+  the poll loop actually refuses — `bridge-agent.js` cannot be required from a suite)
+  and `tests/auto-update-defer.test.js` → the `drain-one` describes.
+
 ### Seam C — Built-in command router → `lib/ask-commands.js`  *(largest win)*
 - **Lines:** the 9-branch ladder inside `processConversation`, ~373 LOC (1285–1658):
   status, owner-tasks, create-channel, staff-tasks, bulletins, standup, approval
