@@ -1390,7 +1390,7 @@ deliberate:
   hand and the label is missing.
 - **A bare `TASK: do the thing` is unaffected.** It has no body to lose, so no error, and
   the description-fallback keeps working.
-- **A banner ABOVE the header block is not reported.** `lib/security-followup.js:206`
+- **A banner ABOVE the header block is not reported.** `lib/security-followup.js:205`
   opens its remediation message with a `:warning:` line before `TASK:`; that is Slack
   presentation, not a dropped body. Scanning starts at the first field-label line.
 

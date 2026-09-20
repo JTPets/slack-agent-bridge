@@ -127,7 +127,7 @@ describe('a dispatch body with no INSTRUCTIONS: label is refused, not silently d
   });
 
   test('a Slack banner ABOVE the header block is not reported', () => {
-    // lib/security-followup.js:206 opens its message with a banner line before TASK:.
+    // lib/security-followup.js:205 opens its message with a banner line before TASK:.
     // That is presentation, not a dropped body, and tests/integration.test.js asserts
     // that generator parses with no rejected fields.
     const task = parseTask(
