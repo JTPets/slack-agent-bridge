@@ -77,6 +77,11 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+At the **2026-09-20 image-toolchain pass** those print **60** open items — 10 P1, **40** P2,
+10 P3 — and **no duplicate ID**. That pass filed one item (**#68**, the bridge image's
+node-only toolchain), closed nothing, and added its index row by hand at the head of the
+P2 list; re-run the index command above if it has drifted.
+
 At the **2026-09-20 rebase/renumber pass** those print **59** open items — 10 P1, **39** P2,
 10 P3 — and **no duplicate ID**. That pass closed nothing and filed one item (**#67**, the
 ID-collision class). It landed the five persistence/capability findings below as **#62**–**#66**
@@ -206,9 +211,11 @@ Two states, marked on the item itself so they are countable rather than remember
   **#3, #26, #40, #41, #43, #53, #55**. In every one the repository's half is landed and
   verified; what is left is off-repo by construction.
 - **BLOCKED — OWNER DECISION** — the remainder is a choice, and the code is small once it
-  is made. Five items: **#27, #29, #37, #44, #51**. Three of them say so in their own
-  words (#29 "decision, not work"; #44 "not to be decided by an executor"; #51 "no shape
-  chosen").
+  is made. Six items as of 2026-09-20: **#27, #29, #37, #44, #51, #68**. Four of them say
+  so in their own words (#29 "decision, not work"; #44 "not to be decided by an executor";
+  #51 "no shape chosen"; #68 "no shape is invented here"). The heading above counts twelve
+  because it is dated 2026-09-16; **#68** makes it thirteen. Run the commands below rather
+  than reading either figure.
 
 ```bash
 # how many, and which
@@ -249,8 +256,9 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (39)
+**P2 — real gaps, no risk to the running process** (40)
 
+- **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
 - **#31** — [Three definitions of "is this a rate-limit failure?", and the morning digest tells the owner tasks will auto-retry when nothing will](#31-three-definitions-of-is-this-a-rate-limit-failure-and-the-morning-digest-tells-the-owner-tasks-will-auto-retry-when-nothing-will)
@@ -1015,6 +1023,118 @@ only the owner action below.
 ---
 
 ## P2 — Real gaps, no risk to the running process
+
+### 68. The bridge image serves node only, for an estate that is one-third python — and it is not a config edit
+**Filed 2026-09-20,** by the dispatch sent to add python and pip to the image; it stopped
+at the image boundary rather than inventing one. **P2 because nothing running is
+degraded** — the refusal is correct, loud and pre-LLM — but one of the three repositories
+in the estate cannot be dispatched to at all.
+
+**BLOCKED — OWNER DECISION.** The repository half is done (the toolchain list is stated in
+three places and guarded by a test). What remains is choosing an image shape and rebuilding
+the container, and neither is reachable from a branch: this repository does not define the
+image, and a `docker compose` command on the NAS is not a commit.
+
+**The finding.** `lib/dependency-install.js` (merged 2026-09-20, `723dfed`) detects a
+python repo from `requirements.txt`/`pyproject.toml`/`setup.py` and runs
+`python3 -m pip`. The `jt-agent` image has `python3` and no `pip`. Operator-supplied, on
+the NAS, 2026-09-20 — **not regenerable from a checkout**:
+
+```bash
+docker exec -i jt-agent sh -c 'python3 -m pip --version'
+# -> /usr/bin/python3: No module named pip
+```
+
+`ABSENT_PATTERNS` in `lib/dependency-install.js` matches `No module named pip`
+specifically, so the outcome is `INSTALLER_ABSENT` — a HARNESS failure that stops the
+dispatch before the LLM writes anything — and not `INSTALL_FAILED`, which would have read
+as "the repo's requirements are broken". **That behaviour is correct and is not the
+defect.** The defect is that the image is incomplete for the estate it serves: `REPOS`
+names two node repositories, and the third repository in the estate,
+`jtpets/dayz-discord-bot` (pytest, `setup.py`, no lockfile), is python.
+
+**Why it is not a config edit.** Three facts from `docker-compose.example.yml` at
+`5749d08`, all regenerable:
+
+```bash
+grep -n "image:\|user:\|command:\|build:" docker-compose.example.yml
+git log --all --oneline --diff-filter=A --name-only | grep -i dockerfile   # prints nothing
+```
+
+- **There is no image build step at all.** `image: node:20` is a stock upstream tag, there
+  is no `build:` key, and no `Dockerfile` has ever existed in this repository or its
+  history. There is nowhere for a `RUN apt-get install` to go.
+- **The only install step is the compose `command:`**, which runs at every container
+  *start*: `sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"`.
+- **It runs as `user: "1000:100"`, not root.** `npm install -g` works there only because
+  `NPM_CONFIG_PREFIX` redirects npm's global prefix into the writable bind mount. `apt` has
+  no equivalent, so appending `apt-get install python3-pip` would fail on permissions at
+  every start, inside a `restart: unless-stopped` service — a restart loop with no shell.
+
+**Does `python3` being present mean pip can be added alone?** The *interpreter* does not
+need installing, so this is narrower than "install python". But it is not therefore a
+one-liner, for two reasons that must be checked on the box before any shape is chosen —
+**both UNVERIFIED from a checkout**, and this item does not assert them:
+
+```bash
+# On the NAS. What the image actually is, and what the two blockers below actually do.
+docker exec -i jt-agent sh -c 'cat /etc/os-release | head -2; python3 -V; \
+  python3 -m ensurepip --version; ls /usr/lib/python3*/EXTERNALLY-MANAGED'
+```
+
+1. **ensurepip.** Debian-derived images conventionally ship `python3` with `ensurepip`
+   split into a separate package, so `python3 -m ensurepip` may not be able to bootstrap
+   pip from what is already installed. If it works, the cheapest shape exists; if it does
+   not, shape (c) below needs a download.
+2. **PEP 668.** A Debian bookworm-or-later `python3` marks its environment
+   externally-managed, and a system-wide `pip install` then refuses regardless of shape.
+   If that marker is present, `python3 -m pip install -r requirements.txt` — the exact
+   command `detectEcosystem` returns — would fail **even with pip installed**, and the fix
+   is a per-clone virtualenv rather than a package. That would make this item a code change
+   in `lib/dependency-install.js` as well as an image change, which is precisely why the
+   probe runs before the shape is picked.
+
+**The shapes, with their costs. None is chosen here.**
+
+| Shape | What changes | What it costs |
+|-------|--------------|---------------|
+| (a) `Dockerfile` + `build:` | A new tracked `Dockerfile` (`FROM node:20`, a root `RUN` installing pip), a `build:` key in compose, `docker compose build` in the rebuild path. | A build artifact and a build step this deployment has never had; the image stops being a stock upstream tag, so it is now something to keep patched. Deploy becomes build-then-restart. |
+| (b) A base image carrying both runtimes | One line: `image:` points at a tag that already has node and pip. | Pins node and python *together*, to someone else's pairing; upgrading either means re-choosing the image. Still an image change the operator must make. |
+| (c) Unprivileged pip bootstrap in the `command:` | No root, no Dockerfile — a `get-pip.py` or `ensurepip` step writing into the bind mount. | Runs at **every container start**, needs network at boot, and pins nothing unless a version is pinned by hand. It makes the bridge's own startup depend on a third-party download. Weakest of the three, and it does not survive the PEP 668 check above. |
+| (d) Run the container as root | Makes `apt-get` work in the `command:`. | **Rejected.** It widens exactly the blast radius #27 records, to buy a package install. |
+
+**The constraint that outlives whichever shape is chosen — and the reason this item exists
+rather than a quick fix.** A toolchain baked into this image is a version resolution the
+target repository does not control. `jtpets/dayz-discord-bot`'s working test setup is
+`pytest-asyncio` **0.21.2**; its `setup.py` declares the dependency unpinned, and 1.4.0
+produces errors (operator-supplied 2026-09-20 — unverified and *unverifiable* from here,
+because the bridge has no access to that repository, #57). An image resolving a different
+version installs cleanly, runs the suite, and reports a green that does not hold where the
+code actually runs. That is the same class as a Postgres-major mismatch, and it is worse
+than the current refusal: a loud `INSTALLER_ABSENT` costs a dispatch, a wrong green costs
+a merge. **So the supported toolchains are a STATED LIST, and anything not on it refuses
+loudly** — which is what `lib/dependency-install.js` already does. The list is in
+`CLAUDE.md` → Scratch Clone Lifecycle → "Supported toolchains",
+`docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 9, and the header of
+`docker-compose.example.yml`; `tests/toolchain-support.test.js` fails when the code learns
+an ecosystem the list does not declare.
+
+**Definition of done.**
+1. The probe in "Does `python3` being present mean pip can be added alone?" is run on the
+   NAS and its output recorded here, because it decides between the shapes and decides
+   whether `lib/dependency-install.js` needs a virtualenv step.
+2. A shape is chosen and the image carries pip.
+3. The python row in all three statements of the list moves to SUPPORTED **with its pin
+   named** — which version of pip, and what stops it drifting from what
+   `dayz-discord-bot` runs on.
+4. **The closing evidence is a dispatch, not a checkout.** A TASK: against a python repo
+   installs its dependencies and Phase 3 reports a real assertion count, the same bar #61
+   was closed against. That needs the repo reachable (#57) as well as the image rebuilt.
+
+**Related:** #61 (the install step this depends on), #57 (the bridge cannot reach
+`dayz-discord-bot` at all — a prerequisite for the DoD above), #27 (why shape (d) is
+rejected), #26 and #17 (why an image change is an owner action: the live compose is
+off-repo and nothing here deploys).
 
 ### 4b. Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14
 **Filed 2026-09-14** (derived: `git log -S'### 4b. ' --reverse -- WORK-TODO.md`). The date

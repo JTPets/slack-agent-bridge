@@ -22,6 +22,38 @@
 # layout changes. NO SECRET BELONGS IN THIS FILE — credentials live only in the
 # env_file, which is off-repo and must never be committed.
 #
+# WHAT TOOLCHAINS THIS IMAGE PROVIDES, AND WHY THE LIST IS WRITTEN DOWN.
+# `lib/dependency-install.js` installs a dispatched repo's OWN dependencies into its
+# scratch clone using whatever this image carries. That makes the image's toolchain a
+# deployment fact, so it is stated here rather than discovered by a dispatch failing:
+#
+#   node    package.json (+ package-lock.json -> `npm ci`)  -> SUPPORTED. node and npm
+#           ARE the image; `image: node:20` below is the whole toolchain.
+#   python  requirements.txt / pyproject.toml / setup.py    -> NOT SUPPORTED. `python3`
+#           is present in node:20, `pip` is NOT. Operator-supplied, on the NAS,
+#           2026-09-20:
+#             docker exec -i jt-agent sh -c 'python3 -m pip --version'
+#             -> /usr/bin/python3: No module named pip
+#           Every python dispatch refuses with INSTALLER_ABSENT before the LLM runs.
+#           That refusal is correct. The gap is that the estate contains a python repo
+#           (jtpets/dayz-discord-bot) this image cannot serve. WORK-TODO #68.
+#   other   no recognised manifest                          -> nothing is installed and
+#           the task proceeds (research/audit tasks).
+#
+# THERE IS NO PLACE IN THIS FILE TO ADD A SYSTEM PACKAGE. There is no `build:` key and
+# no Dockerfile in this repository (nor in its history). The only thing that installs
+# anything is the `command:` below, which runs at every container START, as
+# `user: "1000:100"` — NOT root. `npm install -g` works there only because
+# NPM_CONFIG_PREFIX redirects npm's global prefix into the writable bind mount; apt has
+# no equivalent, so `apt-get install python3-pip` cannot be added to that line. Adding
+# python properly is an IMAGE change (a Dockerfile, or a different base image), which is
+# a shape decision for the owner — see WORK-TODO #68. Do not invent one here.
+#
+# A toolchain baked in here is also a PIN that can drift from what the target repo runs
+# on. dayz-discord-bot's working setup is pytest-asyncio 0.21.2, pinned in prose only;
+# a different resolution in this image yields a green here that is not a green on the
+# box. Anything added to the SUPPORTED list owes that statement.
+#
 # TO REBUILD:
 #   cp docker-compose.example.yml /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml
 #   # restore .env and .deploy_key from the off-box store (Step 5 items 4 and 5)
@@ -46,6 +78,8 @@ services:
       # containment boundary in this deployment and the reason a bridge-side mistake or
       # prompt injection cannot damage that system. NEVER remove it, never make it rw.
       - /share/CACHEDEV1_DATA/sqtools/app:/repo:ro
+    # This line is the ONLY install step in the deployment, and it runs unprivileged
+    # at every container start. See "WHAT TOOLCHAINS THIS IMAGE PROVIDES" at the top.
     command: sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"
     restart: unless-stopped
 

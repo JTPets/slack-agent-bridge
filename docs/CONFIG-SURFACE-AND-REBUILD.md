@@ -1005,3 +1005,89 @@ That distinction — absent versus empty — is the property the design in
 `lib/test-verdict.js`, `lib/critique-signals.js` and `fetchRecentEmails()` already hold in
 their own domains. The pattern exists in this repository three times. It is the stores that
 do not have it.
+
+---
+
+# Step 9 — The image's toolchain inventory (addendum, 2026-09-20)
+
+## 9.0 Why the image's toolchain is a config fact at all
+
+Until 2026-09-20 the image's contents were an implementation detail of Step 5 item 1:
+"container host with Docker". They stopped being one when `lib/dependency-install.js`
+landed (WORK-TODO #61). That module installs a **dispatched repo's own dependencies**
+into its scratch clone using whatever binaries the `jt-agent` image happens to carry —
+so the image's toolchain now decides which repositories in `REPOS` the bridge can verify
+at all. That is a configuration surface, and it belongs in this inventory.
+
+## 9.1 The stated list
+
+| Ecosystem | Manifest that selects it | Installer run | Status |
+|-----------|--------------------------|---------------|--------|
+| node | `package.json` (`package-lock.json`/`npm-shrinkwrap.json` → `npm ci`, else `npm install`) | `npm` | **SUPPORTED** |
+| python | `requirements.txt`, `pyproject.toml`, `setup.py` | `python3 -m pip` | **NOT SUPPORTED** — `pip` absent |
+| *(none)* | no recognised manifest | nothing | nothing installed; task proceeds |
+
+The same table, with the reasoning, is in `CLAUDE.md` → Scratch Clone Lifecycle →
+"Supported toolchains". It is held against the code by `tests/toolchain-support.test.js`,
+which reads `detectEcosystem`'s own source: an ecosystem or manifest added there without
+a declared status here is a failing test, not a silently stale list.
+
+## 9.2 The python row — operator-supplied, dated, off-box
+
+```bash
+# On the NAS, 2026-09-20. NOT regenerable from a checkout.
+docker exec -i jt-agent sh -c 'python3 -m pip --version'
+# -> /usr/bin/python3: No module named pip
+```
+
+So `python3` exists in `node:20` and `pip` does not. The consequence is bounded and
+loud: `installDependencies` returns `INSTALLER_ABSENT`, a HARNESS failure that stops the
+dispatch **before** the LLM writes anything. Nothing is silently skipped and no
+unverifiable branch is produced. What it costs is that one of the three repositories in
+the estate — `jtpets/dayz-discord-bot` (pytest, `setup.py`, no lockfile) — cannot be
+dispatched to at all.
+
+## 9.3 Where a package install would have to go, and why none of it is here
+
+Three facts from `docker-compose.example.yml`, all regenerable from a checkout:
+
+```bash
+grep -n "image:\|user:\|command:\|build:" docker-compose.example.yml
+git log --all --oneline --diff-filter=A --name-only | grep -i dockerfile   # prints nothing
+```
+
+1. **There is no image build step.** `image: node:20` is a stock upstream tag pulled
+   as-is. There is no `build:` key, and no `Dockerfile` has ever existed in this
+   repository (the second command prints nothing).
+2. **The only thing that installs anything is the compose `command:`**, which runs at
+   every container **start**, not at build time:
+   `sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"`.
+3. **That command runs as `user: "1000:100"` — not root.** `npm install -g` works there
+   only because `NPM_CONFIG_PREFIX: /bridge/.npm-global` redirects npm's global prefix
+   into the writable bind mount. `apt` has no equivalent, so `apt-get install
+   python3-pip` cannot be appended to that line: it would fail on permissions at every
+   container start, inside a `restart: unless-stopped` service.
+
+**So adding python is an image change, not a config edit**, and this repository does not
+define the image. Which shape it takes — a `Dockerfile` plus a `build:` key, a base image
+that already carries both runtimes, or an unprivileged user-level pip bootstrap — is an
+owner decision with different costs, enumerated in **WORK-TODO #68**. No shape is invented
+here.
+
+## 9.4 What this adds to the rebuild path
+
+Step 5 item 1 gains a clause: the container host must provide an image whose toolchain
+covers the repositories listed in `REPOS`. Today that is node only, and `REPOS` defaults
+to two node repositories, so the rebuild path in Step 5 is complete **for the repositories
+it currently names**. It would not be complete for an estate that includes a python repo,
+and adding one to `REPOS` without changing the image buys a repository the bridge refuses.
+
+**And the pin, which outlives whichever shape is chosen.** A toolchain baked into this
+image is a version resolution that the target repo does not control.
+`jtpets/dayz-discord-bot`'s working test setup is `pytest-asyncio` **0.21.2**, pinned in
+prose only — its `setup.py` declares the dependency unpinned and 1.4.0 produces errors
+(operator-supplied 2026-09-20; unverified and unverifiable from here — the bridge has no
+access to that repository, WORK-TODO #57). An image resolving a different version would
+install cleanly, run the suite and report a green that does not hold on the box. That is
+the same class as a Postgres-major mismatch, and it is why the list above is a list of
+**supported** toolchains rather than a list of installed binaries.
