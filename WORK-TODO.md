@@ -77,6 +77,16 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+At the **2026-09-20 `/repo` mount pass** those print **66** open items — **10** P1,
+**46** P2, **10** P3 — and **no duplicate ID**. That pass closed nothing and filed **#75**
+(`:ro` stops a write and not a read). It also **corrected three existing items rather than
+filing around them**: **#73**'s `WORK_DIR` durability table and **#25**'s durability half
+(an operator `docker inspect` on 2026-09-20 reports `/tmp/bridge-agent` as a bind mount,
+which this repository's compose copy does not declare — neither source is assumed and the
+commands that settle it are on #73), and **#27**'s asymmetry paragraph, which asserted
+`:ro` as containment without saying which half it contains. The index was **REGENERATED,
+not appended to**, and reproduced every existing row byte for byte apart from the one added.
+
 At the **2026-09-20 blocker re-verification pass** those print **65** open items — **10** P1,
 **45** P2, **10** P3 — and **no duplicate ID**. That pass closed nothing and filed **#73** (the
 deploy step in use kills a running task without ever signalling the bridge) and **#74** (the
@@ -287,7 +297,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (45)
+**P2 — real gaps, no risk to the running process** (46)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -301,6 +311,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#74** — [The update gate's delivery branch cannot fire — "the finish line is delivery" is true of the record and not of the gate](#74-the-update-gates-delivery-branch-cannot-fire--the-finish-line-is-delivery-is-true-of-the-record-and-not-of-the-gate)
 - **#26** — [`docker-compose.yml` is untracked **and** unignored in the live working tree — `git clean -fd` deletes the deployment definition](#26-docker-composeyml-is-untracked-and-unignored-in-the-live-working-tree--git-clean--fd-deletes-the-deployment-definition)
 - **#27** — [A task has write access to the entire live deployment, including every credential — recorded, undecided](#27-a-task-has-write-access-to-the-entire-live-deployment-including-every-credential--recorded-undecided)
+- **#75** — [`/repo:ro` stops a write and not a read — SqTools' production secrets are readable by any code a dispatch runs, against any repository](#75-reporo-stops-a-write-and-not-a-read--sqtools-production-secrets-are-readable-by-any-code-a-dispatch-runs-against-any-repository)
 - **#62** — [Two runtime files under `data/` are neither tracked nor gitignored — `git clean -fd` deletes them and `git add -A` publishes them](#62-two-runtime-files-under-data-are-neither-tracked-nor-gitignored--git-clean--fd-deletes-them-and-git-add--a-publishes-them)
 - **#24** — [Four sibling modules resolve a shared writable path at module scope with no override — the same class as #19](#24-four-sibling-modules-resolve-a-shared-writable-path-at-module-scope-with-no-override--the-same-class-as-19)
 - **#20** — [`MAX_TURNS` names four different quantities, and the env var is dead config](#20-max_turns-names-four-different-quantities-and-the-env-var-is-dead-config)
@@ -825,10 +836,52 @@ deferral gate, drain-one's refusal and the `delivery` verdict are all consulted 
 reads none of them. It is not that the protocol decides to proceed; the protocol is not
 invoked. The observable to the operator is a task that stops answering.
 
-**`--force-recreate` is worse, and this is the half the durability table now records.**
-`WORK_DIR` defaults to `/tmp/bridge-agent` (`.env.example:78`), which is neither bind mount,
-so it is the container's writable layer. A `restart` keeps it; a `--force-recreate` — which
-**every `.env` change requires** — discards it:
+**`--force-recreate` is worse — and as of 2026-09-20 the durability half of that claim is
+CONTESTED by the live deployment. Read the correction before the table.**
+
+> **CORRECTION 2026-09-20 (operator-supplied, off-box).** This item's durability table was
+> derived from the compose file *as this repository records it*: two mounts, neither
+> covering `/tmp` (`docker-compose.example.yml:75-80`; the same two in the verbatim capture
+> at `docs/CONFIG-SURFACE-AND-REBUILD.md` → Appendix, taken **2026-09-14**). On
+> **2026-09-20** the operator ran `docker inspect jt-agent` and reports `/tmp/bridge-agent`
+> as a **bind mount from `/share/CACHEDEV1_DATA/jt-agent/work`**. If that holds, every
+> "discarded" cell in the table below is **wrong**: the lock, the queue, the marker and
+> the preserved clones all survive a `--force-recreate`.
+>
+> **This is not an `.env` override.** A `WORK_DIR=` line in `.env` would move the path;
+> it cannot turn `/tmp/bridge-agent` into a bind mount. Only a `volumes:` entry does that.
+> So the live compose has gained a **third volume** since the 2026-09-14 capture, and
+> **`docker-compose.example.yml` — the off-box rebuild artifact — is stale**: rebuilding
+> from it today would silently reinstate the container-layer behaviour. That is a finding
+> of its own and belongs to #26's class (the compose file belongs to no repository).
+>
+> **Nothing in this repository can settle it**, and the two sources disagree, so neither is
+> assumed. Re-establish on the NAS and update both this item and the example file together:
+> ```bash
+> grep -n "volumes:" -A 6 /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml
+> docker inspect -f '{{range .Mounts}}{{.Source}} -> {{.Destination}} (rw={{.RW}}){{"\n"}}{{end}}' jt-agent
+> grep -n "^WORK_DIR=" /share/CACHEDEV1_DATA/jt-agent/.env   # names only — never print the file
+> ```
+>
+> **What it changes about this item's argument, precisely.** The SIGTERM half is
+> **untouched**: `docker compose restart` still never signals `node`, the task is still
+> `SIGKILL`ed, `processTask`'s `finally` still does not run, and the lock, the heartbeat's
+> terminal reaction and the queue's `running` entry are all still left as the kill found
+> them. That is the whole of steps 1–3 above and it is the reason this item is P1.
+> What weakens is the *recreate* half, and only for the state files: if `WORK_DIR` is a
+> bind mount, `task-queue.json` survives the recreate, so `recoverInterrupted()` **does**
+> find the killed task and **does** record it as interrupted at the next startup — the
+> "never even recorded as interrupted" sentence below is then false, and what remains is
+> #22 (the interrupted verdict reaches no human) rather than a second, worse loss. The
+> pending-update marker surviving is likewise benign either way. **Shape (b) below — bind
+> mount `WORK_DIR` — may therefore already be done on the box and undocumented**; it is
+> not marked done here, because a shape is not done until the artifact that rebuilds the
+> deployment carries it.
+
+The table as derived from this repository's copy of the compose file. `WORK_DIR` defaults to
+`/tmp/bridge-agent` (`.env.example:78`, `lib/config.js:41`), which is neither of the two
+mounts *that file declares*, so it is the container's writable layer. A `restart` keeps it;
+a `--force-recreate` — which **every `.env` change requires** — discards it:
 
 | File | Where | `restart` | `up -d --force-recreate` |
 |---|---|---|---|
@@ -840,18 +893,20 @@ so it is the container's writable layer. A `restart` keeps it; a `--force-recrea
 | `.bridge-agent-state.json` | `/bridge` bind mount | survives | survives |
 
 Regenerate the classification: `grep -n "^WORK_DIR=" .env.example` and
-`docs/CONFIG-SURFACE-AND-REBUILD.md` → §8.1 rows 11, 12 and 26. **Confirmed here as asked:
-a recreate silently drops a pending update marker.** In isolation that is benign — the
+`docs/CONFIG-SURFACE-AND-REBUILD.md` → §8.1 rows 11, 12 and 26. **Every row above is
+subject to the 2026-09-20 correction box.** As originally derived: **a recreate silently
+drops a pending update marker.** In isolation that is benign — the
 updater re-marks on its next cycle, and `auto-update.js` even has the recovery path for it
 (`clearUpdatePending({ reason: 'local head is already the remote head' })`,
 `auto-update.js:587`). What is *not* benign is the same event dropping `task-queue.json`:
 `recoverInterrupted()` then finds nothing, so a task the recreate just killed is never even
 recorded as interrupted. The row that says so is row 11 of that table.
 
-**Unverified, and it decides how bad this is:** whether the live `/bridge/.env` overrides
-`WORK_DIR` to a path under `/bridge`. Nothing in this repository can answer it. On the NAS:
-`grep -n "^WORK_DIR=" /share/CACHEDEV1_DATA/jt-agent/.env` (names only — never print the
-value of anything else in that file).
+**Unverified, and it decides how bad this is:** whether `WORK_DIR` is durable on the live
+box. Two candidate mechanisms, and they are different: an `.env` override pointing it under
+`/bridge`, or — what the 2026-09-20 `docker inspect` actually reports — a **third `volumes:`
+entry** bind-mounting `/tmp/bridge-agent`. Nothing in this repository can answer either. The
+commands are in the correction box above.
 
 **Shapes, none chosen — and the first two are off-repo, which is why this is filed rather
 than fixed.**
@@ -859,7 +914,7 @@ than fixed.**
 | Shape | What changes | What it costs |
 |---|---|---|
 | (a) Make `node` PID 1 | `command: sh -c "npm ci && … && exec node bridge-agent.js"` — one `exec`. SIGTERM then reaches `gracefulShutdown()` and a running task gets its 60 s. | The compose file is untracked and off-repo (#26), so this repository cannot make it true. Also raises the grace period question: Docker's default is 10 s and the handler wants 60, so `stop_grace_period: 90s` goes with it or the handler is killed mid-wait. |
-| (b) Bind-mount `WORK_DIR` | The lock, the queue, the marker and preserved clones survive a recreate. | Same off-repo constraint; interacts with #25 and with the read-only-`/bridge` shape in #27. |
+| (b) Bind-mount `WORK_DIR` | The lock, the queue, the marker and preserved clones survive a recreate. | Same off-repo constraint; interacts with #25 and with the read-only-`/bridge` shape in #27. **May already be applied on the box** (2026-09-20 `docker inspect`, correction box above) — in which case the remaining work is not the mount but getting it into `docker-compose.example.yml`, where a rebuild would find it. |
 | (c) Announce the hazard where the operator reads it | A line in `docs/EXECUTOR-CONTRACT.md` §7 and `CLAUDE.md`'s deploy block saying a restart kills a running task **uncleanly** and naming `ASK: what's queued` as the pre-flight check. | Reachable from a branch. Landed with this item. It does not fix anything; it stops the hazard being invisible. |
 
 **Do not read (c) as the fix.** It is the honest half this repository can do.
@@ -921,9 +976,25 @@ grep -n "volumes" -A 3 /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml
 grep -n "^WORK_DIR=" /share/CACHEDEV1_DATA/jt-agent/.env   # names only — never print the file
 ```
 
-**Unverified:** whether the live `/bridge/.env` sets `WORK_DIR`. If it already points
-somewhere under `/bridge`, the durability half of this item is closed and that grep's
-output is the evidence. The path-in-the-alert half stands either way.
+**Unverified — and 2026-09-20 supplies evidence pointing the other way, so read this
+before the table above.** The durability half rests on `/tmp/bridge-agent` being neither
+mount, which is what *this repository's* copy of the compose file says
+(`docker-compose.example.yml:75-80`, reproducing the 2026-09-14 capture). An operator
+`docker inspect jt-agent` on **2026-09-20** reports `/tmp/bridge-agent` as a **bind mount**
+from `/share/CACHEDEV1_DATA/jt-agent/work`. If that holds, **the durability half of this
+item is closed on the live box** — a preserved clone survives a recreate — and what is
+left is (i) the path-in-the-alert half, which stands either way, and (ii) the fact that
+the rebuild artifact does not carry the mount, so a rebuild from
+`docker-compose.example.yml` would reintroduce the loss.
+
+It is **not** closed here, deliberately: the two sources disagree, the surviving one is
+off-box and point-in-time, and a shape is not done until the artifact that rebuilds the
+deployment carries it. The full statement of the disagreement, with the commands that
+settle it, is in **#73**'s correction box (2026-09-20). Original note kept for the record:
+if the live `.env` instead points `WORK_DIR` somewhere under `/bridge`, that grep's output
+is equally good evidence — but note an `.env` value cannot produce the bind mount
+`docker inspect` reports, so the two mechanisms are distinguishable and only one has
+evidence.
 
 **Fix — two halves, only one of which this repo can land.**
 1. *Off-repo (the real fix, and not ours):* put `WORK_DIR` on a mount. Either add a volume
@@ -1881,10 +1952,14 @@ consequence 3, which carries the full list).
 built. It is filed because it was the blast radius of every task this system runs and it
 was written down nowhere, so no one was weighing it when deciding what a task may do.
 
-**The asymmetry.** `/repo` (SqTools — PRODUCTION, money and customer PII) is mounted
-read-only. That is a real containment boundary and the reason a bridge-side compromise,
-a prompt injection, or a plainly wrong task cannot damage that system. **It must never be
-made read-write.** `/bridge` has no equivalent: it is read-write, tasks run through the
+**The asymmetry — CORRECTED 2026-09-20, see #75.** `/repo` (SqTools — PRODUCTION, money
+and customer PII) is mounted read-only. That is a real containment boundary against
+*writes* and the reason a bridge-side compromise, a prompt injection, or a plainly wrong
+task cannot **damage** that system. **It must never be made read-write.** What the
+sentence above originally implied and does not follow from `:ro` is that the tree is out
+of reach: **`:ro` does not stop a read**, and the SqTools tree carries its own `.env` and
+deploy key. The read direction is filed separately as **#75**; this item stays about the
+write access to `/bridge`. `/bridge` has no equivalent: it is read-write, tasks run through the
 Claude Code CLI with `--dangerously-skip-permissions` (a shell) as the mount's owner
 (`uid 1000:100`), so a task can write `/bridge/.env` (the Slack token, the Gemini key, the
 Google OAuth trio and refresh token, the Square access token, the httpSMS key),
@@ -1936,6 +2011,137 @@ so a read-only mount needs those and `WORK_DIR` moved first, which interacts wit
 push path; none of it should be attempted without a way to verify the bridge still runs.
 
 **Status:** open (re-verified 2026-09-14; narrowing shapes written out 2026-09-15)
+
+---
+
+### 75. `/repo:ro` stops a write and not a read — SqTools' production secrets are readable by any code a dispatch runs, against any repository
+**Filed 2026-09-20,** by the pass that was asked what the `/repo` mount actually exposes.
+**This item exists because two prior passes checked the other direction.** The
+2026-09-14 topology capture established that `:ro` prevents a *write* and wrote it up as
+"the one real containment boundary" (`docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 0
+consequence 3, and #27). The 2026-09-20 blocker re-verification checked the *clone* path —
+`isValidRepo` is shape-only, `cloneRepo` uses anonymous HTTPS, a private repo fails closed —
+and concluded the SqTools boundary holds. **Neither looked at the mount in the read
+direction.** `:ro` is an integrity boundary. It is not a confidentiality boundary, and
+nothing else is supplying one.
+
+**Priority:** P2 | **Effort:** Low to record and decide; the remedy is off-repo |
+**Status:** OPEN — repo-side evidence complete, remedy is a deployment decision
+
+**On the priority, stated rather than assumed.** This file's ranking axis is *blast radius
+on the live single-container deployment* — can it brick or silently degrade the running
+bridge. By that axis this is P2, the same tier as its sibling **#27**, because it degrades
+nothing here. **By any axis that counts another system's production credentials it is
+higher than P2.** The tier is kept consistent with the file's declared axis and the
+disagreement is recorded rather than resolved by re-tiering one item; if the axis should
+account for cross-stack exposure, that is a change to the axis, not to this row.
+
+**The three boundaries, because the standing one-sentence claim covers all three.**
+
+| What the bridge can do to SqTools | Verdict | What enforces it |
+|---|---|---|
+| **Clone** `jtpets/SquareDashboardTool` | **Cannot** | **INCIDENTAL** — no credential exists on the clone path (`lib/clone-lifecycle.js:136`, anonymous HTTPS; the deploy key is configured only afterwards, for pushing). Not an allowlist: `isValidRepo` checks shape, never membership. |
+| **Write** the SqTools production tree | **Cannot** | **ENFORCED** — the `:ro` mount flag, in the kernel. Never remove it. |
+| **Read** the SqTools production tree | **CAN** | **Nothing.** |
+
+**What is mounted (owner-supplied, off-box; this repository's copy agrees on the line).**
+`/share/CACHEDEV1_DATA/sqtools/app:/repo:ro` — `docker-compose.example.yml:80`, reproducing
+the live file as captured 2026-09-14, and confirmed from inside the container in
+`docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 1 row 3. The operator re-confirmed it on
+2026-09-20 with `docker inspect jt-agent` (`rw=false`). That path is SqTools' **production
+working tree**, not a checkout of its repository. This repository already names what such a
+tree contains without having read it: Step 6 lists "its own `.env`" among the things at
+`/repo` that must not be touched, and Step 5 item 5 records that the *bridge's* deploy key
+lives beside its tree at `/bridge/.deploy_key`.
+
+**Nothing under `/repo` was read to file this, and nothing should be.** That the path is
+readable by the process is the finding. Reading a secret to demonstrate it would be the
+defect this item describes, performed deliberately.
+
+**Why it is reachable by code the operator does not control — the execute-location
+question, answered from the code.** Dispatched work runs **inside `jt-agent`**, in the same
+mount namespace as `/repo`, with no sandbox:
+
+1. **The scratch clone is a path in this container.** `taskDir = path.join(WORK_DIR, 'task-<ts>')`
+   (`bridge-agent.js:646`), `WORK_DIR` default `/tmp/bridge-agent` (`lib/config.js:41`).
+2. **The agent CLI is an ordinary child process, not a second container.**
+   `spawn(claudeBin, args, { cwd, env: { ...process.env, HOME: os.homedir() } })`
+   (`lib/llm-runner.js:385`), argv `['-p','--output-format','text','--max-turns',N,'--dangerously-skip-permissions']`
+   (`:369-374`), called from `runWithFallback(prompt, { cwd, ... })` (`bridge-agent.js:896-897`)
+   with `cwd = taskDir` (`:648`). `cwd` is a working directory. It is not a root, not a
+   namespace and not a permission.
+3. **A branch's install scripts run before anything is reviewed or tested.**
+   `installDependencies(taskDir)` (`bridge-agent.js:660`) → `spawnSync` with an argv array
+   (`lib/dependency-install.js:161`), which for a node repo is `npm ci` — arbitrary
+   `postinstall` code from the cloned branch's dependency tree, executed in this container
+   **before the LLM's first turn and before a single test**.
+4. **There is no other container to run in, and no route to one.**
+   `grep -rn "docker\.sock\|dockerode" --include=*.js . | grep -v node_modules` → nothing;
+   `docs/COMMAND-SURFACE.md` §5 already establishes that a process inside `jt-agent` cannot
+   reach the host's container runtime.
+
+**So the exposure is not scoped to bridge dispatches.** Any repository of valid shape that
+can be cloned — and `isValidRepo` admits any public one — brings code that runs here. The
+`ALLOWED_USER_IDS` allowlist and the approval queue decide *who may start* a task; neither
+constrains what a started task's dependency tree does at install time.
+
+**What this is NOT.** No code in this repository reads `/repo`:
+
+```bash
+grep -rnE "['\"\`]/repo(/|['\"\`:])" --include=*.js --include=*.json --include=*.yml . \
+  | grep -v node_modules
+# -> only tests/update-verifier.test.js and tests/git-identifiers.test.js, both using
+#    '/repo' as a dummy string, never as a filesystem path
+```
+
+Two documents already record the same fact independently:
+`docs/CAPABILITY-AND-ISOLATION-DESIGN.md:306` ("`/repo` is read-only and nothing reads it;
+there is no SqTools client") and `docs/JESTER-DESIGN.md:174`. **So the mount serves no
+feature this repository can name.** What it was added for is not establishable from here —
+it predates every commit that mentions it, all of which are documentation passes *observing*
+it (`git log --oneline -S "sqtools/app"` → `9d951f3`, `04af5c3`, `bbf9a7d`, `9017b24`,
+`fb51d5a`, all docs). **A mount serving a removed or never-built feature is a different
+finding from one serving a live one, and this is the first: nothing reads it.** That makes
+"drop the mount" a cheaper candidate than it would otherwise be — but only the owner knows
+whether something *outside* this repository uses it.
+
+**Shapes, none chosen — all off-repo, which is why this is filed and not fixed.**
+
+| Shape | What changes | What it costs |
+|---|---|---|
+| (a) Drop the mount | The exposure ends. Nothing in this repository breaks — nothing reads it. | Only the owner can say whether anything off-repo depends on `/repo`. One compose line and a recreate. |
+| (b) Narrow the mount | Mount a subdirectory that excludes `.env` / `.deploy_key`, or the SqTools *repository* rather than its live deploy tree. | Needs to know what a future reader would want; a subdirectory that grows a secret later re-opens this silently. |
+| (c) Move SqTools' secrets out of its working tree | Fixes the class for every reader of that tree, not just this container. | A SqTools-side change; this repository cannot make it and has no access to that repo (#57). |
+| (d) Isolate task execution | The `/bridge` and `/repo` exposures close together — a second uid or a child container for the executor. | The same shape #27 leaves open, and the largest. |
+| (e) Accept it explicitly | Recorded as a decision rather than an oversight. | A valid outcome, as with #27 — and strictly better than the current state, which is that two write-ups asserted a boundary that covers half of what it was read to cover. |
+
+**Corrected in this branch** (`docs/EXECUTOR-CONTRACT.md` §7 and §7.1 row 1,
+`docs/CONFIG-SURFACE-AND-REBUILD.md` Step 10, and the asymmetry paragraph in #27). **Not
+corrected, and it is the remaining repo-side half:** `docker-compose.example.yml:77-79`
+carries the same incomplete claim in a comment beside the mount line — *"the one real
+containment boundary … a bridge-side mistake or prompt injection cannot damage that
+system"* — which is accurate about damage and reads as a claim about reach. The dispatch
+that produced this item forbade compose edits, so it was left alone. **One comment edit,
+no behaviour change; do it with (a)–(e) or on its own.**
+
+**Regenerate** (repo side, from any checkout):
+```bash
+grep -rn ":/repo" docker-compose.example.yml
+grep -rnE "['\"\`]/repo(/|['\"\`:])" --include=*.js . | grep -v node_modules   # readers: none
+grep -n "spawn(\|spawnSync(" lib/llm-runner.js lib/dependency-install.js
+grep -rn "docker\.sock\|dockerode" --include=*.js . | grep -v node_modules       # nothing
+```
+**On the NAS** (not reachable from a checkout; names only, never values):
+```bash
+docker inspect -f '{{range .Mounts}}{{.Source}} -> {{.Destination}} (rw={{.RW}}){{"\n"}}{{end}}' jt-agent
+docker exec -u 1000:100 jt-agent sh -c 'ls -la /repo | head'   # listing only; do not read files
+```
+
+**Related:** #27 (the same container, the write direction, `/bridge`), #57 (the bridge has
+no credential for the SqTools repository — the *git* half of the standing claim, and still
+true), #41 (the NAS holds every stack and every credential), #4b / Step 6 (the compose file
+belongs to no repository, which is why every shape above is off-repo), #60 (if the bridge
+is ever to act on the NAS, the capability is an allowlist, not a shell).
 
 ---
 

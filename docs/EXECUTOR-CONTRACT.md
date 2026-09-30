@@ -187,13 +187,20 @@ stop.
   a max-turns hit the task retries **once** with doubled turns, capped at 100. Dispatch
   bridge work with `TURNS: 100`.
 - **You are in a scratch clone, never the live tree.** Each repo task runs in a fresh
-  clone under `WORK_DIR` (default `/tmp/bridge-agent`). It is not the deployed checkout
-  and it is not the NAS. Work that is committed but never pushed is preserved and
-  alerted on (`detectUndeliveredWork`, `lib/clone-lifecycle.js`) — but preserved in a
-  temp directory **in the container's own writable layer**, which a container
-  *recreation* (`docker compose up -d --force-recreate`, required for any `.env` change)
-  discards. The preservation feature does not survive that. So **push**; a preserved
-  clone is a last resort with an expiry you do not control.
+  clone under `WORK_DIR` (default `/tmp/bridge-agent`, `lib/config.js:41`). It is not the
+  deployed checkout and it is not the NAS. Work that is committed but never pushed is
+  preserved and alerted on (`detectUndeliveredWork`, `lib/clone-lifecycle.js`).
+  **Whether that preservation survives a container recreation is now contested, and you
+  may not rely on either answer.** This repository's copy of the compose file declares
+  two mounts and neither covers `/tmp` (`docker-compose.example.yml:75-80`, reproducing
+  the live file as captured 2026-09-14), which puts `WORK_DIR` in the container's own
+  writable layer — discarded by `docker compose up -d --force-recreate`, which every
+  `.env` change requires. An operator `docker inspect jt-agent` on **2026-09-20** reports
+  `/tmp/bridge-agent` as a **bind mount** from `/share/CACHEDEV1_DATA/jt-agent/work`,
+  which would mean it survives. Both cannot be true of the same file; the off-box one is
+  the live deployment and the in-repo one is a stale capture, but neither is verifiable
+  from a checkout. See WORK-TODO **#73** and **#25**. So **push**; a preserved clone is a
+  last resort whose expiry nobody in this repository can state.
 - **You are not sandboxed out of the live tree — you are only asked to stay out of it.**
   The container bind-mounts the NAS deploy directory at `/bridge` **read-write**, and
   that directory *is* the git checkout the bridge runs. Tasks execute through a shell
@@ -201,11 +208,18 @@ stop.
   `/bridge/.deploy_key`, `/bridge/docker-compose.yml`, `/bridge/agents/agents.json`,
   `/bridge/CLAUDE.md`, `/bridge/COMMANDMENTS.md` and `/bridge/.git` are all writable
   from a task. Nothing stops you: the rule that you do not touch them is a rule, not a
-  wall. **Do not read, write, or `cd` into `/bridge`.** The one real boundary in this
-  deployment is the *other* mount — SqTools at `/repo`, mounted **read-only**, which is
-  why a bridge-side mistake cannot damage production. Never propose making it writable.
+  wall. **Do not read, write, or `cd` into `/bridge`.**
+- **`/repo` is not a sandbox either — `:ro` stops a write and does not stop a read.**
+  The *other* mount is the SqTools **production working tree** at `/repo`, mounted
+  read-only. That flag is a genuine, kernel-enforced **integrity** boundary and it must
+  never be removed. It is **not** a confidentiality boundary: every file under `/repo` is
+  readable by anything running in this container, and that tree carries SqTools' own
+  `.env` and deploy key (`docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 6 names them as
+  out of scope, not as unreachable). **Do not read, write or `cd` into `/repo`.** Never
+  propose making it writable, and never describe it as containment without saying which
+  half it contains. WORK-TODO **#75**.
   Full write-up, with what is verified and what is owner-supplied:
-  `docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 0, consequences 2 and 3.
+  `docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 0, consequences 2 and 3, and Step 10.
 - **`BRANCH:` is the branch to clone *from*, not one to create.** To create a branch,
   clone `main` and `git checkout -b` in the instructions.
 - **Deploys are manual, and merging deploys nothing.** Nothing starts `auto-update.js`.
@@ -243,24 +257,75 @@ against a condition that no longer holds is not caution, it is a cost with no be
 
 | # | The standing claim | Verdict at `f13e012` |
 |---|---|---|
-| 1 | *No access to the SqTools repo — deliberate* | **TRUE**, with a caveat that changes what you may rely on. See below. |
+| 1 | *No access to the SqTools repo — deliberate* | **TRUE OF `git`, FALSE OF THE FILESYSTEM.** Corrected 2026-09-20; the 2026-09-20 pass checked only the clone path. See below. |
 | 2 | *`spawn E2BIG` — the prompt is passed as a command-line argument* | **STALE.** Fixed 2026-09-20. |
 | 3 | *`REPO:`/`BRANCH:` are untrusted Slack input reaching a shell string* | **STALE.** Fixed 2026-09-14, and to the class, not to two labels. |
 | 4 | *The self-update loop runs every 5 minutes and does not honour the task lock* | **STALE IN BOTH HALVES.** It has honoured the lock since 2026-09-14, and it does not run at all. |
 
-**1 — the SqTools boundary holds, but nothing enforces it except the absence of a
-credential.** There is no repository allowlist on the dispatch path: `isValidRepo`
-(`lib/git-identifiers.js`) checks the *shape* `owner/name`, never membership, and the `REPOS`
-env var is read only by the nightly security review and by the `/dispatch` form's select
-(`getConfiguredRepos`, `lib/config.js:198`; the only consumers are `security-review.js:53`
-and `lib/dispatch-modal.js:69`). `cloneRepo` clones over **anonymous HTTPS**
-(`https://github.com/${repo}.git`, `lib/clone-lifecycle.js:136`) and configures the deploy key
-only afterwards, for pushing — so a private repository fails closed at the clone with no
-credential to leak, which is what a 2026-09-20 dispatch observed (#57). **Two consequences
-worth knowing:** `jtpets/SquareDashboardTool` is in `DEFAULT_REPOS`, so the `/dispatch` form
-*offers* it and selecting it produces a 0-second clone failure, not a refusal; and any
-*public* repository of valid shape can be cloned today. Regenerate:
+**1 — the claim is one sentence covering three different boundaries, and they have three
+different answers.** *"The bridge cannot reach SqTools"* is true of `git`, true of writing,
+and **false of reading**. State it as three rows, because a reader who keeps the single
+sentence will rely on the wrong one:
+
+| What the bridge can do to SqTools | Verdict | What enforces it |
+|---|---|---|
+| **Clone** `jtpets/SquareDashboardTool` | **Cannot** | **INCIDENTAL** — no credential exists on the clone path. Not an allowlist. |
+| **Write** the SqTools production tree | **Cannot** | **ENFORCED** — the `:ro` mount flag, in the kernel. |
+| **Read** the SqTools production tree, *including its `.env` and deploy key* | **CAN** | **Nothing.** `:ro` does not stop a read, and nothing else is in the way. |
+
+**Row 1 — the clone path (unchanged, and still INCIDENTAL).** There is no repository
+allowlist on the dispatch path: `isValidRepo` (`lib/git-identifiers.js`) checks the *shape*
+`owner/name`, never membership, and the `REPOS` env var is read only by the nightly security
+review and by the `/dispatch` form's select (`getConfiguredRepos`, `lib/config.js:198`; the
+only consumers are `security-review.js:53` and `lib/dispatch-modal.js:69`). `cloneRepo` clones
+over **anonymous HTTPS** (`https://github.com/${repo}.git`, `lib/clone-lifecycle.js:136`) and
+configures the deploy key only afterwards, for pushing — so a private repository fails closed
+at the clone with no credential to leak, which is what a 2026-09-20 dispatch observed (#57).
+**Two consequences worth knowing:** `jtpets/SquareDashboardTool` is in `DEFAULT_REPOS`, so the
+`/dispatch` form *offers* it and selecting it produces a 0-second clone failure, not a
+refusal; and any *public* repository of valid shape can be cloned today. Regenerate:
 `grep -n "DEFAULT_REPOS" lib/config.js` and `grep -rn "getConfiguredRepos" --include=*.js .`
+
+**Rows 2 and 3 — the mount path, which the pass that wrote this section did not check.**
+The `jt-agent` container bind-mounts SqTools' **production working tree** at `/repo`,
+read-only (`docker-compose.example.yml:80`, reproducing the live file as captured
+2026-09-14; `docs/CONFIG-SURFACE-AND-REBUILD.md` Step 0 row "Mount 2" and Step 1 row 3).
+`:ro` is an **integrity** boundary and a real one — a mistake or an injected instruction
+cannot corrupt SqTools. It is **not a confidentiality boundary**, and nothing else supplies
+one: a read of `/repo` is an ordinary read.
+
+**Why that is not merely theoretical for a dispatch.** Dispatched code runs **inside this
+container**, in the same mount namespace as `/repo`, with no sandbox of any kind:
+
+- the scratch clone is `path.join(WORK_DIR, 'task-<ts>')` (`bridge-agent.js:646`),
+  `WORK_DIR` defaulting to `/tmp/bridge-agent` (`lib/config.js:41`) — a path in the
+  container, not a separate machine;
+- the agent CLI is an ordinary child process — `spawn(claudeBin, args, { cwd, env })`
+  (`lib/llm-runner.js:385`), argv `['-p', …, '--dangerously-skip-permissions']` (`:369-374`),
+  reached from `runWithFallback(prompt, { cwd, … })` (`bridge-agent.js:896-897`). `cwd` is a
+  working directory, not a root;
+- the clone's **own** dependencies are installed *before* the LLM runs —
+  `installDependencies(taskDir)` (`bridge-agent.js:660`) → `spawnSync` (`lib/dependency-install.js:161`),
+  which for a node repo is `npm ci`. That executes the branch's install scripts in this
+  container **before a single test or turn runs**.
+
+So a dispatch against **any** repository of valid shape, not just a bridge dispatch, runs
+code that can read `/repo`. Regenerate the execution-location half from a checkout:
+`grep -rn "spawn(\|spawnSync(" --include=*.js . | grep -v node_modules | grep -v '^./tests/'`
+and `grep -rn "docker\.sock\|dockerode" --include=*.js . | grep -v node_modules` → nothing
+(there is no second container and no route to one — `docs/COMMAND-SURFACE.md` §5).
+
+**What is NOT claimed here.** No code in this repository reads `/repo`:
+`grep -rnE "['\"\`]/repo(/|['\"\`:])" --include=*.js --include=*.json --include=*.yml . |
+grep -v node_modules` returns only test fixtures using `/repo` as a dummy `repoDir` string.
+The mount serves no feature this repository can name (`docs/CAPABILITY-AND-ISOLATION-DESIGN.md:306`
+and `docs/JESTER-DESIGN.md:174` both already record "nothing reads it"). The exposure is what
+a *dispatched executor* — or a dependency's install script — can reach, not something the
+bridge does. Filed with the evidence as WORK-TODO **#75**; the remedy is a deployment change
+and is the owner's.
+
+**Nothing in the SqTools tree was read to establish this**, and nothing should be: that the
+path is readable by the process is the finding; reading a secret to demonstrate it is not.
 
 **2 — the prompt goes over stdin.** `runClaudeAdapter` builds an argv array of flags only
 (`lib/llm-runner.js:369-374`) and writes the prompt with `child.stdin.end(promptText)`
