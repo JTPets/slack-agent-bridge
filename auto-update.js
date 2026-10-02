@@ -289,6 +289,19 @@ function checkTaskQueue({ staleAfterMs, now } = {}) {
         // post's verdict (lib/task-queue.js), so an entry with no verdict recorded is
         // still in flight whatever its status says.
         //
+        // LOGIC CHANGE 2026-10-02 (WORK-TODO #74): what that sentence does NOT say is
+        // that no production writer can produce such an entry. Every terminal write in
+        // lib/task-queue.js stamps a verdict in the same block (normalizeDelivery never
+        // returns null), so `allUndelivered` below is empty for every row this code
+        // writes. The branch is kept as defence in depth against a future terminal
+        // writer, and tests/task-queue-delivery-invariant.test.js fails if one appears.
+        // What actually protects the post window is ORDER: the result post precedes the
+        // terminal write, so during it the entry is still `running` (liveRunning above),
+        // and the task lock is released only after both (tests/task-delivery-signal.test.js).
+        // A delivery that permanently fails is recorded as `delivered: false` and does
+        // NOT hold an update - deliberately: holding it would turn one Slack outage into
+        // a bridge that refuses every dispatch (drain-one).
+        //
         // This does not change the behaviour of any entry written before that field
         // existed: deliveryRecorded() returns true for a row with no `delivery` key
         // at all, precisely so a pre-change queue file cannot freeze every deploy the

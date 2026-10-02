@@ -827,6 +827,7 @@ slack-agent-bridge/
 │   ├── task-queue.test.js       # Tests for lib/task-queue.js (queue persistence, auto-update coordination)
 │   ├── task-queue-lifecycle.test.js # THE guard that the LIVE task path drives the queue state machine: extracts the lifecycle from bridge-agent.js's source and replays it against a real queue (a module-only test cannot see an unreachable path)
 │   ├── task-delivery-signal.test.js # THE guard that a finished task is a DELIVERED task. Two halves: a source walk over processTask's three terminal regions (success/failure/interrupted) asserting the result post PRECEDES the terminal queue write and that the lock is released only after all of them — the ordering held before this suite but was incidental, and an incidental ordering is what lib/update-drain.js would have been gating a restart on; and a replay against a REAL TaskQueue proving the verdict is durable, that a caller recording nothing gets an explicit `delivered: false` rather than an optimistic default, and that a completed task whose post FAILED is distinguishable from one whose post landed. Carries its own negative controls
+│   ├── task-queue-delivery-invariant.test.js # THE guard for WORK-TODO #74: no TaskQueue writer leaves a TERMINAL row without a delivery verdict. A source walk over lib/task-queue.js asserts every method writing a terminal status calls normalizeDelivery() and that the only null-verdict writers are enqueue and _startRunning, plus a replay driving every terminal transition with no verdict. So auto-update's undelivered-row branch stays unreachable by invariant, not by accident. Carries its own negative controls
 │   ├── task-decomposer.test.js  # Tests for lib/task-decomposer.js (complexity analysis, decomposition, agent routing)
 │   ├── security-followup.test.js # Tests for lib/security-followup.js (finding parsing, task generation)
 │   ├── approval-queue.test.js   # Tests for lib/approval-queue.js (queueing, approval/rejection, commands)
@@ -1431,7 +1432,9 @@ above accepts that explicitly. Drain-one adds the missing half.
    which is the intended behaviour, just not produced by the mechanism this paragraph credited.
    What protects the post window is that the result post precedes the terminal write, so the
    entry is still `running` during it. The verdict's working value is the durable record of a
-   loss; the gate half is defence in depth against a future writer. #74 records the shapes.
+   loss; the gate half is defence in depth against a future writer. Since 2026-10-02 that
+   unreachability is an invariant, not an accident: `tests/task-queue-delivery-invariant.test.js`
+   fails if any `TaskQueue` writer can leave a terminal row without a verdict (#74, closed).
 5. **There is NO CEILING.** A pending update may wait indefinitely. It is never forced
    and no task is ever killed for it.
 
