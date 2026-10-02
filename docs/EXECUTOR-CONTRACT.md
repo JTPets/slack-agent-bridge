@@ -281,9 +281,11 @@ only consumers are `security-review.js:53` and `lib/dispatch-modal.js:69`). `clo
 over **anonymous HTTPS** (`https://github.com/${repo}.git`, `lib/clone-lifecycle.js:136`) and
 configures the deploy key only afterwards, for pushing — so a private repository fails closed
 at the clone with no credential to leak, which is what a 2026-09-20 dispatch observed (#57).
-**Two consequences worth knowing:** `jtpets/SquareDashboardTool` is in `DEFAULT_REPOS`, so the
-`/dispatch` form *offers* it and selecting it produces a 0-second clone failure, not a
-refusal; and any *public* repository of valid shape can be cloned today. Regenerate:
+**Two consequences worth knowing:** until 2026-10-02 `jtpets/SquareDashboardTool` was in
+`DEFAULT_REPOS`, so the `/dispatch` form *offered* it and selecting it produced a 0-second
+clone failure, not a refusal — the default is now `jtpets/slack-agent-bridge` only, but a
+`REPOS` in the live `.env` (off-box, unverified) still decides what the running bridge
+offers; and any *public* repository of valid shape can be cloned today. Regenerate:
 `grep -n "DEFAULT_REPOS" lib/config.js` and `grep -rn "getConfiguredRepos" --include=*.js .`
 
 **Rows 2 and 3 — the mount path, which the pass that wrote this section did not check.**

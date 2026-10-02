@@ -1357,8 +1357,9 @@ docker exec -i jt-agent sh -c 'python3 -m pip --version'
 specifically, so the outcome is `INSTALLER_ABSENT` — a HARNESS failure that stops the
 dispatch before the LLM writes anything — and not `INSTALL_FAILED`, which would have read
 as "the repo's requirements are broken". **That behaviour is correct and is not the
-defect.** The defect is that the image is incomplete for the estate it serves: `REPOS`
-names two node repositories, and the third repository in the estate,
+defect.** The defect is that the image is incomplete for the estate it serves: two of the
+estate's repositories are node (`REPOS`' default named both until 2026-10-02 and now names
+only this one, since the bridge cannot clone SquareDashboardTool — #57), and the third,
 `jtpets/dayz-discord-bot` (pytest, `setup.py`, no lockfile), is python.
 
 **Why it is not a config edit.** Three facts from `docker-compose.example.yml` at

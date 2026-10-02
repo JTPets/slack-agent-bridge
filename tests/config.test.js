@@ -512,4 +512,25 @@ describe('config module', () => {
         .toBe('gemini');
     });
   });
+
+  // LOGIC CHANGE 2026-10-02: the default is this repository only. Before, it also named
+  // jtpets/SquareDashboardTool, which the bridge cannot clone (WORK-TODO #57); no test
+  // pinned the default, so none encoded the old value — this one pins the new one.
+  describe('getConfiguredRepos', () => {
+    const { getConfiguredRepos, DEFAULT_REPOS } = require('../lib/config');
+
+    test('with REPOS unset the default is exactly this repository', () => {
+      expect(getConfiguredRepos({})).toEqual(['jtpets/slack-agent-bridge']);
+      expect(DEFAULT_REPOS).not.toMatch(/SquareDashboardTool/);
+    });
+
+    test('a REPOS value still overrides the default, trimmed, empties dropped', () => {
+      expect(getConfiguredRepos({ REPOS: ' a/one , jtpets/SquareDashboardTool ,, ' }))
+        .toEqual(['a/one', 'jtpets/SquareDashboardTool']);
+    });
+
+    test('an empty REPOS falls back to the default', () => {
+      expect(getConfiguredRepos({ REPOS: '' })).toEqual(['jtpets/slack-agent-bridge']);
+    });
+  });
 });
