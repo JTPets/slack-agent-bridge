@@ -384,6 +384,18 @@ committed `package-lock.json`. It cannot merge as is. No item tracks it; a major
 change the logger default #21 depends on. Recommend closing that PR and letting the next
 Dependabot run regenerate it against the lockfile.
 
+**Secretary email intake — a candidate, not filed.** Per the owner (2026-10-02), email is
+the bridge's inbound data path: SqTools and other systems send the 6 am min/max audit,
+error logs and orders to the inbox, and further SqTools email enhancements are planned as
+a secretary intake job. No open item covers that job. Three facts at `71d2112` an intake
+item would start from: the fetch cannot be scoped by label (`q = 'in:inbox'`,
+`lib/integrations/gmail.js:345`; `users.labels.list` is called nowhere —
+`docs/CAPABILITY-AND-ISOLATION-DESIGN.md` §2.4); the scheduled check is
+`lib/email-check.js` against `agents/email-monitor/memory/rules.json`; and intake content
+reaches Slack, so it lands after B3's redaction work. Related: #29 (unsubscribe), and the
+design rule in that document that no agent holds both a mail credential and a production
+data path.
+
 ## Twelve of the 48 are not engineering backlog
 
 **Filed 2026-09-16 by the audit pass.** A quarter of this file is work no branch can do.
