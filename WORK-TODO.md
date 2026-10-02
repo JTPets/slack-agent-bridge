@@ -2006,6 +2006,24 @@ execution — are recorded there as explicitly **not** one-line changes: the sta
 runs `npm ci` into `/bridge/node_modules` and installs the CLI into `/bridge/.npm-global`,
 so a read-only mount needs those and `WORK_DIR` moved first, which interacts with #25.
 
+**The children that inherit every credential, recorded 2026-10-02.** Four sites pass the
+whole process environment — the Slack token, the Gemini key, the Google OAuth trio, the
+Square token, the httpSMS key — to a child that runs branch-influenced code:
+
+| Site | Child |
+|---|---|
+| `lib/dependency-install.js:175` | the scratch clone's `npm ci`/`npm install` (scripts off since 2026-10-02, so no third-party code runs *at install*) or `python3 -m pip` |
+| `lib/llm-runner.js:387` | the Claude CLI with `--dangerously-skip-permissions`, `cwd` = the clone |
+| `lib/update-verifier.js:165` | the smoke suite (auto-update; not started, #17) |
+| `lib/clone-lifecycle.js:249` | `git` in the clone |
+
+Regenerate: `grep -rnE "env:\s*\{?\s*\.\.\.process\.env|env:\s*process\.env" --include=*.js . | grep -v node_modules | grep -v '/tests/'`.
+That grep is a floor, not the set: a `spawn`/`spawnSync`/`execFileSync` with **no** `env`
+option inherits the whole environment too, and there are 14 child-process call sites
+(`grep -rnE "\b(spawn|spawnSync|execFileSync|execFile)\(" --include=*.js . | grep -v node_modules | grep -v '/tests/' | wc -l`).
+Trimming any of them is this item's decision, not a side change — and trimming alone buys
+little while the same process can read `/bridge/.env` from disk.
+
 **Priority:** P2 | **Effort:** Low to accept and record; Medium to narrow.
 **Risk:** Changing it is Medium — every narrowing shape can break task execution or the
 push path; none of it should be attempted without a way to verify the bridge still runs.
@@ -2070,11 +2088,20 @@ mount namespace as `/repo`, with no sandbox:
    (`:369-374`), called from `runWithFallback(prompt, { cwd, ... })` (`bridge-agent.js:896-897`)
    with `cwd = taskDir` (`:648`). `cwd` is a working directory. It is not a root, not a
    namespace and not a permission.
-3. **A branch's install scripts run before anything is reviewed or tested.**
-   `installDependencies(taskDir)` (`bridge-agent.js:660`) → `spawnSync` with an argv array
-   (`lib/dependency-install.js:161`), which for a node repo is `npm ci` — arbitrary
-   `postinstall` code from the cloned branch's dependency tree, executed in this container
-   **before the LLM's first turn and before a single test**.
+3. **A branch's install scripts ran before anything was reviewed or tested — node closed
+   2026-10-02, python not.** `installDependencies(taskDir)` (`bridge-agent.js:660`) →
+   `spawnSync` with an argv array (`lib/dependency-install.js:168`). For a node repo that
+   was plain `npm ci` — arbitrary `postinstall` code from the cloned branch's dependency
+   tree, executed in this container **before the LLM's first turn and before a single
+   test**. It is now `npm ci --ignore-scripts` / `npm install --ignore-scripts` (operator
+   decision 2026-10-01; guard `tests/dependency-install-scripts.test.js`). **Residual,
+   stated so this is not read as closed:** a python clone runs `python3 -m pip install`,
+   which has no equivalent switch and executes package build code (`setup.py`, PEP 517
+   backends); it refuses today only because the image has no pip (#68 — off-box,
+   operator-supplied 2026-09-20; at HEAD the code still emits that command and still
+   recognises `No module named pip` as `INSTALLER_ABSENT`). And the executor still runs the
+   branch's own tests, with npm's `pretest`/`posttest`, in this container with the same
+   reach — so this removes install-time execution, not code execution.
 4. **There is no other container to run in, and no route to one.**
    `grep -rn "docker\.sock\|dockerode" --include=*.js . | grep -v node_modules` → nothing;
    `docs/COMMAND-SURFACE.md` §5 already establishes that a process inside `jt-agent` cannot
@@ -3511,7 +3538,9 @@ token on the bridge would grant every branch it ever clones the ability to write
 Note `DEPLOY_KEY_PATH` is already read but undocumented — **#34**.
 
 **Constraint 2 — the credential must never be reachable from a container that runs branch
-code.** `npm ci` executes install scripts from whatever branch was cloned, so "clone the
+code.** `npm ci` executed install scripts from whatever branch was cloned (scratch-clone
+installs run `--ignore-scripts` since 2026-10-02, #75 point 3 — but the branch's own tests
+still run, and pip has no such switch), so "clone the
 branch, then run the install" and "hold a credential in that process's environment or
 filesystem" cannot both be true. SqTools **BACKLOG-402** is the precedent for this
 separation — **cited as prior art from the other repository, not as something this repo

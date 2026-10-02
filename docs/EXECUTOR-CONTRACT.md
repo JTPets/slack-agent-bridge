@@ -305,9 +305,16 @@ container**, in the same mount namespace as `/repo`, with no sandbox of any kind
   reached from `runWithFallback(prompt, { cwd, … })` (`bridge-agent.js:896-897`). `cwd` is a
   working directory, not a root;
 - the clone's **own** dependencies are installed *before* the LLM runs —
-  `installDependencies(taskDir)` (`bridge-agent.js:660`) → `spawnSync` (`lib/dependency-install.js:161`),
-  which for a node repo is `npm ci`. That executes the branch's install scripts in this
-  container **before a single test or turn runs**.
+  `installDependencies(taskDir)` (`bridge-agent.js:660`) → `spawnSync` (`lib/dependency-install.js:168`),
+  which for a node repo is `npm ci --ignore-scripts` (or `npm install --ignore-scripts`
+  without a lockfile). **Corrected 2026-10-02:** until then neither path passed
+  `--ignore-scripts`, so the branch's and its dependency tree's install scripts executed in
+  this container before a single test or turn ran; guard:
+  `tests/dependency-install-scripts.test.js`. **What that removed is
+  install-time execution only.** The executor still runs the branch's own code — its tests,
+  and npm's `pretest`/`posttest` with them — in this same container with the same reach,
+  and a **python** clone's `pip install` still executes package build code (pip has no
+  equivalent switch; that path refuses today only because the image has no pip, #68).
 
 So a dispatch against **any** repository of valid shape, not just a bridge dispatch, runs
 code that can read `/repo`. Regenerate the execution-location half from a checkout:
@@ -320,8 +327,8 @@ and `grep -rn "docker\.sock\|dockerode" --include=*.js . | grep -v node_modules`
 grep -v node_modules` returns only test fixtures using `/repo` as a dummy `repoDir` string.
 The mount serves no feature this repository can name (`docs/CAPABILITY-AND-ISOLATION-DESIGN.md:306`
 and `docs/JESTER-DESIGN.md:174` both already record "nothing reads it"). The exposure is what
-a *dispatched executor* — or a dependency's install script — can reach, not something the
-bridge does. Filed with the evidence as WORK-TODO **#75**; the remedy is a deployment change
+a *dispatched executor* — or, before 2026-10-02, a dependency's install script — can reach,
+not something the bridge does. Filed with the evidence as WORK-TODO **#75**; the remedy is a deployment change
 and is the owner's.
 
 **Nothing in the SqTools tree was read to establish this**, and nothing should be: that the
