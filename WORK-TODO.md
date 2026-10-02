@@ -2186,7 +2186,33 @@ in git at all), so the inverse rule costs nothing.
 configuration edits in scope, and a `.gitignore` line has a deployment-shaped consequence
 (it changes what `git status` reports on the box) — the same reason #26 was filed rather
 than taken unilaterally.
-**Priority:** P2 | **Effort:** Low (one `.gitignore` block) | **Status:** open
+
+**Extended 2026-10-02 — the same class, found live on the box, and closed for those
+families.** On 2026-10-01 the operator ran `git status --short --untracked-files=all` in
+the deploy directory (then at `5749d08`; operator-supplied, off-box) and these were
+untracked and **not** ignored: `.env.swo` (a vim swap copy of the live `.env`; the
+operator deleted it the same day, it was never committed), `agents.json.local`,
+`agents/shared/channel-map.json.pre-rebuild`, `work/task-queue.json`, `gtest.js`,
+`review-suite.txt`, `INVESTIGATION-silent-noop-2026-09-12.md`. `work/` is the live
+`WORK_DIR` (operator `docker inspect`, 2026-10-01: `/share/CACHEDEV1_DATA/jt-agent/work ->
+/tmp/bridge-agent`, `rw=true`), so every preserved scratch clone sits inside the tree too.
+`.gitignore` then carried `.env` as an exact name and `*.bak*`, which `.env.swo`,
+`.env.local` and `.env.backup` all miss (`.backup` does not contain `.bak`).
+
+The fix for those families landed in the branch that wrote this, in the inverse shape this
+item already argued for: `.env*` with `!.env.example`; `*.sw[a-p]` and `*.local` for any
+file; `/work/`; `agents/shared/*` with the two seeds re-included by name. Guard:
+`tests/gitignore-publishable.test.js`, which asks `git check-ignore --no-index` about each
+family and the seeds, and asserts `git ls-files -c -i --exclude-standard` is empty.
+**Not given rules, deliberately:** `gtest.js`, `review-suite.txt` and the INVESTIGATION
+file are one-off operator debris on the box; a rule per name is the allowlist shape this
+item rejects. Left to the operator.
+
+**Still open — this item's original half.** `data/staff-tasks-state.json` and
+`data/catalog-cache.json` remain unignored; the `data/` inverse block above was not in that
+dispatch's scope. Regenerate with the loop at the top of this item.
+**Priority:** P2 | **Effort:** Low (one `.gitignore` block) | **Status:** open — the `.env`,
+swap, `*.local`, `work/` and `agents/shared/` families closed 2026-10-02; `data/` remains
 
 ---
 
