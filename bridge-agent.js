@@ -200,6 +200,7 @@ const { redact } = require('./lib/redact-secrets');
 // docs/WIRING-AND-SEAMS.md. Pure fs/execFileSync helpers with no bridge state.
 const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-lifecycle');
 const { formatPreservedCloneAlert } = require('./lib/preserved-clone-alert');
+const { describeTaskStateDivergence } = require('./lib/task-state-divergence');
 
 // LOGIC CHANGE 2026-09-20: install the target repo's own dependencies in the scratch
 // clone before the LLM runs. Without this, Phase-3's test command found no node_modules
@@ -580,6 +581,12 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
       `[bridge-agent] Running without a task lock (${lockResult.error}) - ` +
       `a self-update during this task will not defer for it`
     );
+    // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged. The poll
+    // loop and the update gate now disagree about whether a task is running.
+    // postToOps never throws.
+    await postToOps(describeTaskStateDivergence({
+      kind: 'lock_not_acquired', description: task.description, error: lockResult.error,
+    }));
   }
 
   // LOGIC CHANGE 2026-09-14: Mark the queue entry RUNNING here, beside the lock.
@@ -600,6 +607,10 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
       taskQueue.getQueue().markRunning(queueId);
     } catch (queueErr) {
       console.error('[bridge-agent] Queue markRunning failed:', queueErr.message);
+      // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged.
+      await postToOps(describeTaskStateDivergence({
+        kind: 'queue_not_marked_running', description: task.description, error: queueErr.message,
+      }));
     }
   }
 
@@ -993,6 +1004,10 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
           );
         } catch (queueErr) {
           console.error('[bridge-agent] Queue interrupt failed:', queueErr.message);
+          // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged.
+          await postToOps(describeTaskStateDivergence({
+            kind: 'queue_terminal_write_failed', description: task.description, error: queueErr.message, step: 'interrupt',
+          }));
         }
       }
       return;
@@ -1053,6 +1068,10 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
         });
       } catch (queueErr) {
         console.error('[bridge-agent] Queue complete failed:', queueErr.message);
+        // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged.
+        await postToOps(describeTaskStateDivergence({
+          kind: 'queue_terminal_write_failed', description: task.description, error: queueErr.message, step: 'complete',
+        }));
       }
     }
 
@@ -1267,6 +1286,10 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
         });
       } catch (queueErr) {
         console.error('[bridge-agent] Queue fail failed:', queueErr.message);
+        // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged.
+        await postToOps(describeTaskStateDivergence({
+          kind: 'queue_terminal_write_failed', description: task.description, error: queueErr.message, step: 'fail',
+        }));
       }
     }
 

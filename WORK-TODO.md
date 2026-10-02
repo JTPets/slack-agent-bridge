@@ -313,7 +313,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #30 | P2 | OPEN, slightly worse | B3 | M | 52 `chat.postMessage` sites, 3 redacting; `notifyChannel` (`lib/notify-owner.js:82-98`) still does not redact |
 | #31 | P2 | OPEN, **worse than filed** | B3 | S | Nothing retries any task (`bridge-agent.js:1224` "handleRateLimit() is NOT called here anymore"), yet `morning-digest.js:396` tells the owner "They will auto-retry" |
 | #71 | P2 | OPEN, needs a shape | OD | S | No lock/queue/drain call in `processConversation`. Latent while nothing starts the updater |
-| #72 | P2 | OPEN | B1 | M | `let isRunning` (`bridge-agent.js:294`) vs a best-effort lock (`:570-582`) |
+| #72 | P2 | REPORTING DONE in B1; agreement is a decision | OD | S | Divergences now post to ops (`lib/task-state-divergence.js`). Remaining: choose read-the-lock-in-poll or refuse-on-failed-lock |
 | #26 | P2 | REPO DONE | OA | S | `.gitignore:71` ignores `docker-compose.yml`; the NAS tree must pull it |
 | #27 | P2 | in flight (records), then decision | OD | — | Shapes recorded in `docs/CONFIG-SURFACE-AND-REBUILD.md` §7.7 |
 | #75 | P2 | in flight (closes in the records dispatch) | — | S | `docker-compose.example.yml:77-79` comment still calls `:ro` "the one real containment boundary" |
@@ -1915,7 +1915,20 @@ saying they do not.
 both mechanisms entirely), #74 (the same shape on the delivery field; closed 2026-10-02).
 **Priority:** P2 | **Effort:** Low-Medium.
 
-**Status:** open (filed 2026-09-20)
+**Reporting half done 2026-10-02.** Every best-effort write that can make the answers
+diverge now posts to `#sqtools-ops` instead of only logging: a failed lock acquire, a failed
+`markRunning`, and a failed terminal write (`interrupt`, `complete`, `fail`), each naming what
+the divergence does to the poll loop and the update gate (`lib/task-state-divergence.js`;
+guard `tests/task-state-divergence.test.js`). So the disagreement is no longer invisible from
+either side. **The answers can still diverge**, and making them agree is the decision above:
+read the lock in `poll()` (unsafe alone, because the lock write is best effort and
+`isRunning` is what stops a second concurrent `poll()` from starting another task), or refuse
+a dispatch whose lock cannot be written (inverts a recorded trade-off). Neither is chosen.
+
+**BLOCKED — OWNER DECISION** — which of the two shapes, if either. Latent until #17 starts
+the updater.
+
+**Status:** open (filed 2026-09-20; reporting half landed 2026-10-02)
 
 ---
 
