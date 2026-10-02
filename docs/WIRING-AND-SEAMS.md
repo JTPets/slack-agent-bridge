@@ -204,7 +204,7 @@ runs `lib/email-check.js` → `runInboxCheck()`:
 | Window | `lib/email-check.js` `resolveWindow()` | `agents/email-monitor/memory/check-state.json` (`lastSuccessfulCheckAt`), capped at `EMAIL_CHECK_MAX_LOOKBACK_MS` |
 | Fetch | `lib/integrations/gmail.js` `fetchRecentEmails()` | messages.list + messages.get. **Read-only.** Returns `{ ok, emails, reason, error, listed, failed }` |
 | Filter | `lib/integrations/email-categorizer.js` `categorizeEmails()` | rules from `agents/email-monitor/memory/rules.json`, read per run by `loadRules()` |
-| Report | `slack.chat.postMessage` to `agent.channel` | Only on success |
+| Report | `lib/email-check-report.js` `decidePost()` → `slack.chat.postMessage` to `agent.channel` | Only on success, and (since 2026-10-02) a **scheduled** check only when something is flagged, the fetch was partial or rate-limited, there was a >90-minute in-day gap, or it is the first check of the Toronto day (heartbeat, recorded as `lastHeartbeatDay` in the state file). `ASK: check-inbox` passes `onDemand` and always posts |
 | Escalate | `lib/notify-owner.js` `taskFailed()` | `#sqtools-ops` post + CRITICAL owner notification |
 
 **Empty vs failed.** `getRecentEmails()` returned `[]` for an empty inbox, for
@@ -216,7 +216,7 @@ that read exactly like a quiet mailbox. `fetchRecentEmails()` never collapses th
 its existing caller, so `morning-digest.js` is unchanged.
 
 `runInboxCheck()` statuses: `ok` (check ran; `fetched` may be 0), `not_configured`,
-`fetch_failed`, `categorize_failed`. Only `ok` posts a summary; every other status
+`fetch_failed`, `categorize_failed`. Only `ok` can post a summary, and a routine one does not; every other status
 escalates to a human and writes **no** state, so the window is retried rather than
 lost.
 

@@ -48,7 +48,7 @@ grep -rn "chat\.postMessage" --include='*.js' . | grep -v node_modules | grep -v
 | `bridge-agent.js:376` `postToOps` | **yes** (`redact(text)`) | yes | logs, swallows |
 | `security-review.js:89` `postToOps` | **no** | yes | logs, **rethrows** |
 | `auto-update.js:80` `postToOps` | **no** | **no** | logs, swallows |
-| `lib/email-check.js:199` (inline) | no | yes | logs, returns `false` |
+| `lib/email-check.js:170` (inline) | no | yes | logs, returns `false` |
 
 Three functions named `postToOps`, in three files, with three different behaviours.
 
@@ -153,7 +153,7 @@ guarded by `tests/timezone-explicit.test.js`. What is *not* guarded is the optio
 `lib/agent-context.js:61`, `morning-digest.js:132`.
 
 **Date + time** — **EQUIVALENT**: `lib/bulletin-board.js:283` sets `hour12: true`;
-`lib/email-check.js:130` omits it. `en-US` defaults to 12-hour, so the rendered string
+`lib/email-check-report.js:107` (moved from `lib/email-check.js` 2026-10-02) omits it. `en-US` defaults to 12-hour, so the rendered string
 is the same; the omission is an inconsistency in a file added the same day as this map,
 not a behaviour difference.
 
@@ -214,6 +214,12 @@ TZ=America/Toronto node -e "const d=new Date('2026-09-15T02:00:00Z');
 # 9/14/2026, 10:00:00 PM -> 2026-09-15
 ```
 
+A sixth, Toronto-zoned day key landed 2026-10-02: `lib/email-check-report.js` `torontoDay`
+(`toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })`), the inbox check's
+daily-heartbeat key. Correct for its use, not exported as a shared helper — duplication
+acknowledged, deferred until the zone-taking canonical version below exists.
+Regenerate: `grep -rn "toLocaleDateString('en-CA'" --include=*.js . | grep -v node_modules`.
+
 The same UTC key is right in one module and wrong in four, which is exactly why it needs
 a named helper with the zone as an argument rather than a copied idiom.
 
@@ -246,7 +252,7 @@ grep -rnE "JSON\.parse\(fs\.readFileSync|writeFileSync\(" --include='*.js' . \
 Seventeen modules implement the same load-with-default / write-JSON pair:
 `lib/agent-registry.js:32,136` · `lib/approval-queue.js:67,116` ·
 `lib/bridge-state.js:76,92,127,147` · `lib/bulletin-board.js:50,93` ·
-`lib/email-check.js:74,95` · `lib/llm-metrics.js:73,106` · `lib/memory-tiers.js:77,110` ·
+`lib/email-check.js:79,103` · `lib/llm-metrics.js:73,106` · `lib/memory-tiers.js:77,110` ·
 `lib/owner-tasks.js:25,55` · `lib/slack-client.js:38,64` · `lib/staff-tasks.js:119,143` ·
 `lib/task-lock.js:178,108` · `lib/task-queue.js:89,115` · `lib/watercooler.js:106,127` ·
 `memory/memory-manager.js:35,66` · `auto-update.js:425,458` ·
