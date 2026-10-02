@@ -303,7 +303,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #41 | P1 | REPO DONE | OA | — | All remaining work is on the appliance |
 | #17 | P1 | OPEN | B1 + B6 | S / M | Boot-commit report not started (no `rev-parse` in `bridge-agent.js`); that half is B1. Wiring the daemon is an owner decision, B6 |
 | #73 | P1 | REPO DONE for the warning; compose fix off-box | B6 | S | `gracefulShutdown` at `bridge-agent.js:2620`, handlers `:2684`; compose copy has no `init:`/`stop_grace_period:` |
-| #25 | P1 | OPEN | B1 | S | Alert at `bridge-agent.js:1301-1308` still omits "inside the container", "deleted by a recreate", `docker exec`. Cited lines drifted (`:1127` → `:1301`) |
+| #25 | P1 | REPO DONE (alert fixed in B1) | OA | S | Alert text built by `lib/preserved-clone-alert.js`, test `tests/preserved-clone-alert.test.js`. Remaining: `WORK_DIR` on a mount in `docker-compose.example.yml` (with #73) |
 | #3 | P1 | REPO DONE | OA | — | `lib/agent-scheduler.js:133-141` refuses planned/unresolved; needs a live restart to confirm. Suggest P2 |
 | #4 | P1 | OPEN, parked by its own text | B5 | S/M | Cheap half (poll right after `/dispatch` posts) not done — `lib/dispatch-command.js` never calls `poll()`. Suggest P3: latency, not a defect |
 | #43 | P1 | REPO DONE | OA | — | `/dispatch` built and wired (`bridge-agent.js:2588`); Slack app steps remain. Suggest P2 |
@@ -1118,7 +1118,19 @@ and (b) are off-repo), #71 (`ASK:` is outside every gate anyway).
 topology it depends on: [`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md)
 → Step 0, consequence 2.
 
-**Repo-side half re-verified 2026-09-16 and it is NOT done.** The alert at
+**BLOCKED — OWNER ACTION (off-repo), as of 2026-10-02.** The repo-side half (fix half 2
+below) is **done**: the alert is built by `lib/preserved-clone-alert.js`, posted from
+`processTask`'s cleanup block in `bridge-agent.js`, and now says the path is inside the
+`jt-agent` container, gives `docker exec -it jt-agent sh` and the `cd` to reach it, and says
+`docker compose up -d --force-recreate` deletes the clone unless `WORK_DIR` is on a mount.
+Regression test: `tests/preserved-clone-alert.test.js`. What remains is fix half 1 — put
+`WORK_DIR` on a mount and make `docker-compose.example.yml` carry it, settling the
+disagreement below — which is a deployment change. The operator's 2026-10-01 `docker
+inspect` again reported `/share/CACHEDEV1_DATA/jt-agent/work -> /tmp/bridge-agent (rw=true)`,
+so the live box likely has it already and the tracked copy does not; the close is the
+tracked copy carrying the mount, owned by #73's compose change.
+
+**Repo-side half re-verified 2026-09-16 and it was NOT done then** (kept for the record). The alert at
 `bridge-agent.js:1127-1133` posts `Location: <path>` and "The clone was NOT deleted so the
 work can be recovered and pushed manually" — it still says nothing about the clone being in
 container-local storage, nothing about a container recreation destroying it, and nothing

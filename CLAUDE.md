@@ -700,6 +700,7 @@ slack-agent-bridge/
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
 │   ├── channel-map-rebuild.js # THE reproduction path for the workspace channel mapping (WORK-TODO #55): reconstructFromHistory() recovers the ids from agents/agents.json as it stood when the markdown migration deleted it, joining on the AGENT ID so a name correction cannot orphan one; resolveDeclaredChannels() asks Slack what the declared names mean HERE, via the same resolveAgentChannel() the boot path calls. A value already resolved against the live workspace always beats a reconstructed one. Creates no channel, writes no tracked file
 │   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork, assertValidTargetDir. Every git call is an execFileSync argv array — no function here builds a shell command string
+│   ├── preserved-clone-alert.js # The text of the #sqtools-ops alert posted when a scratch clone is kept for undelivered work: formatPreservedCloneAlert says the path is INSIDE the jt-agent container, gives the `docker exec` that reaches it, and says a `--force-recreate` deletes it unless WORK_DIR is on a mount (WORK-TODO #25). Pure: builds a string, posts nothing
 │   ├── dependency-install.js # Installs a scratch clone's OWN dependencies BEFORE the LLM runs, so Phase-3's test gate is real instead of vacuous (WORK-TODO #61): detectEcosystem (node -> npm ci/npm install, both --ignore-scripts, python -> python3 -m pip) and installDependencies, which returns one of three failure outcomes NEVER collapsed into one — INSTALL_FAILED / INSTALLER_ABSENT / TIMED_OUT are all HARNESS failures the caller stops the dispatch on, distinct from a CODE failure (tests ran and failed) and a pass. A repo with no recognised manifest installs nothing and proceeds. No shell: spawnSync with an argv array. Bounded by INSTALL_TIMEOUT_MS
 │   ├── bridge-state.js    # State persistence (seam B): sole owner of .bridge-agent-state.json (per-channel poll cursors) and processed-tasks.json (task dedup); init, get/setLastChecked, isTaskProcessed, markTaskProcessed, cleanupProcessedTasks
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
@@ -794,6 +795,7 @@ slack-agent-bridge/
 │   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
 │   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo argv/`--` separators, assertValidTargetDir rejections, deploy-key paths, cleanupDir, export surface)
 │   ├── undelivered-work.test.js # Tests for detectUndeliveredWork + processTask's delivery-gated cleanup (the regression guard for the three tasks lost to unconditional cleanup)
+│   ├── preserved-clone-alert.test.js # Regression test for WORK-TODO #25: the preserved-clone alert names the container, the `docker exec` to reach the path, and that a recreate deletes the clone unless WORK_DIR is mounted, using the configured WORK_DIR
 │   ├── dependency-install.test.js # Tests for lib/dependency-install.js: ecosystem detection (node ci-vs-install, python, none), every classification via an injected runner, AND the three outcomes produced for real — a real out-of-sync `npm ci` proving the HARNESS classification, a real `npm ci` then a failing `node --test` proving the CODE classification, and the same then a passing suite proving a pass
 │   ├── dependency-install-scripts.test.js # THE guard that a scratch clone's npm install runs NO lifecycle script: real lib/dependency-install.js, real npm, a package whose pre/post/install/prepare scripts write a marker — absent after both the lockfile (`npm ci --ignore-scripts`) and no-lockfile (`npm install --ignore-scripts`) paths, present in a negative control run without the flag. Split from dependency-install.test.js for the 300-line gate
 │   ├── bridge-state.test.js     # Tests for lib/bridge-state.js (poll cursors, legacy migration, processed-task dedup; temp-dir CRUD)
@@ -1068,6 +1070,10 @@ classifies the clone before `cleanupDir` runs:
 
 An undelivered clone is **kept** (not deleted) and an alert is posted to
 `#sqtools-ops` with its path so the work can be recovered and pushed manually.
+Since 2026-10-02 the alert (`lib/preserved-clone-alert.js`) also says the path is inside
+the `jt-agent` container, gives the `docker exec -it jt-agent sh` that reaches it, and says
+a `docker compose up -d --force-recreate` deletes the clone unless `WORK_DIR` is on a mount
+(WORK-TODO #25).
 Delivered clones (clean tree, tips on the remote — the normal success case, and
 research/audit tasks that make no commits) are cleaned up as before.
 

@@ -199,6 +199,7 @@ const { redact } = require('./lib/redact-secrets');
 // cleanupDir, detectUndeliveredWork) into lib/clone-lifecycle.js — seam A in
 // docs/WIRING-AND-SEAMS.md. Pure fs/execFileSync helpers with no bridge state.
 const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-lifecycle');
+const { formatPreservedCloneAlert } = require('./lib/preserved-clone-alert');
 
 // LOGIC CHANGE 2026-09-20: install the target repo's own dependencies in the scratch
 // clone before the LLM runs. Without this, Phase-3's test command found no node_modules
@@ -1298,14 +1299,16 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
       if (delivery.undelivered) {
         console.warn(`[bridge-agent] Preserving scratch clone ${taskDir} — ${delivery.reason}`);
         try {
-          await postToOps(
-            `:warning: *Scratch clone preserved — undelivered work.*\n` +
-            `Task: ${task.description}\n` +
-            `Reason: ${delivery.reason}\n` +
-            `Location: \`${taskDir}\`\n` +
-            `The clone was NOT deleted so the work can be recovered and pushed manually.\n` +
-            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
-          );
+          // LOGIC CHANGE 2026-10-02 (WORK-TODO #25): the text now says the path is
+          // inside the container, how to reach it, and what deletes it. Built by
+          // lib/preserved-clone-alert.js so the wording is unit-tested.
+          await postToOps(formatPreservedCloneAlert({
+            description: task.description,
+            reason: delivery.reason,
+            taskDir,
+            workDir: WORK_DIR,
+            sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
+          }));
         } catch (postErr) {
           console.error('[bridge-agent] Failed to post undelivered-work alert:', postErr.message);
         }

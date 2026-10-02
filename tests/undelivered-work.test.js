@@ -294,8 +294,10 @@ describe('cleanup gating wiring', () => {
   test('undelivered clones are preserved, not cleaned up', () => {
     const finallyIdx = source.indexOf('await heartbeat.stop(taskSuccess);');
     const region = source.slice(finallyIdx, finallyIdx + 2000);
-    // The preservation branch alerts ops and does NOT call cleanupDir.
-    expect(region).toMatch(/Scratch clone preserved/);
+    // The preservation branch alerts ops and does NOT call cleanupDir. Since
+    // 2026-10-02 (#25) the alert text is built by lib/preserved-clone-alert.js,
+    // whose wording is asserted in tests/preserved-clone-alert.test.js.
+    expect(region).toMatch(/postToOps\(formatPreservedCloneAlert\(/);
     expect(region).toMatch(/if \(delivery\.undelivered\)/);
   });
 });
