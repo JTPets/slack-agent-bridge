@@ -232,8 +232,10 @@ stop.
   (`gracefulShutdown()`, registered at `:2684`) — **it never runs.** PID 1 is the compose
   `command:`'s `sh`, not `node`, and `sh` does not forward signals to the child it is
   waiting on, so the task is `SIGKILL`ed when Docker's grace period expires. Nothing is
-  released, nothing is posted, the scratch clone is never checked for unpushed commits, and
-  the message is re-read and re-run on the next poll. **Before asking for a restart, check
+  released, nothing is posted at the time, and the scratch clone is never checked for
+  unpushed commits. Since 2026-10-02 the task is **not** re-run: its message is marked
+  processed before it runs (WORK-TODO #23), and the next startup posts it to `#sqtools-ops`
+  as interrupted, so it must be re-submitted by hand. **Before asking for a restart, check
   `ASK: what's queued`.** Full evidence and the three candidate fixes: WORK-TODO **#73**.
 - **An environment change needs the container recreated, not restarted.**
   `docker compose up -d --force-recreate jt-agent` — a plain `restart` reuses the

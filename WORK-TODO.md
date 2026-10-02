@@ -312,7 +312,6 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #4b | P2 | OPEN, partly STALE | B4 | S | 25 `process.env` keys missing from `.env.example` (different set from the filed 25). "CLAUDE.md is stale" and the MAX_TURNS bullet are superseded |
 | #30 | P2 | OPEN, slightly worse | B3 | M | 52 `chat.postMessage` sites, 3 redacting; `notifyChannel` (`lib/notify-owner.js:82-98`) still does not redact |
 | #31 | P2 | OPEN, **worse than filed** | B3 | S | Nothing retries any task (`bridge-agent.js:1224` "handleRateLimit() is NOT called here anymore"), yet `morning-digest.js:396` tells the owner "They will auto-retry" |
-| #23 | P2 | OPEN | B1 | S/M | `markTaskProcessed` runs after the task (`bridge-agent.js:2159` → `:2166`). Side finding: success reaction is `white_check_mark` but `alreadyProcessed()` matches only `robot_face`/`x` (`lib/task-parser.js:547-551`) |
 | #71 | P2 | OPEN, needs a shape | OD | S | No lock/queue/drain call in `processConversation`. Latent while nothing starts the updater |
 | #72 | P2 | OPEN | B1 | M | `let isRunning` (`bridge-agent.js:294`) vs a best-effort lock (`:570-582`) |
 | #26 | P2 | REPO DONE | OA | S | `.gitignore:71` ignores `docker-compose.yml`; the NAS tree must pull it |
@@ -485,14 +484,13 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (44)
+**P2 — real gaps, no risk to the running process** (43)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
 - **#31** — [Three definitions of "is this a rate-limit failure?", and the morning digest tells the owner tasks will auto-retry when nothing will](#31-three-definitions-of-is-this-a-rate-limit-failure-and-the-morning-digest-tells-the-owner-tasks-will-auto-retry-when-nothing-will)
-- **#23** — [A task killed mid-run is re-read and re-run on the next poll](#23-a-task-killed-mid-run-is-re-read-and-re-run-on-the-next-poll)
 - **#71** — [`ASK:` is invisible to every update gate — a conversation can be restarted mid-answer](#71-ask-is-invisible-to-every-update-gate--a-conversation-can-be-restarted-mid-answer)
 - **#72** — [Two answers to "is a task running?", and nothing makes them agree](#72-two-answers-to-is-a-task-running-and-nothing-makes-them-agree)
 - **#26** — [`docker-compose.yml` is untracked **and** unignored in the live working tree — `git clean -fd` deletes the deployment definition](#26-docker-composeyml-is-untracked-and-unignored-in-the-live-working-tree--git-clean--fd-deletes-the-deployment-definition)
@@ -1012,8 +1010,9 @@ mechanism; this is a property of the mechanism already in daily use. They share 
    `release()` is in that `finally`, `bridge-agent.js:1335`); the scratch clone is never
    classified by `detectUndeliveredWork` so unpushed commits are neither preserved-with-alert
    nor cleaned; the heartbeat's terminal reaction is never added, which is exactly the state
-   `alreadyProcessed()` does not match (**#23** — the message is re-read and re-run next
-   poll); the queue entry stays `running` until the next startup's `recoverInterrupted()`,
+   `alreadyProcessed()` does not match — which until 2026-10-02 meant the message was
+   re-read and re-run next poll (**#23**, closed: the message is now marked processed before
+   the task runs, so it is not re-run); the queue entry stays `running` until the next startup's `recoverInterrupted()`,
    which posts the interrupted verdict to `#sqtools-ops` (`bridge-agent.js` startup block; #22,
    closed and purged 2026-10-02 — it was met by `8516b7d`).
 
@@ -1107,7 +1106,7 @@ than fixed.**
 
 **Do not read (c) as the fix.** It is the honest half this repository can do.
 
-**Related:** #17 (shares layer 3, opposite direction), #25 (the clone half), #23 (what
+**Related:** #17 (shares layer 3, opposite direction), #25 (the clone half), #23 (closed 2026-10-02; what
 an uncleanly killed task costs; #22, its sibling, was met by `8516b7d` and purged 2026-10-02), #72 (the two answers to "is a task running?"), #26 (why (a)
 and (b) are off-repo), #71 (`ASK:` is outside every gate anyway).
 
@@ -1824,41 +1823,6 @@ digest read the recorded verdict instead of re-deriving one.
 
 ---
 
-### 23. A task killed mid-run is re-read and re-run on the next poll
-**Filed 2026-09-14, from the #18 fix** (closed and purged; its fix is `6454fb0`, guarded by `tests/task-queue-lifecycle.test.js`).
-Both message-dedup guards are written only
-*after* a task completes, so neither survives a kill:
-- `markTaskProcessed(msg.ts)` (`bridge-agent.js`, poll loop) runs **after**
-  `await currentTaskPromise`.
-- the `done`/`failed` reaction `alreadyProcessed()` looks for is added by
-  `heartbeat.stop()`, which runs in `processTask`'s `finally` — and a `finally` does not
-  run when the process is killed. The reactions present *during* a task are
-  `eyes`/`hourglass_flowing_sand`/`gear`, none of which `alreadyProcessed()` matches
-  (`lib/task-parser.js:435-440`, `lib/heartbeat.js`).
-
-So a task that kills the bridge is re-read from the channel on the next poll and run
-again — on the same input, with the same result. `restart: unless-stopped` makes that a
-loop. The queue is **not** the loop's source: `recoverInterrupted()` writes a *terminal*
-`interrupted` state, never back to `pending`, and `enqueue()` dedups by `msgTs` so no
-second row is created.
-
-Regenerate: `grep -n "markTaskProcessed\|alreadyProcessed" bridge-agent.js` and
-`grep -n "EMOJI_DONE\|EMOJI_FAILED" lib/task-parser.js lib/heartbeat.js`.
-
-**Partially mitigated by #18's fix, not closed by it:** `_startRunning()` in
-`lib/task-queue.js` now bumps `attempts` and preserves `previousStatus`/`previousError`
-on a re-attempt, so the interruption verdict survives the re-run and the repetition is at
-least *recorded*. Nothing acts on that count.
-
-**Fix:** mark the message processed (or add the reaction) *before* the LLM is invoked
-rather than after, or refuse a task whose queue row shows `attempts` over a threshold.
-The first is the smaller change and closes the loop; the second is the safety net.
-**Priority:** P2 | **Effort:** Low-Medium.
-
-**Status:** open (re-verified 2026-09-14)
-
----
-
 ### 71. `ASK:` is invisible to every update gate — a conversation can be restarted mid-answer
 **Filed 2026-09-20,** by the drain-one pass, which covered `TASK:` and deliberately did not
 cover this. Stated rather than left as an implied claim of coverage.
@@ -1888,7 +1852,8 @@ a re-typed question; (b) give `processConversation` a lightweight lock so the up
 for it, but never refuse one; (c) refuse `ASK:` too while an update is pending, accepting
 the muteness. (b) is the only one that changes the restart behaviour without the cost of (c).
 
-**Related:** #17 (nothing starts the updater, so none of this fires today), #23. (#22 was purged 2026-10-02: met by `8516b7d`.)
+**Related:** #17 (nothing starts the updater, so none of this fires today). (#22 and #23 were closed 2026-10-02: `8516b7d` posts an interrupted task, and a
+TASK: message is now marked processed before it runs, so a killed task is not re-run.)
 **Priority:** P2 | **Effort:** Low for (a) or (b).
 
 **Status:** open (filed 2026-09-20)
@@ -1946,7 +1911,7 @@ deliberate trade-off recorded in the code and should not be done without re-argu
 Whichever is chosen, the guard is a test that the two answers cannot diverge, not a comment
 saying they do not.
 
-**Related:** #17 (this is on its critical path), #23, #71, #73 (the deploy step that bypasses
+**Related:** #17 (this is on its critical path), #23 (closed 2026-10-02), #71, #73 (the deploy step that bypasses
 both mechanisms entirely), #74 (the same shape on the delivery field; closed 2026-10-02).
 **Priority:** P2 | **Effort:** Low-Medium.
 

@@ -2147,6 +2147,19 @@ async function poll() {
             repo: taskData.repo,
           });
 
+          // LOGIC CHANGE 2026-10-02 (WORK-TODO #23): mark the message processed
+          // BEFORE the task runs, not after. Both dedup guards used to be written only
+          // after completion - this mark (after `await currentTaskPromise`) and the
+          // done/failed reaction (heartbeat.stop() in processTask's finally) - and
+          // neither runs when the process is killed. So a task that was killed (a
+          // `docker compose restart`, an OOM, a task that crashes the bridge) was
+          // re-read on the next poll and run again, and under `restart:
+          // unless-stopped` a task that kills the bridge became a loop. Marking first
+          // means a killed task is NOT re-run: the next startup's recoverInterrupted()
+          // records it as interrupted and posts it to #sqtools-ops, which tells the
+          // operator to re-submit it. A lost re-run is reported; a repeated one was not.
+          markTaskProcessed(msg.ts);
+
           isRunning = true;
 
           // LOGIC CHANGE 2026-03-27: Track current task promise for graceful shutdown.
@@ -2163,10 +2176,6 @@ async function poll() {
           currentTaskPromise = null;
 
           isRunning = false;
-
-          // LOGIC CHANGE 2026-03-28: Mark message as processed after completion (success or fail).
-          // Prevents re-processing on next startup even if reaction emoji was not added.
-          markTaskProcessed(msg.ts);
 
           // LOGIC CHANGE 2026-03-26: After processing a task, check if we got rate limited.
           // If so, exit the loop to pause processing.

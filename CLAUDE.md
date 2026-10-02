@@ -563,8 +563,10 @@ docker compose logs -f jt-agent
 # that waits up to 60s for the current task (gracefulShutdown, :2684) and it NEVER RUNS:
 # PID 1 is the compose command's `sh`, not node, and sh does not forward signals to the
 # child it is waiting on, so the task is SIGKILLed when Docker's grace period expires.
-# The lock is not released, nothing is posted, the scratch clone is not checked for
-# unpushed commits, and the message is re-read and re-run next poll. Check
+# The lock is not released, nothing is posted at the time, and the scratch clone is not
+# checked for unpushed commits. The task is NOT re-run: its message is marked processed
+# before it runs (WORK-TODO #23, 2026-10-02), and the next startup posts it to
+# #sqtools-ops as interrupted, to be re-submitted by hand. Check
 # `ASK: what's queued` before restarting. WORK-TODO #73.
 # A `--force-recreate` additionally DISCARDS $WORK_DIR (/tmp/bridge-agent by default):
 # the task lock, task-queue.json, .update-pending and every preserved scratch clone.
@@ -829,6 +831,7 @@ slack-agent-bridge/
 │   ├── task-queue.test.js       # Tests for lib/task-queue.js (queue persistence, auto-update coordination)
 │   ├── task-queue-lifecycle.test.js # THE guard that the LIVE task path drives the queue state machine: extracts the lifecycle from bridge-agent.js's source and replays it against a real queue (a module-only test cannot see an unreachable path)
 │   ├── task-delivery-signal.test.js # THE guard that a finished task is a DELIVERED task. Two halves: a source walk over processTask's three terminal regions (success/failure/interrupted) asserting the result post PRECEDES the terminal queue write and that the lock is released only after all of them — the ordering held before this suite but was incidental, and an incidental ordering is what lib/update-drain.js would have been gating a restart on; and a replay against a REAL TaskQueue proving the verdict is durable, that a caller recording nothing gets an explicit `delivered: false` rather than an optimistic default, and that a completed task whose post FAILED is distinguishable from one whose post landed. Carries its own negative controls
+│   ├── task-rerun-guard.test.js # THE guard for WORK-TODO #23: the poll loop marks a TASK: message processed between the enqueue and processTask, so a task killed mid-run is not re-read and re-run on the next poll (a loop under `restart: unless-stopped`). Reads the TASK: branch from bridge-agent.js's source, because the property is an ordering. Carries its own negative controls
 │   ├── task-queue-delivery-invariant.test.js # THE guard for WORK-TODO #74: no TaskQueue writer leaves a TERMINAL row without a delivery verdict. A source walk over lib/task-queue.js asserts every method writing a terminal status calls normalizeDelivery() and that the only null-verdict writers are enqueue and _startRunning, plus a replay driving every terminal transition with no verdict. So auto-update's undelivered-row branch stays unreachable by invariant, not by accident. Carries its own negative controls
 │   ├── task-decomposer.test.js  # Tests for lib/task-decomposer.js (complexity analysis, decomposition, agent routing)
 │   ├── security-followup.test.js # Tests for lib/security-followup.js (finding parsing, task generation)
@@ -975,7 +978,9 @@ When a task has a REPO field, `bridge-agent.js` runs a 3-phase pipeline via `lib
 `agents/shared/processed-tasks.json` (gitignored) stores processed Slack message timestamps.
 - Loaded on every startup
 - Checked before processing any TASK: or ASK: message
-- Written after processing (success or fail)
+- Written for a `TASK:` after it is enqueued and **before** it runs, so a task killed
+  mid-run is not re-read and re-run on the next poll (WORK-TODO #23, 2026-10-02;
+  guard `tests/task-rerun-guard.test.js`); for an `ASK:`, after it is answered
 - Entries older than 7 days cleaned up on startup
 - Prevents re-processing old messages after container restarts
 
