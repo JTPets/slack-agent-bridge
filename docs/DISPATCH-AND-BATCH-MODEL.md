@@ -88,7 +88,8 @@ are node (`jtpets/slack-agent-bridge`, `jtpets/SquareDashboardTool`), the third 
 ```bash
 grep -n "\`REPOS\`" CLAUDE.md                # the row, carrying the default
 node -e "console.log(require('./lib/config').getConfiguredRepos())"
-# -> [ 'jtpets/slack-agent-bridge', 'jtpets/SquareDashboardTool' ]   (the default; .env may widen it)
+# -> [ 'jtpets/slack-agent-bridge' ]   (the default since 2026-10-02; .env may widen it.
+#    It named SquareDashboardTool until then, which the bridge cannot clone — #57)
 ```
 
 The bridge has never had access to `jtpets/SquareDashboardTool` — that boundary is

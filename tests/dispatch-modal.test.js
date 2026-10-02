@@ -229,7 +229,7 @@ describe('the repository field is sourced from configuration, not hardcoded', ()
     expect(after).toBe(before + 1);
   });
 
-  test('with REPOS unset it still offers the two defaults config declares', () => {
+  test('with REPOS unset it still offers the default config declares', () => {
     const block = repoBlock(undefined);
     expect(block.element.options.map(o => o.value)).toEqual(getConfiguredRepos({}));
   });

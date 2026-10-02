@@ -1,8 +1,35 @@
 node_modules
-.env
 .bridge-agent-state.json
 
-# Agent state files (local only)
+# The environment file and EVERY copy of it. INVERSE rule, like agents/*/memory/*
+# below, and for the same reason: an allowlist of today's names fails open.
+# LOGIC CHANGE 2026-10-02 (WORK-TODO #62): `.env` alone matched only the exact name,
+# so a vim swap copy of the live file (`.env.swo`, found untracked and NOT ignored in
+# the deploy directory on 2026-10-01), `.env.local` and `.env.backup` were each one
+# `git add -A` from a public commit. Ignore the family; re-include the template.
+.env*
+!.env.example
+
+# Editor swap files and local overrides, for any file. A swap file is a full copy of
+# whatever was open - on this box that has been `.env` and `agents.json`.
+*.sw[a-p]
+*.local
+
+# The live WORK_DIR. On the NAS, /share/CACHEDEV1_DATA/jt-agent/work is bind-mounted
+# at /tmp/bridge-agent (operator `docker inspect`, 2026-10-01), so the task lock, the
+# task queue and every preserved scratch clone - each with its own package.json and
+# .git - sit inside this working tree. Root-anchored: nothing tracked lives there.
+/work/
+
+# Agent state files (local only). INVERSE rule since 2026-10-02: agents/shared/ holds
+# two seeded files and a growing set of runtime state, and a hand copy of state
+# (`channel-map.json.pre-rebuild`, found 2026-10-01) matched none of the names below.
+# Ignore the directory's contents; re-include the seeds by name. The explicit lines
+# that follow are now redundant with the family rule and are kept because they name
+# what lives here (tests/agent-activation.test.js asserts two of them).
+agents/shared/*
+!agents/shared/staff.json
+!agents/shared/daily-tasks-template.json
 agents/shared/watercooler-state.json
 agents/shared/bulletin.json
 agents/shared/processed-tasks.json

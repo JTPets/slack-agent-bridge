@@ -281,9 +281,11 @@ only consumers are `security-review.js:53` and `lib/dispatch-modal.js:69`). `clo
 over **anonymous HTTPS** (`https://github.com/${repo}.git`, `lib/clone-lifecycle.js:136`) and
 configures the deploy key only afterwards, for pushing — so a private repository fails closed
 at the clone with no credential to leak, which is what a 2026-09-20 dispatch observed (#57).
-**Two consequences worth knowing:** `jtpets/SquareDashboardTool` is in `DEFAULT_REPOS`, so the
-`/dispatch` form *offers* it and selecting it produces a 0-second clone failure, not a
-refusal; and any *public* repository of valid shape can be cloned today. Regenerate:
+**Two consequences worth knowing:** until 2026-10-02 `jtpets/SquareDashboardTool` was in
+`DEFAULT_REPOS`, so the `/dispatch` form *offered* it and selecting it produced a 0-second
+clone failure, not a refusal — the default is now `jtpets/slack-agent-bridge` only, but a
+`REPOS` in the live `.env` (off-box, unverified) still decides what the running bridge
+offers; and any *public* repository of valid shape can be cloned today. Regenerate:
 `grep -n "DEFAULT_REPOS" lib/config.js` and `grep -rn "getConfiguredRepos" --include=*.js .`
 
 **Rows 2 and 3 — the mount path, which the pass that wrote this section did not check.**
@@ -305,9 +307,16 @@ container**, in the same mount namespace as `/repo`, with no sandbox of any kind
   reached from `runWithFallback(prompt, { cwd, … })` (`bridge-agent.js:896-897`). `cwd` is a
   working directory, not a root;
 - the clone's **own** dependencies are installed *before* the LLM runs —
-  `installDependencies(taskDir)` (`bridge-agent.js:660`) → `spawnSync` (`lib/dependency-install.js:161`),
-  which for a node repo is `npm ci`. That executes the branch's install scripts in this
-  container **before a single test or turn runs**.
+  `installDependencies(taskDir)` (`bridge-agent.js:660`) → `spawnSync` (`lib/dependency-install.js:168`),
+  which for a node repo is `npm ci --ignore-scripts` (or `npm install --ignore-scripts`
+  without a lockfile). **Corrected 2026-10-02:** until then neither path passed
+  `--ignore-scripts`, so the branch's and its dependency tree's install scripts executed in
+  this container before a single test or turn ran; guard:
+  `tests/dependency-install-scripts.test.js`. **What that removed is
+  install-time execution only.** The executor still runs the branch's own code — its tests,
+  and npm's `pretest`/`posttest` with them — in this same container with the same reach,
+  and a **python** clone's `pip install` still executes package build code (pip has no
+  equivalent switch; that path refuses today only because the image has no pip, #68).
 
 So a dispatch against **any** repository of valid shape, not just a bridge dispatch, runs
 code that can read `/repo`. Regenerate the execution-location half from a checkout:
@@ -320,8 +329,8 @@ and `grep -rn "docker\.sock\|dockerode" --include=*.js . | grep -v node_modules`
 grep -v node_modules` returns only test fixtures using `/repo` as a dummy `repoDir` string.
 The mount serves no feature this repository can name (`docs/CAPABILITY-AND-ISOLATION-DESIGN.md:306`
 and `docs/JESTER-DESIGN.md:174` both already record "nothing reads it"). The exposure is what
-a *dispatched executor* — or a dependency's install script — can reach, not something the
-bridge does. Filed with the evidence as WORK-TODO **#75**; the remedy is a deployment change
+a *dispatched executor* — or, before 2026-10-02, a dependency's install script — can reach,
+not something the bridge does. Filed with the evidence as WORK-TODO **#75**; the remedy is a deployment change
 and is the owner's.
 
 **Nothing in the SqTools tree was read to establish this**, and nothing should be: that the

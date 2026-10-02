@@ -1201,3 +1201,39 @@ read as a claim about reach), and the missing third `volumes:` entry. The dispat
 produced this addendum forbade compose edits. Both are recorded as remainder on #75 and #73.
 
 **Nothing was read under `/repo`, and no mount, container or deployment was altered.**
+
+---
+
+# Step 11 — Install scripts are off in scratch clones (addendum, 2026-10-02)
+
+**An addendum to a dated snapshot; nothing above is rewritten.** Two statements above
+describe install-time execution and are corrected here instead of in place.
+
+**What changed.** `detectEcosystem` (`lib/dependency-install.js`) now emits
+`npm ci --ignore-scripts` (lockfile) and `npm install --ignore-scripts` (no lockfile) for a
+scratch clone. Operator decision, 2026-10-01. Guard: `tests/dependency-install-scripts.test.js`, which runs
+real npm on a package whose `postinstall` writes a marker and fails without the flag.
+
+| Statement above | Now reads |
+|---|---|
+| §10.1 table, *"Does a dispatch run code before any review or test? — yes, the clone's own `npm ci`, i.e. the branch's dependency install scripts"* | **No longer for a node clone.** The install runs no lifecycle script. The site is `bridge-agent.js:660` → `lib/dependency-install.js:168`. |
+| §7.7 row `no-new-privileges` / `cap_drop: ALL`: *"An `npm` postinstall needing a capability would break"* | **Still true of the bridge's own start command**, which runs plain `npm ci` for `/bridge/node_modules` (compose `command:`, Step 5) — that install still runs scripts and is unchanged. No longer applies to a scratch clone. |
+
+**What stays true — stated so this is not read as containment.**
+- The executor still runs the **branch's own code** after install: its tests, and npm's
+  `pretest`/`posttest` with them (Phase 3, `validateOutput`, `lib/code-review-pipeline.js`),
+  in the same container with the same reach — `/bridge` read-write, every file the process
+  can read (#27, #75). This change removes install-time execution only.
+- A **python** clone would still execute package build code: `pip install` has no
+  equivalent switch. It refuses today only because the image has no pip (#68, off-box).
+- The installer's environment is unchanged — the whole process environment is still
+  passed (`lib/dependency-install.js:175`; #27 lists all four such sites).
+
+**Why it is safe for this repository's own dispatches.** The lockfile carries two packages
+with install scripts, both dev dependencies under jest (`npm ls @parcel/watcher
+unrs-resolver --all`): `@parcel/watcher` (`install` builds from source only when
+`npm_config_build_from_source=true`; its binaries arrive as optional platform packages)
+and `unrs-resolver` (`postinstall` → `napi-postinstall`, a fallback that fetches the
+native binding only when the optional `@unrs/resolver-binding-*` package is missing).
+After `npm ci --ignore-scripts` the full suite passed — Node 22 in a sandbox, 2026-10-02.
+**Unverified on the image's Node 20** (`image: node:20`).

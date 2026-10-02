@@ -21,7 +21,8 @@ require('dotenv').config();
  *   OPS_CHANNEL_ID      Channel for ops notifications
  *
  * Optional env vars:
- *   REPOS               Comma-separated list of repos (default: jtpets/slack-agent-bridge,jtpets/SquareDashboardTool)
+ *   REPOS               Comma-separated list of repos (default: jtpets/slack-agent-bridge;
+ *                       the default is owned by DEFAULT_REPOS in lib/config.js)
  */
 
 'use strict';

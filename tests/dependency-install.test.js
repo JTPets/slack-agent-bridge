@@ -62,6 +62,8 @@ describe('detectEcosystem', () => {
         expect(e.ecosystem).toBe('node');
         expect(e.command).toBe('npm');
         expect(e.args[0]).toBe('ci');
+        expect(e.args).toContain('--ignore-scripts');
+        expect(e.display).toBe('npm ci --ignore-scripts');
     });
 
     test('package.json without a lockfile -> node, npm install', () => {
@@ -70,6 +72,8 @@ describe('detectEcosystem', () => {
         const e = detectEcosystem(d);
         expect(e.ecosystem).toBe('node');
         expect(e.args[0]).toBe('install');
+        expect(e.args).toContain('--ignore-scripts');
+        expect(e.display).toBe('npm install --ignore-scripts');
     });
 
     test('npm-shrinkwrap.json counts as a lockfile -> npm ci', () => {
@@ -226,7 +230,7 @@ describe('the three outcomes, produced against a real installer and runner', () 
         const r = installDependencies(d);
         expect(r.outcome).toBe(OUTCOME.INSTALL_FAILED);
         expect(r.harnessFailure).toBe(true);
-        expect(r.command).toBe('npm ci');
+        expect(r.command).toBe('npm ci --ignore-scripts');
     });
 
     test('PASS: a real install then a passing `node --test` -> validateOutput passes', () => {
@@ -252,3 +256,4 @@ describe('the three outcomes, produced against a real installer and runner', () 
         expect(validation.testsFailed).toBeGreaterThan(0);
     });
 });
+
