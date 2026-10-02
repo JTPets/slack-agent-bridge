@@ -21,7 +21,7 @@ The worked example is already true today and is worth stating because it is the 
 everything below is trying to preserve: the commentary agent can reason about forty-six
 messages **because their subjects and senders were published**, and it cannot read the
 mailbox because it holds no credential and no path to one. `formatOkMessage` in
-`lib/email-check.js:144-150` emits `[category/priority] subject - from` and nothing else —
+`lib/email-check-report.js:122-128` (in `lib/email-check.js` until 2026-10-02) emits `[category/priority] subject - from` and nothing else —
 no body, ever. That is a declassification decision, taken correctly, in one function.
 
 **The design question this document exists to answer is: what makes that decision a
@@ -321,7 +321,7 @@ workspace with whatever retention that workspace has.**
 This is already happening, at three known sites, and is not a consequence of anything
 proposed here:
 
-- `lib/email-check.js:144-150` posts subject and sender per flagged message;
+- `lib/email-check-report.js:122-128` posts subject and sender per flagged message;
 - `bots/storefront.js:267-275` posts a delivery quote to `#store-inbox` carrying
   **business name, contact name, phone, email, pickup address and delivery address** —
   the broadest customer publication in the system, and it is not scrubbed by anything;

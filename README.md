@@ -182,8 +182,11 @@ Slack.
 The `check-inbox` job (email-monitor agent, `*/30 9-21 * * *`) fetches through
 `lib/integrations/gmail.js` and filters with `agents/email-monitor/memory/rules.json`.
 It is read-only — Gmail list/get only. A check that fails posts to `#sqtools-ops`
-**and** sends a CRITICAL owner notification; a check that finds nothing posts a
-"0 new messages" summary. The two are never confusable.
+**and** sends a CRITICAL owner notification. A successful scheduled check is **quiet**
+(since 2026-10-02): it posts only when something is flagged, the fetch was partial or
+rate-limited, more than 90 minutes passed since the previous check that day, or it is
+the first check of the day — that daily line is how a check that stopped running shows
+up. `ASK: check-inbox` always posts (`lib/email-check-report.js`).
 
 | Variable | Default | Description |
 |----------|---------|-------------|

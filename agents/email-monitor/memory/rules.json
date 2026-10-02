@@ -18,7 +18,9 @@
       "action": "push_to_secretary",
       "priority": "high",
       "extract_pricing": true,
-      "description": "Vendor emails with pricing deals to cross-reference with inventory",
+      "description": "Vendor emails with pricing deals to cross-reference with inventory. Matched on the SUBJECT only, whole words only (2026-10-02): body matching flagged a Nextdoor job digest and a Square Cash Drawer Report as high-priority deals, because their bodies carry footers and listings ('Cash Sales', 'for sale') that any keyword like 'sale' hits.",
+      "match_in": ["subject"],
+      "whole_word": true,
       "keywords": ["sale", "discount", "promo", "clearance", "% off", "special pricing", "bulk"],
       "senders": []
     },
