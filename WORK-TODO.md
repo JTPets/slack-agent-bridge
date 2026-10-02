@@ -301,9 +301,9 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #56 | P1 | OPEN, nothing to act on until it recurs | B2 | S | Not seen in 2 runs. The adjacent race is #36's: `tests/staff-tasks.test.js:28` makes a temp dir inside the repo root that `lib/file-size-gate.js` `measure()` walks |
 | #42 | P1 | OPEN | B6 | S/M | No backup check anywhere in the repo. **Correction:** part (c) is not buildable alone — the container mounts no backups path (`docker-compose.example.yml:75-80`), so it needs an owner mount or a host-side check |
 | #41 | P1 | REPO DONE | OA | — | All remaining work is on the appliance |
-| #17 | P1 | OPEN | B1 + B6 | S / M | Boot-commit report not started (no `rev-parse` in `bridge-agent.js`); that half is B1. Wiring the daemon is an owner decision, B6 |
+| #17 | P1 | Boot-commit report DONE in B1; deploy shape is a decision | OD + B6 | M | Boot post via `lib/repo-history.js` `loadedCommit()`. Remaining: choose start-the-daemon / push-triggered / manual, then B6 wires it |
 | #73 | P1 | REPO DONE for the warning; compose fix off-box | B6 | S | `gracefulShutdown` at `bridge-agent.js:2620`, handlers `:2684`; compose copy has no `init:`/`stop_grace_period:` |
-| #25 | P1 | OPEN | B1 | S | Alert at `bridge-agent.js:1301-1308` still omits "inside the container", "deleted by a recreate", `docker exec`. Cited lines drifted (`:1127` → `:1301`) |
+| #25 | P1 | REPO DONE (alert fixed in B1) | OA | S | Alert text built by `lib/preserved-clone-alert.js`, test `tests/preserved-clone-alert.test.js`. Remaining: `WORK_DIR` on a mount in `docker-compose.example.yml` (with #73) |
 | #3 | P1 | REPO DONE | OA | — | `lib/agent-scheduler.js:133-141` refuses planned/unresolved; needs a live restart to confirm. Suggest P2 |
 | #4 | P1 | OPEN, parked by its own text | B5 | S/M | Cheap half (poll right after `/dispatch` posts) not done — `lib/dispatch-command.js` never calls `poll()`. Suggest P3: latency, not a defect |
 | #43 | P1 | REPO DONE | OA | — | `/dispatch` built and wired (`bridge-agent.js:2588`); Slack app steps remain. Suggest P2 |
@@ -312,10 +312,8 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #4b | P2 | OPEN, partly STALE | B4 | S | 25 `process.env` keys missing from `.env.example` (different set from the filed 25). "CLAUDE.md is stale" and the MAX_TURNS bullet are superseded |
 | #30 | P2 | OPEN, slightly worse | B3 | M | 52 `chat.postMessage` sites, 3 redacting; `notifyChannel` (`lib/notify-owner.js:82-98`) still does not redact |
 | #31 | P2 | OPEN, **worse than filed** | B3 | S | Nothing retries any task (`bridge-agent.js:1224` "handleRateLimit() is NOT called here anymore"), yet `morning-digest.js:396` tells the owner "They will auto-retry" |
-| #23 | P2 | OPEN | B1 | S/M | `markTaskProcessed` runs after the task (`bridge-agent.js:2159` → `:2166`). Side finding: success reaction is `white_check_mark` but `alreadyProcessed()` matches only `robot_face`/`x` (`lib/task-parser.js:547-551`) |
 | #71 | P2 | OPEN, needs a shape | OD | S | No lock/queue/drain call in `processConversation`. Latent while nothing starts the updater |
-| #72 | P2 | OPEN | B1 | M | `let isRunning` (`bridge-agent.js:294`) vs a best-effort lock (`:570-582`) |
-| #74 | P2 | OPEN | B1 | S | Comments at `auto-update.js:283-290` and `lib/task-queue.js:92-93` still describe a reachable branch; add the negative-control test |
+| #72 | P2 | REPORTING DONE in B1; agreement is a decision | OD | S | Divergences now post to ops (`lib/task-state-divergence.js`). Remaining: choose read-the-lock-in-poll or refuse-on-failed-lock |
 | #26 | P2 | REPO DONE | OA | S | `.gitignore:71` ignores `docker-compose.yml`; the NAS tree must pull it |
 | #27 | P2 | in flight (records), then decision | OD | — | Shapes recorded in `docs/CONFIG-SURFACE-AND-REBUILD.md` §7.7 |
 | #75 | P2 | in flight (closes in the records dispatch) | — | S | `docker-compose.example.yml:77-79` comment still calls `:ro` "the one real containment boundary" |
@@ -486,17 +484,15 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (45)
+**P2 — real gaps, no risk to the running process** (43)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
 - **#31** — [Three definitions of "is this a rate-limit failure?", and the morning digest tells the owner tasks will auto-retry when nothing will](#31-three-definitions-of-is-this-a-rate-limit-failure-and-the-morning-digest-tells-the-owner-tasks-will-auto-retry-when-nothing-will)
-- **#23** — [A task killed mid-run is re-read and re-run on the next poll](#23-a-task-killed-mid-run-is-re-read-and-re-run-on-the-next-poll)
 - **#71** — [`ASK:` is invisible to every update gate — a conversation can be restarted mid-answer](#71-ask-is-invisible-to-every-update-gate--a-conversation-can-be-restarted-mid-answer)
 - **#72** — [Two answers to "is a task running?", and nothing makes them agree](#72-two-answers-to-is-a-task-running-and-nothing-makes-them-agree)
-- **#74** — [The update gate's delivery branch cannot fire — "the finish line is delivery" is true of the record and not of the gate](#74-the-update-gates-delivery-branch-cannot-fire--the-finish-line-is-delivery-is-true-of-the-record-and-not-of-the-gate)
 - **#26** — [`docker-compose.yml` is untracked **and** unignored in the live working tree — `git clean -fd` deletes the deployment definition](#26-docker-composeyml-is-untracked-and-unignored-in-the-live-working-tree--git-clean--fd-deletes-the-deployment-definition)
 - **#27** — [A task has write access to the entire live deployment, including every credential — recorded, undecided](#27-a-task-has-write-access-to-the-entire-live-deployment-including-every-credential--recorded-undecided)
 - **#75** — [`/repo:ro` stops a write and not a read — SqTools' production secrets are readable by any code a dispatch runs, against any repository](#75-reporo-stops-a-write-and-not-a-read--sqtools-production-secrets-are-readable-by-any-code-a-dispatch-runs-against-any-repository)
@@ -949,6 +945,14 @@ costs are written up in `CLAUDE.md` → "Two open questions". **This repo cannot
 any of them**: the compose file is untracked and off-repo, and belongs to no repository
 today (`docs/CONFIG-SURFACE-AND-REBUILD.md`, Step 6).
 
+**The independent requirement — LANDED 2026-10-02.** `bridge-agent.js` now reads its
+checkout's commit once at boot (`lib/repo-history.js` `loadedCommit()`) and posts it to
+`#sqtools-ops`, with a warning when tracked files differ from it; tests in
+`tests/repo-history.test.js` (real git repositories). **Unverified on the live box:** whether
+the container's `git` can read `/bridge` — if it cannot, the post says UNKNOWN and gives the
+reason, which is itself the answer to check. What remains on this item is the deploy-shape
+decision above. Original text kept below.
+
 **The independent requirement: nothing can answer "is the running process on `main`?"**
 Not the repo, not the container, not Slack. "Merged" and "deployed" are unrelated facts
 and nobody is told when they diverge — the 11-hour gap was found by a person noticing.
@@ -1014,8 +1018,9 @@ mechanism; this is a property of the mechanism already in daily use. They share 
    `release()` is in that `finally`, `bridge-agent.js:1335`); the scratch clone is never
    classified by `detectUndeliveredWork` so unpushed commits are neither preserved-with-alert
    nor cleaned; the heartbeat's terminal reaction is never added, which is exactly the state
-   `alreadyProcessed()` does not match (**#23** — the message is re-read and re-run next
-   poll); the queue entry stays `running` until the next startup's `recoverInterrupted()`,
+   `alreadyProcessed()` does not match — which until 2026-10-02 meant the message was
+   re-read and re-run next poll (**#23**, closed: the message is now marked processed before
+   the task runs, so it is not re-run); the queue entry stays `running` until the next startup's `recoverInterrupted()`,
    which posts the interrupted verdict to `#sqtools-ops` (`bridge-agent.js` startup block; #22,
    closed and purged 2026-10-02 — it was met by `8516b7d`).
 
@@ -1109,7 +1114,7 @@ than fixed.**
 
 **Do not read (c) as the fix.** It is the honest half this repository can do.
 
-**Related:** #17 (shares layer 3, opposite direction), #25 (the clone half), #23 (what
+**Related:** #17 (shares layer 3, opposite direction), #25 (the clone half), #23 (closed 2026-10-02; what
 an uncleanly killed task costs; #22, its sibling, was met by `8516b7d` and purged 2026-10-02), #72 (the two answers to "is a task running?"), #26 (why (a)
 and (b) are off-repo), #71 (`ASK:` is outside every gate anyway).
 
@@ -1120,7 +1125,19 @@ and (b) are off-repo), #71 (`ASK:` is outside every gate anyway).
 topology it depends on: [`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md)
 → Step 0, consequence 2.
 
-**Repo-side half re-verified 2026-09-16 and it is NOT done.** The alert at
+**BLOCKED — OWNER ACTION (off-repo), as of 2026-10-02.** The repo-side half (fix half 2
+below) is **done**: the alert is built by `lib/preserved-clone-alert.js`, posted from
+`processTask`'s cleanup block in `bridge-agent.js`, and now says the path is inside the
+`jt-agent` container, gives `docker exec -it jt-agent sh` and the `cd` to reach it, and says
+`docker compose up -d --force-recreate` deletes the clone unless `WORK_DIR` is on a mount.
+Regression test: `tests/preserved-clone-alert.test.js`. What remains is fix half 1 — put
+`WORK_DIR` on a mount and make `docker-compose.example.yml` carry it, settling the
+disagreement below — which is a deployment change. The operator's 2026-10-01 `docker
+inspect` again reported `/share/CACHEDEV1_DATA/jt-agent/work -> /tmp/bridge-agent (rw=true)`,
+so the live box likely has it already and the tracked copy does not; the close is the
+tracked copy carrying the mount, owned by #73's compose change.
+
+**Repo-side half re-verified 2026-09-16 and it was NOT done then** (kept for the record). The alert at
 `bridge-agent.js:1127-1133` posts `Location: <path>` and "The clone was NOT deleted so the
 work can be recovered and pushed manually" — it still says nothing about the clone being in
 container-local storage, nothing about a container recreation destroying it, and nothing
@@ -1814,41 +1831,6 @@ digest read the recorded verdict instead of re-deriving one.
 
 ---
 
-### 23. A task killed mid-run is re-read and re-run on the next poll
-**Filed 2026-09-14, from the #18 fix** (closed and purged; its fix is `6454fb0`, guarded by `tests/task-queue-lifecycle.test.js`).
-Both message-dedup guards are written only
-*after* a task completes, so neither survives a kill:
-- `markTaskProcessed(msg.ts)` (`bridge-agent.js`, poll loop) runs **after**
-  `await currentTaskPromise`.
-- the `done`/`failed` reaction `alreadyProcessed()` looks for is added by
-  `heartbeat.stop()`, which runs in `processTask`'s `finally` — and a `finally` does not
-  run when the process is killed. The reactions present *during* a task are
-  `eyes`/`hourglass_flowing_sand`/`gear`, none of which `alreadyProcessed()` matches
-  (`lib/task-parser.js:435-440`, `lib/heartbeat.js`).
-
-So a task that kills the bridge is re-read from the channel on the next poll and run
-again — on the same input, with the same result. `restart: unless-stopped` makes that a
-loop. The queue is **not** the loop's source: `recoverInterrupted()` writes a *terminal*
-`interrupted` state, never back to `pending`, and `enqueue()` dedups by `msgTs` so no
-second row is created.
-
-Regenerate: `grep -n "markTaskProcessed\|alreadyProcessed" bridge-agent.js` and
-`grep -n "EMOJI_DONE\|EMOJI_FAILED" lib/task-parser.js lib/heartbeat.js`.
-
-**Partially mitigated by #18's fix, not closed by it:** `_startRunning()` in
-`lib/task-queue.js` now bumps `attempts` and preserves `previousStatus`/`previousError`
-on a re-attempt, so the interruption verdict survives the re-run and the repetition is at
-least *recorded*. Nothing acts on that count.
-
-**Fix:** mark the message processed (or add the reaction) *before* the LLM is invoked
-rather than after, or refuse a task whose queue row shows `attempts` over a threshold.
-The first is the smaller change and closes the loop; the second is the safety net.
-**Priority:** P2 | **Effort:** Low-Medium.
-
-**Status:** open (re-verified 2026-09-14)
-
----
-
 ### 71. `ASK:` is invisible to every update gate — a conversation can be restarted mid-answer
 **Filed 2026-09-20,** by the drain-one pass, which covered `TASK:` and deliberately did not
 cover this. Stated rather than left as an implied claim of coverage.
@@ -1878,7 +1860,8 @@ a re-typed question; (b) give `processConversation` a lightweight lock so the up
 for it, but never refuse one; (c) refuse `ASK:` too while an update is pending, accepting
 the muteness. (b) is the only one that changes the restart behaviour without the cost of (c).
 
-**Related:** #17 (nothing starts the updater, so none of this fires today), #23. (#22 was purged 2026-10-02: met by `8516b7d`.)
+**Related:** #17 (nothing starts the updater, so none of this fires today). (#22 and #23 were closed 2026-10-02: `8516b7d` posts an interrupted task, and a
+TASK: message is now marked processed before it runs, so a killed task is not re-run.)
 **Priority:** P2 | **Effort:** Low for (a) or (b).
 
 **Status:** open (filed 2026-09-20)
@@ -1924,8 +1907,10 @@ logs `Queue complete failed` and carries on. So a terminal write that throws lea
 and `evaluateTaskDeferral()` sees two live entries and defers a deploy that is not actually
 blocked. Bounded, unlike the first direction — the orphan ages out at the staleness threshold
 (30 min at defaults) — but it is the same defect: two mechanisms, no agreement, and the
-disagreement is invisible from either side. **#74** is a third instance of the same shape, on
-the delivery field rather than the status.
+disagreement is invisible from either side. **#74** was a third instance of the same shape, on
+the delivery field rather than the status; it was closed 2026-10-02 by a test that makes the
+agreement an invariant (`tests/task-queue-delivery-invariant.test.js`), which is the shape
+suggested below.
 
 **Suggested shape, not a decision.** Either make `poll()` read the lock rather than a
 boolean (one mechanism, one answer, and it then also survives a restart), or make a failed
@@ -1934,111 +1919,24 @@ deliberate trade-off recorded in the code and should not be done without re-argu
 Whichever is chosen, the guard is a test that the two answers cannot diverge, not a comment
 saying they do not.
 
-**Related:** #17 (this is on its critical path), #23, #71, #73 (the deploy step that bypasses
-both mechanisms entirely), #74 (the same shape on the delivery field).
+**Related:** #17 (this is on its critical path), #23 (closed 2026-10-02), #71, #73 (the deploy step that bypasses
+both mechanisms entirely), #74 (the same shape on the delivery field; closed 2026-10-02).
 **Priority:** P2 | **Effort:** Low-Medium.
 
-**Status:** open (filed 2026-09-20)
+**Reporting half done 2026-10-02.** Every best-effort write that can make the answers
+diverge now posts to `#sqtools-ops` instead of only logging: a failed lock acquire, a failed
+`markRunning`, and a failed terminal write (`interrupt`, `complete`, `fail`), each naming what
+the divergence does to the poll loop and the update gate (`lib/task-state-divergence.js`;
+guard `tests/task-state-divergence.test.js`). So the disagreement is no longer invisible from
+either side. **The answers can still diverge**, and making them agree is the decision above:
+read the lock in `poll()` (unsafe alone, because the lock write is best effort and
+`isRunning` is what stops a second concurrent `poll()` from starting another task), or refuse
+a dispatch whose lock cannot be written (inverts a recorded trade-off). Neither is chosen.
 
----
+**BLOCKED — OWNER DECISION** — which of the two shapes, if either. Latent until #17 starts
+the updater.
 
-### 74. The update gate's delivery branch cannot fire — "the finish line is delivery" is true of the record and not of the gate
-**Filed 2026-09-20,** answering the open question the re-verification pass was asked to settle:
-*does a task whose delivery permanently fails hold a pending update forever?* **It does not,
-and the reason it does not is that the branch which would make it do so is unreachable from
-production code.** The question was worth asking — "waits for a 90-minute dispatch" and "waits
-forever because Slack failed" are different decisions and only the first was chosen — and the
-answer is that neither decision is being taken by the mechanism that appears to take it.
-
-**Priority:** P2 | **Effort:** Low (a negative control, or an honest comment) | **Status:**
-OPEN — behaviour is correct, the claim about it is not
-
-**The gate.** `checkTaskQueue()` (`auto-update.js:251`) counts a fourth kind of live work
-beside pending and running:
-
-```js
-const isTerminal = t => t.status !== 'pending' && t.status !== 'running';
-const allUndelivered = queue.filter(t => isTerminal(t) && !deliveryRecorded(t));   // :298
-```
-
-`deliveryRecorded()` (`lib/task-queue.js:134-138`) is false only when the row carries a
-`delivery` key whose value is `null` or a non-object.
-
-**Why that is unreachable.** Every terminal status write in `lib/task-queue.js` is paired,
-in the same `_load()` → mutate → `_save()` block, with a `normalizeDelivery()` write — and
-`normalizeDelivery()` (`:107-119`) **never returns `null`**; a caller that passes nothing gets
-`{ delivered: false, detail: 'the caller recorded no delivery verdict' }`.
-
-| terminal status written | line | paired delivery write | line |
-|---|---|---|---|
-| `COMPLETED` | `:398` | `normalizeDelivery(delivery)` | `:401` |
-| `FAILED` | `:426` | `normalizeDelivery(delivery)` | `:429` |
-| `INTERRUPTED` (live) | `:466` | `normalizeDelivery(delivery)` | `:469` |
-| `INTERRUPTED` (startup sweep) | `:501` | `normalizeDelivery({delivered:false,…})` | `:510` |
-
-`delivery: null` is written in exactly two places, and the status is **not** terminal at
-either: `enqueue()` (`:238`, `pending`) and `_startRunning()` (`:321`, `running`).
-
-**Demonstrated, not only read.** Driving a real `TaskQueue` and then asking the real gate:
-
-```bash
-WORK_DIR=$SCRATCH node -e "
-const {TaskQueue}=require('./lib/task-queue');const q=new TaskQueue(process.env.WORK_DIR+'/task-queue.json');
-const mk=(ts,d)=>{const t=q.enqueue({msgTs:ts,channelId:'C',text:'x',description:d});q.markRunning(t.id);return t.id;};
-q.complete(mk('1','complete, no verdict'));
-q.fail(mk('2','fail, no verdict'),'boom');
-q.interrupt(mk('3','interrupt, no verdict'),'killed');
-mk('4','left running'); q.recoverInterrupted();"
-# terminal rows: 4 of 4 | terminal rows with delivery null/non-object: 0
-
-WORK_DIR=$SCRATCH node -e "console.log(require('./auto-update.js').checkTaskQueue())"
-# { hasActive: false, pending: 0, running: null, awaitingDelivery: 0, staleIgnored: 0 }
-```
-
-And the operator's exact scenario — `complete(id, outcome, { delivered: false, detail: 'the
-task result post to the ops channel failed' })`, which is literally what `processTask` passes
-at `bridge-agent.js:1047-1053` when the post fails — yields `deliveryRecorded = true` and
-`hasActive: false`. **A permanently failed delivery does not hold an update. It is recorded as
-a loss and the update proceeds.** That is the behaviour the operator would have chosen; it is
-simply not produced by the mechanism the comments credit.
-
-**What actually protects the post window,** since something must: the result post happens
-*before* the terminal write, so during it the entry is still `running` and is caught by
-`liveRunning` — plus the task lock, which `processTask` releases only in its `finally`
-(`bridge-agent.js:1335`), after both. The ordering is real and is asserted by
-`tests/task-delivery-signal.test.js`. The `delivery` field's working value is the **durable
-record of a loss** (`{ delivered: false }` on the row, plus the `:rotating_light:` ops post at
-`bridge-agent.js:1026-1032`), which is worth having. It is the *gate* half that is inert.
-
-**The guard is green against a state production cannot produce.**
-`tests/auto-update-defer.test.js:483` writes `{ ...base, status: 'completed', delivery: null }`
-**by hand** and asserts the update defers. It passes. It proves the gate reads the field; it
-proves nothing about any task reaching that state. This is the repository's own recurring
-class — the 62 green tests for a daemon nothing starts (#17), the vacuous Phase-3 gate that
-#61 was filed for — arriving one layer down.
-
-**Three statements to correct or qualify, listed so the fix is bounded.**
-- `CLAUDE.md` → DRAIN-ONE step 4: *"`evaluateTaskDeferral()` keys on that verdict, not on the
-  status"*. It reads the verdict; at HEAD the discrimination is done by the status. Corrected
-  in the same change as this item.
-- `auto-update.js:283-295` — the `THE FINISH LINE IS DELIVERY, NOT STATUS` comment.
-- `lib/task-queue.js:92-93` — *"the entry is still in flight as far as any reader is
-  concerned, whatever its status says"*, describing a combination no writer emits.
-
-**Shapes, none chosen.** (a) Keep the branch as defence in depth against a future writer and
-say so in the comment — cheapest, and honest. (b) Give it a negative control: a test that
-fails if any `TaskQueue` method can leave a terminal row without a verdict, which turns the
-unreachability into a guarded invariant instead of an accident. (c) Delete the branch — **not
-recommended**: it is the only thing standing between a future terminal writer and a restart
-over an undelivered result. (b) is the shape that matches how this repo closes a class.
-
-**Do not fix this by making a failed delivery hold the update.** That is the decision the
-operator did not take, and it would convert one Slack outage into a permanently refused
-bridge (drain-one refuses every new dispatch while an update is pending).
-
-**Related:** #72 (the sibling: two answers to "is a task running?" — see its second divergence
-direction, added the same day), #17 (none of this
-fires today), #39 (a claim is not a fact, one layer out).
+**Status:** open (filed 2026-09-20; reporting half landed 2026-10-02)
 
 ---
 

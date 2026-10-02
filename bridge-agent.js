@@ -199,6 +199,9 @@ const { redact } = require('./lib/redact-secrets');
 // cleanupDir, detectUndeliveredWork) into lib/clone-lifecycle.js — seam A in
 // docs/WIRING-AND-SEAMS.md. Pure fs/execFileSync helpers with no bridge state.
 const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-lifecycle');
+const { formatPreservedCloneAlert } = require('./lib/preserved-clone-alert');
+const { describeTaskStateDivergence } = require('./lib/task-state-divergence');
+const repoHistory = require('./lib/repo-history');
 
 // LOGIC CHANGE 2026-09-20: install the target repo's own dependencies in the scratch
 // clone before the LLM runs. Without this, Phase-3's test command found no node_modules
@@ -579,6 +582,12 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
       `[bridge-agent] Running without a task lock (${lockResult.error}) - ` +
       `a self-update during this task will not defer for it`
     );
+    // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged. The poll
+    // loop and the update gate now disagree about whether a task is running.
+    // postToOps never throws.
+    await postToOps(describeTaskStateDivergence({
+      kind: 'lock_not_acquired', description: task.description, error: lockResult.error,
+    }));
   }
 
   // LOGIC CHANGE 2026-09-14: Mark the queue entry RUNNING here, beside the lock.
@@ -599,6 +608,10 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
       taskQueue.getQueue().markRunning(queueId);
     } catch (queueErr) {
       console.error('[bridge-agent] Queue markRunning failed:', queueErr.message);
+      // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged.
+      await postToOps(describeTaskStateDivergence({
+        kind: 'queue_not_marked_running', description: task.description, error: queueErr.message,
+      }));
     }
   }
 
@@ -992,6 +1005,10 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
           );
         } catch (queueErr) {
           console.error('[bridge-agent] Queue interrupt failed:', queueErr.message);
+          // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged.
+          await postToOps(describeTaskStateDivergence({
+            kind: 'queue_terminal_write_failed', description: task.description, error: queueErr.message, step: 'interrupt',
+          }));
         }
       }
       return;
@@ -1052,6 +1069,10 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
         });
       } catch (queueErr) {
         console.error('[bridge-agent] Queue complete failed:', queueErr.message);
+        // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged.
+        await postToOps(describeTaskStateDivergence({
+          kind: 'queue_terminal_write_failed', description: task.description, error: queueErr.message, step: 'complete',
+        }));
       }
     }
 
@@ -1266,6 +1287,10 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
         });
       } catch (queueErr) {
         console.error('[bridge-agent] Queue fail failed:', queueErr.message);
+        // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged.
+        await postToOps(describeTaskStateDivergence({
+          kind: 'queue_terminal_write_failed', description: task.description, error: queueErr.message, step: 'fail',
+        }));
       }
     }
 
@@ -1298,14 +1323,16 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
       if (delivery.undelivered) {
         console.warn(`[bridge-agent] Preserving scratch clone ${taskDir} — ${delivery.reason}`);
         try {
-          await postToOps(
-            `:warning: *Scratch clone preserved — undelivered work.*\n` +
-            `Task: ${task.description}\n` +
-            `Reason: ${delivery.reason}\n` +
-            `Location: \`${taskDir}\`\n` +
-            `The clone was NOT deleted so the work can be recovered and pushed manually.\n` +
-            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
-          );
+          // LOGIC CHANGE 2026-10-02 (WORK-TODO #25): the text now says the path is
+          // inside the container, how to reach it, and what deletes it. Built by
+          // lib/preserved-clone-alert.js so the wording is unit-tested.
+          await postToOps(formatPreservedCloneAlert({
+            description: task.description,
+            reason: delivery.reason,
+            taskDir,
+            workDir: WORK_DIR,
+            sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
+          }));
         } catch (postErr) {
           console.error('[bridge-agent] Failed to post undelivered-work alert:', postErr.message);
         }
@@ -2144,6 +2171,19 @@ async function poll() {
             repo: taskData.repo,
           });
 
+          // LOGIC CHANGE 2026-10-02 (WORK-TODO #23): mark the message processed
+          // BEFORE the task runs, not after. Both dedup guards used to be written only
+          // after completion - this mark (after `await currentTaskPromise`) and the
+          // done/failed reaction (heartbeat.stop() in processTask's finally) - and
+          // neither runs when the process is killed. So a task that was killed (a
+          // `docker compose restart`, an OOM, a task that crashes the bridge) was
+          // re-read on the next poll and run again, and under `restart:
+          // unless-stopped` a task that kills the bridge became a loop. Marking first
+          // means a killed task is NOT re-run: the next startup's recoverInterrupted()
+          // records it as interrupted and posts it to #sqtools-ops, which tells the
+          // operator to re-submit it. A lost re-run is reported; a repeated one was not.
+          markTaskProcessed(msg.ts);
+
           isRunning = true;
 
           // LOGIC CHANGE 2026-03-27: Track current task promise for graceful shutdown.
@@ -2160,10 +2200,6 @@ async function poll() {
           currentTaskPromise = null;
 
           isRunning = false;
-
-          // LOGIC CHANGE 2026-03-28: Mark message as processed after completion (success or fail).
-          // Prevents re-processing on next startup even if reaction emoji was not added.
-          markTaskProcessed(msg.ts);
 
           // LOGIC CHANGE 2026-03-26: After processing a task, check if we got rate limited.
           // If so, exit the loop to pause processing.
@@ -2383,6 +2419,14 @@ console.log(`  WorkDir:  ${WORK_DIR}`);
 console.log(`  Interval: ${POLL_INTERVAL / 1000}s`);
 console.log(`  Timeout:  ${TASK_TIMEOUT / 1000}s`);
 console.log(`  Turns:    ${MAX_TURNS}`);
+
+// LOGIC CHANGE 2026-10-02 (WORK-TODO #17): say which commit this process booted on,
+// read ONCE here and posted, so "is the running bridge on main?" has an answer that
+// comes from the running process. A merge reaches the bridge only on a manual
+// restart, and nothing reported when the two diverged. postToOps never throws.
+const BOOT_COMMIT = repoHistory.loadedCommit();
+console.log(`  Commit:   ${BOOT_COMMIT.available ? `${BOOT_COMMIT.short}${BOOT_COMMIT.dirty ? ' (tracked files modified)' : ''}` : `unknown (${BOOT_COMMIT.reason})`}`);
+postToOps(repoHistory.describeLoadedCommit(BOOT_COMMIT));
 console.log(`  Allowed:  ${ALLOWED_USER_IDS.join(', ')}`);
 console.log(`  Channels: ${channelsToPoll.length} (${channelsToPoll.map(c => c.agentId).join(', ')})`);
 

@@ -489,9 +489,16 @@ make any of them true.** That is itself the finding: the deploy path belongs to 
 repository today (`docs/CONFIG-SURFACE-AND-REBUILD.md`, Step 6).
 
 **2. What would make "is the running process on current `main`?" answerable at all?**
-**Nothing today can answer it.** Not the repo, not the container, not Slack. "Merged"
-and "deployed" are unrelated facts and no one is told when they diverge — the observed
-11-hour gap was found by a person noticing, not by the system reporting.
+**Answered at boot since 2026-10-02 (WORK-TODO #17).** On startup `bridge-agent.js` reads
+the commit its checkout is at **once** (`lib/repo-history.js` `loadedCommit()`), logs it in
+the banner and posts it to `#sqtools-ops`: short and full SHA, subject, and a warning when
+tracked files in the deploy tree differ from that commit. Compare that line with `main`. It
+is read at boot and kept, so a later `git pull` without a restart does not change it. If the
+container's `git` cannot read the checkout (for example a "dubious ownership" refusal, which
+this repository cannot test for), the post says the commit is UNKNOWN and why. **Unverified
+on the live box:** whether `git` in the `jt-agent` container can read `/bridge`. Before this,
+"merged" and "deployed" were unrelated facts and the observed 11-hour gap was found by a
+person noticing, not by the system reporting.
 
 Answering it needs the running process to state the commit it loaded, somewhere a human
 or an agent can read without shell access to the NAS. Anything that does that would do:
@@ -563,8 +570,10 @@ docker compose logs -f jt-agent
 # that waits up to 60s for the current task (gracefulShutdown, :2684) and it NEVER RUNS:
 # PID 1 is the compose command's `sh`, not node, and sh does not forward signals to the
 # child it is waiting on, so the task is SIGKILLed when Docker's grace period expires.
-# The lock is not released, nothing is posted, the scratch clone is not checked for
-# unpushed commits, and the message is re-read and re-run next poll. Check
+# The lock is not released, nothing is posted at the time, and the scratch clone is not
+# checked for unpushed commits. The task is NOT re-run: its message is marked processed
+# before it runs (WORK-TODO #23, 2026-10-02), and the next startup posts it to
+# #sqtools-ops as interrupted, to be re-submitted by hand. Check
 # `ASK: what's queued` before restarting. WORK-TODO #73.
 # A `--force-recreate` additionally DISCARDS $WORK_DIR (/tmp/bridge-agent by default):
 # the task lock, task-queue.json, .update-pending and every preserved scratch clone.
@@ -678,7 +687,7 @@ slack-agent-bridge/
 │   ├── agent-surface.js  # THE enumerator for the declared-agent surface: buildSurface returns one row per agent (channel, joined, polled, scheduled job, provider + provenance, reader), findOrphans returns the rows whose output reaches nobody, and `activeChannels` is THE ONE membership rule — pollableChannels and joinableChannels both return it, bridge-agent.js's buildChannelsToPoll delegates to it, and the scheduler refuses anything it excludes, so resolving, joining, polling and scheduling are four consequences of one declaration or none of them. Pure: no Slack call, no write
 │   ├── agent-llm-resolver.js # THE resolver for "what is this agent running on, and where did each value come from": resolveAgentLlm returns provider, model, adapter inputs and a SOURCE for each. Calls lib/config.js resolveLlmProvider for the provider precedence rather than re-deriving it; owns the model precedence and the adapter-input mapping, which were inline at the call sites. NEVER emits a credential value — a key is reported as `key_set: true/false` plus the variable name, because this output is built to be posted to Slack
 │   ├── backlog-report.js # THE parser for WORK-TODO.md: parseBacklog/loadBacklog/stalest turn the backlog into records so "how long has this been open" is a computation rather than an impression. Pure text — no subprocess, no network. A file it cannot read is `available: false` with a reason, NEVER an empty backlog. Guarded by tests/backlog-report.test.js, whose live assertions compare its counts against WORK-TODO.md's own documented grep/awk commands rather than a hardcoded number
-│   ├── repo-history.js   # Git-derived signals about THIS repository, read from the checkout the bridge runs out of (a task's scratch clone is `--depth 1` and can answer none of it): commitsSince, claimsFrom (`Closes <ID>` vs `Addresses <ID>`, and items addressed repeatedly), revisionsSince. Every call is an execFileSync argv array. A shallow clone, a missing .git or an absent git is `available: false` — never a count of zero
+│   ├── repo-history.js   # Git-derived signals about THIS repository, read from the checkout the bridge runs out of (a task's scratch clone is `--depth 1` and can answer none of it): commitsSince, claimsFrom (`Closes <ID>` vs `Addresses <ID>`, and items addressed repeatedly), revisionsSince, plus loadedCommit/describeLoadedCommit, which bridge-agent.js calls once at boot to post the commit it is running (WORK-TODO #17). Every call is an execFileSync argv array. A shallow clone, a missing .git or an absent git is `available: false` — never a count of zero
 │   ├── critique-signals.js # The individual computed signals behind the jester's digest, one function per source (backlog, git claims, task outcomes, bulletins, orphaned output). Each returns `{ available, reason, ... }` and none collapses "I could not read it" into "there was nothing there". Split from lib/critique-digest.js at creation because the combined module broke the 300-line rule
 │   ├── critique-digest.js # THE material the jester is given: not a transcript but a digest of computed facts, assembled from lib/critique-signals.js. buildDigest, formatDigestForPrompt (a fact sheet, explicitly labelled UNAVAILABLE where a sensor failed), formatCoverage (what was checked, so a short post is distinguishable from a broken job) and isThin (judged on WINDOWED signals only, so a standing backlog cannot make a quiet week look eventful). Reads and computes; posts nothing, writes nothing, calls no model
 │   ├── bulletin-board.js # Inter-agent communication: postBulletin, getBulletins, markRead, cleanupOldBulletins, plus formatBulletinsForContext — THE stream every active agent sees, injected into each agent's prompt on every ASK. It carries the type, the poster, the Toronto-local time and EVERY scalar payload field (each value capped at 200 chars) via formatBulletinData; it does NOT carry the bulletin id, any link back to the work, anything past the newest 10, or anything past the 7-day retention. postBulletin REJECTS an unknown type by returning { success: false } rather than throwing, so a caller that ignores the result drops bulletins silently
@@ -700,6 +709,7 @@ slack-agent-bridge/
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
 │   ├── channel-map-rebuild.js # THE reproduction path for the workspace channel mapping (WORK-TODO #55): reconstructFromHistory() recovers the ids from agents/agents.json as it stood when the markdown migration deleted it, joining on the AGENT ID so a name correction cannot orphan one; resolveDeclaredChannels() asks Slack what the declared names mean HERE, via the same resolveAgentChannel() the boot path calls. A value already resolved against the live workspace always beats a reconstructed one. Creates no channel, writes no tracked file
 │   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork, assertValidTargetDir. Every git call is an execFileSync argv array — no function here builds a shell command string
+│   ├── preserved-clone-alert.js # The text of the #sqtools-ops alert posted when a scratch clone is kept for undelivered work: formatPreservedCloneAlert says the path is INSIDE the jt-agent container, gives the `docker exec` that reaches it, and says a `--force-recreate` deletes it unless WORK_DIR is on a mount (WORK-TODO #25). Pure: builds a string, posts nothing
 │   ├── dependency-install.js # Installs a scratch clone's OWN dependencies BEFORE the LLM runs, so Phase-3's test gate is real instead of vacuous (WORK-TODO #61): detectEcosystem (node -> npm ci/npm install, both --ignore-scripts, python -> python3 -m pip) and installDependencies, which returns one of three failure outcomes NEVER collapsed into one — INSTALL_FAILED / INSTALLER_ABSENT / TIMED_OUT are all HARNESS failures the caller stops the dispatch on, distinct from a CODE failure (tests ran and failed) and a pass. A repo with no recognised manifest installs nothing and proceeds. No shell: spawnSync with an argv array. Bounded by INSTALL_TIMEOUT_MS
 │   ├── bridge-state.js    # State persistence (seam B): sole owner of .bridge-agent-state.json (per-channel poll cursors) and processed-tasks.json (task dedup); init, get/setLastChecked, isTaskProcessed, markTaskProcessed, cleanupProcessedTasks
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap)
@@ -712,6 +722,7 @@ slack-agent-bridge/
 │   ├── approval-queue.js # Manual approval queue for auto-generated tasks: queueTask, approveTask, rejectTask
 │   ├── task-decomposer.js # Automated task decomposition: analyzeComplexity, decomposeTask, findAgentForTask, subtask management
 │   ├── task-lock.js      # Sole owner of $WORK_DIR/.task-running: acquire/release plus the staleness rule that stops an orphaned lock freezing self-update
+│   ├── task-state-divergence.js # The #sqtools-ops text for when the bridge's answers to "is a task running?" diverge (WORK-TODO #72): a task running without its lock, a queue entry not marked running, or a terminal queue write that failed. Each says what the divergence does to the poll loop and the self-update gate. Pure: builds a string, posts nothing; processTask posts it at each of the five best-effort write sites
 │   ├── update-drain.js   # Sole owner of $WORK_DIR/.update-pending, the DRAIN-ONE marker: once an update is known, bridge-agent.js REFUSES new dispatches, so the update waits for ONE task instead of for however long work keeps arriving. markPending/inspect/clear/clearIfStale/describeRefusal. THERE IS NO CEILING — a pending update may wait indefinitely, is never forced, and never kills a task; the staleness rule is a HEARTBEAT on `lastSeenAt` (a marker no updater is refreshing is an orphan, and honouring it would leave the bridge silently accepting no work at all), never a deadline on `since`, which grows without limit. Errs toward pending, like the task lock errs toward held. Decides and describes; does no I/O beyond the marker, no Slack call, no git call
 │   ├── task-parser.js    # Task message parsing and message type detection
 │   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update. markRunning() is the live `running` transition; dequeue() has no production caller
@@ -795,6 +806,7 @@ slack-agent-bridge/
 │   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
 │   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo argv/`--` separators, assertValidTargetDir rejections, deploy-key paths, cleanupDir, export surface)
 │   ├── undelivered-work.test.js # Tests for detectUndeliveredWork + processTask's delivery-gated cleanup (the regression guard for the three tasks lost to unconditional cleanup)
+│   ├── preserved-clone-alert.test.js # Regression test for WORK-TODO #25: the preserved-clone alert names the container, the `docker exec` to reach the path, and that a recreate deletes the clone unless WORK_DIR is mounted, using the configured WORK_DIR
 │   ├── dependency-install.test.js # Tests for lib/dependency-install.js: ecosystem detection (node ci-vs-install, python, none), every classification via an injected runner, AND the three outcomes produced for real — a real out-of-sync `npm ci` proving the HARNESS classification, a real `npm ci` then a failing `node --test` proving the CODE classification, and the same then a passing suite proving a pass
 │   ├── dependency-install-scripts.test.js # THE guard that a scratch clone's npm install runs NO lifecycle script: real lib/dependency-install.js, real npm, a package whose pre/post/install/prepare scripts write a marker — absent after both the lockfile (`npm ci --ignore-scripts`) and no-lockfile (`npm install --ignore-scripts`) paths, present in a negative control run without the flag. Split from dependency-install.test.js for the 300-line gate
 │   ├── bridge-state.test.js     # Tests for lib/bridge-state.js (poll cursors, legacy migration, processed-task dedup; temp-dir CRUD)
@@ -830,6 +842,9 @@ slack-agent-bridge/
 │   ├── task-queue.test.js       # Tests for lib/task-queue.js (queue persistence, auto-update coordination)
 │   ├── task-queue-lifecycle.test.js # THE guard that the LIVE task path drives the queue state machine: extracts the lifecycle from bridge-agent.js's source and replays it against a real queue (a module-only test cannot see an unreachable path)
 │   ├── task-delivery-signal.test.js # THE guard that a finished task is a DELIVERED task. Two halves: a source walk over processTask's three terminal regions (success/failure/interrupted) asserting the result post PRECEDES the terminal queue write and that the lock is released only after all of them — the ordering held before this suite but was incidental, and an incidental ordering is what lib/update-drain.js would have been gating a restart on; and a replay against a REAL TaskQueue proving the verdict is durable, that a caller recording nothing gets an explicit `delivered: false` rather than an optimistic default, and that a completed task whose post FAILED is distinguishable from one whose post landed. Carries its own negative controls
+│   ├── task-rerun-guard.test.js # THE guard for WORK-TODO #23: the poll loop marks a TASK: message processed between the enqueue and processTask, so a task killed mid-run is not re-read and re-run on the next poll (a loop under `restart: unless-stopped`). Reads the TASK: branch from bridge-agent.js's source, because the property is an ordering. Carries its own negative controls
+│   ├── task-state-divergence.test.js # THE guard for #72's reporting half: every best-effort lock/queue write failure in processTask (lock acquire, markRunning, interrupt, complete, fail) posts describeTaskStateDivergence with the right kind to #sqtools-ops rather than only logging. Reads the five sites from bridge-agent.js's source. Carries its own negative controls
+│   ├── task-queue-delivery-invariant.test.js # THE guard for WORK-TODO #74: no TaskQueue writer leaves a TERMINAL row without a delivery verdict. A source walk over lib/task-queue.js asserts every method writing a terminal status calls normalizeDelivery() and that the only null-verdict writers are enqueue and _startRunning, plus a replay driving every terminal transition with no verdict. So auto-update's undelivered-row branch stays unreachable by invariant, not by accident. Carries its own negative controls
 │   ├── task-decomposer.test.js  # Tests for lib/task-decomposer.js (complexity analysis, decomposition, agent routing)
 │   ├── security-followup.test.js # Tests for lib/security-followup.js (finding parsing, task generation)
 │   ├── approval-queue.test.js   # Tests for lib/approval-queue.js (queueing, approval/rejection, commands)
@@ -975,7 +990,9 @@ When a task has a REPO field, `bridge-agent.js` runs a 3-phase pipeline via `lib
 `agents/shared/processed-tasks.json` (gitignored) stores processed Slack message timestamps.
 - Loaded on every startup
 - Checked before processing any TASK: or ASK: message
-- Written after processing (success or fail)
+- Written for a `TASK:` after it is enqueued and **before** it runs, so a task killed
+  mid-run is not re-read and re-run on the next poll (WORK-TODO #23, 2026-10-02;
+  guard `tests/task-rerun-guard.test.js`); for an `ASK:`, after it is answered
 - Entries older than 7 days cleaned up on startup
 - Prevents re-processing old messages after container restarts
 
@@ -1070,6 +1087,10 @@ classifies the clone before `cleanupDir` runs:
 
 An undelivered clone is **kept** (not deleted) and an alert is posted to
 `#sqtools-ops` with its path so the work can be recovered and pushed manually.
+Since 2026-10-02 the alert (`lib/preserved-clone-alert.js`) also says the path is inside
+the `jt-agent` container, gives the `docker exec -it jt-agent sh` that reaches it, and says
+a `docker compose up -d --force-recreate` deletes the clone unless `WORK_DIR` is on a mount
+(WORK-TODO #25).
 Delivered clones (clean tree, tips on the remote — the normal success case, and
 research/audit tasks that make no commits) are cleaned up as before.
 
@@ -1434,7 +1455,9 @@ above accepts that explicitly. Drain-one adds the missing half.
    which is the intended behaviour, just not produced by the mechanism this paragraph credited.
    What protects the post window is that the result post precedes the terminal write, so the
    entry is still `running` during it. The verdict's working value is the durable record of a
-   loss; the gate half is defence in depth against a future writer. #74 records the shapes.
+   loss; the gate half is defence in depth against a future writer. Since 2026-10-02 that
+   unreachability is an invariant, not an accident: `tests/task-queue-delivery-invariant.test.js`
+   fails if any `TaskQueue` writer can leave a terminal row without a verdict (#74, closed).
 5. **There is NO CEILING.** A pending update may wait indefinitely. It is never forced
    and no task is ever killed for it.
 

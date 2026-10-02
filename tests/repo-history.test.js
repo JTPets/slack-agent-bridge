@@ -186,3 +186,76 @@ describe('the module builds no shell command', () => {
         expect(code).not.toMatch(/shell\s*:\s*true/);
     });
 });
+
+// LOGIC CHANGE 2026-10-02 (WORK-TODO #17): the commit the bridge booted on.
+describe('loadedCommit and describeLoadedCommit', () => {
+    test('reports HEAD of a real repository, clean', () => {
+        const dir = makeRepo([{ file: 'a.txt', message: 'first' }, { file: 'b.txt', message: 'second: the head' }]);
+        temps.push(dir);
+        const c = history.loadedCommit(dir);
+        expect(c.available).toBe(true);
+        expect(c.sha).toBe(git(['rev-parse', 'HEAD'], dir).trim());
+        expect(c.sha.startsWith(c.short)).toBe(true);
+        expect(c.subject).toBe('second: the head');
+        expect(c.dirty).toBe(false);
+    });
+
+    test('a modified tracked file is dirty; an untracked file is not', () => {
+        const dir = makeRepo([{ file: 'a.txt', message: 'only' }]);
+        temps.push(dir);
+        fs.writeFileSync(path.join(dir, 'untracked.json'), '{}');
+        expect(history.loadedCommit(dir).dirty).toBe(false);
+        fs.writeFileSync(path.join(dir, 'a.txt'), 'changed\n');
+        expect(history.loadedCommit(dir).dirty).toBe(true);
+    });
+
+    test('works on a shallow clone (HEAD needs no history)', () => {
+        const src = makeRepo([{ file: 'a.txt', message: 'one' }, { file: 'b.txt', message: 'two' }]);
+        temps.push(src);
+        const shallow = fs.mkdtempSync(path.join(os.tmpdir(), 'shallow-boot-')); temps.push(shallow);
+        git(['clone', '-q', '--depth', '1', `file://${src}`, shallow], os.tmpdir());
+        const c = history.loadedCommit(shallow);
+        expect(c.available).toBe(true);
+        expect(c.subject).toBe('two');
+    });
+
+    test('a directory that is not a repository is UNAVAILABLE with a reason, never a fake sha', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'not-a-repo-boot-')); temps.push(dir);
+        const c = history.loadedCommit(dir);
+        expect(c.available).toBe(false);
+        expect(c.sha).toBeNull();
+        expect(c.reason).toMatch(/git log -1 failed/);
+    });
+
+    test('the boot line names the short and full sha and tells the reader how to use it', () => {
+        const text = history.describeLoadedCommit({
+            available: true, reason: null, sha: 'a'.repeat(40), short: 'aaaaaaa', subject: 'feat: x', dirty: false,
+        });
+        expect(text).toContain('Bridge started on `aaaaaaa`');
+        expect(text).toContain('feat: x');
+        expect(text).toContain('a'.repeat(40));
+        expect(text).toMatch(/if `main` is newer, its merges are not running yet/);
+        expect(text).not.toMatch(/differ/);
+    });
+
+    test('the boot line warns when tracked files differ, and says when that could not be checked', () => {
+        const base = { available: true, reason: null, sha: 'b'.repeat(40), short: 'bbbbbbb', subject: 's' };
+        expect(history.describeLoadedCommit({ ...base, dirty: true })).toMatch(/differ from that commit/);
+        expect(history.describeLoadedCommit({ ...base, dirty: null })).toMatch(/could not be checked/);
+    });
+
+    test('an unknown commit is said to be unknown, with the reason', () => {
+        const text = history.describeLoadedCommit({ available: false, reason: 'dubious ownership', sha: null });
+        expect(text).toMatch(/commit UNKNOWN/);
+        expect(text).toContain('dubious ownership');
+    });
+});
+
+describe('bridge-agent.js announces its boot commit', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'bridge-agent.js'), 'utf8');
+
+    test('it reads the commit once at module scope and posts it', () => {
+        expect(src).toMatch(/^const BOOT_COMMIT = repoHistory\.loadedCommit\(\);$/m);
+        expect(src).toMatch(/^postToOps\(repoHistory\.describeLoadedCommit\(BOOT_COMMIT\)\);$/m);
+    });
+});
