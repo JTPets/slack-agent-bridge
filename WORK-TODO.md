@@ -234,6 +234,196 @@ figure is 7 closes to 24 addresses — 1 : 3.4.
 what remained, which is the contract working. The defect is in how the items were written,
 not in how they were worked.
 
+## Batched triage — 2026-10-02, at `71d2112`
+
+**Filed 2026-10-02.** Every open item was re-checked against the code at `71d2112` and
+given one batch. This section is the plan, not a status change: **no item body, tier,
+marker or index row was edited by this pass**, so a branch already in flight that edits
+those regions cannot collide with it. Corrections it found are listed under "Stale claims"
+below and are assigned to the batch that will make them.
+
+**Baseline the verdicts were taken against:** `npm ci` then `npx jest`, twice, in a fresh
+clone on Node 22.22.0: **80 of 80 suites, 2507 tests, 0 skipped, both runs**. The #56
+intermittent did not appear. Node 22 is not the image's `node:20`; say so if you compare.
+
+**Every item is in exactly one row of the table below.** Regenerate the check:
+
+```bash
+# every open ID appears in the triage table exactly once (must print nothing)
+diff <(grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | grep -oE '[0-9]+[a-z]?' | sort) \
+     <(awk '/^## Batched triage/{f=1} /^## Twelve of the/{f=0} f' WORK-TODO.md \
+         | grep -oE '^\| #[0-9]+[a-z]? ' | grep -oE '[0-9]+[a-z]?' | sort)
+```
+
+### The three "known blocker" claims re-checked again — still stale
+
+| Claim | At `71d2112` |
+|---|---|
+| `spawn E2BIG`, prompt in argv | Fixed. Prompt goes over stdin, `lib/llm-runner.js:408` (`child.stdin.end(promptText)`) |
+| `REPO:`/`BRANCH:` reach a shell string | Fixed. `execFileSync('git', args)`, `lib/clone-lifecycle.js:134`; guard `tests/no-shell-execution.test.js` |
+| 5-minute self-update ignores the task lock | Fixed and not running. Gate at `auto-update.js:643` precedes `gitResetHard()` at `:708`; `package.json` scripts are `test`, `test:smoke`, `validate` only |
+
+`docs/EXECUTOR-CONTRACT.md` §7.1 already says this. A dispatch that still lists them is
+quoting an old note.
+
+### In flight — do not re-plan
+
+A dispatch drafted 2026-10-01 (install scripts off in scratch clones, `.gitignore` gap,
+lockfile advisory, `DEFAULT_REPOS`) touches the bodies of **#27, #57, #62, #68, #75**; a
+records dispatch after it closes **#75**. Those five rows say "in flight" and their
+remainder is what is left **after** those two land. No batch below edits their bodies.
+
+### Batches, in recommended order
+
+The bridge runs one code dispatch at a time (`docs/DISPATCH-AND-BATCH-MODEL.md`), so the
+order is the schedule. Batches that share a file are never meant to run side by side.
+
+| Batch | Theme | Items | Main files | Why this position |
+|---|---|---|---|---|
+| **B1** | A running task is not lost, re-run or misreported | #25, #23, #72, #74, #17 (boot-commit half), #22 (purge) | `bridge-agent.js`, `lib/task-queue.js`, `lib/task-lock.js`, `auto-update.js` (comments), `tests/` | **First.** The deploy step in use kills a running task (#73); B1 makes what happens next honest and stops the re-run. #17's boot report answers "is main deployed?", which is how deploys were found forgotten. No file in common with the in-flight dispatch |
+| **B2** | The test apparatus | #56, #36, #69, #54, #11 | `tests/staff-tasks.test.js`, `tests/architecture-tree.test.js`, `lib/file-size-gate.js`, `lib/repo-history.js`, `lib/backlog-report.js`, `WORK-TODO.md` tier header | P1 under #54's own rule. Could run beside B1 (no shared code file) but both purge from this file, so sequence them |
+| **B3** | What reaches Slack is redacted and true; one helper per shared behaviour | #30, #31, #32, #33, #24, #7, #21, #58 | `lib/notify-owner.js`, `morning-digest.js`, `lib/llm-runner.js`, `lib/bulletin-board.js`, `lib/staff-tasks.js`, `lib/agent-context.js`, `lib/slack-client.js` | After B1: #30 removes `bridge-agent.js` / `auto-update.js` post helpers that B1 also edits |
+| **B4** | Records: config surface and docs that state what is no longer true | #34, #4b, #20, #63, #35, #48, #10 (table refresh) + the stale-claim sweep below | `CLAUDE.md`, `README.md`, `.env.example`, `docs/AGENTS.md`, `WORK-TODO.md` | After the in-flight records dispatch, which owns the same docs this week. Verifiable by reading |
+| **B5** | Commands and routing | #46, #49, #4, #9, #39, #66, #52, #64 (gate half only, see row) | `bridge-agent.js`, `lib/command-router.js`, `lib/dispatch-command.js`, `lib/dispatch-modal.js`, `lib/task-queue.js`, `lib/critique-signals.js` | After B1 and B3 (shared `bridge-agent.js`, `lib/task-queue.js`) |
+| **B6** | Deployment shape — repo halves of owner-side work | #70, #73, #42, #59, #68 (venv half), #17 (deploy-shape half) | `Dockerfile` (new), `docker-compose.example.yml`, `docs/CONFIG-SURFACE-AND-REBUILD.md`, `lib/dependency-install.js` | Last. Needs owner decisions (#17 shape, #73 exec/grace, #42 a mount) and follows the in-flight dispatch's edits to `lib/dependency-install.js` and the compose copy |
+| **OA** | Owner action only, nothing left in the repo | #3, #26, #40, #41, #43, #53, #55 | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
+| **OD** | Owner decision first | #27, #29, #37, #44, #51, #65, #67, #71, #47, #60 | — | Small code once chosen; listed so nobody dispatches them undecided |
+| **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
+
+### Every item
+
+Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains), **CLOSED**
+(met — purge), **STALE** (the entry's premise is wrong at HEAD). Effort S/M/L.
+
+| ID | Tier | Verdict at `71d2112` | Batch | Effort | Evidence, and what is left |
+|---|---|---|---|---|---|
+| #55 | P1 | REPO DONE | OA | S | `scripts/channel-map.js` `--from-git`/`--resolve` built; owner rebuilds the map. Suggest P2: nothing for a branch |
+| #56 | P1 | OPEN, nothing to act on until it recurs | B2 | S | Not seen in 2 runs. The adjacent race is #36's: `tests/staff-tasks.test.js:28` makes a temp dir inside the repo root that `lib/file-size-gate.js` `measure()` walks |
+| #42 | P1 | OPEN | B6 | S/M | No backup check anywhere in the repo. **Correction:** part (c) is not buildable alone — the container mounts no backups path (`docker-compose.example.yml:75-80`), so it needs an owner mount or a host-side check |
+| #41 | P1 | REPO DONE | OA | — | All remaining work is on the appliance |
+| #17 | P1 | OPEN | B1 + B6 | S / M | Boot-commit report not started (no `rev-parse` in `bridge-agent.js`); that half is B1. Wiring the daemon is an owner decision, B6 |
+| #73 | P1 | REPO DONE for the warning; compose fix off-box | B6 | S | `gracefulShutdown` at `bridge-agent.js:2620`, handlers `:2684`; compose copy has no `init:`/`stop_grace_period:` |
+| #25 | P1 | OPEN | B1 | S | Alert at `bridge-agent.js:1301-1308` still omits "inside the container", "deleted by a recreate", `docker exec`. Cited lines drifted (`:1127` → `:1301`) |
+| #3 | P1 | REPO DONE | OA | — | `lib/agent-scheduler.js:133-141` refuses planned/unresolved; needs a live restart to confirm. Suggest P2 |
+| #4 | P1 | OPEN, parked by its own text | B5 | S/M | Cheap half (poll right after `/dispatch` posts) not done — `lib/dispatch-command.js` never calls `poll()`. Suggest P3: latency, not a defect |
+| #43 | P1 | REPO DONE | OA | — | `/dispatch` built and wired (`bridge-agent.js:2588`); Slack app steps remain. Suggest P2 |
+| #70 | P2 | OPEN | B6 | M | No `Dockerfile` ever; `docker-compose.example.yml:83` installs the CLI unpinned at every start |
+| #68 | P2 | in flight, then OPEN | B6 | M | Per-clone venv not written (`lib/dependency-install.js:127,138` still system pip) |
+| #4b | P2 | OPEN, partly STALE | B4 | S | 25 `process.env` keys missing from `.env.example` (different set from the filed 25). "CLAUDE.md is stale" and the MAX_TURNS bullet are superseded |
+| #30 | P2 | OPEN, slightly worse | B3 | M | 52 `chat.postMessage` sites, 3 redacting; `notifyChannel` (`lib/notify-owner.js:82-98`) still does not redact |
+| #31 | P2 | OPEN, **worse than filed** | B3 | S | Nothing retries any task (`bridge-agent.js:1224` "handleRateLimit() is NOT called here anymore"), yet `morning-digest.js:396` tells the owner "They will auto-retry" |
+| #22 | P2 | **CLOSED** | B1 (purge) | S | `bridge-agent.js:2396-2414` posts interrupted tasks to ops (`8516b7d`); guard `tests/failure-visibility.test.js`. Purge it and correct `CLAUDE.md:1304` |
+| #23 | P2 | OPEN | B1 | S/M | `markTaskProcessed` runs after the task (`bridge-agent.js:2159` → `:2166`). Side finding: success reaction is `white_check_mark` but `alreadyProcessed()` matches only `robot_face`/`x` (`lib/task-parser.js:547-551`) |
+| #71 | P2 | OPEN, needs a shape | OD | S | No lock/queue/drain call in `processConversation`. Latent while nothing starts the updater |
+| #72 | P2 | OPEN | B1 | M | `let isRunning` (`bridge-agent.js:294`) vs a best-effort lock (`:570-582`) |
+| #74 | P2 | OPEN | B1 | S | Comments at `auto-update.js:283-290` and `lib/task-queue.js:92-93` still describe a reachable branch; add the negative-control test |
+| #26 | P2 | REPO DONE | OA | S | `.gitignore:71` ignores `docker-compose.yml`; the NAS tree must pull it |
+| #27 | P2 | in flight (records), then decision | OD | — | Shapes recorded in `docs/CONFIG-SURFACE-AND-REBUILD.md` §7.7 |
+| #75 | P2 | in flight (closes in the records dispatch) | — | S | `docker-compose.example.yml:77-79` comment still calls `:ro` "the one real containment boundary" |
+| #62 | P2 | in flight | — | S | Note for that dispatch: `data/.gitkeep` **is** tracked (`bf6d1ca`), so the rule needs `!data/.gitkeep` |
+| #24 | P2 | OPEN | B3 | S | `lib/bulletin-board.js:17`, `lib/staff-tasks.js:22` module-scope paths, no `init` |
+| #20 | P2 | OPEN | B4 | S | A fifth binding now exists (`lib/weekly-critique.js:54`); most cited lines drifted |
+| #33 | P2 | OPEN | B3 | S/M | UTC day keys at `lib/staff-tasks.js:211,318,423`, `morning-digest.js:477`. Real data misfiling — arguable P1 |
+| #32 | P2 | OPEN | B3 | S | `lib/agent-context.js:177,277` date with no time |
+| #34 | P2 | OPEN | B4 | S | Read at `lib/clone-lifecycle.js:173`; absent from `CLAUDE.md`, `README.md`, `.env.example` |
+| #35 | P2 | OPEN, moot | B4 | S | A cap on tiers nothing writes caps nothing; fold into #63 |
+| #63 | P2 | OPEN | B4 | S (banner) | Nuance to record: `bridge-agent.js:2278` migrates legacy history into the bridge's tiers once at startup |
+| #10 | P2 | OPEN, table stale | B4 (refresh) | L | 72 files over 300 lines, all declared. `lib/owner-tasks-view.js` named in the table does not exist; `lib/task-queue.js` is 756 lines, so its "under on code" justification is false |
+| #44 | P2 | decision | OD | S | Figures stale (now 42 of 72) |
+| #11 | P2 | REPO HALF DONE | B2 | M | Map and rule exist; its two enforcement tests are #30's and #33's. Close into them |
+| #5 | P2 | OPEN, speculative | SEED | L | Nothing built. Changes the execution model — park |
+| #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
+| #7 | P2 | OPEN | B3 | S | No pre-timeout warning anywhere |
+| #8 | P2 | **STALE** | SEED (close) | — | Dedup is by message `ts` (`lib/bridge-state.js:126`); a re-submitted task is a new message and runs. Re-read skips are already logged (`bridge-agent.js:1986`). Recommend close |
+| #9 | P2 | OPEN | B5 | S | `getRecentCompleted(limit)` exists (`lib/task-queue.js:608`); register a verb in `lib/command-router.js` |
+| #39 | P2 | OPEN | B5 | M | Queue row has no branch/SHA field (`lib/task-queue.js:221-240`) |
+| #40 | P2 | off-box | OA | S | Nothing in the repo can settle it |
+| #37 | P2 | decision | OD | S | `lib/notify-owner.js:165-168` returns `true` after only logging; HIGH is the default priority (`:147`) |
+| #64 | P2 | OPEN, gated on a capability check | B5 | S/M | Router runs only in the bridge channel (`bridge-agent.js:1472`) and is passed the bridge agent (`:1475`). The item says lift the gate only with a capability check, which does not exist |
+| #46 | P2 | OPEN | B5 | S/M | Invoking channel is stored (`lib/dispatch-modal.js:201`) and never used; the item's own grep no longer finds the target |
+| #47 | P2 | requirement for an unbuilt verb | OD | — | Suggest P3 |
+| #65 | P2 | OPEN, needs design | OD | M | `lib/config.js:168-170` lets the env var win over a definition that denies file-system |
+| #66 | P2 | OPEN | B5 | S/M | Only `auto-update.js` compares against `origin/main`, and nothing starts it |
+| #49 | P2 | OPEN | B5 | S | Half answerable from code now; add a guard that the bot's own replies cannot trigger the path. Suggest P3 while off |
+| #51 | P2 | decision | OD | — | Also: `CLAUDE.md` "Agent Activation" still says to edit the deleted `agents/agents.json` (B4) |
+| #52 | P2 | OPEN | B5 | S | Read-only reconcile report; `--report` cited in #52/#55 is not a flag (falls through to the default) |
+| #53 | P2 | REPO DONE | OA | S | `#jester-agent` still has to be created by the owner |
+| #54 | P2 | OPEN | B2 | S | Amend the tier definition at the top of this file, then purge |
+| #57 | P2 | in flight, **one constraint STALE** | — | S | Constraint 1 says "the bridge pushes nothing". At HEAD `cloneRepo` points `origin` at SSH and sets `core.sshCommand` to the bridge's own deploy key (`lib/clone-lifecycle.js:173-190`), so the executor pushes with the bridge's key |
+| #59 | P2 | OPEN, behind #17/#73 | B6 | M | No stall or wall-clock logic exists |
+| #69 | P2 | OPEN | B2 | M | One-off check finds only `3d7ad70` Closes #43 — #67's ID reuse, not an unpurged close. A naive check would false-alarm on it |
+| #67 | P2 | decision | OD | S stopgap | Stopgap: "fetch `origin/main` and re-read the max ID" in the executor contract |
+| #58 | P3 | OPEN | B3 | S | Reproduced on Node 22: an ENOENT spawn holds the process until the `timeout` timer fires |
+| #60 | P3 | deferred design rule | OD | — | Move to a design doc before it is ever purged |
+| #48 | P3 | OPEN | B4 | S | Move the two-bullet rule into `CLAUDE.md`, then purge |
+| #36 | P3 | OPEN, undercounted | B2 | M | Sixth walker at `tests/architecture-tree.test.js:143-150`. Cause of the #56 class — suggest P2 |
+| #21 | P3 | OPEN | B3 | S | `new WebClient(token)` with no `logLevel` at `lib/slack-client.js:62` |
+| #29 | P3 | decision | OD | S to drop | Gmail scope is read-only (`lib/integrations/gmail.js:96`) |
+| #13 | P3 | idea | SEED | L | Recommend drop: widens what a task can do while #27 is undecided |
+| #14 | P3 | idea, bigger than written | SEED | M | Retro content is not persisted anywhere to draft from. Side finding: story-bot and social-media both declare `channel_name: social-media` |
+| #15 | P3 | idea, weaker than written | SEED | S/M | `lib/task-decomposer.js` has no production caller, so the scorer it would use is dead code. Recommend drop |
+| #16 | P3 | idea | SEED | L | Recommend drop: needs runtime channel creation, which activation now refuses by design |
+
+### Stale claims found — corrected in B4, not here
+
+Left as written so this pass edits no item body. B4 makes each correction:
+
+- **#3, #20, #25, #30, #40, #46, #64, #65, #66** — cited line numbers drifted; actuals are in the table above or on the agents' notes.
+- **#52, #55** — `scripts/channel-map.js --report` is not a flag.
+- **#10, #44** — the size table and figures (72 over, 42 suites / 30 modules); `lib/owner-tasks-view.js` does not exist.
+- **#4b** — two superseded bullets.
+- **#31** — "only unclassified tasks fail to retry" understates it: nothing retries.
+- **#57** — Constraint 1 (in flight; for the records dispatch, not B4).
+- **`CLAUDE.md`** — `:1304` "An interrupted task is not reported to a human" (false since `8516b7d`, purge with #22 in B1); "Agent Activation" tells you to edit `agents/agents.json`, which no longer exists.
+
+### Not tracked anywhere
+
+`origin/dependabot/npm_and_yarn/slack/web-api-8.0.0` (`3cda991`) bumps `@slack/web-api`
+7 → 8 in `package.json` only, from a base 144 commits behind `main`, and does not touch the
+committed `package-lock.json`. It cannot merge as is. No item tracks it; a major bump may
+change the logger default #21 depends on. Recommend closing that PR and letting the next
+Dependabot run regenerate it against the lockfile.
+
+**Secretary email intake — a candidate, not filed.** Per the owner (2026-10-02), email is
+the bridge's inbound data path: SqTools and other systems send the 6 am min/max audit,
+error logs and orders to the inbox. **Decided by the owner 2026-10-02:** the bridge builds
+the secretary intake tooling, and SqTools gets email changes as needed.
+
+Requirements as stated by the owner:
+
+- **SqTools alert emails outrank all other intake.** First uses: orders not sent, and
+  cycle-count variance. They are the owner's alarm.
+- **Each alert needs an owner acknowledgement in Slack, with three actions:** silence it,
+  nag (re-alert until acted on), or close it for the day.
+- **Later, staff see these reports in Slack**, in a controlled way.
+
+What the code at `71d2112` means for it:
+
+- The fetch cannot be scoped by label or sender query (`q = 'in:inbox'`,
+  `lib/integrations/gmail.js:345`; `users.labels.list` is called nowhere —
+  `docs/CAPABILITY-AND-ISOLATION-DESIGN.md` §2.4). Picking out SqTools alerts needs that
+  option first. The scheduled check is `lib/email-check.js` against
+  `agents/email-monitor/memory/rules.json`.
+- "Close for the day" needs a store-day key in America/Toronto. Today's day keys are UTC
+  (#33), so #33's helper is a prerequisite and moves with this work.
+- The three actions are Slack buttons, so they need interactivity. The Socket Mode
+  connection exists (`lib/slack-socket.js`), but Interactivity is the same owner-side Slack
+  app step #43 is waiting on.
+- An acknowledgement and a nag schedule are durable state that must survive a restart.
+  Nothing holds per-alert state today; where it lives is `docs/STATE-AND-MEMORY-DESIGN.md`'s
+  question (declared vs learned), and it must not be a tracked file (#51).
+- Alert content reaches Slack, so B3's redaction (#30) should land first or with it.
+- Staff visibility is a capability question: no production code reads an agent's
+  `permissions`/`denied` today (#64, #65). That later phase waits on that design.
+- The design rule in the capability document holds: no agent holds both a mail
+  credential and a production data path. SqTools emailing into the inbox keeps to it; an
+  intake agent that could also query SqTools would not.
+
+**Position against the batches:** after B1, ahead of B2. File it as its own batch
+when filed (intake fetch option, #33's day key, the acknowledgement state and buttons, the
+SqTools alert rule set), with #30's redaction either already merged or carried in. Related:
+#29.
+
 ## Twelve of the 48 are not engineering backlog
 
 **Filed 2026-09-16 by the audit pass.** A quarter of this file is work no branch can do.
