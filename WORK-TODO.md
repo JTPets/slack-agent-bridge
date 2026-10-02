@@ -386,15 +386,43 @@ Dependabot run regenerate it against the lockfile.
 
 **Secretary email intake — a candidate, not filed.** Per the owner (2026-10-02), email is
 the bridge's inbound data path: SqTools and other systems send the 6 am min/max audit,
-error logs and orders to the inbox, and further SqTools email enhancements are planned as
-a secretary intake job. No open item covers that job. Three facts at `71d2112` an intake
-item would start from: the fetch cannot be scoped by label (`q = 'in:inbox'`,
-`lib/integrations/gmail.js:345`; `users.labels.list` is called nowhere —
-`docs/CAPABILITY-AND-ISOLATION-DESIGN.md` §2.4); the scheduled check is
-`lib/email-check.js` against `agents/email-monitor/memory/rules.json`; and intake content
-reaches Slack, so it lands after B3's redaction work. Related: #29 (unsubscribe), and the
-design rule in that document that no agent holds both a mail credential and a production
-data path.
+error logs and orders to the inbox. **Decided by the owner 2026-10-02:** the bridge builds
+the secretary intake tooling, and SqTools gets email changes as needed.
+
+Requirements as stated by the owner:
+
+- **SqTools alert emails outrank all other intake.** First uses: orders not sent, and
+  cycle-count variance. They are the owner's alarm.
+- **Each alert needs an owner acknowledgement in Slack, with three actions:** silence it,
+  nag (re-alert until acted on), or close it for the day.
+- **Later, staff see these reports in Slack**, in a controlled way.
+
+What the code at `71d2112` means for it:
+
+- The fetch cannot be scoped by label or sender query (`q = 'in:inbox'`,
+  `lib/integrations/gmail.js:345`; `users.labels.list` is called nowhere —
+  `docs/CAPABILITY-AND-ISOLATION-DESIGN.md` §2.4). Picking out SqTools alerts needs that
+  option first. The scheduled check is `lib/email-check.js` against
+  `agents/email-monitor/memory/rules.json`.
+- "Close for the day" needs a store-day key in America/Toronto. Today's day keys are UTC
+  (#33), so #33's helper is a prerequisite and moves with this work.
+- The three actions are Slack buttons, so they need interactivity. The Socket Mode
+  connection exists (`lib/slack-socket.js`), but Interactivity is the same owner-side Slack
+  app step #43 is waiting on.
+- An acknowledgement and a nag schedule are durable state that must survive a restart.
+  Nothing holds per-alert state today; where it lives is `docs/STATE-AND-MEMORY-DESIGN.md`'s
+  question (declared vs learned), and it must not be a tracked file (#51).
+- Alert content reaches Slack, so B3's redaction (#30) should land first or with it.
+- Staff visibility is a capability question: no production code reads an agent's
+  `permissions`/`denied` today (#64, #65). That later phase waits on that design.
+- The design rule in the capability document holds: no agent holds both a mail
+  credential and a production data path. SqTools emailing into the inbox keeps to it; an
+  intake agent that could also query SqTools would not.
+
+**Position against the batches:** after B1, ahead of B2. File it as its own batch
+when filed (intake fetch option, #33's day key, the acknowledgement state and buttons, the
+SqTools alert rule set), with #30's redaction either already merged or carried in. Related:
+#29.
 
 ## Twelve of the 48 are not engineering backlog
 
