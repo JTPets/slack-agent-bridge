@@ -301,7 +301,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #56 | P1 | OPEN, nothing to act on until it recurs | B2 | S | Not seen in 2 runs. The adjacent race is #36's: `tests/staff-tasks.test.js:28` makes a temp dir inside the repo root that `lib/file-size-gate.js` `measure()` walks |
 | #42 | P1 | OPEN | B6 | S/M | No backup check anywhere in the repo. **Correction:** part (c) is not buildable alone — the container mounts no backups path (`docker-compose.example.yml:75-80`), so it needs an owner mount or a host-side check |
 | #41 | P1 | REPO DONE | OA | — | All remaining work is on the appliance |
-| #17 | P1 | OPEN | B1 + B6 | S / M | Boot-commit report not started (no `rev-parse` in `bridge-agent.js`); that half is B1. Wiring the daemon is an owner decision, B6 |
+| #17 | P1 | Boot-commit report DONE in B1; deploy shape is a decision | OD + B6 | M | Boot post via `lib/repo-history.js` `loadedCommit()`. Remaining: choose start-the-daemon / push-triggered / manual, then B6 wires it |
 | #73 | P1 | REPO DONE for the warning; compose fix off-box | B6 | S | `gracefulShutdown` at `bridge-agent.js:2620`, handlers `:2684`; compose copy has no `init:`/`stop_grace_period:` |
 | #25 | P1 | REPO DONE (alert fixed in B1) | OA | S | Alert text built by `lib/preserved-clone-alert.js`, test `tests/preserved-clone-alert.test.js`. Remaining: `WORK_DIR` on a mount in `docker-compose.example.yml` (with #73) |
 | #3 | P1 | REPO DONE | OA | — | `lib/agent-scheduler.js:133-141` refuses planned/unresolved; needs a live restart to confirm. Suggest P2 |
@@ -944,6 +944,14 @@ daemon / declare manual restart the deploy), a third (push-triggered restart), a
 costs are written up in `CLAUDE.md` → "Two open questions". **This repo cannot implement
 any of them**: the compose file is untracked and off-repo, and belongs to no repository
 today (`docs/CONFIG-SURFACE-AND-REBUILD.md`, Step 6).
+
+**The independent requirement — LANDED 2026-10-02.** `bridge-agent.js` now reads its
+checkout's commit once at boot (`lib/repo-history.js` `loadedCommit()`) and posts it to
+`#sqtools-ops`, with a warning when tracked files differ from it; tests in
+`tests/repo-history.test.js` (real git repositories). **Unverified on the live box:** whether
+the container's `git` can read `/bridge` — if it cannot, the post says UNKNOWN and gives the
+reason, which is itself the answer to check. What remains on this item is the deploy-shape
+decision above. Original text kept below.
 
 **The independent requirement: nothing can answer "is the running process on `main`?"**
 Not the repo, not the container, not Slack. "Merged" and "deployed" are unrelated facts

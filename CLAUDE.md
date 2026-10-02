@@ -489,9 +489,16 @@ make any of them true.** That is itself the finding: the deploy path belongs to 
 repository today (`docs/CONFIG-SURFACE-AND-REBUILD.md`, Step 6).
 
 **2. What would make "is the running process on current `main`?" answerable at all?**
-**Nothing today can answer it.** Not the repo, not the container, not Slack. "Merged"
-and "deployed" are unrelated facts and no one is told when they diverge — the observed
-11-hour gap was found by a person noticing, not by the system reporting.
+**Answered at boot since 2026-10-02 (WORK-TODO #17).** On startup `bridge-agent.js` reads
+the commit its checkout is at **once** (`lib/repo-history.js` `loadedCommit()`), logs it in
+the banner and posts it to `#sqtools-ops`: short and full SHA, subject, and a warning when
+tracked files in the deploy tree differ from that commit. Compare that line with `main`. It
+is read at boot and kept, so a later `git pull` without a restart does not change it. If the
+container's `git` cannot read the checkout (for example a "dubious ownership" refusal, which
+this repository cannot test for), the post says the commit is UNKNOWN and why. **Unverified
+on the live box:** whether `git` in the `jt-agent` container can read `/bridge`. Before this,
+"merged" and "deployed" were unrelated facts and the observed 11-hour gap was found by a
+person noticing, not by the system reporting.
 
 Answering it needs the running process to state the commit it loaded, somewhere a human
 or an agent can read without shell access to the NAS. Anything that does that would do:
@@ -680,7 +687,7 @@ slack-agent-bridge/
 │   ├── agent-surface.js  # THE enumerator for the declared-agent surface: buildSurface returns one row per agent (channel, joined, polled, scheduled job, provider + provenance, reader), findOrphans returns the rows whose output reaches nobody, and `activeChannels` is THE ONE membership rule — pollableChannels and joinableChannels both return it, bridge-agent.js's buildChannelsToPoll delegates to it, and the scheduler refuses anything it excludes, so resolving, joining, polling and scheduling are four consequences of one declaration or none of them. Pure: no Slack call, no write
 │   ├── agent-llm-resolver.js # THE resolver for "what is this agent running on, and where did each value come from": resolveAgentLlm returns provider, model, adapter inputs and a SOURCE for each. Calls lib/config.js resolveLlmProvider for the provider precedence rather than re-deriving it; owns the model precedence and the adapter-input mapping, which were inline at the call sites. NEVER emits a credential value — a key is reported as `key_set: true/false` plus the variable name, because this output is built to be posted to Slack
 │   ├── backlog-report.js # THE parser for WORK-TODO.md: parseBacklog/loadBacklog/stalest turn the backlog into records so "how long has this been open" is a computation rather than an impression. Pure text — no subprocess, no network. A file it cannot read is `available: false` with a reason, NEVER an empty backlog. Guarded by tests/backlog-report.test.js, whose live assertions compare its counts against WORK-TODO.md's own documented grep/awk commands rather than a hardcoded number
-│   ├── repo-history.js   # Git-derived signals about THIS repository, read from the checkout the bridge runs out of (a task's scratch clone is `--depth 1` and can answer none of it): commitsSince, claimsFrom (`Closes <ID>` vs `Addresses <ID>`, and items addressed repeatedly), revisionsSince. Every call is an execFileSync argv array. A shallow clone, a missing .git or an absent git is `available: false` — never a count of zero
+│   ├── repo-history.js   # Git-derived signals about THIS repository, read from the checkout the bridge runs out of (a task's scratch clone is `--depth 1` and can answer none of it): commitsSince, claimsFrom (`Closes <ID>` vs `Addresses <ID>`, and items addressed repeatedly), revisionsSince, plus loadedCommit/describeLoadedCommit, which bridge-agent.js calls once at boot to post the commit it is running (WORK-TODO #17). Every call is an execFileSync argv array. A shallow clone, a missing .git or an absent git is `available: false` — never a count of zero
 │   ├── critique-signals.js # The individual computed signals behind the jester's digest, one function per source (backlog, git claims, task outcomes, bulletins, orphaned output). Each returns `{ available, reason, ... }` and none collapses "I could not read it" into "there was nothing there". Split from lib/critique-digest.js at creation because the combined module broke the 300-line rule
 │   ├── critique-digest.js # THE material the jester is given: not a transcript but a digest of computed facts, assembled from lib/critique-signals.js. buildDigest, formatDigestForPrompt (a fact sheet, explicitly labelled UNAVAILABLE where a sensor failed), formatCoverage (what was checked, so a short post is distinguishable from a broken job) and isThin (judged on WINDOWED signals only, so a standing backlog cannot make a quiet week look eventful). Reads and computes; posts nothing, writes nothing, calls no model
 │   ├── bulletin-board.js # Inter-agent communication: postBulletin, getBulletins, markRead, cleanupOldBulletins, plus formatBulletinsForContext — THE stream every active agent sees, injected into each agent's prompt on every ASK. It carries the type, the poster, the Toronto-local time and EVERY scalar payload field (each value capped at 200 chars) via formatBulletinData; it does NOT carry the bulletin id, any link back to the work, anything past the newest 10, or anything past the 7-day retention. postBulletin REJECTS an unknown type by returning { success: false } rather than throwing, so a caller that ignores the result drops bulletins silently

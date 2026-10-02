@@ -201,6 +201,7 @@ const { redact } = require('./lib/redact-secrets');
 const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-lifecycle');
 const { formatPreservedCloneAlert } = require('./lib/preserved-clone-alert');
 const { describeTaskStateDivergence } = require('./lib/task-state-divergence');
+const repoHistory = require('./lib/repo-history');
 
 // LOGIC CHANGE 2026-09-20: install the target repo's own dependencies in the scratch
 // clone before the LLM runs. Without this, Phase-3's test command found no node_modules
@@ -2418,6 +2419,14 @@ console.log(`  WorkDir:  ${WORK_DIR}`);
 console.log(`  Interval: ${POLL_INTERVAL / 1000}s`);
 console.log(`  Timeout:  ${TASK_TIMEOUT / 1000}s`);
 console.log(`  Turns:    ${MAX_TURNS}`);
+
+// LOGIC CHANGE 2026-10-02 (WORK-TODO #17): say which commit this process booted on,
+// read ONCE here and posted, so "is the running bridge on main?" has an answer that
+// comes from the running process. A merge reaches the bridge only on a manual
+// restart, and nothing reported when the two diverged. postToOps never throws.
+const BOOT_COMMIT = repoHistory.loadedCommit();
+console.log(`  Commit:   ${BOOT_COMMIT.available ? `${BOOT_COMMIT.short}${BOOT_COMMIT.dirty ? ' (tracked files modified)' : ''}` : `unknown (${BOOT_COMMIT.reason})`}`);
+postToOps(repoHistory.describeLoadedCommit(BOOT_COMMIT));
 console.log(`  Allowed:  ${ALLOWED_USER_IDS.join(', ')}`);
 console.log(`  Channels: ${channelsToPoll.length} (${channelsToPoll.map(c => c.agentId).join(', ')})`);
 
