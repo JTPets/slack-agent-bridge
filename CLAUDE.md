@@ -1305,12 +1305,12 @@ TESTED, NOT WIRED"). Steps 1, 2, 5 and 6 run today, in `bridge-agent.js`. A manu
    now reachable)**
 6. Completed/failed tasks are cleaned up after 24 hours **(live)**
 
-**An interrupted task is not reported to a human.** `recoverInterrupted()` writes the
-verdict to `task-queue.json` and logs a line to stdout; nothing posts it to Slack, and
-`formatStatusResponse()` surfaces it only if someone runs `ASK: what's queued` within
-the 24-hour retention window. Every other lifecycle event on this path — a stale lock
-release, a deferred update, a task failure — posts to `#sqtools-ops`. This one does not.
-Recorded as a finding, not fixed here.
+**An interrupted task is reported to `#sqtools-ops`.** When `recoverInterrupted()` returns
+non-zero at startup, `bridge-agent.js` posts how many tasks were interrupted, each one's
+description and repo, and a link to its source message, and says they were not retried.
+(This paragraph said the opposite until 2026-10-02; the post landed in `8516b7d` on
+2026-09-14 and is guarded by `tests/failure-visibility.test.js` → "an interrupted task found
+at startup is posted, not only logged".)
 
 **Bridge-agent startup:**
 ```javascript

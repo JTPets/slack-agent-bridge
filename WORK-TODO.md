@@ -312,7 +312,6 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #4b | P2 | OPEN, partly STALE | B4 | S | 25 `process.env` keys missing from `.env.example` (different set from the filed 25). "CLAUDE.md is stale" and the MAX_TURNS bullet are superseded |
 | #30 | P2 | OPEN, slightly worse | B3 | M | 52 `chat.postMessage` sites, 3 redacting; `notifyChannel` (`lib/notify-owner.js:82-98`) still does not redact |
 | #31 | P2 | OPEN, **worse than filed** | B3 | S | Nothing retries any task (`bridge-agent.js:1224` "handleRateLimit() is NOT called here anymore"), yet `morning-digest.js:396` tells the owner "They will auto-retry" |
-| #22 | P2 | **CLOSED** | B1 (purge) | S | `bridge-agent.js:2396-2414` posts interrupted tasks to ops (`8516b7d`); guard `tests/failure-visibility.test.js`. Purge it and correct `CLAUDE.md:1304` |
 | #23 | P2 | OPEN | B1 | S/M | `markTaskProcessed` runs after the task (`bridge-agent.js:2159` → `:2166`). Side finding: success reaction is `white_check_mark` but `alreadyProcessed()` matches only `robot_face`/`x` (`lib/task-parser.js:547-551`) |
 | #71 | P2 | OPEN, needs a shape | OD | S | No lock/queue/drain call in `processConversation`. Latent while nothing starts the updater |
 | #72 | P2 | OPEN | B1 | M | `let isRunning` (`bridge-agent.js:294`) vs a best-effort lock (`:570-582`) |
@@ -487,14 +486,13 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (46)
+**P2 — real gaps, no risk to the running process** (45)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#30** — [Three `postToOps`, three `sendDM`, and secret redaction reaches 2 of 48 Slack post sites](#30-three-posttoops-three-senddm-and-secret-redaction-reaches-2-of-48-slack-post-sites)
 - **#31** — [Three definitions of "is this a rate-limit failure?", and the morning digest tells the owner tasks will auto-retry when nothing will](#31-three-definitions-of-is-this-a-rate-limit-failure-and-the-morning-digest-tells-the-owner-tasks-will-auto-retry-when-nothing-will)
-- **#22** — [An interrupted task reaches no human](#22-an-interrupted-task-reaches-no-human)
 - **#23** — [A task killed mid-run is re-read and re-run on the next poll](#23-a-task-killed-mid-run-is-re-read-and-re-run-on-the-next-poll)
 - **#71** — [`ASK:` is invisible to every update gate — a conversation can be restarted mid-answer](#71-ask-is-invisible-to-every-update-gate--a-conversation-can-be-restarted-mid-answer)
 - **#72** — [Two answers to "is a task running?", and nothing makes them agree](#72-two-answers-to-is-a-task-running-and-nothing-makes-them-agree)
@@ -1018,7 +1016,8 @@ mechanism; this is a property of the mechanism already in daily use. They share 
    nor cleaned; the heartbeat's terminal reaction is never added, which is exactly the state
    `alreadyProcessed()` does not match (**#23** — the message is re-read and re-run next
    poll); the queue entry stays `running` until the next startup's `recoverInterrupted()`,
-   whose verdict reaches no human (**#22**).
+   which posts the interrupted verdict to `#sqtools-ops` (`bridge-agent.js` startup block; #22,
+   closed and purged 2026-10-02 — it was met by `8516b7d`).
 
 **Every guard built for this is bypassed, and the bypass is silent.** The task lock, the
 deferral gate, drain-one's refusal and the `delivery` verdict are all consulted by
@@ -1062,7 +1061,8 @@ CONTESTED by the live deployment. Read the correction before the table.**
 > bind mount, `task-queue.json` survives the recreate, so `recoverInterrupted()` **does**
 > find the killed task and **does** record it as interrupted at the next startup — the
 > "never even recorded as interrupted" sentence below is then false, and what remains is
-> #22 (the interrupted verdict reaches no human) rather than a second, worse loss. The
+> the interrupted verdict, which since `8516b7d` is posted to ops (#22, purged 2026-10-02),
+> rather than a second, worse loss. The
 > pending-update marker surviving is likewise benign either way. **Shape (b) below — bind
 > mount `WORK_DIR` — may therefore already be done on the box and undocumented**; it is
 > not marked done here, because a shape is not done until the artifact that rebuilds the
@@ -1109,8 +1109,8 @@ than fixed.**
 
 **Do not read (c) as the fix.** It is the honest half this repository can do.
 
-**Related:** #17 (shares layer 3, opposite direction), #25 (the clone half), #22 and #23 (what
-an uncleanly killed task costs), #72 (the two answers to "is a task running?"), #26 (why (a)
+**Related:** #17 (shares layer 3, opposite direction), #25 (the clone half), #23 (what
+an uncleanly killed task costs; #22, its sibling, was met by `8516b7d` and purged 2026-10-02), #72 (the two answers to "is a task running?"), #26 (why (a)
 and (b) are off-repo), #71 (`ASK:` is outside every gate anyway).
 
 ---
@@ -1814,37 +1814,8 @@ digest read the recorded verdict instead of re-deriving one.
 
 ---
 
-### 22. An interrupted task reaches no human
-**Filed 2026-09-14, from the #18 fix** (#18 is closed and purged — `git log -S'### 18.' -- WORK-TODO.md`;
-the fix is commit `6454fb0`, guarded by `tests/task-queue-lifecycle.test.js`).
-Now that `recoverInterrupted()` can actually
-fire, the thing it records goes nowhere a person will see. It writes `interrupted` into
-`task-queue.json` and logs one stdout line
-(`bridge-agent.js`: `Recovered N interrupted task(s) from queue`); nothing posts to
-Slack. Every *other* lifecycle event on this path does post to `#sqtools-ops` — a stale
-lock release, a deferred update, a task failure, an undelivered scratch clone. This one
-does not, so the observable is "the task just never answered".
-
-It is visible only via `ASK: what's queued` (`formatStatusResponse` → `getRecentCompleted`),
-which a human has to think to run, and only inside the 24-hour `COMPLETED_RETENTION_MS`
-window before `cleanup()` removes the row.
-
-Regenerate: `grep -n "recoverInterrupted" bridge-agent.js` → one call site at startup,
-its result logged and never posted. Compare with the lock's own release path a few lines
-below, which builds a verdict string and posts it.
-
-**Fix:** post a `#sqtools-ops` line when `recoverInterrupted()` returns non-zero, naming
-the task description and its source message link (both are already on the queue row).
-Deliberately *not* done in the #18 change, which was scoped to making the state machine
-real; reporting it is a separate decision about noise.
-**Priority:** P2 | **Effort:** Low.
-
-**Status:** open (re-verified 2026-09-14)
-
----
-
 ### 23. A task killed mid-run is re-read and re-run on the next poll
-**Filed 2026-09-14, from the #18 fix** (closed and purged; see #22 for where its record is).
+**Filed 2026-09-14, from the #18 fix** (closed and purged; its fix is `6454fb0`, guarded by `tests/task-queue-lifecycle.test.js`).
 Both message-dedup guards are written only
 *after* a task completes, so neither survives a kill:
 - `markTaskProcessed(msg.ts)` (`bridge-agent.js`, poll loop) runs **after**
@@ -1907,7 +1878,7 @@ a re-typed question; (b) give `processConversation` a lightweight lock so the up
 for it, but never refuse one; (c) refuse `ASK:` too while an update is pending, accepting
 the muteness. (b) is the only one that changes the restart behaviour without the cost of (c).
 
-**Related:** #17 (nothing starts the updater, so none of this fires today), #22, #23.
+**Related:** #17 (nothing starts the updater, so none of this fires today), #23. (#22 was purged 2026-10-02: met by `8516b7d`.)
 **Priority:** P2 | **Effort:** Low for (a) or (b).
 
 **Status:** open (filed 2026-09-20)
@@ -2066,7 +2037,7 @@ operator did not take, and it would convert one Slack outage into a permanently 
 bridge (drain-one refuses every new dispatch while an update is pending).
 
 **Related:** #72 (the sibling: two answers to "is a task running?" — see its second divergence
-direction, added the same day), #22 (an interrupted task reaches no human), #17 (none of this
+direction, added the same day), #17 (none of this
 fires today), #39 (a claim is not a fact, one layer out).
 
 ---
