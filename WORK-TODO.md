@@ -8,7 +8,11 @@ the unmerged side is renumbered before it lands, because the merged addresses ar
 already cited elsewhere. An ID that has ever been on `main` is never renumbered. That has
 happened once — `#57`–`#61` on 2026-09-20, now `#62`–`#66`; **#67** is the class.
 **Closed items are purged, not struck through:** the git history and the `Closes <ID>` commit body are the record, and a
-file that keeps its own dead entries stops being readable as a list of work. The index
+file that keeps its own dead entries stops being readable as a list of work. The purge goes
+in the same commit as the `Closes` line, and that is checked:
+`node scripts/close-reconcile.js` exits 1 when a `Closes #N` reachable from `HEAD` leaves #N
+here under the same title, and 2 (never 0) on a shallow clone. A reused number (#67) is
+reported, not flagged. The index
 below is **regenerated from the headings**, never appended to.
 
 **Ranking axis:** blast radius on the live single-container deployment first — can the item
@@ -120,7 +124,7 @@ At the **2026-09-20 close-reconciliation pass** those print **61** open items �
 (merged `5749d08`) four days earlier and left in the file: `git show 723dfed --stat --
 WORK-TODO.md` prints nothing. **So the two figures below are wrong by one in the direction
 nobody could see** — both passes counted #61 as open when its closing commit had already
-landed, which is the whole of **#69**. They are left as written rather than corrected,
+landed, which is the whole of **#69** (closed 2026-10-04: `node scripts/close-reconcile.js`, also in `npm run validate`, now fails on exactly this). They are left as written rather than corrected,
 because each is a dated observation of what the commands printed at the time, and
 overwriting them would erase the evidence for the item they produced.
 
@@ -292,7 +296,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | Batch | Theme | Items | Main files | Why this position |
 |---|---|---|---|---|
 | **B1** | A running task is not lost, re-run or misreported | #25, #23, #72, #74, #17 (boot-commit half), #22 (purge) | `bridge-agent.js`, `lib/task-queue.js`, `lib/task-lock.js`, `auto-update.js` (comments), `tests/` | **First.** The deploy step in use kills a running task (#73); B1 makes what happens next honest and stops the re-run. #17's boot report answers "is main deployed?", which is how deploys were found forgotten. No file in common with the in-flight dispatch |
-| **B2** | The test apparatus | #56, #36 (closed 2026-10-04), #69, #54 (closed 2026-10-04), #11 | `tests/staff-tasks.test.js`, `tests/architecture-tree.test.js`, `lib/file-size-gate.js`, `lib/repo-history.js`, `lib/backlog-report.js`, `WORK-TODO.md` tier header | P1 under the apparatus rule (tier definition, top of this file). Could run beside B1 (no shared code file) but both purge from this file, so sequence them |
+| **B2** | The test apparatus | #56, #36 (closed 2026-10-04), #69 (closed 2026-10-04), #54 (closed 2026-10-04), #11 | `tests/staff-tasks.test.js`, `tests/architecture-tree.test.js`, `lib/file-size-gate.js`, `lib/repo-history.js`, `lib/backlog-report.js`, `WORK-TODO.md` tier header | P1 under the apparatus rule (tier definition, top of this file). Could run beside B1 (no shared code file) but both purge from this file, so sequence them |
 | **B3** | What reaches Slack is redacted and true; one helper per shared behaviour | #30, #31, #32, #33, #24, #7, #21, #58 | `lib/notify-owner.js`, `morning-digest.js`, `lib/llm-runner.js`, `lib/bulletin-board.js`, `lib/staff-tasks.js`, `lib/agent-context.js`, `lib/slack-client.js` | After B1: #30 removes `bridge-agent.js` / `auto-update.js` post helpers that B1 also edits |
 | **B4** | Records: config surface and docs that state what is no longer true | #34, #4b, #20, #63, #35, #48, #10 (table refresh) + the stale-claim sweep below | `CLAUDE.md`, `README.md`, `.env.example`, `docs/AGENTS.md`, `WORK-TODO.md` | After the in-flight records dispatch, which owns the same docs this week. Verifiable by reading |
 | **B5** | Commands and routing | #46, #49, #4, #9, #39, #66, #52, #64 (gate half only, see row) | `bridge-agent.js`, `lib/command-router.js`, `lib/dispatch-command.js`, `lib/dispatch-modal.js`, `lib/task-queue.js`, `lib/critique-signals.js` | After B1 and B3 (shared `bridge-agent.js`, `lib/task-queue.js`) |
@@ -358,7 +362,6 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #53 | P2 | REPO DONE | OA | S | `#jester-agent` still has to be created by the owner |
 | #57 | P2 | in flight, **one constraint STALE** | — | S | Constraint 1 says "the bridge pushes nothing". At HEAD `cloneRepo` points `origin` at SSH and sets `core.sshCommand` to the bridge's own deploy key (`lib/clone-lifecycle.js:173-190`), so the executor pushes with the bridge's key |
 | #59 | P2 | OPEN, behind #17/#73 | B6 | M | No stall or wall-clock logic exists |
-| #69 | P2 | OPEN | B2 | M | One-off check finds only `3d7ad70` Closes #43 — #67's ID reuse, not an unpurged close. A naive check would false-alarm on it |
 | #67 | P2 | decision | OD | S stopgap | Stopgap: "fetch `origin/main` and re-read the max ID" in the executor contract |
 | #58 | P3 | OPEN | B3 | S | Reproduced on Node 22: an ENOENT spawn holds the process until the `timeout` timer fires |
 | #60 | P3 | deferred design rule | OD | — | Move to a design doc before it is ever purged |
@@ -492,7 +495,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (42)
+**P2 — real gaps, no risk to the running process** (41)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -534,7 +537,6 @@ work behind an owner's name, which is the opposite of the point.
 - **#53** — [`jester` is an active commentary agent with a weekly schedule, no channel, and no defined material](#53-jester-is-an-active-commentary-agent-with-a-weekly-schedule-no-channel-and-no-defined-material)
 - **#57** — [Before the bridge is given a private-repo credential — the constraints, not the plan](#57-before-the-bridge-is-given-a-private-repo-credential--the-constraints-not-the-plan)
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
-- **#69** — [A commit that says `Closes #N` while #N stays in the file is undetectable — the convention and the record are never reconciled](#69-a-commit-that-says-closes-n-while-n-stays-in-the-file-is-undetectable--the-convention-and-the-record-are-never-reconciled)
 - **#67** — [IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide](#67-ids-are-allocated-at-write-time-from-an-append-only-list-so-two-branches-cut-from-the-same-base-always-collide)
 
 **P3 — nice to have / uncertain ROI** (9)
@@ -3625,69 +3627,6 @@ the ceiling should *be*. Both touch `lib/task-parser.js`; neither subsumes the o
 **Not decided here:** the value of N, the wall-clock bound, or what counts as a "checkpoint".
 
 ---
-
-### 69. A commit that says `Closes #N` while #N stays in the file is undetectable — the convention and the record are never reconciled
-**Filed 2026-09-20,** by the pass that purged #61 four days after it was closed. Sibling of
-**#67**: that one is about how IDs are *allocated*, this one is about whether a close is
-ever *applied*.
-
-**The two halves of the convention, stated by this file's own header.** Closed items are
-**purged** ("the git history and the `Closes <ID>` commit body are the record"), and a
-commit claims the closure in its body. **Nothing joins them.** So a close that never
-purged and a close that never happened produce byte-identical file state, and the only
-thing distinguishing them is a commit body nobody re-reads.
-
-**One observed instance, at HEAD until this commit.** `723dfed` (merged as `5749d08`,
-2026-09-20) ends `Closes WORK-TODO #61.` and lists the DoD checks that ran. It never
-touched this file:
-
-```bash
-git show 723dfed --stat -- WORK-TODO.md   # prints nothing
-git log -1 --format=%B 723dfed | grep -i '^Closes'
-```
-
-#61 therefore stayed open in the body, in the index, and in every count for four days —
-**including the counts written into this file by two later passes**, which observed 60 open
-items when 59 was the truth. The item was genuinely done; the file said otherwise and no
-check could tell.
-
-**Why the existing signals do not catch it.** `lib/repo-history.js` `claimsFrom()` already
-parses `Closes`/`Addresses` out of commit bodies, and `lib/backlog-report.js`
-`parseBacklog()` already parses the open items out of this file. **Both halves exist and
-nothing joins them.** `lib/critique-digest.js` consumes both and reports on claim *volume*
-(the closes-to-addresses ratio above), never on claim *truth*.
-
-**Suggested shape, NOT a decision and NOT implemented here.** A check that fails when a
-`Closes #N` commit reachable from `main` leaves `#N` present in `WORK-TODO.md` at that same
-commit — the join of the two parsers named above. Left open: whether it is a jest suite, a
-`npm run validate` step, or a report in the weekly digest; and how to treat an ID closed on
-one branch and re-used for a cross-reference on another.
-
-**The trap that must be designed for, because getting it wrong makes the check worse than
-nothing.** It needs **git history**, and history is exactly what this repository's own
-execution environment does not have: `cloneRepo` clones **`--depth 1`**
-(`lib/clone-lifecycle.js:139,147`), so every scratch clone a dispatch runs in is shallow. A
-naive implementation reads an empty or truncated log, finds no `Closes` lines, and
-**passes** — a green that means "I could not look", reported as "nothing is wrong". That is
-the same defect class as the skip-green in `lib/test-verdict.js` and as the vacuous Phase-3
-gate that #61 was filed for.
-
-**So the shallow case must FAIL LOUDLY, not pass.** The prior art is already in this
-repository and should be reused rather than re-derived: `lib/repo-history.js`'s
-`historyGate()` returns `{ available: false, reason: 'the checkout is a shallow clone —
-history is truncated and any count from it would be wrong' }`, and every function there
-returns `available: false` rather than a count of zero. The check must surface that as a
-failed/unavailable verdict, never as a pass.
-
-**Definition of done.** A check exists that fails on a `Closes #N` commit leaving #N in the
-file; it is red against `723dfed`+`WORK-TODO.md`-at-`8ad5791` as a negative control; and it
-fails loudly rather than passing on a shallow clone, with that shallow behaviour asserted
-by its own test — since a guard whose failure mode is a silent pass is the thing being
-guarded against.
-
-**Related:** #67 (the sibling class — ID allocation, same file, same convention), #39 (the
-queue cannot tell a completed task from a landed one — the same "a claim is not a fact"
-shape one layer out), #36 (closed 2026-10-04: the one source walker is `lib/source-walk.js`, which this check should reuse).
 
 ### 67. IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide
 
