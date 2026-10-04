@@ -127,6 +127,22 @@ describe('claimsFrom', () => {
         expect(r.addresses.map(c => c.id)).toEqual(['4b']);
     });
 
+    test('REGRESSION: "Closes #62. Addresses #75" on one line closes #62 and only addresses #75', () => {
+        const commits = [{ shortSha: 'abc1234', subject: 's', body: "Closes #62. Addresses #75 (repo half; the remedy is the owner's choice)." }];
+        const r = history.claimsFrom(commits);
+        expect(r.closes.map(c => c.id)).toEqual(['62']);
+        expect(r.addresses.map(c => c.id)).toEqual(['75']);
+    });
+
+    test('a switch errs toward the weaker claim, and an Addresses line can switch to Closes', () => {
+        const a = history.claimsFrom([{ shortSha: 'a', subject: 's', body: 'Closes #12 (which addresses #13)' }]);
+        expect(a.closes.map(c => c.id)).toEqual(['12']);
+        expect(a.addresses.map(c => c.id)).toEqual(['13']);
+        const b = history.claimsFrom([{ shortSha: 'b', subject: 's', body: 'Addresses #4; closes #5' }]);
+        expect(b.addresses.map(c => c.id)).toEqual(['4']);
+        expect(b.closes.map(c => c.id)).toEqual(['5']);
+    });
+
     test('an id repeated on ONE line is one claim, not two', () => {
         const commits = [{ shortSha: 'abc1234', subject: 's', body: 'Addresses #41 (filed here; the DoD of #41 is unchanged)' }];
         expect(history.claimsFrom(commits).addresses).toHaveLength(1);

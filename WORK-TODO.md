@@ -335,7 +335,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B6** | Deployment shape — repo halves of owner-side work | Done 2026-10-04: #70 (Dockerfile), #73 (compose proposals), #42 (c), #68 (venv half). Skipped: #59 (its own text sequences it after #17/#73), #17 (deploy shape is the owner's choice) | `Dockerfile`, `.dockerignore`, `docker-compose.example.yml`, `lib/python-venv.js`, `lib/backup-watch.js`, `scripts/backup-status.sh`, `docs/CONFIG-SURFACE-AND-REBUILD.md` | Each repo half is inert until the owner applies it on the NAS |
 | **OA** | Owner action only, nothing left in the repo | #3, #26, #40, #41, #43, #53, #55, #52, #66, #70, #73 | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
 | **B7** | Landed vs completed | Done 2026-10-04: #39 recording half (`work` on the queue row, shown in `what's queued`). Left: merge state | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/task-work.js` | `recordWork` writes no status and no verdict, so the #74 invariant holds unchanged (its suite passes untouched) |
-| **B8** | Small repo halves left after B7 | Done 2026-10-04: #62 (closed), #75 repo half | `.gitignore`, `tests/gitignore-publishable.test.js`, `docker-compose.example.yml` | No runtime code |
+| **B8** | Small repo halves left after B7 | Done 2026-10-04: #62 (closed), #75 repo half. B9 (same day): `lib/repo-history.js` reads `Closes #N. Addresses #M` on one line as two claims, not two closes | `.gitignore`, `tests/gitignore-publishable.test.js`, `docker-compose.example.yml` | No runtime code |
 | **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60, #49, #75 | — | Small code once chosen; listed so nobody dispatches them undecided |
 | **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
 
@@ -391,7 +391,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #51 | P2 | decision | OD | — | Also: `CLAUDE.md` "Agent Activation" still says to edit the deleted `agents/agents.json` (B4) |
 | #52 | P2 | REPO DONE in B5 | OA | S | `ASK: channels` built. Owner: deploy, run it, act on the output |
 | #53 | P2 | REPO DONE | OA | S | `#jester-agent` still has to be created by the owner |
-| #57 | P2 | in flight, **one constraint STALE** | — | S | Constraint 1 says "the bridge pushes nothing". At HEAD `cloneRepo` points `origin` at SSH and sets `core.sshCommand` to the bridge's own deploy key (`lib/clone-lifecycle.js:173-190`), so the executor pushes with the bridge's key |
+| #57 | P2 | Design record; stale constraint corrected in its body (B4) | OD | S | Constraint 1 says "the bridge pushes nothing". At HEAD `cloneRepo` points `origin` at SSH and sets `core.sshCommand` to the bridge's own deploy key (`lib/clone-lifecycle.js:173-190`), so the executor pushes with the bridge's key |
 | #59 | P2 | OPEN, behind #17/#73 — skipped in B6 by its own sequencing | B6 | M | No stall or wall-clock logic exists. Lands after the deploy path is settled and #73 block (1) is applied |
 | #67 | P2 | decision | OD | S stopgap | Stopgap: "fetch `origin/main` and re-read the max ID" in the executor contract |
 | #58 | P3 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | The adapter owns its deadline; timers cleared on `error`. `tests/llm-runner-deadline.test.js` |
