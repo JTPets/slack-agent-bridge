@@ -36,12 +36,21 @@
 
 const fs = require('fs');
 const path = require('path');
+const { walkFiles } = require('../lib/source-walk');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const CLAUDE_MD = path.join(REPO_ROOT, 'CLAUDE.md');
 
-/** Directories whose .js files must each have a tree line. */
-const TRACKED_DIRS = ['lib', path.join('lib', 'integrations'), 'bots', 'scripts', 'memory', 'tests'];
+/** Directories whose .js files must each have a tree line (their direct children). */
+const TRACKED_DIRS = ['lib', path.join('lib', 'integrations'), 'bots', 'scripts', 'memory'];
+
+/**
+ * Directories walked RECURSIVELY. LOGIC CHANGE 2026-10-04 (WORK-TODO #36): `tests/` was
+ * walked flat, so tests/helpers/ — which every enumerating guard now depends on through
+ * tests/helpers/source-scan.js — sat in a directory no guard covered: a helper could be
+ * added or removed and this test could not fail.
+ */
+const RECURSIVE_DIRS = ['tests'];
 
 /**
  * The Architecture block: the fenced code block that begins with the repo name.
@@ -82,7 +91,8 @@ function topLevelEntryPoints() {
  * Every source file that must appear in the tree, as repo-relative paths.
  *
  * This walk IS the regeneration command. Reproduce it from the shell with:
- *   ls lib/*.js lib/integrations/*.js bots/*.js scripts/*.js memory/*.js tests/*.js *.js
+ *   ls lib/*.js lib/integrations/*.js bots/*.js scripts/*.js memory/*.js *.js
+ *   find tests -name '*.js'
  *
  * @returns {string[]}
  */
@@ -95,6 +105,11 @@ function trackedSourceFiles() {
             if (entry.isFile() && entry.name.endsWith('.js')) {
                 files.push(path.join(dir, entry.name));
             }
+        }
+    }
+    for (const dir of RECURSIVE_DIRS) {
+        for (const full of walkFiles(path.join(REPO_ROOT, dir), { skipDirs: ['node_modules'], ext: '.js' })) {
+            files.push(path.relative(REPO_ROOT, full));
         }
     }
     return files;
@@ -115,6 +130,8 @@ describe('CLAUDE.md architecture tree is complete', () => {
             path.join('lib', 'config.js'),
             path.join('lib', 'integrations', 'gmail.js'),
             path.join('tests', 'smoke.test.js'),
+            path.join('tests', 'helpers', 'workspace-fixture.js'),
+            path.join('tests', 'helpers', 'source-scan.js'),
         ]));
         expect(files.length).toBeGreaterThan(60);
     });
@@ -139,16 +156,9 @@ describe('CLAUDE.md architecture tree is complete', () => {
         }
         expect(named.size).toBeGreaterThan(50);
 
-        const onDisk = new Set();
-        const walk = (dir) => {
-            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-                if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-                const full = path.join(dir, entry.name);
-                if (entry.isDirectory()) walk(full);
-                else onDisk.add(entry.name);
-            }
-        };
-        walk(REPO_ROOT);
+        // The shared walk (WORK-TODO #36): every file, hidden entries and node_modules skipped.
+        const onDisk = new Set(walkFiles(REPO_ROOT, { skipDirs: ['node_modules'], ext: '' })
+            .map((full) => path.basename(full)));
 
         // Runtime-created files are named in the tree deliberately (the tree documents
         // them as "created at runtime, gitignored"), so their absence is not drift.

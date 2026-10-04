@@ -21,25 +21,18 @@
 
 const fs = require('fs');
 const path = require('path');
+const { listSourceFiles } = require('./helpers/source-scan');
 const { BULLETIN_TYPES, postBulletin, formatBulletinData, formatBulletinsForContext } = require('../lib/bulletin-board');
 const { loadAgents } = require('../lib/agent-registry');
 
 const REPO_ROOT = path.join(__dirname, '..');
 
-/** Every non-test .js file, enumerated from disk. */
+/**
+ * Every non-test .js file, enumerated from disk.
+ * LOGIC CHANGE 2026-10-04 (WORK-TODO #36): the walk is tests/helpers/source-scan.js.
+ */
 function sourceFiles() {
-    const out = [];
-    const walk = (dir) => {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (entry.name.startsWith('.') || entry.name === 'node_modules' ||
-                entry.name === 'tests' || entry.name === 'coverage') continue;
-            const full = path.join(dir, entry.name);
-            if (entry.isDirectory()) walk(full);
-            else if (entry.name.endsWith('.js')) out.push(full);
-        }
-    };
-    walk(REPO_ROOT);
-    return out;
+    return listSourceFiles();
 }
 
 describe('the three bulletin vocabularies agree', () => {

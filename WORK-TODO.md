@@ -292,7 +292,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | Batch | Theme | Items | Main files | Why this position |
 |---|---|---|---|---|
 | **B1** | A running task is not lost, re-run or misreported | #25, #23, #72, #74, #17 (boot-commit half), #22 (purge) | `bridge-agent.js`, `lib/task-queue.js`, `lib/task-lock.js`, `auto-update.js` (comments), `tests/` | **First.** The deploy step in use kills a running task (#73); B1 makes what happens next honest and stops the re-run. #17's boot report answers "is main deployed?", which is how deploys were found forgotten. No file in common with the in-flight dispatch |
-| **B2** | The test apparatus | #56, #36, #69, #54 (closed 2026-10-04), #11 | `tests/staff-tasks.test.js`, `tests/architecture-tree.test.js`, `lib/file-size-gate.js`, `lib/repo-history.js`, `lib/backlog-report.js`, `WORK-TODO.md` tier header | P1 under the apparatus rule (tier definition, top of this file). Could run beside B1 (no shared code file) but both purge from this file, so sequence them |
+| **B2** | The test apparatus | #56, #36 (closed 2026-10-04), #69, #54 (closed 2026-10-04), #11 | `tests/staff-tasks.test.js`, `tests/architecture-tree.test.js`, `lib/file-size-gate.js`, `lib/repo-history.js`, `lib/backlog-report.js`, `WORK-TODO.md` tier header | P1 under the apparatus rule (tier definition, top of this file). Could run beside B1 (no shared code file) but both purge from this file, so sequence them |
 | **B3** | What reaches Slack is redacted and true; one helper per shared behaviour | #30, #31, #32, #33, #24, #7, #21, #58 | `lib/notify-owner.js`, `morning-digest.js`, `lib/llm-runner.js`, `lib/bulletin-board.js`, `lib/staff-tasks.js`, `lib/agent-context.js`, `lib/slack-client.js` | After B1: #30 removes `bridge-agent.js` / `auto-update.js` post helpers that B1 also edits |
 | **B4** | Records: config surface and docs that state what is no longer true | #34, #4b, #20, #63, #35, #48, #10 (table refresh) + the stale-claim sweep below | `CLAUDE.md`, `README.md`, `.env.example`, `docs/AGENTS.md`, `WORK-TODO.md` | After the in-flight records dispatch, which owns the same docs this week. Verifiable by reading |
 | **B5** | Commands and routing | #46, #49, #4, #9, #39, #66, #52, #64 (gate half only, see row) | `bridge-agent.js`, `lib/command-router.js`, `lib/dispatch-command.js`, `lib/dispatch-modal.js`, `lib/task-queue.js`, `lib/critique-signals.js` | After B1 and B3 (shared `bridge-agent.js`, `lib/task-queue.js`) |
@@ -309,7 +309,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | ID | Tier | Verdict at `71d2112` | Batch | Effort | Evidence, and what is left |
 |---|---|---|---|---|---|
 | #55 | P1 | REPO DONE | OA | S | `scripts/channel-map.js` `--from-git`/`--resolve` built; owner rebuilds the map. Suggest P2: nothing for a branch |
-| #56 | P1 | OPEN, nothing to act on until it recurs | B2 | S | Not seen in 2 runs. The adjacent race is #36's: `tests/staff-tasks.test.js:28` makes a temp dir inside the repo root that `lib/file-size-gate.js` `measure()` walks |
+| #56 | P1 | OPEN, nothing to act on until it recurs | B2 | S | Not seen in 2 runs. The adjacent race was removed 2026-10-04 (`0773821` deleted the in-tree temp dir; the shared walker in `lib/source-walk.js` skips a vanished dir). The globalSetup signature is still unexplained |
 | #42 | P1 | OPEN | B6 | S/M | No backup check anywhere in the repo. **Correction:** part (c) is not buildable alone — the container mounts no backups path (`docker-compose.example.yml:75-80`), so it needs an owner mount or a host-side check |
 | #41 | P1 | REPO DONE | OA | — | All remaining work is on the appliance |
 | #17 | P1 | Boot-commit report DONE in B1; deploy shape is a decision | OD + B6 | M | Boot post via `lib/repo-history.js` `loadedCommit()`. Remaining: choose start-the-daemon / push-triggered / manual, then B6 wires it |
@@ -363,7 +363,6 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #58 | P3 | OPEN | B3 | S | Reproduced on Node 22: an ENOENT spawn holds the process until the `timeout` timer fires |
 | #60 | P3 | deferred design rule | OD | — | Move to a design doc before it is ever purged |
 | #48 | P3 | OPEN | B4 | S | Move the two-bullet rule into `CLAUDE.md`, then purge |
-| #36 | P3 | OPEN, undercounted | B2 | M | Sixth walker at `tests/architecture-tree.test.js:143-150`. Cause of the #56 class — suggest P2 |
 | #21 | P3 | OPEN | B3 | S | `new WebClient(token)` with no `logLevel` at `lib/slack-client.js:62` |
 | #29 | P3 | decision | OD | S to drop | Gmail scope is read-only (`lib/integrations/gmail.js:96`) |
 | #13 | P3 | idea | SEED | L | Recommend drop: widens what a task can do while #27 is undecided |
@@ -538,12 +537,11 @@ work behind an owner's name, which is the opposite of the point.
 - **#69** — [A commit that says `Closes #N` while #N stays in the file is undetectable — the convention and the record are never reconciled](#69-a-commit-that-says-closes-n-while-n-stays-in-the-file-is-undetectable--the-convention-and-the-record-are-never-reconciled)
 - **#67** — [IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide](#67-ids-are-allocated-at-write-time-from-an-append-only-list-so-two-branches-cut-from-the-same-base-always-collide)
 
-**P3 — nice to have / uncertain ROI** (10)
+**P3 — nice to have / uncertain ROI** (9)
 
 - **#58** — [A spawn that fails with `error` never clears Node's `timeout` kill-timer](#58-a-spawn-that-fails-with-error-never-clears-nodes-timeout-kill-timer)
 - **#60** — [If the bridge is ever to act on the NAS, the capability is an allowlisted command set — not a shell](#60-if-the-bridge-is-ever-to-act-on-the-nas-the-capability-is-an-allowlisted-command-set--not-a-shell)
 - **#48** — [A model list is enumerable for a local provider and is a guess for a hosted one — record the asymmetry, build neither yet](#48-a-model-list-is-enumerable-for-a-local-provider-and-is-a-guess-for-a-hosted-one--record-the-asymmetry-build-neither-yet)
-- **#36** — [Three enumerating guards each carry their own source-tree walker, and `tests/` subdirectories are enumerated by none of them](#36-three-enumerating-guards-each-carry-their-own-source-tree-walker-and-tests-subdirectories-are-enumerated-by-none-of-them)
 - **#21** — [`already_in_channel` warns five times per boot — and the obvious fix is in the wrong place](#21-already_in_channel-warns-five-times-per-boot--and-the-obvious-fix-is-in-the-wrong-place)
 - **#29** — [`gmail-unsubscribe` is a declared agent permission that no code implements](#29-gmail-unsubscribe-is-a-declared-agent-permission-that-no-code-implements)
 - **#13** — [MCP server wrapper](#13-mcp-server-wrapper)
@@ -653,9 +651,11 @@ against a real Slack workspace and off-box export of the resolved map both outst
 > two-consecutive-greens bar), and the two racing suites run together passed 8 of 8.
 > **The fix is not in the walker**: no test-scoped directory should be created inside the
 > tree five separate guards enumerate — `os.tmpdir()`, which
-> `tests/helpers/workspace-fixture.js` already uses. See **#36**, which owns the walkers and
-> now records that this is a reliability cost and not only a duplication one. Not fixed in
-> the pass that found it: that dispatch was read-only plus record correction. **Two observations, message
+> `tests/helpers/workspace-fixture.js` already uses. **Fixed 2026-10-04 on both sides:**
+> `0773821` removed the in-tree directory (nothing read it), and #36 (closed) replaced the
+> walkers with one, `lib/source-walk.js`, that skips a directory removed mid-walk; the
+> regression test is `tests/source-walk.test.js`. Not fixed in the pass that found it: that
+> dispatch was read-only plus record correction. **Two observations, message
 captured neither time — filed because of the apparatus rule (tier definition at the top of this file; it was #54), not despite it.**
 
 **What was seen, twice, with the same signature.** A full `npx jest` run failed *before
@@ -2784,7 +2784,7 @@ The remaining 35, each justified as the suite for the subject named:
 `tests/bulletin-board.test.js` (434), `tests/clone-lifecycle.test.js` (429),
 `tests/code-review-pipeline.test.js` (400), `tests/agent-context.test.js` (389),
 `tests/agent-scheduler.test.js` (376), `tests/staff-tasks.test.js` (367),
-`tests/test-gate-honesty.test.js` (365), `tests/auto-update-defer.test.js` (357),
+`tests/test-gate-honesty.test.js` (365; back under the limit 2026-10-04 when #36 moved its walker out, entry removed), `tests/auto-update-defer.test.js` (357),
 `tests/multi-channel-routing.test.js` (352), `tests/message-detection.test.js` (319),
 `tests/undelivered-work.test.js` (302).
 
@@ -2869,9 +2869,10 @@ compliance path is less testing is pointed the wrong way.
 - **Two rules are two things to keep honest.** The single rule is enforced by one check with
   one number; splitting it invites a second threshold that drifts, and a file that is neither
   clearly source nor clearly test (a fixture, a helper under `tests/`) lands in the gap.
-  Note #36 already records that three enumerating guards each carry their own tree walker and
-  that `tests/` subdirectories are enumerated by none of them — the seam between "source" and
-  "test" is not as crisp in this repo as the argument above assumes.
+  #36 (closed 2026-10-04) found eight copies of the tree walker and `tests/` subdirectories
+  enumerated by no guard; the walker is now `lib/source-walk.js`, production code that the
+  test guards share — the seam between "source" and "test" is not as crisp in this repo as
+  the argument above assumes.
 - **The exceptions list makes the cost small.** With a recorded reason per file, a long suite
   is already visible and deliberate. Scoping the rule away removes that visibility entirely.
 
@@ -3686,7 +3687,7 @@ guarded against.
 
 **Related:** #67 (the sibling class — ID allocation, same file, same convention), #39 (the
 queue cannot tell a completed task from a landed one — the same "a claim is not a fact"
-shape one layer out), #36 (enumerating guards and their source-tree walkers).
+shape one layer out), #36 (closed 2026-10-04: the one source walker is `lib/source-walk.js`, which this check should reuse).
 
 ### 67. IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide
 
@@ -3875,65 +3876,6 @@ close this. Until then, closing it destroys the artifact.
 
 **Priority:** P3 | **Effort:** Low (move the rule to an owning doc, then close)
 **Status:** open — distinction recorded **only here**, neither list built
-
----
-
-### 36. Three enumerating guards each carry their own source-tree walker, and `tests/` subdirectories are enumerated by none of them
-**Filed 2026-09-14,** from `docs/CANONICAL-HELPERS.md` section 13.
-
-```bash
-grep -rn "function stripComments\|function stripCommentsAndStrings\|function listSourceFiles" tests/*.js
-```
-**CORRECTED 2026-09-16 — it is FOUR copies now, not three.**
-`tests/task-agent-identity.test.js` added a fourth while this item was open, which is what
-an un-enforced duplication item does: it records a number that the next change invalidates.
-The grep above finds all four. Regenerate the count rather than reading it:
-`grep -rlE 'function (stripComments|stripCommentsAndStrings|listSourceFiles|collectSourceFiles)' tests/*.js | wc -l` -> 4.
-
-`tests/no-shell-execution.test.js`, `tests/timezone-explicit.test.js`,
-`tests/test-gate-honesty.test.js` and `tests/task-agent-identity.test.js` each walk the
-source tree from disk and each carries its own copy — roughly 50 lines repeated four times. Marked **EQUIVALENT**, not DIVERGENT: the
-two comment scanners differ deliberately (the shell guard blanks string *contents* so prose
-naming a banned API does not trip it; the test-gate guard must leave strings intact because
-the thing it detects, `'npm test'`, **is** a string literal).
-
-**Why it was not extracted when the third copy landed.** The helper would live under
-`tests/helpers/`, and `tests/architecture-tree.test.js` enumerates `tests/*.js`
-**non-recursively** (`TRACKED_DIRS` at `:44` includes `tests`, but the walk at `:94` is a
-flat `readdirSync`). A file four guards depend on would sit in a directory no guard covers.
-**Re-verified 2026-09-16 and still true** — the four files now in `tests/helpers/` are named
-in `CLAUDE.md`'s tree but enumerated by no guard, so the tree test cannot fail when one is
-added or removed. Extraction therefore means widening that
-enumeration first, which is the actual work and is why this is an item rather than a
-side effect of the change that noticed it.
-
-**Fix:** widen `tests/architecture-tree.test.js` to walk `tests/` recursively, then extract
-`listSourceFiles` and both stripper variants into `tests/helpers/source-scan.js`, keeping
-the two stripping modes as an explicit option rather than merging them.
-
-**2026-09-20 — it is FIVE walkers, and the duplication now has a reliability cost, not only
-a maintenance one.** The fifth is not in `tests/` at all: `measure()` in
-`lib/file-size-gate.js:54-71` walks the same tree from production code, and it is the one
-that failed. A full `npm test` went red with
-`ENOENT ... scandir '<repo>/test-data-staff-tasks'` because `tests/staff-tasks.test.js:28`
-creates its temp directory **inside the repository root** and removes it at `:45` while
-another jest worker is mid-walk. Every one of the five walkers has the same
-discover-then-recurse shape and none tolerates a directory vanishing between the two, so any
-of them can catch this; the file-size gate simply drew the short straw. Two consequences for
-the fix above: a shared `listSourceFiles` would make the ENOENT tolerance a **one-line** fix
-instead of five, and the real repair is upstream — nothing test-scoped should be written into
-the tree the guards enumerate (`os.tmpdir()`, as `tests/helpers/workspace-fixture.js` already
-does). Full capture and the green runs that bracket it: **#56**'s 2026-09-20 note.
-
-**It has a concrete cost already.** `tests/test-gate-honesty.test.js` is **364 lines** and
-is the **one file this branch newly pushed over the repo's 300-line rule** — `npm run validate`
-goes 63 -> 64 over-limit files (`npm run validate 2>&1 | grep -cE '^  - '`, compared against
-`1533d85`). Roughly 120 of those lines are the walker and the comment scanner, so this
-extraction takes the file back under the limit. Trimming prose instead would cost the
-reasoning that makes the guard maintainable, and doing the extraction inside the change
-that added the third copy would have meant editing two other guards as a side effect —
-which is why it is an item.
-**Priority:** P3 | **Effort:** Low | **Status:** open
 
 ---
 

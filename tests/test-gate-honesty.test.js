@@ -28,7 +28,7 @@
  * Comments are stripped before scanning; string literals are NOT, because the
  * command being invoked IS a string literal. That is the opposite choice from
  * tests/no-shell-execution.test.js's call-site scan, and deliberate — see
- * docs/CANONICAL-HELPERS.md section 13 (and WORK-TODO #36 on extracting the walk).
+ * docs/CANONICAL-HELPERS.md section 13; both modes now live in tests/helpers/source-scan.js.
  */
 
 const fs = require('fs');
@@ -37,7 +37,12 @@ const path = require('path');
 const { OUTCOME, classifyTestRun, parseAssertions, findingFor } = require('../lib/test-verdict');
 
 const REPO_ROOT = path.join(__dirname, '..');
-const SKIP_DIRS = new Set(['node_modules', '.git', 'tests', 'coverage', 'public', '.claude-home']);
+
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #36): walk and scanner are tests/helpers/source-scan.js;
+// strings stay intact because the thing detected, 'npm test', IS a string literal.
+const scan = require('./helpers/source-scan');
+const listSourceFiles = () => scan.listSourceFiles().map((f) => path.relative(REPO_ROOT, f));
+const stripComments = (src) => scan.stripComments(src, { blankStrings: false });
 
 /** Files allowed to invoke a test command. Each must route through the classifier. */
 const CLASSIFIER = path.join('lib', 'test-verdict.js');
@@ -79,76 +84,6 @@ function reachesClassifier(code, classifiers) {
         if (new RegExp(`require\\(['"][./]*[\\w/.-]*${name}['"]\\)`).test(code)) return true;
     }
     return false;
-}
-
-/**
- * Every non-test .js file in the repo, enumerated from disk. Reproduce with:
- *   find . -name '*.js' -not -path './node_modules/*' -not -path './.git/*' \
- *          -not -path './tests/*' -not -path './coverage/*' | sort
- *
- * @param {string} dir
- * @param {string[]} [out]
- * @returns {string[]} Repo-relative paths.
- */
-function listSourceFiles(dir = REPO_ROOT, out = []) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (entry.name.startsWith('.')) continue;
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-            if (SKIP_DIRS.has(entry.name)) continue;
-            listSourceFiles(full, out);
-        } else if (entry.isFile() && entry.name.endsWith('.js')) {
-            out.push(path.relative(REPO_ROOT, full));
-        }
-    }
-    return out;
-}
-
-/**
- * Blank out comments, preserving line structure. String literals are left intact on
- * purpose (see the module header).
- *
- * @param {string} src
- * @returns {string}
- */
-function stripComments(src) {
-    const out = Array.from(src);
-    const blank = (from, to) => {
-        for (let k = from; k < to && k < out.length; k += 1) {
-            if (out[k] !== '\n') out[k] = ' ';
-        }
-    };
-    let i = 0;
-    while (i < src.length) {
-        const c = src[i];
-        const next = src[i + 1];
-        if (c === '/' && next === '/') {
-            const end = src.indexOf('\n', i);
-            blank(i, end === -1 ? src.length : end);
-            i = end === -1 ? src.length : end;
-            continue;
-        }
-        if (c === '/' && next === '*') {
-            const end = src.indexOf('*/', i + 2);
-            const stop = end === -1 ? src.length : end + 2;
-            blank(i, stop);
-            i = stop;
-            continue;
-        }
-        if (c === '"' || c === "'" || c === '`') {
-            // Skip over the literal without blanking it.
-            let k = i + 1;
-            while (k < src.length) {
-                if (src[k] === '\\') { k += 2; continue; }
-                if (src[k] === c) break;
-                k += 1;
-            }
-            i = k + 1;
-            continue;
-        }
-        i += 1;
-    }
-    return out.join('');
 }
 
 /**

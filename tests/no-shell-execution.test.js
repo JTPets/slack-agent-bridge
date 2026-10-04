@@ -43,102 +43,19 @@ const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..');
 
-const SKIP_DIRS = new Set(['node_modules', '.git', 'tests', 'coverage', 'public', '.claude-home']);
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #36): the walk and the comment/string scanner are
+// tests/helpers/source-scan.js, shared with the other enumerating guards. This guard
+// keeps its own name for the scanner because its DEFAULT differs: call-site bans scan
+// with string contents blanked, and the child_process import check passes
+// { blankStrings: false } because the module name it must see IS a string literal.
+// Blanking it there made the check match nothing and pass on every file, until a negative
+// control (re-adding bridge-agent.js's dead `execSync` import) failed to go red.
+const scan = require('./helpers/source-scan');
+const listSourceFiles = scan.listSourceFiles;
+const stripCommentsAndStrings = (src, { blankStrings = true } = {}) => scan.stripComments(src, { blankStrings });
 
-/**
- * Every non-test .js file in the repo, enumerated from disk.
- *
- * This walk IS the regeneration command for "which files does the class cover".
- * Run it standalone with:
- *   node -e "console.log(require('./tests/no-shell-execution.test.js'))"  // not exported; use jest
- * or reproduce it from the shell with:
- *   find . -name '*.js' -not -path './node_modules/*' -not -path './.git/*' \
- *          -not -path './tests/*' -not -path './coverage/*' | sort
- *
- * @param {string} dir
- * @param {string[]} [out]
- * @returns {string[]} Absolute paths.
- */
-function listSourceFiles(dir, out = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name.startsWith('.') && entry.name !== '.') continue;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) continue;
-      listSourceFiles(full, out);
-    } else if (entry.isFile() && entry.name.endsWith('.js')) {
-      out.push(full);
-    }
-  }
-  return out;
-}
 
-/**
- * Blank out comments and, optionally, string/template literal CONTENTS — preserving
- * offsets and line structure so a reported match still points at real code.
- *
- * Written as a small character scanner rather than a regex because a regex that
- * tries to tell a string from a comment from a division operator gets this wrong
- * in ways that make the guard either blind or permanently red.
- *
- * Two derived forms are needed and they are not interchangeable:
- *   - CALL-SITE bans scan with strings blanked, so a comment or message text that
- *     merely names a banned API does not trip the guard.
- *   - The child_process IMPORT check scans with strings intact, because the module
- *     name it must recognise IS a string literal. Blanking it made the check match
- *     nothing and pass on every file — which it silently did until a negative
- *     control (re-adding bridge-agent.js's dead `execSync` import) failed to go red.
- *
- * @param {string} src
- * @param {{ blankStrings?: boolean }} [opts]
- * @returns {string}
- */
-function stripCommentsAndStrings(src, { blankStrings = true } = {}) {
-  const out = Array.from(src);
-  const blank = (from, to) => {
-    for (let k = from; k < to && k < out.length; k += 1) {
-      if (out[k] !== '\n') out[k] = ' ';
-    }
-  };
 
-  let i = 0;
-  while (i < src.length) {
-    const c = src[i];
-    const next = src[i + 1];
-
-    if (c === '/' && next === '/') {
-      const end = src.indexOf('\n', i);
-      blank(i, end === -1 ? src.length : end);
-      i = end === -1 ? src.length : end;
-      continue;
-    }
-    if (c === '/' && next === '*') {
-      const end = src.indexOf('*/', i + 2);
-      const stop = end === -1 ? src.length : end + 2;
-      blank(i, stop);
-      i = stop;
-      continue;
-    }
-    if (c === '"' || c === "'" || c === '`') {
-      const quote = c;
-      let j = i + 1;
-      while (j < src.length) {
-        if (src[j] === '\\') {
-          j += 2;
-          continue;
-        }
-        if (src[j] === quote) break;
-        j += 1;
-      }
-      // Blank the contents, keep the delimiters so the code still tokenises.
-      if (blankStrings) blank(i + 1, Math.min(j, src.length));
-      i = Math.min(j + 1, src.length);
-      continue;
-    }
-    i += 1;
-  }
-  return out.join('');
-}
 
 const BANNED = [
   {
