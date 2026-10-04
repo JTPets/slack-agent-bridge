@@ -19,7 +19,9 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs').promises;
 const crypto = require('crypto');
-const { WebClient } = require('@slack/web-api');
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #30, #21): every Slack client is built by lib/slack-web.js,
+// which redacts secrets out of every chat.* post and drops the already_in_channel warning.
+const { createWebClient } = require('../lib/slack-web');
 const { runLLM } = require('../lib/llm-runner');
 // LOGIC CHANGE 2026-03-27: Added catalog search for product recommendations
 const { initCatalog, searchCatalog, getCatalogStats } = require('../lib/integrations/catalog-search');
@@ -41,7 +43,7 @@ const sessions = new Map();
 // Slack client for logging
 let slackClient = null;
 if (process.env.SLACK_BOT_TOKEN) {
-    slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
+    slackClient = createWebClient(process.env.SLACK_BOT_TOKEN);
 }
 
 // ---- Catalog initialization ----

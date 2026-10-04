@@ -38,7 +38,10 @@ require('dotenv').config();
  *   WORK_DIR            base dir for temp clones (default: /tmp/bridge-agent)
  */
 
-const { WebClient } = require('@slack/web-api');
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #30, #21): every Slack client is built by lib/slack-web.js,
+// which redacts secrets out of every chat.* post and drops the already_in_channel warning.
+const { createWebClient, postText } = require('./lib/slack-web');
+const { formatDeadlineWarning } = require('./lib/deadline-warning');
 // LOGIC CHANGE 2026-09-14: `const { execSync } = require('child_process')` removed.
 // It was left behind when the git/clone lifecycle moved to lib/clone-lifecycle.js
 // (seam A) and had no remaining use in this file — a dead import of the one API in
@@ -257,7 +260,7 @@ const {
 // Agent config takes precedence over env var.
 const MAX_TURNS = agentConfig?.max_turns || config.MAX_TURNS;
 
-const slack = new WebClient(SLACK_BOT_TOKEN);
+const slack = createWebClient(SLACK_BOT_TOKEN);
 
 // LOGIC CHANGE 2026-03-26: Create SlackClient wrapper for channel management.
 // Used for "create channel #name" command and agent activation helpers.
@@ -419,20 +422,11 @@ async function unreact(channel, timestamp, emoji) {
 // interruption notice IS that task's result. Existing callers ignore the value and
 // are unaffected; the behaviour on failure is unchanged (log, never throw), because
 // a Slack outage must not fail the work that was reporting through it.
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #30): delegates to lib/slack-web.js postText, the one
+// post helper, which redacts (as this did since 2026-09-13), never throws, and returns
+// whether the post landed. The client redacts too, so every other post here is covered.
 async function postToOps(text) {
-  try {
-    await slack.chat.postMessage({
-      channel: OPS_CHANNEL,
-      // LOGIC CHANGE 2026-09-13: Redact secrets at the choke point so no ops
-      // post can leak a live token, regardless of how the caller built `text`.
-      text: redact(text),
-      unfurl_links: false,
-    });
-    return true;
-  } catch (err) {
-    console.error('[bridge-agent] Failed to post to #sqtools-ops:', err.message);
-    return false;
-  }
+  return postText(slack, OPS_CHANNEL, text, 'bridge-agent');
 }
 
 // ---- Drain-one: is a self-update waiting? ----
@@ -915,6 +909,11 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
           // LOGIC CHANGE 2026-09-15: the executing agent's model, not the bridge's.
           model: currentAgent?.llm_model,
           agentId,
+          // LOGIC CHANGE 2026-10-04 (WORK-TODO #7): say so in #sqtools-ops at 80% of
+          // TASK_TIMEOUT_MS instead of the kill being the first sign of a long task.
+          onDeadlineWarning: (info) => postToOps(formatDeadlineWarning({
+            ...info, description: task.description, repo: task.repo, agentId, isRetry: retryCount > 0,
+          })),
         });
       } catch (llmErr) {
         // Re-throw LLM errors - they will be caught by outer catch

@@ -27,7 +27,9 @@ require('dotenv').config();
 
 'use strict';
 
-const { WebClient } = require('@slack/web-api');
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #30, #21): every Slack client is built by lib/slack-web.js,
+// which redacts secrets out of every chat.* post and drops the already_in_channel warning.
+const { createWebClient, postText, sendDM: slackSendDM } = require('./lib/slack-web');
 const { spawn } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
@@ -67,39 +69,20 @@ if (!OPS_CHANNEL_ID) {
     process.exit(1);
 }
 
-const slack = new WebClient(SLACK_BOT_TOKEN);
+const slack = createWebClient(SLACK_BOT_TOKEN);
 
 // ---- Slack helpers ----
 
-async function sendDM(userId, text) {
-    try {
-        const openResult = await slack.conversations.open({ users: userId });
-        const dmChannel = openResult.channel.id;
-
-        await slack.chat.postMessage({
-            channel: dmChannel,
-            text,
-            unfurl_links: false,
-        });
-        console.log('[security-review] DM sent successfully');
-    } catch (err) {
-        console.error('[security-review] Failed to send DM:', err.message);
-        throw err;
-    }
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #30): both helpers delegate to lib/slack-web.js. These
+// copies did not redact, on the path most likely to quote a credential back out of a diff
+// (LLM-written findings), and they rethrew, so a Slack hiccup aborted the bulletin and
+// follow-up pipeline. They now return whether the message landed and main() decides.
+function sendDM(userId, text) {
+    return slackSendDM(slack, userId, text, 'security-review');
 }
 
-async function postToOps(text) {
-    try {
-        await slack.chat.postMessage({
-            channel: OPS_CHANNEL_ID,
-            text,
-            unfurl_links: false,
-        });
-        console.log('[security-review] Posted to ops channel');
-    } catch (err) {
-        console.error('[security-review] Failed to post to ops:', err.message);
-        throw err;
-    }
+function postToOps(text) {
+    return postText(slack, OPS_CHANNEL_ID, text, 'security-review');
 }
 
 // ---- Git helpers ----
@@ -370,10 +353,20 @@ async function main() {
     const report = lines.join('\n');
 
     // Send to owner DM and ops channel
+    let reportPartial = false;
     try {
-        await sendDM(OWNER_USER_ID, report);
-        await postToOps(report);
-        console.log('[security-review] Report sent successfully');
+        const dmOk = await sendDM(OWNER_USER_ID, report);
+        const opsOk = await postToOps(report);
+        if (!dmOk && !opsOk) {
+            throw new Error('the report reached neither the owner DM nor #sqtools-ops');
+        }
+        if (!dmOk || !opsOk) {
+            // Reached one destination: carry on with the pipeline, but exit non-zero.
+            console.error(`[security-review] Report delivered to ${dmOk ? 'the owner DM' : '#sqtools-ops'} only`);
+            reportPartial = true;
+        } else {
+            console.log('[security-review] Report sent successfully');
+        }
 
         // LOGIC CHANGE 2026-03-28: Post security findings to bulletin board.
         // Each repo with findings gets its own bulletin for inter-agent visibility.
@@ -415,16 +408,14 @@ async function main() {
     } catch (err) {
         console.error('[security-review] Failed to send report:', err.message);
         // Try to at least notify about the failure
-        try {
-            await sendDM(OWNER_USER_ID, `Security review failed: ${err.message}`);
-        } catch {
+        if (!(await sendDM(OWNER_USER_ID, `Security review failed: ${err.message}`))) {
             console.error('[security-review] Could not send error notification');
         }
         process.exit(1);
     }
 
     console.log('[security-review] Done');
-    process.exit(0);
+    process.exit(reportPartial ? 1 : 0);
 }
 
 main();

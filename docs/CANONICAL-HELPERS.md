@@ -34,7 +34,21 @@ are leads that drift — re-run the command, do not trust the number.
 
 ---
 
-## 1. Slack channel posting — **DIVERGENT** (defect: WORK-TODO #30)
+## 1. Slack channel posting — **EXTRACTED 2026-10-04** (WORK-TODO #30, closed)
+
+**Now:** one helper, `lib/slack-web.js` `postText(client, channel, text, label)`: redacts,
+sets `unfurl_links: false`, never throws, returns whether the post landed. `postToOps` in
+`bridge-agent.js` and `auto-update.js`, `security-review.js`'s `postToOps` and
+`lib/notify-owner.js` `notifyChannel` (and its owner-DM fallback) all delegate to it. A
+caller whose job is the message checks the boolean: `security-review.js` exits non-zero
+when the report reached only one destination and fails when it reached neither.
+**Redaction no longer depends on the helper being used:** every client is built by
+`lib/slack-web.js` `createWebClient()`, whose `chat.postMessage` / `postEphemeral` /
+`update` / `scheduleMessage` redact `text`, `blocks` and `attachments` before the request.
+Guard: `tests/slack-redaction.test.js` (no `new WebClient(` and no `@slack/web-api`
+require outside `lib/slack-web.js`, no raw `apiCall('chat.…')`, and the wrapper proved
+against the real SDK). The table below is the state as filed, kept for the record.
+
 
 ```bash
 grep -rnE "async function (post|notify|send)[A-Za-z]*\(" --include='*.js' . \
@@ -76,7 +90,12 @@ nowhere, so the count above is unchanged — confirm with the second command in 
 section. A fourth divergent `postToOps` was the obvious way to write that module and
 would have made #30 worse.
 
-## 2. Slack DM — **DIVERGENT** (same defect, WORK-TODO #30)
+## 2. Slack DM — **EXTRACTED 2026-10-04** (WORK-TODO #30, closed)
+
+**Now:** `lib/slack-web.js` `sendDM(client, userId, text, label)`, the same contract as
+`postText`. The three copies below delegate to it; `morning-digest.js` throws into its
+own failure path when the digest DM is not delivered, as it did before. As filed:
+
 
 ```bash
 grep -rnE "conversations\.open" --include='*.js' . | grep -v node_modules | grep -v '/tests/'
@@ -112,7 +131,15 @@ the two to a library (it is already in `lib/`), but both are closures over their
 `slack`. Lowest-risk row on this page: identical code, two sites, no behavioural
 question to settle.
 
-## 4. "Is this a rate-limit failure?" — **DIVERGENT** (defect: WORK-TODO #31)
+## 4. "Is this a rate-limit failure?" — **EXTRACTED 2026-10-04** (WORK-TODO #31, closed)
+
+**Now:** two definitions, both in `lib/llm-runner.js`, for its two questions. The digest's
+grouping moved to `lib/digest-failures.js` and calls llm-runner's exported
+`isRateLimitError` (it had been exported all along; the "module-private" claim below was
+wrong when written). The digest no longer says failed tasks "will auto-retry" or were
+"Auto-requeued", and counts every failure as action needed. Guard:
+`tests/digest-failures.test.js`. As filed:
+
 
 ```bash
 grep -rniE "rate.?limit|\b429\b|quota|bandwidth" --include='*.js' . \
@@ -158,7 +185,10 @@ guarded by `tests/timezone-explicit.test.js`. What is *not* guarded is the optio
 is the same; the omission is an inconsistency in a file added the same day as this map,
 not a behaviour difference.
 
-**Bulletin timestamps — DIVERGENT** (defect: WORK-TODO #32). One field,
+**Bulletin timestamps — EXTRACTED 2026-10-04** (WORK-TODO #32, closed). All four
+renderings now call `lib/time-format.js` `formatTimestamp(b.timestamp)`, so the security
+and story-bot contexts get the time as well as the date. Guard: `tests/time-format.test.js`
+fails on an inline `.timestamp).toLocale…String(` in production code. As filed: One field,
 `bulletin.timestamp`, is rendered **three** ways depending on which formatter reads it:
 
 | Site | Function | Renders | Consumer |
@@ -191,7 +221,17 @@ context still cannot order two bulletins from the same day.
 **Canonical implementation:** none. There is still no `formatTimestamp` anywhere, which
 is why one path could be fixed and two left behind without anything failing.
 
-## 6. Day-bucket keys — **DIVERGENT** (defect: WORK-TODO #33)
+## 6. Day-bucket keys — **EXTRACTED 2026-10-04** (WORK-TODO #33, closed)
+
+**Now:** `lib/time-format.js` `dayKey(date, timeZone)`, with no default zone. The staff
+tasks, the digest's bulletin date, `lib/agent-create.js` and `lib/email-check-report.js`
+`torontoDay` pass `STORE_TIME_ZONE`; `lib/llm-metrics.js` passes `'UTC'` and keeps its
+documented behaviour. Guard: `tests/time-format.test.js` fails on a
+`toISOString().split('T')` / `.slice(0, 10)` day key anywhere in production code, and
+carries the boundary-hour fixture in both DST phases. **One-time effect at deploy:** a
+staff-task state file written between the UTC rollover and Toronto midnight carries
+tomorrow's UTC date and is reset once. As filed:
+
 
 ```bash
 grep -rnE "toISOString\(\)\.(slice|split)" --include='*.js' . | grep -v node_modules | grep -v '/tests/'
@@ -292,6 +332,8 @@ Fifteen modules compute `path.join(__dirname, '..', ...)` at module scope. Four 
 `lib/task-queue.js:33`, `lib/task-lock.js:57`, `lib/bridge-state.js:35-36` — which is
 WORK-TODO **#24**, already filed (and partly fixed for `approval-queue` by
 `fix/approval-queue-path-override-19`). The read-only ones are harmless duplication.
+**2026-10-04:** #24's last two modules (`lib/bulletin-board.js`, `lib/staff-tasks.js`) took the
+`init({ file })` override; #24 is closed.
 
 `WORK_DIR`'s default string `/tmp/bridge-agent` is written out at three sites:
 `auto-update.js:53`, `lib/task-lock.js:57`, `lib/task-queue.js:33` (plus `lib/config.js`).
@@ -320,7 +362,13 @@ Head-only and head+tail are genuinely different — an error whose signal is in 
 line survives one and not the other — but every caller is a display path and no
 downstream code parses the result. Recorded, not filed.
 
-## 10. Secret redaction — canonical exists, **under-applied** (folded into #30)
+## 10. Secret redaction — **applied at the client 2026-10-04** (WORK-TODO #30, closed)
+
+**Now:** every Slack post is redacted by the client (§1), so the post-site ratio below no
+longer measures anything: a new post site is covered without being edited. The direct
+`redact()` calls that remain scrub sinks that are not Slack (the console, the task queue,
+memory). As filed:
+
 
 ```bash
 grep -rn "redact(" --include='*.js' . | grep -v node_modules | grep -v '/tests/'
@@ -469,10 +517,10 @@ created this map.**
 
 | # | Concept | Sites | Why it is first/last |
 |---|---------|-------|----------------------|
-| 1 | **Slack posting + DM + redaction** (§1, §2, §10) | 6 wrappers, ~48 post sites | The only row where the divergence has a security consequence: unscrubbed LLM output reaching `#sqtools-ops` is the exact failure `redact-secrets.js` was written for, and it is live in `security-review.js`. Also the largest behavioural spread (rethrow vs swallow, unfurl vs not). |
-| 2 | **Rate-limit predicate** (§4) | 3 | Three definitions of one question, and the third actively misinforms the owner in the morning digest. Small, self-contained: export a predicate from `llm-runner`, delete the copy. |
-| 3 | **Day-bucket key** (§6) | 5 | One correct use and four wrong ones sharing an idiom. Fixing it changes what "today" means for staff tasks, so it needs its own review and its own regression test. |
-| 4 | **Timestamp formatting** (§5) | 9 | Mostly identical; the one divergence (bulletin timestamps) silently changes what an agent can see in its prompt. Cheap once §1 gives `lib/` a natural home for a `formatTimestamp`. |
+| 1 | **DONE 2026-10-04.** Slack posting + DM + redaction (§1, §2, §10) | 6 wrappers, ~48 post sites | The only row where the divergence has a security consequence: unscrubbed LLM output reaching `#sqtools-ops` is the exact failure `redact-secrets.js` was written for, and it is live in `security-review.js`. Also the largest behavioural spread (rethrow vs swallow, unfurl vs not). |
+| 2 | **DONE 2026-10-04.** Rate-limit predicate (§4) | 3 | Three definitions of one question, and the third actively misinforms the owner in the morning digest. Small, self-contained: export a predicate from `llm-runner`, delete the copy. |
+| 3 | **DONE 2026-10-04.** Day-bucket key (§6) | 5 | One correct use and four wrong ones sharing an idiom. Fixing it changes what "today" means for staff tasks, so it needs its own review and its own regression test. |
+| 4 | **Bulletin half DONE 2026-10-04.** Timestamp formatting (§5); the time-of-day sites remain | 9 | Mostly identical; the one divergence (bulletin timestamps) silently changes what an agent can see in its prompt. Cheap once §1 gives `lib/` a natural home for a `formatTimestamp`. |
 | 5 | **JSON state read/write + atomic writes** (§7) | 18 | Largest mechanical surface and the most valuable durability fix, but it touches every persisted file in the system at once. Must land **after** WORK-TODO #24 settles path injection, or it fights it. |
 | 6 | **Reactions** (§3) | 2 pairs | Byte-identical, zero behavioural question. Deliberately last: it is the one everybody wants to do first because it is easy, and it buys the least. |
 
@@ -488,5 +536,6 @@ order: §10 (a test that fails when a `chat.postMessage` call site is added with
 redaction) and §6 (a test that fails when a new `toISOString().split('T')[0]` appears
 outside `lib/llm-metrics.js`). The pattern to copy is
 `tests/no-shell-execution.test.js` — enumerate from disk, strip comments and strings,
-carry meta-tests proving the guard still detects what it claims. Filed as part of
-WORK-TODO #30 and #33 respectively.
+carry meta-tests proving the guard still detects what it claims. **Both exist since
+2026-10-04:** `tests/slack-redaction.test.js` (§10, enforced at the client rather than per
+call site) and `tests/time-format.test.js` (§6).

@@ -22,7 +22,9 @@ require('dotenv').config();
 // that merging to main deploys within CHECK_INTERVAL_MS, and guard (a) is the
 // only thing standing between a bad merge and an unrecoverable restart loop.
 
-const { WebClient } = require('@slack/web-api');
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #30, #21): every Slack client is built by lib/slack-web.js,
+// which redacts secrets out of every chat.* post and drops the already_in_channel warning.
+const { createWebClient, postText } = require('./lib/slack-web');
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -82,22 +84,17 @@ const UPDATE_PENDING_FILE = updateDrain.DEFAULT_MARKER_FILE;
 const DEFER_ALERT_AFTER_MS = parseInt(process.env.UPDATE_DEFER_ALERT_MS, 10) || 60 * 60 * 1000;
 
 // Initialize Slack client
-const slack = new WebClient(SLACK_BOT_TOKEN);
+const slack = createWebClient(SLACK_BOT_TOKEN);
 
 /**
  * Post a message to the ops channel
  * @param {string} message - Message to post
  */
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #30): delegates to lib/slack-web.js postText. This copy
+// did not redact and did not set unfurl_links: false; the helper does both, and like this
+// copy it never throws, so a Slack failure still cannot break the update loop.
 async function postToOps(message) {
-    try {
-        await slack.chat.postMessage({
-            channel: OPS_CHANNEL_ID,
-            text: message
-        });
-    } catch (error) {
-        // Log error but don't throw - we don't want Slack failures to break the update loop
-        console.error('Failed to post to Slack:', error.message);
-    }
+    return postText(slack, OPS_CHANNEL_ID, message, 'auto-update');
 }
 
 /**
