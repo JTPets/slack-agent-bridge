@@ -24,26 +24,14 @@ const MOCK_TEMPLATE = {
   ],
 };
 
-// Create temp directory for test files
-const TEST_DIR = path.join(__dirname, '..', 'test-data-staff-tasks');
-const TEST_STAFF_FILE = path.join(TEST_DIR, 'staff.json');
-const TEST_TEMPLATE_FILE = path.join(TEST_DIR, 'daily-tasks-template.json');
-const TEST_STATE_FILE = path.join(TEST_DIR, 'staff-tasks-state.json');
-
-beforeAll(() => {
-  // Create test directory
-  if (!fs.existsSync(TEST_DIR)) {
-    fs.mkdirSync(TEST_DIR, { recursive: true });
-  }
-  // Write mock files
-  fs.writeFileSync(TEST_STAFF_FILE, JSON.stringify(MOCK_STAFF, null, 2));
-  fs.writeFileSync(TEST_TEMPLATE_FILE, JSON.stringify(MOCK_TEMPLATE, null, 2));
-});
-
-afterAll(() => {
-  // Cleanup test directory
-  fs.rmSync(TEST_DIR, { recursive: true, force: true });
-});
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #36/#56, B2): this suite used to write MOCK_STAFF
+// and MOCK_TEMPLATE into `<repo>/test-data-staff-tasks` and remove it in afterAll. Nothing
+// read those files — lib/staff-tasks.js reads its own fixed paths under agents/shared/ —
+// so the directory did no work, and it sat inside the tree five source walkers enumerate.
+// On 2026-09-20 one of them (lib/file-size-gate.js measure()) saw it in one readdirSync
+// and hit ENOENT recursing into it after this suite's afterAll removed it: a red full run
+// from a parallel-worker race. The fixtures are kept as documentation of the shapes the
+// module expects; nothing is written to disk.
 
 // Now require the module (after setting up mocks)
 const staffTasks = require('../lib/staff-tasks');
@@ -299,19 +287,27 @@ describe('staff-tasks', () => {
       ],
     };
 
-    beforeEach(() => {
-      // Clear state file before each test
-      try {
-        fs.unlinkSync(staffTasks.TASKS_STATE_FILE);
-      } catch {
-        // File may not exist
-      }
-    });
-
+    // LOGIC CHANGE 2026-10-04 (B2): this used to `fs.unlinkSync(TASKS_STATE_FILE)` before
+    // each test — the LIVE data/staff-tasks-state.json the running bridge reads. The
+    // live-state guard looked for that file under agents/shared/ and missed it. The
+    // absent-file case is now simulated by making the read fail with ENOENT, which is
+    // exactly what loadTasksState() branches on; nothing on disk is touched.
     it('should return empty state when file does not exist', () => {
-      const state = staffTasks.loadTasksState();
-      expect(state.date).toBeNull();
-      expect(state.tasks).toEqual([]);
+      const realRead = fs.readFileSync;
+      const spy = jest.spyOn(fs, 'readFileSync').mockImplementation((file, ...rest) => {
+        if (file === staffTasks.TASKS_STATE_FILE) {
+          throw Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
+        }
+        return realRead.call(fs, file, ...rest);
+      });
+      try {
+        const state = staffTasks.loadTasksState();
+        expect(state.date).toBeNull();
+        expect(state.tasks).toEqual([]);
+        expect(spy).toHaveBeenCalledWith(staffTasks.TASKS_STATE_FILE, 'utf8');
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 

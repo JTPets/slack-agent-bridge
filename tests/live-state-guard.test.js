@@ -39,6 +39,25 @@ describe('the guard enumerates from disk rather than from a list', () => {
         expect(files).toContain('.bridge-agent-state.json');
     });
 
+    test('it covers data/, where lib/staff-tasks.js, square-catalog and storefront write state', () => {
+        // Regression for 2026-10-04 (B2): the guard named staff-tasks-state.json under
+        // agents/shared/, where nothing writes it, so tests/staff-tasks.test.js deleted the
+        // live data/staff-tasks-state.json every run and nothing failed.
+        const files = guard.stateFiles().map(f => path.relative(guard.REPO_ROOT, f));
+        expect(files).toContain(path.join('data', 'staff-tasks-state.json'));
+        expect(files).not.toContain(path.join('agents', 'shared', 'staff-tasks-state.json'));
+        const staffTasks = require('../lib/staff-tasks');
+        expect(path.relative(guard.REPO_ROOT, staffTasks.TASKS_STATE_FILE))
+            .toBe(path.join('data', 'staff-tasks-state.json'));
+        for (const name of guard.DATA_STATE_FILES) {
+            expect(files).toContain(path.join('data', name));
+        }
+        const dataDir = path.join(guard.REPO_ROOT, 'data');
+        for (const name of fs.existsSync(dataDir) ? fs.readdirSync(dataDir) : []) {
+            if (name.endsWith('.json')) expect(files).toContain(path.join('data', name));
+        }
+    });
+
     test('a snapshot distinguishes absent from present, which is the whole CREATE case', () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-fp-'));
         try {
