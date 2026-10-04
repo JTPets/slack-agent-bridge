@@ -16,7 +16,10 @@ not from the architecture wish-list:
 
 This is the detail behind WORK-TODO items **#10** (split the god-files) and **#11**
 (a helpers map). It does not replace them; #10 is the task, #11 is a different
-deliverable (a per-`lib` responsibility index).
+deliverable (a per-`lib` responsibility index). *(2026-10-04: #11 is closed. The per-`lib`
+index is the `CLAUDE.md` Architecture tree, enforced by `tests/architecture-tree.test.js`;
+the shared-behaviour map is `docs/CANONICAL-HELPERS.md`; its two enforcement guards are
+#30 and #33.)*
 
 **Every figure carries the command that regenerates it.** A number with no command
 was removed.

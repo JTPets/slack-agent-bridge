@@ -2,7 +2,8 @@
 
 **Created 2026-09-14.** This repository had no document mapping behaviour that is
 implemented in more than one place; WORK-TODO **#11** asked for one and an earlier
-dispatch declined to create it unilaterally. It is now authorised.
+dispatch declined to create it unilaterally. It is now authorised. (#11 closed 2026-10-04:
+the two guards that would make this map's rule executable are carried by #30 and #33.)
 
 **This is a map, not a refactor.** Nothing was extracted or moved in the change that
 created it. The extraction order is proposed at the end and stops there — a refactor

@@ -233,8 +233,8 @@ decision; that is 14 of those 26 lines.
 
 **The honest exception, so this is not read as a blanket excuse:** **#10** (×5) is
 genuinely hard and is filed that way — *Effort: High, incremental*, 29 source modules to
-split one seam at a time. **#11** (×3) and **#24** (×2) are likewise real remaining work.
-Repeated partial credit is the correct shape for those three. It is not the correct shape
+split one seam at a time. **#11** (×3; closed 2026-10-04, its remainder carried by #30 and #33) and **#24** (×2) are
+likewise real remaining work. Repeated partial credit is the correct shape for those three. It is not the correct shape
 for #3.
 
 **What follows from it.** Two different things were being counted as one. An item whose
@@ -296,7 +296,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | Batch | Theme | Items | Main files | Why this position |
 |---|---|---|---|---|
 | **B1** | A running task is not lost, re-run or misreported | #25, #23, #72, #74, #17 (boot-commit half), #22 (purge) | `bridge-agent.js`, `lib/task-queue.js`, `lib/task-lock.js`, `auto-update.js` (comments), `tests/` | **First.** The deploy step in use kills a running task (#73); B1 makes what happens next honest and stops the re-run. #17's boot report answers "is main deployed?", which is how deploys were found forgotten. No file in common with the in-flight dispatch |
-| **B2** | The test apparatus | #56, #36 (closed 2026-10-04), #69 (closed 2026-10-04), #54 (closed 2026-10-04), #11 | `tests/staff-tasks.test.js`, `tests/architecture-tree.test.js`, `lib/file-size-gate.js`, `lib/repo-history.js`, `lib/backlog-report.js`, `WORK-TODO.md` tier header | P1 under the apparatus rule (tier definition, top of this file). Could run beside B1 (no shared code file) but both purge from this file, so sequence them |
+| **B2** | The test apparatus | #56, #36 (closed 2026-10-04), #69 (closed 2026-10-04), #54 (closed 2026-10-04), #11 (closed 2026-10-04) | `tests/staff-tasks.test.js`, `tests/architecture-tree.test.js`, `lib/file-size-gate.js`, `lib/repo-history.js`, `lib/backlog-report.js`, `WORK-TODO.md` tier header | P1 under the apparatus rule (tier definition, top of this file). Could run beside B1 (no shared code file) but both purge from this file, so sequence them |
 | **B3** | What reaches Slack is redacted and true; one helper per shared behaviour | #30, #31, #32, #33, #24, #7, #21, #58 | `lib/notify-owner.js`, `morning-digest.js`, `lib/llm-runner.js`, `lib/bulletin-board.js`, `lib/staff-tasks.js`, `lib/agent-context.js`, `lib/slack-client.js` | After B1: #30 removes `bridge-agent.js` / `auto-update.js` post helpers that B1 also edits |
 | **B4** | Records: config surface and docs that state what is no longer true | #34, #4b, #20, #63, #35, #48, #10 (table refresh) + the stale-claim sweep below | `CLAUDE.md`, `README.md`, `.env.example`, `docs/AGENTS.md`, `WORK-TODO.md` | After the in-flight records dispatch, which owns the same docs this week. Verifiable by reading |
 | **B5** | Commands and routing | #46, #49, #4, #9, #39, #66, #52, #64 (gate half only, see row) | `bridge-agent.js`, `lib/command-router.js`, `lib/dispatch-command.js`, `lib/dispatch-modal.js`, `lib/task-queue.js`, `lib/critique-signals.js` | After B1 and B3 (shared `bridge-agent.js`, `lib/task-queue.js`) |
@@ -342,7 +342,6 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #63 | P2 | OPEN | B4 | S (banner) | Nuance to record: `bridge-agent.js:2278` migrates legacy history into the bridge's tiers once at startup |
 | #10 | P2 | OPEN, table stale | B4 (refresh) | L | 72 files over 300 lines, all declared. `lib/owner-tasks-view.js` named in the table does not exist; `lib/task-queue.js` is 756 lines, so its "under on code" justification is false |
 | #44 | P2 | decision | OD | S | Figures stale (now 42 of 72) |
-| #11 | P2 | REPO HALF DONE | B2 | M | Map and rule exist; its two enforcement tests are #30's and #33's. Close into them |
 | #5 | P2 | OPEN, speculative | SEED | L | Nothing built. Changes the execution model — park |
 | #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
 | #7 | P2 | OPEN | B3 | S | No pre-timeout warning anywhere |
@@ -495,7 +494,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (41)
+**P2 — real gaps, no risk to the running process** (40)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -517,7 +516,6 @@ work behind an owner's name, which is the opposite of the point.
 - **#63** — [The tiered memory system is implemented, documented in the present tense, and written by nothing](#63-the-tiered-memory-system-is-implemented-documented-in-the-present-tense-and-written-by-nothing)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
 - **#44** — [The 300-line rule is one rule over two different problems — scope it, or say it covers both](#44-the-300-line-rule-is-one-rule-over-two-different-problems--scope-it-or-say-it-covers-both)
-- **#11** — [A helpers/utilities map and an owning-doc rule](#11-a-helpersutilities-map-and-an-owning-doc-rule)
 - **#5** — [Mid-task `ask_on_slack` capability](#5-mid-task-ask_on_slack-capability)
 - **#6** — [Structured task result format](#6-structured-task-result-format)
 - **#7** — [Task timeout escalation tiers](#7-task-timeout-escalation-tiers)
@@ -1798,7 +1796,9 @@ Settle swallow-vs-rethrow deliberately rather than per-file.
 **The durable close is an enumerator, not six edits:** a test that walks every non-test
 `.js` file, finds each `chat.postMessage` call, and fails when one is reached by a path
 that does not redact — the `tests/no-shell-execution.test.js` pattern applied to
-unscrubbed-Slack-output. Without it the seventh copy lands unnoticed.
+unscrubbed-Slack-output. Without it the seventh copy lands unnoticed. (This enumerator
+and #33's are the remainder of the closed #11: the helpers map and the owning-doc rule
+exist, and these two guards are what make the map's rule fail when it is broken.)
 **Priority:** P2 | **Effort:** Low per site; Medium for the enumerator | **Status:** open
 
 ---
@@ -2487,7 +2487,8 @@ changes what "today" means for staff tasks, so it is not a silent swap.
 
 **The durable close is an enumerator:** a test that fails when a new
 `toISOString().split('T')[0]`/`.slice(0,10)` appears outside `lib/llm-metrics.js`. Paired
-with #30's; both are named in the map's closing section.
+with #30's; both are named in the map's closing section, and together they carry the
+closed #11's remainder.
 **Priority:** P2 | **Effort:** Low (fix) / Low (enumerator) | **Status:** open
 
 ---
@@ -2924,34 +2925,6 @@ its scope changes what every future change is measured against. It is the owner'
 Whichever way it goes, the change is small — `lib/file-size-gate.js` owns the enumeration and
 the rule in one place, and `tests/file-size-gate.test.js` has the negative controls.
 **Priority:** P2 | **Effort:** Low (the decision is the work) | **Status:** open
-
----
-
-### 11. A helpers/utilities map and an owning-doc rule
-**Filed 2026-09-13** (derived: `20dc049`).
-**Problem:** There is no index of what the `lib/` helpers do or which doc owns each
-behaviour. `docs/` holds per-agent design docs only (no `HELPERS.md`/`UTILITIES.md` —
-`ls docs/` confirms). New code re-implements behaviour that already exists in `lib/`
-because nothing points to it.
-**Fix:** add a `docs/HELPERS.md` mapping each `lib/*.js` to its responsibility (the
-`CLAUDE.md` Architecture block is a starting inventory), and a CLAUDE.md rule that a new
-file names its owning doc. Doc-and-convention only.
-**Effort:** Low.
-
-**Half closed 2026-09-14.** The map exists:
-[`docs/CANONICAL-HELPERS.md`](docs/CANONICAL-HELPERS.md) — twelve concepts, every site
-cited `file:line`, each pair marked IDENTICAL / EQUIVALENT / DIVERGENT, a regeneration
-command per concept, and a ranked extraction order. Six of its rows are DIVERGENT and are
-filed here as **#30**-**#33**. The owning-doc *rule* is added to
-`docs/EXECUTOR-CONTRACT.md` section 6 ("check this map before re-deriving shared
-behaviour").
-
-**What remains open, and it is the part that matters:** the rule is prose, so it gets
-broken silently — the exact failure mode `tests/architecture-tree.test.js` was written to
-close for a different rule. Nothing fails when a new site re-derives a mapped helper. The
-two guards worth writing are named in the map's closing section and carried with #30
-(redaction at every `chat.postMessage` site) and #33 (day keys outside `lib/llm-metrics.js`).
-**Priority:** P2 | **Effort:** Low (map done) / Medium (the two enumerators) | **Status:** open — map delivered, rule not yet executable
 
 ---
 
