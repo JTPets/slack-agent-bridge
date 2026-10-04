@@ -43,12 +43,9 @@ const { activeChannels, describeSchedule } = require('../lib/agent-surface');
 require('./helpers/workspace-fixture').useFixtureWorkspace();
 
 
-/** Strip // line comments and block comments, leaving strings intact. */
-function stripComments(src) {
-    return src
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-}
+// Comments blanked, strings intact. LOGIC CHANGE 2026-10-04 (WORK-TODO #36): the
+// shared scanner in tests/helpers/source-scan.js replaces a regex copy here.
+const stripComments = (src) => require('./helpers/source-scan').stripComments(src, { blankStrings: false });
 
 /** The body of a top-level `async function <name>(` up to the next top-level `}`. */
 function functionBody(src, name) {

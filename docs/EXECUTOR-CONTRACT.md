@@ -78,13 +78,21 @@ If any check could not run, it is `Addresses <ID>` plus an explicit statement of
 remains. A sub-proof is not the item's namesake: "the fix works" is not "the item's
 literal claim is met".
 
+**The `Closes` commit also purges the item from `WORK-TODO.md`** (body, index row, triage
+row), in the same commit. Since 2026-10-04 that is checked, not trusted:
+`node scripts/close-reconcile.js` (also run by `npm run validate`) fails when a `Closes #N`
+reachable from `HEAD` leaves #N in the file under the same title, and exits **2** — never 0
+— on a shallow clone, because it needs history (WORK-TODO #69, closed).
+
 ## 5. Rules this repo enforces with tests
 
 Run `npm test` (full suite) and `npm run test:smoke` (load/require gate). Both must be
 green, and a runner that will not start is **red**, not a hiccup — run `npm ci` first.
 
-`npm run validate` loads `bridge-agent.js` in a subprocess and then runs the
-**declaration-driven file-size gate** (`lib/file-size-gate.js`).
+`npm run validate` loads `bridge-agent.js` in a subprocess, then runs the
+**declaration-driven file-size gate** (`lib/file-size-gate.js`) and the **close
+reconciliation** (`lib/close-reconcile.js`; it needs full history, so run it from a
+non-shallow clone — `git fetch --unshallow` first).
 
 **Since 2026-09-15 the size half of it is green, and a red there is yours.** It used to
 fail on every over-limit file unconditionally — 65 of them — so it was red on every run

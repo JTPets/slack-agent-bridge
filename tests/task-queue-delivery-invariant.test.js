@@ -32,12 +32,8 @@ const { TaskQueue, STATUS, deliveryRecorded } = require('../lib/task-queue');
 const SOURCE = path.join(__dirname, '..', 'lib', 'task-queue.js');
 const TERMINAL = Object.keys(STATUS).filter(k => k !== 'PENDING' && k !== 'RUNNING');
 
-/** Remove // line comments and block comments so prose cannot satisfy or fail a check. */
-function stripComments(src) {
-    return src
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
-}
+/** Blank comments (strings intact) so prose cannot satisfy or fail a check. Shared scanner: WORK-TODO #36. */
+const stripComments = (src) => require('./helpers/source-scan').stripComments(src, { blankStrings: false });
 
 /** Split a class body into { name, body } by its 4-space-indented method headers. */
 function methodsOf(src) {

@@ -8,7 +8,11 @@ the unmerged side is renumbered before it lands, because the merged addresses ar
 already cited elsewhere. An ID that has ever been on `main` is never renumbered. That has
 happened once — `#57`–`#61` on 2026-09-20, now `#62`–`#66`; **#67** is the class.
 **Closed items are purged, not struck through:** the git history and the `Closes <ID>` commit body are the record, and a
-file that keeps its own dead entries stops being readable as a list of work. The index
+file that keeps its own dead entries stops being readable as a list of work. The purge goes
+in the same commit as the `Closes` line, and that is checked:
+`node scripts/close-reconcile.js` exits 1 when a `Closes #N` reachable from `HEAD` leaves #N
+here under the same title, and 2 (never 0) on a shallow clone. A reused number (#67) is
+reported, not flagged. The index
 below is **regenerated from the headings**, never appended to.
 
 **Ranking axis:** blast radius on the live single-container deployment first — can the item
@@ -16,8 +20,19 @@ brick the bridge, silently corrupt its state, or does it unblock the hardening t
 prevents those — then leverage per unit of effort.
 
 Priority tiers: **P1** = can brick or silently degrade the running bridge, or unblocks
-something that can | **P2** = real gap, no risk to the live process | **P3** = nice to have
-/ uncertain ROI.
+something that can — **or is a defect in the apparatus that tests other work** | **P2** =
+real gap, no risk to the live process | **P3** = nice to have / uncertain ROI.
+
+**The apparatus rule (from the closed #54, 2026-09-15; written here 2026-10-04 so it
+outlives the item).** Before assigning a tier, ask whether the defect is in the system under
+test or in the apparatus that tests it. A defect in the apparatus — a flaky suite, a gate
+that cannot start, a gate red for a non-code reason, a suite that mutates what it measures —
+is **P1 regardless of its symptom**, because every judgement made while it is open is
+unverified. Two defects were ranked by their visible symptom and deferred on scope grounds
+when they sat under verification: the `getRecentCompleted` ordering (P2, "cosmetic"; it made
+`tests/task-queue.test.js` red in 25 of 40 runs, closed `3d7ad70`) and the suite writing
+invented ids into the live `agents/shared/channel-map.json` (#50/#24, "latent"). The rule
+is applied at filing time; it is not a mandate to re-rank the file.
 
 **Every figure in this file carries the command that regenerates it.** A number with no
 command was removed. A figure only regenerable off-repo (on the NAS, or from the live
@@ -109,7 +124,7 @@ At the **2026-09-20 close-reconciliation pass** those print **61** open items �
 (merged `5749d08`) four days earlier and left in the file: `git show 723dfed --stat --
 WORK-TODO.md` prints nothing. **So the two figures below are wrong by one in the direction
 nobody could see** — both passes counted #61 as open when its closing commit had already
-landed, which is the whole of **#69**. They are left as written rather than corrected,
+landed, which is the whole of **#69** (closed 2026-10-04: `node scripts/close-reconcile.js`, also in `npm run validate`, now fails on exactly this). They are left as written rather than corrected,
 because each is a dated observation of what the commands printed at the time, and
 overwriting them would erase the evidence for the item they produced.
 
@@ -218,8 +233,8 @@ decision; that is 14 of those 26 lines.
 
 **The honest exception, so this is not read as a blanket excuse:** **#10** (×5) is
 genuinely hard and is filed that way — *Effort: High, incremental*, 29 source modules to
-split one seam at a time. **#11** (×3) and **#24** (×2) are likewise real remaining work.
-Repeated partial credit is the correct shape for those three. It is not the correct shape
+split one seam at a time. **#11** (×3; closed 2026-10-04, its remainder carried by #30 and #33) and **#24** (×2) are
+likewise real remaining work. Repeated partial credit is the correct shape for those three. It is not the correct shape
 for #3.
 
 **What follows from it.** Two different things were being counted as one. An item whose
@@ -281,7 +296,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | Batch | Theme | Items | Main files | Why this position |
 |---|---|---|---|---|
 | **B1** | A running task is not lost, re-run or misreported | #25, #23, #72, #74, #17 (boot-commit half), #22 (purge) | `bridge-agent.js`, `lib/task-queue.js`, `lib/task-lock.js`, `auto-update.js` (comments), `tests/` | **First.** The deploy step in use kills a running task (#73); B1 makes what happens next honest and stops the re-run. #17's boot report answers "is main deployed?", which is how deploys were found forgotten. No file in common with the in-flight dispatch |
-| **B2** | The test apparatus | #56, #36, #69, #54, #11 | `tests/staff-tasks.test.js`, `tests/architecture-tree.test.js`, `lib/file-size-gate.js`, `lib/repo-history.js`, `lib/backlog-report.js`, `WORK-TODO.md` tier header | P1 under #54's own rule. Could run beside B1 (no shared code file) but both purge from this file, so sequence them |
+| **B2** | The test apparatus | #56, #36 (closed 2026-10-04), #69 (closed 2026-10-04), #54 (closed 2026-10-04), #11 (closed 2026-10-04) | `tests/staff-tasks.test.js`, `tests/architecture-tree.test.js`, `lib/file-size-gate.js`, `lib/repo-history.js`, `lib/backlog-report.js`, `WORK-TODO.md` tier header | P1 under the apparatus rule (tier definition, top of this file). Could run beside B1 (no shared code file) but both purge from this file, so sequence them |
 | **B3** | What reaches Slack is redacted and true; one helper per shared behaviour | #30, #31, #32, #33, #24, #7, #21, #58 | `lib/notify-owner.js`, `morning-digest.js`, `lib/llm-runner.js`, `lib/bulletin-board.js`, `lib/staff-tasks.js`, `lib/agent-context.js`, `lib/slack-client.js` | After B1: #30 removes `bridge-agent.js` / `auto-update.js` post helpers that B1 also edits |
 | **B4** | Records: config surface and docs that state what is no longer true | #34, #4b, #20, #63, #35, #48, #10 (table refresh) + the stale-claim sweep below | `CLAUDE.md`, `README.md`, `.env.example`, `docs/AGENTS.md`, `WORK-TODO.md` | After the in-flight records dispatch, which owns the same docs this week. Verifiable by reading |
 | **B5** | Commands and routing | #46, #49, #4, #9, #39, #66, #52, #64 (gate half only, see row) | `bridge-agent.js`, `lib/command-router.js`, `lib/dispatch-command.js`, `lib/dispatch-modal.js`, `lib/task-queue.js`, `lib/critique-signals.js` | After B1 and B3 (shared `bridge-agent.js`, `lib/task-queue.js`) |
@@ -298,7 +313,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | ID | Tier | Verdict at `71d2112` | Batch | Effort | Evidence, and what is left |
 |---|---|---|---|---|---|
 | #55 | P1 | REPO DONE | OA | S | `scripts/channel-map.js` `--from-git`/`--resolve` built; owner rebuilds the map. Suggest P2: nothing for a branch |
-| #56 | P1 | OPEN, nothing to act on until it recurs | B2 | S | Not seen in 2 runs. The adjacent race is #36's: `tests/staff-tasks.test.js:28` makes a temp dir inside the repo root that `lib/file-size-gate.js` `measure()` walks |
+| #56 | P1 | OPEN, nothing to act on until it recurs | B2 | S | Not seen in 2 runs at triage or 3 on `e7edded`. The adjacent race was removed 2026-10-04 (`0773821` deleted the in-tree temp dir; the shared walker in `lib/source-walk.js` skips a vanished dir). The globalSetup signature is still unexplained |
 | #42 | P1 | OPEN | B6 | S/M | No backup check anywhere in the repo. **Correction:** part (c) is not buildable alone — the container mounts no backups path (`docker-compose.example.yml:75-80`), so it needs an owner mount or a host-side check |
 | #41 | P1 | REPO DONE | OA | — | All remaining work is on the appliance |
 | #17 | P1 | Boot-commit report DONE in B1; deploy shape is a decision | OD + B6 | M | Boot post via `lib/repo-history.js` `loadedCommit()`. Remaining: choose start-the-daemon / push-triggered / manual, then B6 wires it |
@@ -327,7 +342,6 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #63 | P2 | OPEN | B4 | S (banner) | Nuance to record: `bridge-agent.js:2278` migrates legacy history into the bridge's tiers once at startup |
 | #10 | P2 | OPEN, table stale | B4 (refresh) | L | 72 files over 300 lines, all declared. `lib/owner-tasks-view.js` named in the table does not exist; `lib/task-queue.js` is 756 lines, so its "under on code" justification is false |
 | #44 | P2 | decision | OD | S | Figures stale (now 42 of 72) |
-| #11 | P2 | REPO HALF DONE | B2 | M | Map and rule exist; its two enforcement tests are #30's and #33's. Close into them |
 | #5 | P2 | OPEN, speculative | SEED | L | Nothing built. Changes the execution model — park |
 | #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
 | #7 | P2 | OPEN | B3 | S | No pre-timeout warning anywhere |
@@ -345,15 +359,12 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #51 | P2 | decision | OD | — | Also: `CLAUDE.md` "Agent Activation" still says to edit the deleted `agents/agents.json` (B4) |
 | #52 | P2 | OPEN | B5 | S | Read-only reconcile report; `--report` cited in #52/#55 is not a flag (falls through to the default) |
 | #53 | P2 | REPO DONE | OA | S | `#jester-agent` still has to be created by the owner |
-| #54 | P2 | OPEN | B2 | S | Amend the tier definition at the top of this file, then purge |
 | #57 | P2 | in flight, **one constraint STALE** | — | S | Constraint 1 says "the bridge pushes nothing". At HEAD `cloneRepo` points `origin` at SSH and sets `core.sshCommand` to the bridge's own deploy key (`lib/clone-lifecycle.js:173-190`), so the executor pushes with the bridge's key |
 | #59 | P2 | OPEN, behind #17/#73 | B6 | M | No stall or wall-clock logic exists |
-| #69 | P2 | OPEN | B2 | M | One-off check finds only `3d7ad70` Closes #43 — #67's ID reuse, not an unpurged close. A naive check would false-alarm on it |
 | #67 | P2 | decision | OD | S stopgap | Stopgap: "fetch `origin/main` and re-read the max ID" in the executor contract |
 | #58 | P3 | OPEN | B3 | S | Reproduced on Node 22: an ENOENT spawn holds the process until the `timeout` timer fires |
 | #60 | P3 | deferred design rule | OD | — | Move to a design doc before it is ever purged |
 | #48 | P3 | OPEN | B4 | S | Move the two-bullet rule into `CLAUDE.md`, then purge |
-| #36 | P3 | OPEN, undercounted | B2 | M | Sixth walker at `tests/architecture-tree.test.js:143-150`. Cause of the #56 class — suggest P2 |
 | #21 | P3 | OPEN | B3 | S | `new WebClient(token)` with no `logLevel` at `lib/slack-client.js:62` |
 | #29 | P3 | decision | OD | S to drop | Gmail scope is read-only (`lib/integrations/gmail.js:96`) |
 | #13 | P3 | idea | SEED | L | Recommend drop: widens what a task can do while #27 is undecided |
@@ -460,11 +471,10 @@ grep -cE '^\*\*BLOCKED — OWNER DECISION' WORK-TODO.md
 who can move it, not that it stopped mattering. #3 and #55 are P1 precisely because the
 thing that would settle them is a restart nobody has done.
 
-**Deliberately not marked, though it is tempting:** #17, #25, #42, #49, #52 and #54 each
+**Deliberately not marked, though it is tempting:** #17, #25, #42, #49 and #52 each
 have an owner-side half **and** repo-side work still available — #25's alert text and its
 regression test, #42's age alert (the item says "(c) is buildable here"), #17's
-report-the-running-commit requirement, #52's computable direction, #54's rule needing a
-home in the tier definition, #49's answerable questions. Marking those would hide real
+report-the-running-commit requirement, #52's computable direction, #49's answerable questions. Marking those would hide real
 work behind an owner's name, which is the opposite of the point.
 
 ## Index
@@ -484,7 +494,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (43)
+**P2 — real gaps, no risk to the running process** (40)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -506,7 +516,6 @@ work behind an owner's name, which is the opposite of the point.
 - **#63** — [The tiered memory system is implemented, documented in the present tense, and written by nothing](#63-the-tiered-memory-system-is-implemented-documented-in-the-present-tense-and-written-by-nothing)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
 - **#44** — [The 300-line rule is one rule over two different problems — scope it, or say it covers both](#44-the-300-line-rule-is-one-rule-over-two-different-problems--scope-it-or-say-it-covers-both)
-- **#11** — [A helpers/utilities map and an owning-doc rule](#11-a-helpersutilities-map-and-an-owning-doc-rule)
 - **#5** — [Mid-task `ask_on_slack` capability](#5-mid-task-ask_on_slack-capability)
 - **#6** — [Structured task result format](#6-structured-task-result-format)
 - **#7** — [Task timeout escalation tiers](#7-task-timeout-escalation-tiers)
@@ -524,18 +533,15 @@ work behind an owner's name, which is the opposite of the point.
 - **#51** — [A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it](#51-a-command-that-writes-a-tracked-file-is-destroyed-by-the-next-pull-and-every-configuration-writing-command-shares-it)
 - **#52** — [The workspace's channels and the repository's agents have never been reconciled in either direction](#52-the-workspaces-channels-and-the-repositorys-agents-have-never-been-reconciled-in-either-direction)
 - **#53** — [`jester` is an active commentary agent with a weekly schedule, no channel, and no defined material](#53-jester-is-an-active-commentary-agent-with-a-weekly-schedule-no-channel-and-no-defined-material)
-- **#54** — [Two defects deferred on scope grounds were load-bearing — the deferral judgement, not the filing, is what failed](#54-two-defects-deferred-on-scope-grounds-were-load-bearing--the-deferral-judgement-not-the-filing-is-what-failed)
 - **#57** — [Before the bridge is given a private-repo credential — the constraints, not the plan](#57-before-the-bridge-is-given-a-private-repo-credential--the-constraints-not-the-plan)
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
-- **#69** — [A commit that says `Closes #N` while #N stays in the file is undetectable — the convention and the record are never reconciled](#69-a-commit-that-says-closes-n-while-n-stays-in-the-file-is-undetectable--the-convention-and-the-record-are-never-reconciled)
 - **#67** — [IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide](#67-ids-are-allocated-at-write-time-from-an-append-only-list-so-two-branches-cut-from-the-same-base-always-collide)
 
-**P3 — nice to have / uncertain ROI** (10)
+**P3 — nice to have / uncertain ROI** (9)
 
 - **#58** — [A spawn that fails with `error` never clears Node's `timeout` kill-timer](#58-a-spawn-that-fails-with-error-never-clears-nodes-timeout-kill-timer)
 - **#60** — [If the bridge is ever to act on the NAS, the capability is an allowlisted command set — not a shell](#60-if-the-bridge-is-ever-to-act-on-the-nas-the-capability-is-an-allowlisted-command-set--not-a-shell)
 - **#48** — [A model list is enumerable for a local provider and is a guess for a hosted one — record the asymmetry, build neither yet](#48-a-model-list-is-enumerable-for-a-local-provider-and-is-a-guess-for-a-hosted-one--record-the-asymmetry-build-neither-yet)
-- **#36** — [Three enumerating guards each carry their own source-tree walker, and `tests/` subdirectories are enumerated by none of them](#36-three-enumerating-guards-each-carry-their-own-source-tree-walker-and-tests-subdirectories-are-enumerated-by-none-of-them)
 - **#21** — [`already_in_channel` warns five times per boot — and the obvious fix is in the wrong place](#21-already_in_channel-warns-five-times-per-boot--and-the-obvious-fix-is-in-the-wrong-place)
 - **#29** — [`gmail-unsubscribe` is a declared agent permission that no code implements](#29-gmail-unsubscribe-is-a-declared-agent-permission-that-no-code-implements)
 - **#13** — [MCP server wrapper](#13-mcp-server-wrapper)
@@ -645,10 +651,12 @@ against a real Slack workspace and off-box export of the resolved map both outst
 > two-consecutive-greens bar), and the two racing suites run together passed 8 of 8.
 > **The fix is not in the walker**: no test-scoped directory should be created inside the
 > tree five separate guards enumerate — `os.tmpdir()`, which
-> `tests/helpers/workspace-fixture.js` already uses. See **#36**, which owns the walkers and
-> now records that this is a reliability cost and not only a duplication one. Not fixed in
-> the pass that found it: that dispatch was read-only plus record correction. **Two observations, message
-captured neither time — filed because of the rule #54 records, not despite it.**
+> `tests/helpers/workspace-fixture.js` already uses. **Fixed 2026-10-04 on both sides:**
+> `0773821` removed the in-tree directory (nothing read it), and #36 (closed) replaced the
+> walkers with one, `lib/source-walk.js`, that skips a directory removed mid-walk; the
+> regression test is `tests/source-walk.test.js`. Not fixed in the pass that found it: that
+> dispatch was read-only plus record correction. **Two observations, message
+captured neither time — filed because of the apparatus rule (tier definition at the top of this file; it was #54), not despite it.**
 
 **What was seen, twice, with the same signature.** A full `npx jest` run failed *before
 any suite ran*, with the stack ending in
@@ -679,7 +687,7 @@ npx jest --silent > /tmp/jest-out.txt 2>&1; echo "exit=$?"; head -40 /tmp/jest-o
 **Never react to a failing gate through `tail`.** Next steps if it recurs: the full
 stderr from the above, and `--runInBand` to rule out a worker interaction.
 
-**Why this is filed at P1 with one data point.** #54 records the rule: *a defect in the
+**Why this is filed at P1 with one data point.** The apparatus rule in this file's tier definition (it was #54) says: *a defect in the
 apparatus that tests other work is P1 regardless of its symptom, because everything
 downstream of it is unverified while it is open.* `globalSetup` is the guard that stops
 a test run writing the configuration the deployment reads (`live-state-teardown.js`).
@@ -707,15 +715,26 @@ needs far more runs than this to rule out, and the item's own framing ("treat it
 percent") already says so. Recorded as three more data points, not as progress.
 
 **Note for whoever picks this up:** the runner was **absent** in that container until
-`npm ci` was run (`ls node_modules/.bin/jest` -> no such file). Under the #54 rule that is
+`npm ci` was run (`ls node_modules/.bin/jest` -> no such file). Under the apparatus rule that is
 the same class as this item — a gate that cannot start. It is an environment condition, not
 a defect here, but a hunt for this flake that begins without confirming the runner is
 installed will misread `jest: not found` as the very failure it is hunting.
 
-**Priority:** P1 by the #54 rule | **Effort:** Low to instrument, unknown to fix
-**Risk:** Unknown — a gate that can fail to start is the shape #54 is about
-**Status:** open — two unreproduced observations, same signature; 19 green runs since;
-instrument before hunting
+**2026-10-04 (B2): the adjacent race is gone, the globalSetup signature is not explained.**
+`0773821` removed `<repo>/test-data-staff-tasks` (nothing read it) and `8bc987d` put every
+tree walk behind `lib/source-walk.js`, which skips a directory removed mid-walk
+(`tests/source-walk.test.js` fails against the old loop). The same pass found the
+globalSetup guard itself was half-blind: it watched `agents/shared/staff-tasks-state.json`,
+where nothing writes, while `tests/staff-tasks.test.js` deleted the live
+`data/staff-tasks-state.json` on every run; both fixed in `0773821`, with a negative control
+that turns the run red. Three full runs with the capture above, on `e7edded`:
+`exit=0` each time, 90 suites / 2620 tests / 0 skipped. Three more data points, not a
+running total: runs between 2026-09-16 and now were not all counted. None of this touches what this item records (`globalSetup` failing to
+*load*), so it stays open.
+**Priority:** P1 by the apparatus rule | **Effort:** Low to instrument, unknown to fix
+**Risk:** Unknown — a gate that can fail to start is the shape the apparatus rule is about
+**Status:** open — two unreproduced observations, same signature; every counted run since is
+green; instrument before hunting
 
 ---
 
@@ -1788,7 +1807,9 @@ Settle swallow-vs-rethrow deliberately rather than per-file.
 **The durable close is an enumerator, not six edits:** a test that walks every non-test
 `.js` file, finds each `chat.postMessage` call, and fails when one is reached by a path
 that does not redact — the `tests/no-shell-execution.test.js` pattern applied to
-unscrubbed-Slack-output. Without it the seventh copy lands unnoticed.
+unscrubbed-Slack-output. Without it the seventh copy lands unnoticed. (This enumerator
+and #33's are the remainder of the closed #11: the helpers map and the owning-doc rule
+exist, and these two guards are what make the map's rule fail when it is broken.)
 **Priority:** P2 | **Effort:** Low per site; Medium for the enumerator | **Status:** open
 
 ---
@@ -2337,7 +2358,7 @@ one writing suite so nothing races it. That is true and it was not the risk. A f
 ids written by `tests/slack-client.test.js` into the file the running bridge resolves
 agent channels from — and rewrote `agents/shared/watercooler-state.json` on every run.
 Not a race: a straightforward corruption of live configuration by a test suite, happening
-continuously. See #54 on the deferral judgement itself.
+continuously. See the apparatus rule in the tier definition at the top of this file (it was #54, closed 2026-10-04) on the deferral judgement itself.
 
 **`lib/slack-client.js` is the instructive one.** By the time it was found it already HAD
 the seam this item prescribes — ownership of `channel-map.json` moved to
@@ -2477,7 +2498,8 @@ changes what "today" means for staff tasks, so it is not a silent swap.
 
 **The durable close is an enumerator:** a test that fails when a new
 `toISOString().split('T')[0]`/`.slice(0,10)` appears outside `lib/llm-metrics.js`. Paired
-with #30's; both are named in the map's closing section.
+with #30's; both are named in the map's closing section, and together they carry the
+closed #11's remainder.
 **Priority:** P2 | **Effort:** Low (fix) / Low (enumerator) | **Status:** open
 
 ---
@@ -2776,7 +2798,7 @@ The remaining 35, each justified as the suite for the subject named:
 `tests/bulletin-board.test.js` (434), `tests/clone-lifecycle.test.js` (429),
 `tests/code-review-pipeline.test.js` (400), `tests/agent-context.test.js` (389),
 `tests/agent-scheduler.test.js` (376), `tests/staff-tasks.test.js` (367),
-`tests/test-gate-honesty.test.js` (365), `tests/auto-update-defer.test.js` (357),
+`tests/test-gate-honesty.test.js` (365; back under the limit 2026-10-04 when #36 moved its walker out, entry removed), `tests/auto-update-defer.test.js` (357),
 `tests/multi-channel-routing.test.js` (352), `tests/message-detection.test.js` (319),
 `tests/undelivered-work.test.js` (302).
 
@@ -2861,9 +2883,10 @@ compliance path is less testing is pointed the wrong way.
 - **Two rules are two things to keep honest.** The single rule is enforced by one check with
   one number; splitting it invites a second threshold that drifts, and a file that is neither
   clearly source nor clearly test (a fixture, a helper under `tests/`) lands in the gap.
-  Note #36 already records that three enumerating guards each carry their own tree walker and
-  that `tests/` subdirectories are enumerated by none of them — the seam between "source" and
-  "test" is not as crisp in this repo as the argument above assumes.
+  #36 (closed 2026-10-04) found eight copies of the tree walker and `tests/` subdirectories
+  enumerated by no guard; the walker is now `lib/source-walk.js`, production code that the
+  test guards share — the seam between "source" and "test" is not as crisp in this repo as
+  the argument above assumes.
 - **The exceptions list makes the cost small.** With a recorded reason per file, a long suite
   is already visible and deliberate. Scoping the rule away removes that visibility entirely.
 
@@ -2913,34 +2936,6 @@ its scope changes what every future change is measured against. It is the owner'
 Whichever way it goes, the change is small — `lib/file-size-gate.js` owns the enumeration and
 the rule in one place, and `tests/file-size-gate.test.js` has the negative controls.
 **Priority:** P2 | **Effort:** Low (the decision is the work) | **Status:** open
-
----
-
-### 11. A helpers/utilities map and an owning-doc rule
-**Filed 2026-09-13** (derived: `20dc049`).
-**Problem:** There is no index of what the `lib/` helpers do or which doc owns each
-behaviour. `docs/` holds per-agent design docs only (no `HELPERS.md`/`UTILITIES.md` —
-`ls docs/` confirms). New code re-implements behaviour that already exists in `lib/`
-because nothing points to it.
-**Fix:** add a `docs/HELPERS.md` mapping each `lib/*.js` to its responsibility (the
-`CLAUDE.md` Architecture block is a starting inventory), and a CLAUDE.md rule that a new
-file names its owning doc. Doc-and-convention only.
-**Effort:** Low.
-
-**Half closed 2026-09-14.** The map exists:
-[`docs/CANONICAL-HELPERS.md`](docs/CANONICAL-HELPERS.md) — twelve concepts, every site
-cited `file:line`, each pair marked IDENTICAL / EQUIVALENT / DIVERGENT, a regeneration
-command per concept, and a ranked extraction order. Six of its rows are DIVERGENT and are
-filed here as **#30**-**#33**. The owning-doc *rule* is added to
-`docs/EXECUTOR-CONTRACT.md` section 6 ("check this map before re-deriving shared
-behaviour").
-
-**What remains open, and it is the part that matters:** the rule is prose, so it gets
-broken silently — the exact failure mode `tests/architecture-tree.test.js` was written to
-close for a different rule. Nothing fails when a new site re-derives a mapped helper. The
-two guards worth writing are named in the map's closing section and carried with #30
-(redaction at every `chat.postMessage` site) and #33 (day keys outside `lib/llm-metrics.js`).
-**Priority:** P2 | **Effort:** Low (map done) / Medium (the two enumerators) | **Status:** open — map delivered, rule not yet executable
 
 ---
 
@@ -3475,7 +3470,7 @@ channel, and nothing in this repository creates one. Remainder: `ASK: create cha
    and a large part of that is already computable with no model at all:
 
    - items in this file carrying a **Filed** date and still `Status: open` — how long each
-     has been open, and which were deferred on scope grounds and then bit (#54);
+     has been open, and which were deferred on scope grounds and then bit (the apparatus rule, top of this file);
    - `Closes <ID>` vs `Addresses <ID>` in commit bodies — work claimed complete against
      work claimed partial (`git log --grep='^Addresses #' --oneline`);
    - a definition-of-done list in a commit body against the suites that actually ran.
@@ -3525,54 +3520,6 @@ contrarian persona writes a complaint.
 **Status:** open — **blocked on `ASK: create channel #jester-agent`, and on nothing
 else.** The material, the critique, the on-demand trigger and the no-gating guard are
 all landed and green.
-
----
-
-### 54. Two defects deferred on scope grounds were load-bearing — the deferral judgement, not the filing, is what failed
-**Filed 2026-09-15.** **A decision record about how this backlog is used, not a code
-defect.** Both instances were filed correctly, with evidence, and then deferred for a
-reason that read well at the time and was wrong.
-
-| Filed as | Deferred because | What it actually was |
-|---|---|---|
-| `getRecentCompleted` sorts by a millisecond timestamp (P2, closed 3d7ad70) | "cosmetic ordering in one status command" | `tests/task-queue.test.js` failed in **25 of 40** isolated runs on the base commit. Every test run in this repository was a coin flip, so *every* gate was unreliable, including the ones judging unrelated work |
-| #50 / #24 — a suite writing fixtures into live configuration | "latent; each file has exactly one writing suite, so nothing races it" (#24's own words) | It was not latent. It was writing three invented ids into `agents/shared/channel-map.json` — the file the running bridge resolves agent channels from — on every run, while the same file being absent made 30 tests red in every fresh clone |
-
-**The common shape, and it is the useful part.** Both were ranked by the **visible
-symptom's** severity — a mis-ordered list, a tidiness issue in tests — when the thing that
-made them load-bearing was that they sat under **verification**. A defect in the thing
-that judges other work is not P2 because its symptom is small; its blast radius is every
-judgement made while it is open. #50 says this about itself in passing ("Dismissing red is
-the habit being trained") and was still filed P2.
-
-**The rule this records:** *before assigning a tier, ask whether the defect is in the
-system under test or in the apparatus that tests it.* A defect in the apparatus — a flaky
-suite, a gate that cannot start, a gate red for a non-code reason, a suite that mutates
-what it measures — is **P1 regardless of its symptom**, because everything downstream of
-it is unverified while it is open. The existing P1 definition ("can brick or silently
-degrade the running bridge") does not cover this, and both of these fell through that gap.
-
-**Not proposed:** re-ranking the whole file. Two instances is a pattern, not a mandate,
-and the next filing is where this is cheapest to apply.
-**Why this could not be closed in the 2026-09-16 audit, and what would close it.** Its
-Effort is "None — the decision is the artifact", so on a first reading it looks done. It is
-not closeable, for a reason that is structural rather than about this item: **this file
-purges closed items, so closing a decision record deletes the decision** unless the decision
-already lives somewhere else. `grep -rn "apparatus" CLAUDE.md docs/*.md` finds nothing — the
-rule exists only here. And it is load-bearing right now: **#56 cites it by number as the
-sole justification for its P1 ranking**, so purging this would leave #56's tier unexplained.
-
-Compare #45, closed the same day: its rule was independently written into
-`lib/command-router.js:12`, `CLAUDE.md:651` and a test, so purging the item cost nothing.
-That is the difference, and it is the close condition here too — **the remainder is one
-edit: put the rule in this file's own priority-tier definition.** The tier definition
-currently reads "P1 = can brick or silently degrade the running bridge, or unblocks
-something that can", and this item exists because that sentence does not cover a defect in
-the apparatus. Amend it, then close.
-
-**Priority:** P2 | **Effort:** Low (one edit to the tier definition above, then close)
-**Status:** open — the rule is written down here and nowhere else, so closing it would
-delete it; #56 depends on it
 
 ---
 
@@ -3664,69 +3611,6 @@ the ceiling should *be*. Both touch `lib/task-parser.js`; neither subsumes the o
 **Not decided here:** the value of N, the wall-clock bound, or what counts as a "checkpoint".
 
 ---
-
-### 69. A commit that says `Closes #N` while #N stays in the file is undetectable — the convention and the record are never reconciled
-**Filed 2026-09-20,** by the pass that purged #61 four days after it was closed. Sibling of
-**#67**: that one is about how IDs are *allocated*, this one is about whether a close is
-ever *applied*.
-
-**The two halves of the convention, stated by this file's own header.** Closed items are
-**purged** ("the git history and the `Closes <ID>` commit body are the record"), and a
-commit claims the closure in its body. **Nothing joins them.** So a close that never
-purged and a close that never happened produce byte-identical file state, and the only
-thing distinguishing them is a commit body nobody re-reads.
-
-**One observed instance, at HEAD until this commit.** `723dfed` (merged as `5749d08`,
-2026-09-20) ends `Closes WORK-TODO #61.` and lists the DoD checks that ran. It never
-touched this file:
-
-```bash
-git show 723dfed --stat -- WORK-TODO.md   # prints nothing
-git log -1 --format=%B 723dfed | grep -i '^Closes'
-```
-
-#61 therefore stayed open in the body, in the index, and in every count for four days —
-**including the counts written into this file by two later passes**, which observed 60 open
-items when 59 was the truth. The item was genuinely done; the file said otherwise and no
-check could tell.
-
-**Why the existing signals do not catch it.** `lib/repo-history.js` `claimsFrom()` already
-parses `Closes`/`Addresses` out of commit bodies, and `lib/backlog-report.js`
-`parseBacklog()` already parses the open items out of this file. **Both halves exist and
-nothing joins them.** `lib/critique-digest.js` consumes both and reports on claim *volume*
-(the closes-to-addresses ratio above), never on claim *truth*.
-
-**Suggested shape, NOT a decision and NOT implemented here.** A check that fails when a
-`Closes #N` commit reachable from `main` leaves `#N` present in `WORK-TODO.md` at that same
-commit — the join of the two parsers named above. Left open: whether it is a jest suite, a
-`npm run validate` step, or a report in the weekly digest; and how to treat an ID closed on
-one branch and re-used for a cross-reference on another.
-
-**The trap that must be designed for, because getting it wrong makes the check worse than
-nothing.** It needs **git history**, and history is exactly what this repository's own
-execution environment does not have: `cloneRepo` clones **`--depth 1`**
-(`lib/clone-lifecycle.js:139,147`), so every scratch clone a dispatch runs in is shallow. A
-naive implementation reads an empty or truncated log, finds no `Closes` lines, and
-**passes** — a green that means "I could not look", reported as "nothing is wrong". That is
-the same defect class as the skip-green in `lib/test-verdict.js` and as the vacuous Phase-3
-gate that #61 was filed for.
-
-**So the shallow case must FAIL LOUDLY, not pass.** The prior art is already in this
-repository and should be reused rather than re-derived: `lib/repo-history.js`'s
-`historyGate()` returns `{ available: false, reason: 'the checkout is a shallow clone —
-history is truncated and any count from it would be wrong' }`, and every function there
-returns `available: false` rather than a count of zero. The check must surface that as a
-failed/unavailable verdict, never as a pass.
-
-**Definition of done.** A check exists that fails on a `Closes #N` commit leaving #N in the
-file; it is red against `723dfed`+`WORK-TODO.md`-at-`8ad5791` as a negative control; and it
-fails loudly rather than passing on a shallow clone, with that shallow behaviour asserted
-by its own test — since a guard whose failure mode is a silent pass is the thing being
-guarded against.
-
-**Related:** #67 (the sibling class — ID allocation, same file, same convention), #39 (the
-queue cannot tell a completed task from a landed one — the same "a claim is not a fact"
-shape one layer out), #36 (enumerating guards and their source-tree walkers).
 
 ### 67. IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide
 
@@ -3902,7 +3786,7 @@ may be unavailable to this account, in this region, or at this tier. Querying on
 - The two must not share a code path that implies equal confidence. `resolveAgentLlm`
   (`lib/agent-llm-resolver.js`) already returns `model_source`, so the UI can say where a
   model name came from without claiming it was validated.
-**Why this could not be closed in the 2026-09-16 audit.** Same shape as #54: its namesake
+**Why this could not be closed in the 2026-09-16 audit.** Same shape as #54 had (closed 2026-10-04 once its rule moved into the tier definition): its namesake
 is "record the asymmetry, build neither yet", both halves of which are satisfied — and it is
 still not closeable, because the record lives only in this file and this file purges what it
 closes. Partial traces exist in code (`lib/llm-runner.js:982` explains why the startup probe
@@ -3915,65 +3799,6 @@ close this. Until then, closing it destroys the artifact.
 
 **Priority:** P3 | **Effort:** Low (move the rule to an owning doc, then close)
 **Status:** open — distinction recorded **only here**, neither list built
-
----
-
-### 36. Three enumerating guards each carry their own source-tree walker, and `tests/` subdirectories are enumerated by none of them
-**Filed 2026-09-14,** from `docs/CANONICAL-HELPERS.md` section 13.
-
-```bash
-grep -rn "function stripComments\|function stripCommentsAndStrings\|function listSourceFiles" tests/*.js
-```
-**CORRECTED 2026-09-16 — it is FOUR copies now, not three.**
-`tests/task-agent-identity.test.js` added a fourth while this item was open, which is what
-an un-enforced duplication item does: it records a number that the next change invalidates.
-The grep above finds all four. Regenerate the count rather than reading it:
-`grep -rlE 'function (stripComments|stripCommentsAndStrings|listSourceFiles|collectSourceFiles)' tests/*.js | wc -l` -> 4.
-
-`tests/no-shell-execution.test.js`, `tests/timezone-explicit.test.js`,
-`tests/test-gate-honesty.test.js` and `tests/task-agent-identity.test.js` each walk the
-source tree from disk and each carries its own copy — roughly 50 lines repeated four times. Marked **EQUIVALENT**, not DIVERGENT: the
-two comment scanners differ deliberately (the shell guard blanks string *contents* so prose
-naming a banned API does not trip it; the test-gate guard must leave strings intact because
-the thing it detects, `'npm test'`, **is** a string literal).
-
-**Why it was not extracted when the third copy landed.** The helper would live under
-`tests/helpers/`, and `tests/architecture-tree.test.js` enumerates `tests/*.js`
-**non-recursively** (`TRACKED_DIRS` at `:44` includes `tests`, but the walk at `:94` is a
-flat `readdirSync`). A file four guards depend on would sit in a directory no guard covers.
-**Re-verified 2026-09-16 and still true** — the four files now in `tests/helpers/` are named
-in `CLAUDE.md`'s tree but enumerated by no guard, so the tree test cannot fail when one is
-added or removed. Extraction therefore means widening that
-enumeration first, which is the actual work and is why this is an item rather than a
-side effect of the change that noticed it.
-
-**Fix:** widen `tests/architecture-tree.test.js` to walk `tests/` recursively, then extract
-`listSourceFiles` and both stripper variants into `tests/helpers/source-scan.js`, keeping
-the two stripping modes as an explicit option rather than merging them.
-
-**2026-09-20 — it is FIVE walkers, and the duplication now has a reliability cost, not only
-a maintenance one.** The fifth is not in `tests/` at all: `measure()` in
-`lib/file-size-gate.js:54-71` walks the same tree from production code, and it is the one
-that failed. A full `npm test` went red with
-`ENOENT ... scandir '<repo>/test-data-staff-tasks'` because `tests/staff-tasks.test.js:28`
-creates its temp directory **inside the repository root** and removes it at `:45` while
-another jest worker is mid-walk. Every one of the five walkers has the same
-discover-then-recurse shape and none tolerates a directory vanishing between the two, so any
-of them can catch this; the file-size gate simply drew the short straw. Two consequences for
-the fix above: a shared `listSourceFiles` would make the ENOENT tolerance a **one-line** fix
-instead of five, and the real repair is upstream — nothing test-scoped should be written into
-the tree the guards enumerate (`os.tmpdir()`, as `tests/helpers/workspace-fixture.js` already
-does). Full capture and the green runs that bracket it: **#56**'s 2026-09-20 note.
-
-**It has a concrete cost already.** `tests/test-gate-honesty.test.js` is **364 lines** and
-is the **one file this branch newly pushed over the repo's 300-line rule** — `npm run validate`
-goes 63 -> 64 over-limit files (`npm run validate 2>&1 | grep -cE '^  - '`, compared against
-`1533d85`). Roughly 120 of those lines are the walker and the comment scanner, so this
-extraction takes the file back under the limit. Trimming prose instead would cost the
-reasoning that makes the guard maintainable, and doing the extraction inside the change
-that added the third copy would have meant editing two other guards as a side effect —
-which is why it is an item.
-**Priority:** P3 | **Effort:** Low | **Status:** open
 
 ---
 

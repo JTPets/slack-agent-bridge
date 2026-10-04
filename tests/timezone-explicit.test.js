@@ -39,88 +39,14 @@ const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..');
 
-const SKIP_DIRS = new Set(['node_modules', '.git', 'tests', 'coverage', 'public', '.claude-home']);
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #36): the walk and the comment scanner are
+// tests/helpers/source-scan.js. String literals are left intact on purpose: every check
+// here looks for a zone name, which is a string literal, and the process.env.TZ check
+// must see bracket access written as process.env['TZ'].
+const { listSourceFiles, stripComments } = require('./helpers/source-scan');
 
-/**
- * Every non-test .js file in the repo, enumerated from disk.
- *
- * Reproduce the same list from the shell with:
- *   find . -name '*.js' -not -path './node_modules/*' -not -path './.git/*' \
- *          -not -path './tests/*' -not -path './coverage/*' | sort
- *
- * @param {string} dir
- * @param {string[]} [out]
- * @returns {string[]} Absolute paths.
- */
-function listSourceFiles(dir, out = []) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (entry.name.startsWith('.') && entry.name !== '.') continue;
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-            if (SKIP_DIRS.has(entry.name)) continue;
-            listSourceFiles(full, out);
-        } else if (entry.isFile() && entry.name.endsWith('.js')) {
-            out.push(full);
-        }
-    }
-    return out;
-}
 
-/**
- * Blank out comment bodies, preserving offsets and line structure.
- *
- * String literals are deliberately LEFT INTACT: the thing every check here looks
- * for ends in a zone name, which is a string literal, and the `process.env.TZ`
- * check has to see bracket access written as `process.env['TZ']`. Only comments are
- * removed, so prose naming a banned shape (including this file's own header, and
- * every LOGIC CHANGE comment) cannot trip a check.
- *
- * @param {string} src
- * @returns {string}
- */
-function stripComments(src) {
-    const out = Array.from(src);
-    const blank = (from, to) => {
-        for (let k = from; k < to && k < out.length; k += 1) {
-            if (out[k] !== '\n') out[k] = ' ';
-        }
-    };
 
-    let i = 0;
-    while (i < src.length) {
-        const c = src[i];
-        const next = src[i + 1];
-
-        if (c === '/' && next === '/') {
-            const end = src.indexOf('\n', i);
-            blank(i, end === -1 ? src.length : end);
-            i = end === -1 ? src.length : end;
-            continue;
-        }
-        if (c === '/' && next === '*') {
-            const end = src.indexOf('*/', i + 2);
-            const stop = end === -1 ? src.length : end + 2;
-            blank(i, stop);
-            i = stop;
-            continue;
-        }
-        // Skip over string/template literals so a `//` or `/*` inside one is not
-        // mistaken for the start of a comment.
-        if (c === '"' || c === "'" || c === '`') {
-            let j = i + 1;
-            while (j < src.length) {
-                if (src[j] === '\\') { j += 2; continue; }
-                if (src[j] === c) break;
-                j += 1;
-            }
-            i = j + 1;
-            continue;
-        }
-        i += 1;
-    }
-
-    return out.join('');
-}
 
 /**
  * Extract the full argument text of every call whose callee matches `calleeRe`.

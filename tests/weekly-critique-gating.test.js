@@ -28,6 +28,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { listSourceFiles } = require('./helpers/source-scan');
 
 describe('HE CANNOT GATE ANYTHING — enforced, not asserted', () => {
     const SRC = fs.readFileSync(path.join(__dirname, '..', 'lib', 'weekly-critique.js'), 'utf8');
@@ -61,24 +62,16 @@ describe('HE CANNOT GATE ANYTHING — enforced, not asserted', () => {
     });
 
     /** Every production .js file except this module itself, comments and all stripped. */
+    // LOGIC CHANGE 2026-10-04 (WORK-TODO #36): the walk is tests/helpers/source-scan.js.
     function productionSources() {
         const root = path.join(__dirname, '..');
-        const out = [];
-        const walk = (dir) => {
-            for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-                if (['node_modules', '.git', 'tests', 'coverage', 'public'].includes(e.name)) continue;
-                const full = path.join(dir, e.name);
-                if (e.isDirectory()) walk(full);
-                else if (e.name.endsWith('.js') && full !== path.join(root, 'lib', 'weekly-critique.js')) {
-                    out.push({
-                        rel: path.relative(root, full),
-                        code: fs.readFileSync(full, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, ''),
-                    });
-                }
-            }
-        };
-        walk(root);
-        return out;
+        const self = path.join(root, 'lib', 'weekly-critique.js');
+        return listSourceFiles(root)
+            .filter(full => full !== self)
+            .map(full => ({
+                rel: path.relative(root, full),
+                code: fs.readFileSync(full, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, ''),
+            }));
     }
 
     test('exactly ONE production file calls runWeeklyCritique — no third route', () => {

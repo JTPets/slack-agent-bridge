@@ -2,7 +2,8 @@
 
 **Created 2026-09-14.** This repository had no document mapping behaviour that is
 implemented in more than one place; WORK-TODO **#11** asked for one and an earlier
-dispatch declined to create it unilaterally. It is now authorised.
+dispatch declined to create it unilaterally. It is now authorised. (#11 closed 2026-10-04:
+the two guards that would make this map's rule executable are carried by #30 and #33.)
 
 **This is a map, not a refactor.** Nothing was extracted or moved in the change that
 created it. The extraction order is proposed at the end and stops there — a refactor
@@ -374,7 +375,21 @@ is dead code (WORK-TODO **#17**, nothing starts it); it becomes one the day #17 
 
 ---
 
-## 13. Source scanning in the enumerating guards — **EQUIVALENT** (not filed)
+## 13. Source scanning in the enumerating guards — **EXTRACTED 2026-10-04** (WORK-TODO #36, closed)
+
+**Current state.** One walk, `lib/source-walk.js` `walkFiles()`, used by
+`lib/file-size-gate.js` `measure()` and re-exported by `tests/helpers/source-scan.js`, which
+also owns the one comment scanner, `stripComments(src, { blankStrings })`. The two modes
+below survive as that option, not as two functions. By the time it was extracted there were
+**eight** walk loops (the file-size gate, two in `tests/architecture-tree.test.js`, and one
+each in the no-shell, timezone, test-gate, bulletin-types and weekly-critique-gating guards)
+and five comment strippers; none tolerated a directory removed mid-walk, which turned a full
+run red on 2026-09-20. `tests/architecture-tree.test.js` now walks `tests/` recursively, so
+`tests/helpers/` is enumerated. The guard against a ninth copy is
+`tests/source-walk.test.js` → "one walker, one scanner". **Left as is, deliberately:**
+`tests/weekly-critique-gating.test.js` keeps an inline regex strip, because its check looks
+for an identifier and a regex that also eats `//` inside a string only makes it stricter.
+The rest of this section is the record as it stood before the extraction.
 
 Added 2026-09-14 with `tests/test-gate-honesty.test.js`.
 

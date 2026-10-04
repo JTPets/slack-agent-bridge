@@ -29,6 +29,9 @@ const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 
+/** Runtime files the code writes under data/ (lib/staff-tasks.js, lib/integrations/square-catalog.js, bots/storefront.js). */
+const DATA_STATE_FILES = ['staff-tasks-state.json', 'catalog-cache.json', 'delivery-quotes.json'];
+
 /**
  * Every durable state file the deployment reads, enumerated rather than listed:
  * whatever `agents/shared/` and the repo root hold that is runtime state.
@@ -52,11 +55,24 @@ function stateFiles() {
     // Named explicitly because it is created on demand and must be caught the run it
     // first appears in, not the run after.
     for (const name of ['channel-map.json', 'agent-activation.json', 'bulletin.json',
-        'watercooler-state.json', 'processed-tasks.json', 'approval-queue.json',
-        'staff-tasks-state.json']) {
+        'watercooler-state.json', 'processed-tasks.json', 'approval-queue.json']) {
         const p = path.join(sharedDir, name);
         if (!found.includes(p)) found.push(p);
     }
+    // LOGIC CHANGE 2026-10-04 (WORK-TODO #56/#36, B2): `data/` holds runtime state the
+    // deployment reads too, and this guard never looked there. It named
+    // `staff-tasks-state.json` under agents/shared/, where nothing writes it — the real
+    // file is data/staff-tasks-state.json (lib/staff-tasks.js TASKS_STATE_FILE). So
+    // tests/staff-tasks.test.js could unlink the live staff task state on every run and
+    // the run stayed green. Enumerated from disk like agents/shared/, plus the three
+    // files the code writes there named explicitly so a CREATE is caught.
+    const dataDir = path.join(REPO_ROOT, 'data');
+    if (fs.existsSync(dataDir)) {
+        for (const name of fs.readdirSync(dataDir)) {
+            if (name.endsWith('.json')) found.push(path.join(dataDir, name));
+        }
+    }
+    for (const name of DATA_STATE_FILES) found.push(path.join(dataDir, name));
     return [...new Set(found)].sort();
 }
 
@@ -120,3 +136,4 @@ module.exports.stateFiles = stateFiles;
 module.exports.fingerprint = fingerprint;
 module.exports.SNAPSHOT_FILE = SNAPSHOT_FILE;
 module.exports.REPO_ROOT = REPO_ROOT;
+module.exports.DATA_STATE_FILES = DATA_STATE_FILES;
