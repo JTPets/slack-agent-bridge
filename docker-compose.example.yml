@@ -78,9 +78,12 @@ services:
       PATH: /bridge/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     volumes:
       - /share/CACHEDEV1_DATA/jt-agent:/bridge
-      # SqTools — PRODUCTION, money and customer PII. The `:ro` flag is the one real
-      # containment boundary in this deployment and the reason a bridge-side mistake or
-      # prompt injection cannot damage that system. NEVER remove it, never make it rw.
+      # SqTools — PRODUCTION, money and customer PII. The `:ro` flag stops WRITES: a
+      # bridge-side mistake or prompt injection cannot modify that tree. NEVER make it rw.
+      # It does NOT stop READS. Anything a dispatch runs in this container (the agent CLI,
+      # a branch's tests, python package build code) can read this tree, including any
+      # secrets SqTools keeps in it. Nothing in the bridge reads /repo. WORK-TODO #75;
+      # dropping the line is PROPOSED block (4) at the bottom, an owner decision.
       - /share/CACHEDEV1_DATA/sqtools/app:/repo:ro
     # This line is the ONLY install step in the deployment, and it runs unprivileged
     # at every container start. See "WHAT TOOLCHAINS THIS IMAGE PROVIDES" at the top.
@@ -166,3 +169,11 @@ services:
     # Check first:  docker inspect -f '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}' jt-agent
     # Then add under `volumes:`:
     #   - /share/CACHEDEV1_DATA/jt-agent/work:/tmp/bridge-agent
+
+    # (4) DROP THE SQTOOLS MOUNT — WORK-TODO #75 shape (a). No code in this repository
+    # reads /repo (regenerate: grep -rnE "['\"`]/repo(/|['\"`:])" --include=*.js . ),
+    # so removing the `/repo:ro` line above ends the read exposure and breaks nothing
+    # here. Only the owner knows whether anything OUTSIDE this repository relies on it.
+    # Delete the line, then: docker compose up -d --force-recreate jt-agent
+    # Verify: docker inspect -f '{{range .Mounts}}{{.Destination}}{{"\n"}}{{end}}' jt-agent
+    #   (no /repo in the list)

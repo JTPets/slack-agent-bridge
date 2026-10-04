@@ -43,6 +43,11 @@ const MUST_BE_IGNORED = [
     'agents/shared/channel-map.json.pre-rebuild',
     'work/task-queue.json',
     'work/task-123/package.json',
+    // WORK-TODO #62: every runtime file under data/, including one no writer has yet.
+    'data/staff-tasks-state.json',
+    'data/catalog-cache.json',
+    'data/delivery-quotes.json',
+    'data/some-future-writer.json',
 ];
 
 // Tracked on purpose. Each must stay publishable, or the family rules ate a real file.
@@ -50,6 +55,7 @@ const MUST_NOT_BE_IGNORED = [
     '.env.example',
     'agents/shared/staff.json',
     'agents/shared/daily-tasks-template.json',
+    'data/.gitkeep',
 ];
 
 /**
@@ -114,6 +120,13 @@ describe('the guard itself detects what it claims to', () => {
         expect(isIgnored(dir, '.env')).toBe(true);
         expect(isIgnored(dir, '.env.swo')).toBe(false);
         expect(isIgnored(dir, 'work/task-queue.json')).toBe(false);
+    });
+
+    test('the per-name rule that was in place left data/ state files publishable (#62)', () => {
+        fs.writeFileSync(path.join(dir, '.gitignore'), 'data/delivery-quotes.json\n');
+        expect(isIgnored(dir, 'data/delivery-quotes.json')).toBe(true);
+        expect(isIgnored(dir, 'data/staff-tasks-state.json')).toBe(false);
+        expect(isIgnored(dir, 'data/catalog-cache.json')).toBe(false);
     });
 
     test('a re-include is reported as NOT ignored, not as ignored', () => {

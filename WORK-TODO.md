@@ -92,6 +92,11 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+At the **2026-10-04 B8 pass** those print **43** open items — **10** P1, **27** P2, **6** P3 —
+and **no duplicate ID**. That pass closed **#62** (`data/*` with `!data/.gitkeep`) and did
+the repository half of **#75** (the compose comment; drop-the-mount as a PROPOSED block).
+No runtime code changed.
+
 At the **2026-10-04 B7 pass** those print **44** open items — **10** P1, **28** P2, **6** P3 —
 and **no duplicate ID**. That pass closed nothing and filed nothing: it did the recording
 half of **#39** (branch, head commit and remote refs on each repo task's queue row); the
@@ -330,7 +335,8 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B6** | Deployment shape — repo halves of owner-side work | Done 2026-10-04: #70 (Dockerfile), #73 (compose proposals), #42 (c), #68 (venv half). Skipped: #59 (its own text sequences it after #17/#73), #17 (deploy shape is the owner's choice) | `Dockerfile`, `.dockerignore`, `docker-compose.example.yml`, `lib/python-venv.js`, `lib/backup-watch.js`, `scripts/backup-status.sh`, `docs/CONFIG-SURFACE-AND-REBUILD.md` | Each repo half is inert until the owner applies it on the NAS |
 | **OA** | Owner action only, nothing left in the repo | #3, #26, #40, #41, #43, #53, #55, #52, #66, #70, #73 | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
 | **B7** | Landed vs completed | Done 2026-10-04: #39 recording half (`work` on the queue row, shown in `what's queued`). Left: merge state | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/task-work.js` | `recordWork` writes no status and no verdict, so the #74 invariant holds unchanged (its suite passes untouched) |
-| **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60, #49 | — | Small code once chosen; listed so nobody dispatches them undecided |
+| **B8** | Small repo halves left after B7 | Done 2026-10-04: #62 (closed), #75 repo half | `.gitignore`, `tests/gitignore-publishable.test.js`, `docker-compose.example.yml` | No runtime code |
+| **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60, #49, #75 | — | Small code once chosen; listed so nobody dispatches them undecided |
 | **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
 
 ### Every item
@@ -359,8 +365,8 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #72 | P2 | REPORTING DONE in B1; agreement is a decision | OD | S | Divergences now post to ops (`lib/task-state-divergence.js`). Remaining: choose read-the-lock-in-poll or refuse-on-failed-lock |
 | #26 | P2 | REPO DONE | OA | S | `.gitignore:71` ignores `docker-compose.yml`; the NAS tree must pull it |
 | #27 | P2 | in flight (records), then decision | OD | — | Shapes recorded in `docs/CONFIG-SURFACE-AND-REBUILD.md` §7.7 |
-| #75 | P2 | in flight (closes in the records dispatch) | — | S | `docker-compose.example.yml:77-79` comment still calls `:ro` "the one real containment boundary" |
-| #62 | P2 | in flight | — | S | Note for that dispatch: `data/.gitkeep` **is** tracked (`bf6d1ca`), so the rule needs `!data/.gitkeep` |
+| #75 | P2 | REPO DONE in B8 (comment corrected; drop-the-mount written as PROPOSED block (4)) | OD | S | Left: the owner chooses (a)-(e). Nothing in the repo reads `/repo` |
+| #62 | P2 | **CLOSED 2026-10-04** (B8, purged) | B8 | S | `data/*` with `!data/.gitkeep`; guard `tests/gitignore-publishable.test.js` |
 | #24 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `init({ bulletinFile })` and `init({ stateFile })`; the bulletin suite runs on a temp file |
 | #20 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | `TURNS_CEILING`, `conversationTurns()`, `CRITIQUE_TURNS`; the `MAX_TURNS` env var is no longer read. Guard `tests/turn-budgets.test.js` |
 | #33 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S/M | `lib/time-format.js` `dayKey(date, zone)`; guard `tests/time-format.test.js` |
@@ -522,7 +528,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (28)
+**P2 — real gaps, no risk to the running process** (27)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -532,7 +538,6 @@ work behind an owner's name, which is the opposite of the point.
 - **#26** — [`docker-compose.yml` is untracked **and** unignored in the live working tree — `git clean -fd` deletes the deployment definition](#26-docker-composeyml-is-untracked-and-unignored-in-the-live-working-tree--git-clean--fd-deletes-the-deployment-definition)
 - **#27** — [A task has write access to the entire live deployment, including every credential — recorded, undecided](#27-a-task-has-write-access-to-the-entire-live-deployment-including-every-credential--recorded-undecided)
 - **#75** — [`/repo:ro` stops a write and not a read — SqTools' production secrets are readable by any code a dispatch runs, against any repository](#75-reporo-stops-a-write-and-not-a-read--sqtools-production-secrets-are-readable-by-any-code-a-dispatch-runs-against-any-repository)
-- **#62** — [Two runtime files under `data/` are neither tracked nor gitignored — `git clean -fd` deletes them and `git add -A` publishes them](#62-two-runtime-files-under-data-are-neither-tracked-nor-gitignored--git-clean--fd-deletes-them-and-git-add--a-publishes-them)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
 - **#44** — [The 300-line rule is one rule over two different problems — scope it, or say it covers both](#44-the-300-line-rule-is-one-rule-over-two-different-problems--scope-it-or-say-it-covers-both)
 - **#5** — [Mid-task `ask_on_slack` capability](#5-mid-task-ask_on_slack-capability)
@@ -2214,7 +2219,12 @@ whether something *outside* this repository uses it.
 | (e) Accept it explicitly | Recorded as a decision rather than an oversight. | A valid outcome, as with #27 — and strictly better than the current state, which is that two write-ups asserted a boundary that covers half of what it was read to cover. |
 
 **Corrected in this branch** (`docs/EXECUTOR-CONTRACT.md` §7 and §7.1 row 1,
-`docs/CONFIG-SURFACE-AND-REBUILD.md` Step 10, and the asymmetry paragraph in #27). **Not
+`docs/CONFIG-SURFACE-AND-REBUILD.md` Step 10, and the asymmetry paragraph in #27). **B8, 2026-10-04 — the repo-side half below is done.** The compose comment now says `:ro`
+stops writes and not reads, and names this item; shape (a) is written as PROPOSED block
+(4) in `docker-compose.example.yml`, inert until the owner applies it. What remains is the
+owner's choice among (a)-(e).
+
+**Not
 corrected, and it is the remaining repo-side half:** `docker-compose.example.yml:77-79`
 carries the same incomplete claim in a comment beside the mount line — *"the one real
 containment boundary … a bridge-side mistake or prompt injection cannot damage that
@@ -2240,77 +2250,6 @@ no credential for the SqTools repository — the *git* half of the standing clai
 true), #41 (the NAS holds every stack and every credential), #4b / Step 6 (the compose file
 belongs to no repository, which is why every shape above is off-repo), #60 (if the bridge
 is ever to act on the NAS, the capability is an allowlist, not a shell).
-
----
-
-### 62. Two runtime files under `data/` are neither tracked nor gitignored — `git clean -fd` deletes them and `git add -A` publishes them
-**Filed 2026-09-16,** from the Step 8 state enumeration
-([`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) §8.1 rows 7–8).
-
-**This is #26's class, reopened for two more files, with a second consequence #26 did not
-have.** #26 was `docker-compose.yml`: untracked *and* unignored in the live working tree,
-so the ordinary tidying command deletes it. That was closed by a `.gitignore` line. The
-same hole is open for two files the code writes and `.gitignore` never names.
-
-**Verified at HEAD.** Regenerate:
-```bash
-for f in data/staff-tasks-state.json data/catalog-cache.json data/delivery-quotes.json; do
-  printf '%-34s ' "$f"; git check-ignore -q "$f" && echo IGNORED || echo NOT-IGNORED
-done
-# -> data/staff-tasks-state.json      NOT-IGNORED
-# -> data/catalog-cache.json          NOT-IGNORED
-# -> data/delivery-quotes.json        IGNORED
-grep -n "TASKS_STATE_FILE" lib/staff-tasks.js                    # :22 writer
-grep -n "CACHE_FILE =" lib/integrations/square-catalog.js        # :19 writer
-grep -n "^data/" .gitignore                                      # only delivery-quotes.json
-```
-
-**Both directions are real, and the second is the new one.**
-- **Deleted:** `git clean -fd` in the deploy directory removes an unignored untracked file.
-  No `-x` needed — that is the whole difference between these two and every other runtime
-  file in §8.1, which is ignored and therefore skipped.
-- **Published:** an unignored file can be **committed** as easily as deleted.
-  `data/staff-tasks-state.json` carries staff names and their assignments (`agents/shared/staff.json`
-  fields: `name`, `slackId`, `role`), and this repository is going open source. A `git add -A`
-  on the box puts them in public history, where a later `git rm` does not remove them.
-
-**Fix:** add `data/` to `.gitignore` with the seeded exceptions re-included by name, the
-same inverse-rule shape `agents/*/memory/*` already uses and for the same stated reason —
-an allowlist of today's filenames fails open when a new writer appears. `data/` currently
-has exactly one legitimate tracked inhabitant candidate (none today; the directory is not
-in git at all), so the inverse rule costs nothing.
-
-**Why not fixed in the change that filed it:** that change is a design pass with no code or
-configuration edits in scope, and a `.gitignore` line has a deployment-shaped consequence
-(it changes what `git status` reports on the box) — the same reason #26 was filed rather
-than taken unilaterally.
-
-**Extended 2026-10-02 — the same class, found live on the box, and closed for those
-families.** On 2026-10-01 the operator ran `git status --short --untracked-files=all` in
-the deploy directory (then at `5749d08`; operator-supplied, off-box) and these were
-untracked and **not** ignored: `.env.swo` (a vim swap copy of the live `.env`; the
-operator deleted it the same day, it was never committed), `agents.json.local`,
-`agents/shared/channel-map.json.pre-rebuild`, `work/task-queue.json`, `gtest.js`,
-`review-suite.txt`, `INVESTIGATION-silent-noop-2026-09-12.md`. `work/` is the live
-`WORK_DIR` (operator `docker inspect`, 2026-10-01: `/share/CACHEDEV1_DATA/jt-agent/work ->
-/tmp/bridge-agent`, `rw=true`), so every preserved scratch clone sits inside the tree too.
-`.gitignore` then carried `.env` as an exact name and `*.bak*`, which `.env.swo`,
-`.env.local` and `.env.backup` all miss (`.backup` does not contain `.bak`).
-
-The fix for those families landed in the branch that wrote this, in the inverse shape this
-item already argued for: `.env*` with `!.env.example`; `*.sw[a-p]` and `*.local` for any
-file; `/work/`; `agents/shared/*` with the two seeds re-included by name. Guard:
-`tests/gitignore-publishable.test.js`, which asks `git check-ignore --no-index` about each
-family and the seeds, and asserts `git ls-files -c -i --exclude-standard` is empty.
-**Not given rules, deliberately:** `gtest.js`, `review-suite.txt` and the INVESTIGATION
-file are one-off operator debris on the box; a rule per name is the allowlist shape this
-item rejects. Left to the operator.
-
-**Still open — this item's original half.** `data/staff-tasks-state.json` and
-`data/catalog-cache.json` remain unignored; the `data/` inverse block above was not in that
-dispatch's scope. Regenerate with the loop at the top of this item.
-**Priority:** P2 | **Effort:** Low (one `.gitignore` block) | **Status:** open — the `.env`,
-swap, `*.local`, `work/` and `agents/shared/` families closed 2026-10-02; `data/` remains
 
 ---
 

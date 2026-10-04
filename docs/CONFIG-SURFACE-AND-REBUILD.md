@@ -893,6 +893,11 @@ refused* (a human is told, and the system stops rather than guessing), *silently
 
 ### Two rows that are new findings, not restatements
 
+> **Corrected 2026-10-04 (WORK-TODO #62, closed).** `.gitignore` now carries `data/*` with
+> `!data/.gitkeep`, so rows 7 and 8 are IGNORED: `git clean -fd` skips them and `git add -A`
+> cannot commit them. The loop below now prints IGNORED three times. Box loss still loses
+> them; that half of each row is unchanged. Guard: `tests/gitignore-publishable.test.js`.
+
 **Rows 7 and 8 — `data/` is neither tracked nor gitignored.** `.gitignore` names
 `data/delivery-quotes.json` specifically, so the other two files the code writes into that
 directory are covered by nothing. Regenerate:

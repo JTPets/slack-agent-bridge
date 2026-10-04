@@ -39,7 +39,11 @@ agents/shared/channel-map.json
 # fact about THIS workspace, not about the repository.
 agents/shared/agent-activation.json
 agents/shared/approval-queue.json
-data/delivery-quotes.json
+# data/ holds runtime files only (delivery quotes, staff-task state with staff names,
+# the Square catalog cache). INVERSE rule, 2026-10-04 (WORK-TODO #62): an allowlist of
+# today's filenames fails open when a new writer appears. Only the placeholder is tracked.
+data/*
+!data/.gitkeep
 
 # Memory data files (local only)
 memory/*.json
