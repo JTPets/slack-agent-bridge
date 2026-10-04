@@ -6,10 +6,13 @@
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
-// Test with a temp directory to avoid polluting real bulletin file
-const TEST_BULLETIN_DIR = path.join(__dirname, '..', 'agents', 'shared');
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #24): the comment here said "a temp directory" while
+// the path was the live agents/shared/bulletin.json, which every test unlinked. The suite
+// now points the module at a real temp file through bulletinBoard.init().
+const TEST_BULLETIN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'bulletin-board-'));
 const TEST_BULLETIN_FILE = path.join(TEST_BULLETIN_DIR, 'bulletin.json');
 
 // Clear bulletin file before each test
@@ -25,6 +28,16 @@ function resetBulletinFile() {
 
 // Import the module
 const bulletinBoard = require('../lib/bulletin-board');
+bulletinBoard.init({ bulletinFile: TEST_BULLETIN_FILE });
+afterAll(() => {
+    bulletinBoard.init();
+    fs.rmSync(TEST_BULLETIN_DIR, { recursive: true, force: true });
+});
+
+test('the suite works on its temp file, not the live board', () => {
+    expect(bulletinBoard.BULLETIN_FILE).toBe(TEST_BULLETIN_FILE);
+    expect(bulletinBoard.DEFAULT_BULLETIN_FILE).toBe(path.join(__dirname, '..', 'agents', 'shared', 'bulletin.json'));
+});
 
 describe('bulletin-board', () => {
     // LOGIC CHANGE 2026-03-28: Suppress expected console.warn/error output from error-path tests.

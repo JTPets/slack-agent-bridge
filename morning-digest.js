@@ -22,7 +22,11 @@ require('dotenv').config();
 
 'use strict';
 
-const { WebClient } = require('@slack/web-api');
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #30, #21): every Slack client is built by lib/slack-web.js,
+// which redacts secrets out of every chat.* post and drops the already_in_channel warning.
+const { createWebClient, sendDM: slackSendDM } = require('./lib/slack-web');
+const { categorizeFailures, formatFailureSections } = require('./lib/digest-failures');
+const { dayKey, STORE_TIME_ZONE } = require('./lib/time-format');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
@@ -52,7 +56,7 @@ if (!SLACK_BOT_TOKEN) {
     process.exit(1);
 }
 
-const slack = new WebClient(SLACK_BOT_TOKEN);
+const slack = createWebClient(SLACK_BOT_TOKEN);
 
 // ---- Weather helpers ----
 
@@ -165,89 +169,14 @@ function loadJsonFile(filePath, defaultValue) {
 
 // ---- Slack helpers ----
 
-async function sendDM(userId, text) {
-    try {
-        // Open a DM channel with the user
-        const openResult = await slack.conversations.open({ users: userId });
-        const dmChannel = openResult.channel.id;
-
-        // Send the message
-        await slack.chat.postMessage({
-            channel: dmChannel,
-            text,
-            unfurl_links: false,
-        });
-        console.log('[morning-digest] DM sent successfully');
-    } catch (err) {
-        console.error('[morning-digest] Failed to send DM:', err.message);
-        throw err;
-    }
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #30): delegates to lib/slack-web.js sendDM, which
+// redacts (this copy did not, and the digest carries email senders and subjects) and
+// returns whether the DM landed instead of throwing. main() fails on a false.
+function sendDM(userId, text) {
+    return slackSendDM(slack, userId, text, 'morning-digest');
 }
 
 // ---- Digest logic ----
-
-// LOGIC CHANGE 2026-03-27: Added categorizeFailures() to intelligently classify
-// failures into actionable categories instead of just listing them.
-/**
- * Categorize failed tasks into actionable groups
- * @param {Array} failedTasks - Array of failed task objects from history
- * @returns {{rateLimit: Array, tempDir: Array, maxTurns: Array, codeFailures: Array}}
- */
-function categorizeFailures(failedTasks) {
-    const categories = {
-        rateLimit: [],
-        tempDir: [],
-        maxTurns: [],
-        codeFailures: [],
-    };
-
-    for (const task of failedTasks) {
-        const error = (task.error || '').toLowerCase();
-
-        // Rate limit / bandwidth exhaustion - these auto-retry when capacity returns
-        if (
-            error.includes('rate_limit') ||
-            error.includes('rate limit') ||
-            error.includes('bandwidth') ||
-            error.includes('429') ||
-            error.includes('too many requests')
-        ) {
-            categories.rateLimit.push(task);
-            continue;
-        }
-
-        // Clone / temp directory issues - infrastructure failures
-        if (
-            error.includes('clone') ||
-            error.includes('temp') ||
-            error.includes('enoent') ||
-            error.includes('eacces') ||
-            error.includes('permission denied') ||
-            error.includes('no space') ||
-            error.includes('disk full') ||
-            error.includes('mkdir')
-        ) {
-            categories.tempDir.push(task);
-            continue;
-        }
-
-        // Max turns exceeded - check outcome field for retry info
-        // Note: if task.outcome.retried exists, it was already auto-retried
-        if (
-            error.includes('max turns') ||
-            error.includes('max_turns') ||
-            (task.outcome && task.outcome.partial)
-        ) {
-            categories.maxTurns.push(task);
-            continue;
-        }
-
-        // All other failures are real code/logic failures that need review
-        categories.codeFailures.push(task);
-    }
-
-    return categories;
-}
 
 function isWithinLast24Hours(isoTimestamp) {
     if (!isoTimestamp) return false;
@@ -383,45 +312,13 @@ async function buildDigest() {
     lines.push(`• ${failedLast24h.length} task${failedLast24h.length !== 1 ? 's' : ''} failed`);
     lines.push(`• ${activeTasks.length} task${activeTasks.length !== 1 ? 's' : ''} still active`);
 
-    // LOGIC CHANGE 2026-03-27: Categorize failures intelligently instead of just listing them.
-    // Categories: rate limit/bandwidth (auto-retry), temp dir issues (auto-requeue),
-    // max turns exceeded (already auto-retried), real code failures (need review).
-    const categorizedFailures = categorizeFailures(failedLast24h);
-    let actionNeededCount = 0;
-    let autoHandlingCount = 0;
-
-    // Rate limit / bandwidth failures - auto-retry when capacity returns
-    if (categorizedFailures.rateLimit.length > 0) {
-        lines.push('');
-        lines.push(`*Rate limit / bandwidth:* ${categorizedFailures.rateLimit.length} task${categorizedFailures.rateLimit.length !== 1 ? 's' : ''} paused due to rate limits. They will auto-retry.`);
-        autoHandlingCount += categorizedFailures.rateLimit.length;
-    }
-
-    // Clone/temp dir failures - auto-requeue
-    if (categorizedFailures.tempDir.length > 0) {
-        lines.push('');
-        lines.push(`*Temp directory issues:* ${categorizedFailures.tempDir.length} task${categorizedFailures.tempDir.length !== 1 ? 's' : ''} failed due to temp directory issues. Auto-requeued.`);
-        autoHandlingCount += categorizedFailures.tempDir.length;
-    }
-
-    // Max turns exceeded - already auto-retried
-    if (categorizedFailures.maxTurns.length > 0) {
-        lines.push('');
-        lines.push(`*Max turns exceeded:* ${categorizedFailures.maxTurns.length} task${categorizedFailures.maxTurns.length !== 1 ? 's' : ''} hit max turns and ${categorizedFailures.maxTurns.length !== 1 ? 'were' : 'was'} auto-retried.`);
-        autoHandlingCount += categorizedFailures.maxTurns.length;
-    }
-
-    // Real code failures - need review
-    if (categorizedFailures.codeFailures.length > 0) {
-        lines.push('');
-        lines.push(`*Failed with errors - review needed:*`);
-        for (const task of categorizedFailures.codeFailures) {
-            const desc = task.description || 'No description';
-            const error = task.error ? ` - ${task.error.slice(0, 100)}` : '';
-            lines.push(`  - ${desc}${error}`);
-        }
-        actionNeededCount += categorizedFailures.codeFailures.length;
-    }
+    // LOGIC CHANGE 2026-10-04 (WORK-TODO #31): grouping and wording live in
+    // lib/digest-failures.js. It no longer tells the owner that failed tasks "will
+    // auto-retry" or were "Auto-requeued": nothing does either, so every failure is
+    // action needed.
+    const failureReport = formatFailureSections(categorizeFailures(failedLast24h));
+    lines.push(...failureReport.lines);
+    const actionNeededCount = failureReport.actionNeededCount;
 
     // List active tasks if any
     if (activeTasks.length > 0) {
@@ -438,9 +335,8 @@ async function buildDigest() {
     // Shows count of items needing owner attention vs auto-handled items.
     lines.push('');
     lines.push('---');
-    if (actionNeededCount > 0 || autoHandlingCount > 0) {
+    if (actionNeededCount > 0) {
         lines.push(`*Action needed from you:* ${actionNeededCount} item${actionNeededCount !== 1 ? 's' : ''}`);
-        lines.push(`*Auto-handling:* ${autoHandlingCount} item${autoHandlingCount !== 1 ? 's' : ''} (no action needed)`);
     } else if (failedLast24h.length === 0) {
         lines.push('*All clear!* No failures requiring attention.');
     }
@@ -457,7 +353,9 @@ async function main() {
         const digest = await buildDigest();
         console.log('[morning-digest] Digest built, sending DM...');
 
-        await sendDM(OWNER_USER_ID, digest);
+        if (!(await sendDM(OWNER_USER_ID, digest))) {
+            throw new Error('the digest DM was not delivered');
+        }
 
         // LOGIC CHANGE 2026-03-28: Post daily milestone bulletin for inter-agent awareness.
         // Other agents can see that the morning digest was sent.
@@ -474,7 +372,8 @@ async function main() {
                 description: `Morning digest sent: ${completedLast24h.length} tasks completed, ${failedLast24h.length} failed`,
                 tasksCompleted: completedLast24h.length,
                 tasksFailed: failedLast24h.length,
-                date: new Date().toISOString().split('T')[0],
+                // LOGIC CHANGE 2026-10-04 (WORK-TODO #33): the store's day, not a UTC one.
+                date: dayKey(new Date(), STORE_TIME_ZONE),
             });
         } catch (bulletinErr) {
             console.error('[morning-digest] Failed to post milestone bulletin:', bulletinErr.message);
@@ -495,12 +394,7 @@ async function main() {
     } catch (err) {
         // ALWAYS report errors - send error notification to owner
         console.error('[morning-digest] Failed:', err.message);
-        try {
-            await sendDM(
-                OWNER_USER_ID,
-                `❌ Morning digest failed: ${err.message}`
-            );
-        } catch {
+        if (!(await sendDM(OWNER_USER_ID, `❌ Morning digest failed: ${err.message}`))) {
             // Can't even send error message, just log and exit
             console.error('[morning-digest] Could not send error notification');
         }

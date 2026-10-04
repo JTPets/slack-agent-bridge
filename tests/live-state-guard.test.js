@@ -47,7 +47,7 @@ describe('the guard enumerates from disk rather than from a list', () => {
         expect(files).toContain(path.join('data', 'staff-tasks-state.json'));
         expect(files).not.toContain(path.join('agents', 'shared', 'staff-tasks-state.json'));
         const staffTasks = require('../lib/staff-tasks');
-        expect(path.relative(guard.REPO_ROOT, staffTasks.TASKS_STATE_FILE))
+        expect(path.relative(guard.REPO_ROOT, staffTasks.DEFAULT_TASKS_STATE_FILE))
             .toBe(path.join('data', 'staff-tasks-state.json'));
         for (const name of guard.DATA_STATE_FILES) {
             expect(files).toContain(path.join('data', name));

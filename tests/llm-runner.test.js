@@ -224,10 +224,13 @@ describe('llm-runner module', () => {
         ['-p', '--output-format', 'text', '--max-turns', '20', '--dangerously-skip-permissions'],
         expect.objectContaining({
           cwd: '/test/dir',
-          timeout: 120000,
           stdio: ['pipe', 'pipe', 'pipe'],
         })
       );
+      // LOGIC CHANGE 2026-10-04 (WORK-TODO #58): this assertion previously required
+      // spawn's `timeout` option, the mechanism that held the event loop for the full
+      // timeout after a failed spawn. The adapter owns the deadline now.
+      expect(mockSpawn.mock.calls[0][2]).not.toHaveProperty('timeout');
 
       // The prompt must still actually reach the child - over stdin.
       const child = mockSpawn.mock.results[0].value;

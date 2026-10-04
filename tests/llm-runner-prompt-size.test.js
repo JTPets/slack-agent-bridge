@@ -137,18 +137,14 @@ describe('runClaudeAdapter delivers a prompt larger than MAX_ARG_STRLEN', () => 
 describe('a spawn failure is still reported, not swallowed', () => {
   test('a missing binary rejects with a Spawn failed message', async () => {
     const { runClaudeAdapter } = require('../lib/llm-runner');
-    // NOTE on the explicit short `timeout`: it is not about this assertion, which
-    // rejects in single-digit milliseconds. Node arms the spawn `timeout` option's
-    // internal kill-timer at spawn and only clears it on 'exit'; a spawn that fails
-    // with 'error' (ENOENT here) never clears it, so the event loop stays alive for
-    // the full timeout - 10 minutes at this adapter's default. That behaviour is
-    // PRE-EXISTING (reproduced against origin/main, unrelated to the stdin change)
-    // and is filed as WORK-TODO #58. Without this override the suite would hang.
+    // LOGIC CHANGE 2026-10-04: this needed an explicit short `timeout` while spawn's
+    // own timeout option held the event loop after a failed spawn (WORK-TODO #58). The
+    // adapter now clears its timers on 'error', so the default is safe here; the drain
+    // itself is proved by tests/llm-runner-deadline.test.js.
     await expect(
       runClaudeAdapter('prompt', {
         claudeBin: path.join(tmpDir, 'does-not-exist'),
         cwd: tmpDir,
-        timeout: 500,
       })
     ).rejects.toThrow(/Spawn failed/);
   });

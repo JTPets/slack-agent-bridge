@@ -900,6 +900,13 @@ and one that can only be remembered.
 
 ### On the repeated `already_in_channel` warnings
 
+> **FIXED 2026-10-04 (WORK-TODO #21, closed).** Every client is now built by
+> `lib/slack-web.js` `createWebClient()`, which gives it a logger that drops exactly the
+> `already_in_channel` warning and passes every other SDK warning through. Raising the
+> level to ERROR, the other fix named below, was not used because it would also hide
+> real SDK warnings. Proved by `tests/slack-redaction.test.js` -> "the logger drops
+> already_in_channel and nothing else". What follows is the history of how it was found.
+
 > **CORRECTED 2026-09-16 (backlog audit) — the paragraph below was confidently wrong,
 > and it contradicted WORK-TODO #21, which had already established the right answer.**
 > The grep it relies on searches this repository only, so it cannot see the emitter.

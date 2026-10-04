@@ -37,7 +37,9 @@ require('dotenv').config();
 
 'use strict';
 
-const { WebClient } = require('@slack/web-api');
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #30, #21): every Slack client is built by lib/slack-web.js,
+// which redacts secrets out of every chat.* post and drops the already_in_channel warning.
+const { createWebClient, sendDM: slackSendDM } = require('../lib/slack-web');
 const { runStandup, parseStandupType, STANDUP_TYPES } = require('../lib/watercooler');
 
 // ---- Config ----
@@ -57,24 +59,16 @@ if (!OPS_CHANNEL_ID) {
     process.exit(1);
 }
 
-const slack = new WebClient(SLACK_BOT_TOKEN);
+const slack = createWebClient(SLACK_BOT_TOKEN);
 
 // ---- Slack helpers ----
 
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #30): delegates to lib/slack-web.js sendDM, which
+// redacts and returns whether the DM landed. This copy already swallowed; now it says so.
 async function sendDM(userId, text) {
-    try {
-        const openResult = await slack.conversations.open({ users: userId });
-        const dmChannel = openResult.channel.id;
-
-        await slack.chat.postMessage({
-            channel: dmChannel,
-            text,
-            unfurl_links: false,
-        });
-        console.log('[watercooler] Error notification sent');
-    } catch (err) {
-        console.error('[watercooler] Failed to send DM:', err.message);
-    }
+    const ok = await slackSendDM(slack, userId, text, 'watercooler');
+    if (!ok) console.error('[watercooler] Could not send the DM');
+    return ok;
 }
 
 // ---- Main ----
@@ -102,9 +96,7 @@ async function main() {
                     OWNER_USER_ID,
                     `:warning: ${typeConfig.name} completed with ${result.errors.length} problem(s), ` +
                     `${result.messagesPosted} message(s) posted:\n${result.errors.map(e => `• ${e}`).join('\n')}`
-                ).catch(dmErr => {
-                    console.error('[watercooler] Could not report partial failure:', dmErr.message);
-                });
+                );
             }
         } else {
             console.error(`[watercooler] ${typeConfig.name} failed:`, result.errors.join(', '));
@@ -121,14 +113,7 @@ async function main() {
         console.error(`[watercooler] ${typeConfig.name} fatal error:`, err.message);
         console.error(err.stack);
 
-        try {
-            await sendDM(
-                OWNER_USER_ID,
-                `:x: ${typeConfig.name} failed: ${err.message}`
-            );
-        } catch {
-            console.error('[watercooler] Could not send error notification');
-        }
+        await sendDM(OWNER_USER_ID, `:x: ${typeConfig.name} failed: ${err.message}`);
 
         process.exit(1);
     }
