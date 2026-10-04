@@ -227,6 +227,7 @@ const { installDependencies } = require('./lib/dependency-install');
 // survives a restart because it exists as a message.
 const { startSocketMode } = require('./lib/slack-socket');
 const { createMainWatch, remoteMainSha } = require('./lib/main-watch');
+const { createBackupWatch } = require('./lib/backup-watch');
 const { handleSlashCommand, handleViewSubmission } = require('./lib/dispatch-command');
 
 // ---- Config ----
@@ -2518,6 +2519,24 @@ if (MAIN_WATCH_INTERVAL_MS > 0) {
   const runMainWatch = () => mainWatch.tick().catch(err => console.error('[main-watch] tick threw:', err.message));
   setTimeout(runMainWatch, 60000).unref();
   setInterval(runMainWatch, MAIN_WATCH_INTERVAL_MS).unref();
+}
+
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #42 c): the backup age alert. The host writes
+// BACKUP_STATUS_FILE (scripts/backup-status.sh, host cron); this reads it hourly and
+// posts to #sqtools-ops when a backup, or the host job itself, is older than
+// BACKUP_MAX_AGE_HOURS. Off - and said so in the log - until the file is configured.
+const BACKUP_STATUS_FILE = process.env.BACKUP_STATUS_FILE || '';
+if (BACKUP_STATUS_FILE) {
+  const backupWatch = createBackupWatch({
+    file: BACKUP_STATUS_FILE,
+    maxAgeMs: (parseFloat(process.env.BACKUP_MAX_AGE_HOURS) || 26) * 3600000,
+    notify: postToOps,
+  });
+  const runBackupWatch = () => backupWatch.tick().catch(err => console.error('[backup-watch] tick threw:', err.message));
+  setTimeout(runBackupWatch, 90000).unref();
+  setInterval(runBackupWatch, 3600000).unref();
+} else {
+  console.log('  Backups:  NOT watched (BACKUP_STATUS_FILE unset; see scripts/backup-status.sh)');
 }
 console.log(`  Allowed:  ${ALLOWED_USER_IDS.join(', ')}`);
 console.log(`  Channels: ${channelsToPoll.length} (${channelsToPoll.map(c => c.agentId).join(', ')})`);

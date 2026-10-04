@@ -244,6 +244,8 @@ const POLL_INTERVAL = 5000;
 | `UPDATE_DEFER_ALERT_MS` | How long one self-update may be deferred before every cycle escalates to `#sqtools-ops` | `3600000` (60 min) |
 | `UPDATE_PENDING_STALE_MS` | How long the DRAIN-ONE pending-update marker (`$WORK_DIR/.update-pending`) may go unrefreshed before the bridge treats it as an orphan, clears it and reports it. **This is a heartbeat, not a ceiling on the wait** — a live updater refreshes it every `CHECK_INTERVAL_MS`, so a marker this quiet belongs to a process that is gone, and honouring it would leave the bridge silently refusing every dispatch for an update that is never coming. | `4 × CHECK_INTERVAL_MS` (20 min at defaults) |
 | `WORK_DIR` | Base dir for temp clones | `/tmp/bridge-agent` |
+| `BACKUP_STATUS_FILE` | Container path of the backup status file `scripts/backup-status.sh` writes from HOST cron (on the NAS, `/share/CACHEDEV1_DATA/jt-agent/.backup-status.json` = `/bridge/.backup-status.json`). Unset = backups are not watched, and the startup log says so. `lib/backup-watch.js` reads it hourly (WORK-TODO #42) | - |
+| `BACKUP_MAX_AGE_HOURS` | A backup, or the status file itself (the host job stopped), older than this is posted to `#sqtools-ops`; repeated daily while it persists, and once on recovery | `26` |
 | `DEPLOY_KEY_PATH` | SSH deploy key a scratch clone pushes with (`lib/clone-lifecycle.js` `cloneRepo`). No file at the path, or a path containing a `'`, leaves the clone **READ-ONLY**: the task runs and its push fails, and the undelivered clone is preserved and reported. The default is the container path | `/bridge/.deploy_key` |
 | `CRITIQUE_TIMEOUT_MS` | Timeout for the jester's one-shot weekly critique call (`lib/weekly-critique.js`) | `120000` |
 | `REPOS` | Comma-separated repos. Read by `getConfiguredRepos()` in `lib/config.js` — the single owner of the list — for the nightly security review AND for the `/dispatch` form's repository select. Adding a repository is this variable plus `docker compose up -d --force-recreate jt-agent`; it is not a code change. **The default stopped naming `jtpets/SquareDashboardTool` on 2026-10-02**: the bridge cannot clone it (WORK-TODO #57), so listing it only made the audit and the form offer something that fails | `jtpets/slack-agent-bridge` |
@@ -668,6 +670,7 @@ slack-agent-bridge/
 ├── security-review.js    # Cron job script: security audit of commits from last 24h
 ├── scripts/
 │   ├── watercooler.js    # Cron/manual script: weekly team standup conversation (Friday 5PM)
+│   ├── backup-status.sh  # HOST-side (NAS cron, never a container): writes the newest file name and age per backup directory to a JSON status file that lib/backup-watch.js reads (WORK-TODO #42). POSIX sh, temp file + rename
 │   ├── migrate-agent-definitions.js # THE migration from agents/agents.json to agents/<id>/agent.md, and the seeding step that made it safe: it writes the definitions AND seeds agents/shared/channel-map.json with the ids the legacy file held, keyed by the name each definition declares. Without the seed the bridge would resolve a convention-derived channel name against Slack at boot and a wrong name would silently stop a working channel being polled. `--dry-run` to print without writing
 │   ├── channel-map.js    # THE command that answers "which channel does each agent actually run in?" and rebuilds the answer when the workspace state is lost. `--from-git` reconstructs from the deleted agents/agents.json in git history (this workspace, offline, no token); `--resolve` resolves every declared name against Slack (any workspace, needs a token); no flag is a read-only report. Creates no channel and writes no tracked file
 │   ├── close-reconcile.js # `node scripts/close-reconcile.js [--at <sha>] [--repo <dir>]`: prints lib/close-reconcile.js's report. Exit 0 clean, 1 when a `Closes #N` leaves #N in WORK-TODO.md, 2 when it could not look (shallow clone, no git, a refused ref) — never 0 for that. Also run by `npm run validate`
@@ -747,6 +750,8 @@ slack-agent-bridge/
 │   ├── channel-map-rebuild.js # THE reproduction path for the workspace channel mapping (WORK-TODO #55): reconstructFromHistory() recovers the ids from agents/agents.json as it stood when the markdown migration deleted it, joining on the AGENT ID so a name correction cannot orphan one; resolveDeclaredChannels() asks Slack what the declared names mean HERE, via the same resolveAgentChannel() the boot path calls. A value already resolved against the live workspace always beats a reconstructed one. Creates no channel, writes no tracked file
 │   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork, assertValidTargetDir. Every git call is an execFileSync argv array — no function here builds a shell command string
 │   ├── preserved-clone-alert.js # The text of the #sqtools-ops alert posted when a scratch clone is kept for undelivered work: formatPreservedCloneAlert says the path is INSIDE the jt-agent container, gives the `docker exec` that reaches it, and says a `--force-recreate` deletes it unless WORK_DIR is on a mount (WORK-TODO #25). Pure: builds a string, posts nothing
+│   ├── python-venv.js    # WORK-TODO #68's venv half: createVenv runs `python3 -m venv .venv` in a python clone (PEP 668 refuses a system-wide pip install) after adding `/.venv/` to the clone's .git/info/exclude, so the clone never reads as holding uncommitted work. A venv that cannot be created is reported for INSTALLER_ABSENT (the image's failure), a timeout for TIMED_OUT
+│   ├── backup-watch.js   # WORK-TODO #42 (c): reads BACKUP_STATUS_FILE hourly (written on the HOST by scripts/backup-status.sh) and posts to #sqtools-ops when a backup directory is missing, empty or older than BACKUP_MAX_AGE_HOURS, or when the status file itself is stale (the host cron stopped). Posts when the problem set changes, daily while it persists, once on recovery. Sees file names and ages only, never the dumps
 │   ├── dependency-install.js # Installs a scratch clone's OWN dependencies BEFORE the LLM runs, so Phase-3's test gate is real instead of vacuous (WORK-TODO #61): detectEcosystem (node -> npm ci/npm install, both --ignore-scripts, python -> python3 -m pip) and installDependencies, which returns one of three failure outcomes NEVER collapsed into one — INSTALL_FAILED / INSTALLER_ABSENT / TIMED_OUT are all HARNESS failures the caller stops the dispatch on, distinct from a CODE failure (tests ran and failed) and a pass. A repo with no recognised manifest installs nothing and proceeds. No shell: spawnSync with an argv array. Bounded by INSTALL_TIMEOUT_MS
 │   ├── bridge-state.js    # State persistence (seam B): sole owner of .bridge-agent-state.json (per-channel poll cursors) and processed-tasks.json (task dedup); init, get/setLastChecked, isTaskProcessed, markTaskProcessed, cleanupProcessedTasks
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap). Its client comes from lib/slack-web.js
@@ -861,6 +866,8 @@ slack-agent-bridge/
 │   ├── undelivered-work.test.js # Tests for detectUndeliveredWork + processTask's delivery-gated cleanup (the regression guard for the three tasks lost to unconditional cleanup)
 │   ├── preserved-clone-alert.test.js # Regression test for WORK-TODO #25: the preserved-clone alert names the container, the `docker exec` to reach the path, and that a recreate deletes the clone unless WORK_DIR is mounted, using the configured WORK_DIR
 │   ├── dependency-install.test.js # Tests for lib/dependency-install.js: ecosystem detection (node ci-vs-install, python, none), every classification via an injected runner, AND the three outcomes produced for real — a real out-of-sync `npm ci` proving the HARNESS classification, a real `npm ci` then a failing `node --test` proving the CODE classification, and the same then a passing suite proving a pass
+│   ├── python-venv.test.js      # Tests for lib/python-venv.js and the python path of installDependencies: venv first then the VENV interpreter runs pip (never system python3 -m pip), a venv that cannot be created is INSTALLER_ABSENT and pip never runs, the exclude keeps the clone clean (negative control: without it .venv shows in git status), and a REAL venv install of an empty requirements.txt
+│   ├── backup-watch.test.js     # Tests for lib/backup-watch.js against status files written by the REAL scripts/backup-status.sh: fresh, stale, empty, missing, and THE silent-stoppage case (a fresh dump in a status file nobody refreshed); when it posts (on change, daily, on recovery); and the bridge-agent.js wiring
 │   ├── dependency-install-scripts.test.js # THE guard that a scratch clone's npm install runs NO lifecycle script: real lib/dependency-install.js, real npm, a package whose pre/post/install/prepare scripts write a marker — absent after both the lockfile (`npm ci --ignore-scripts`) and no-lockfile (`npm install --ignore-scripts`) paths, present in a negative control run without the flag. Split from dependency-install.test.js for the 300-line gate
 │   ├── bridge-state.test.js     # Tests for lib/bridge-state.js (poll cursors, legacy migration, processed-task dedup; temp-dir CRUD)
 │   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management, joinAgentChannels)
@@ -944,6 +951,8 @@ slack-agent-bridge/
 ├── README.md             # Project overview
 ├── COMMANDMENTS.md       # Non-negotiable rules, prepended to every task prompt
 ├── WORK-TODO.md          # The backlog: flat, one ### heading per OPEN item, stable numeric IDs never reused, closed items purged (git history + the `Closes <ID>` commit body are the record), index regenerated from the headings. Counts are commands, not figures: `grep -cE '^### [0-9]+[a-z]?\. ' WORK-TODO.md`
+├── Dockerfile            # PROPOSED jt-agent image (WORK-TODO #70), not yet used by the live compose: node:20.20.2-bookworm and @anthropic-ai/claude-code pinned by version, python3-venv installed once (#68). Copies nothing in — the code is the bind-mounted checkout and the credentials stay in the env_file. Adoption is the PROPOSED block (2) in docker-compose.example.yml. Node 20 is end of life since April 2026
+├── .dockerignore         # Excludes the whole build context, because the Dockerfile copies nothing — so .env and .deploy_key are never sent to a build
 ├── docker-compose.example.yml # The deployment definition, off-box. Reproduces the live compose captured 2026-09-14 (untracked and now gitignored on the NAS) and carries the proposed container hardening as commented blocks — see docs/CONFIG-SURFACE-AND-REBUILD.md Step 7.7. No secret belongs in it; credentials live only in the off-repo env_file
 ├── .gitattributes        # Line-ending normalization (* text=auto eol=lf) - stops CRLF corruption
 └── .gitignore            # Git ignore rules (node_modules, .env, .claude-home/, *.bak, etc.)
@@ -1085,6 +1094,14 @@ it: `python3` is present but `pip` is absent** (operator-supplied, 2026-09-20 �
 "Supported toolchains" immediately below). Every python dispatch therefore fails as
 `INSTALLER_ABSENT`, a clear refusal, never a silent skip. End-to-end python remains
 UNVERIFIED: no python repo is cloned in any test here, and the deployed image is off-box.
+**Since 2026-10-04 (B6, #68) a python clone installs into a venv inside the clone**
+(`lib/python-venv.js`: `python3 -m venv .venv`, then `.venv/bin/python -m pip install …`;
+`.venv/` goes in the clone's `.git/info/exclude` so the clone does not read as undelivered
+work). PEP 668 is in force on the image, so a system-wide install would refuse even with
+pip. On today's image the venv step itself fails (no `ensurepip`) and is reported as
+`INSTALLER_ABSENT`; the tracked `Dockerfile` (#70, not yet adopted on the box) adds
+`python3-venv`, which supplies it. Phase 3 still runs only `npm test`, so a python
+repo's tests are not run by the bridge either way.
 
 #### Supported toolchains — a STATED list, because an unstated one drifts
 
@@ -1098,7 +1115,7 @@ That is the same class as a Postgres-major mismatch.
 | Ecosystem | Manifest (`detectEcosystem`) | Installer | Status in the `jt-agent` image |
 |-----------|------------------------------|-----------|--------------------------------|
 | **node** | `package.json`; a `package-lock.json` or `npm-shrinkwrap.json` selects `npm ci` over `npm install` | `npm` | **SUPPORTED.** node and npm *are* the image (`image: node:20`) |
-| **python** | `requirements.txt`, `pyproject.toml`, `setup.py` | `python3 -m pip` | **NOT SUPPORTED.** `python3` is present, `pip` is not, so every python dispatch refuses with `INSTALLER_ABSENT`. WORK-TODO **#68** |
+| **python** | `requirements.txt`, `pyproject.toml`, `setup.py` | `python3 -m venv .venv`, then the venv's `python -m pip` | **NOT SUPPORTED.** `python3` is present, `pip` is not, so every python dispatch refuses with `INSTALLER_ABSENT`. WORK-TODO **#68** |
 | **`none`** *(anything else)* | no recognised manifest | nothing is run | **NOT DETECTED.** Nothing is installed and the task proceeds — the research/audit and no-dependency case, not a refusal |
 
 **The python row is operator-supplied and dated, not regenerable from a checkout.**

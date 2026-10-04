@@ -89,6 +89,12 @@ models/
 # auto-update.js writes this next to the repo. Sibling of .bridge-agent-state.json,
 # which was already ignored; this one was not.
 .auto-update-state.json
+
+# Written by scripts/backup-status.sh from host cron into the deploy checkout and read by
+# lib/backup-watch.js (WORK-TODO #42). Runtime state, never tracked. The temp file the
+# script renames from is covered too.
+/.backup-status.json
+/.backup-status.json.tmp.*
 .npm-global/
 *.bak*
 .deploy_key*

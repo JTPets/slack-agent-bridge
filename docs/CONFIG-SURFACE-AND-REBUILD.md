@@ -1244,3 +1244,56 @@ and `unrs-resolver` (`postinstall` → `napi-postinstall`, a fallback that fetch
 native binding only when the optional `@unrs/resolver-binding-*` package is missing).
 After `npm ci --ignore-scripts` the full suite passed — Node 22 in a sandbox, 2026-10-02.
 **Unverified on the image's Node 20** (`image: node:20`).
+
+---
+
+# Step 12 — A build step, clean restarts and a backup age alert (addendum, 2026-10-04, B6)
+
+Recorded here because each changes the rebuild path; none of it is applied on the box by
+this repository. Each is an owner step, and each is independently revertable.
+
+## 12.1 The image can now be BUILT (WORK-TODO #70)
+
+A tracked `Dockerfile` exists: `FROM node:20.20.2-bookworm`, `@anthropic-ai/claude-code`
+pinned to `2.1.289`, and `python3-venv` installed once (#68). It copies nothing in: the code
+stays the bind-mounted checkout and the credentials stay in the env_file, and
+`.dockerignore` keeps the whole context (`.env`, `.deploy_key`) out of the build. Adopting
+it is block (2) of the PROPOSED section in `docker-compose.example.yml`. With it, Step 5's
+rebuild path becomes:
+
+```
+cp docker-compose.example.yml /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml   # with block (2) applied
+docker compose build jt-agent
+docker compose up -d jt-agent
+docker exec jt-agent claude --version     # the pinned CLI
+```
+
+**Unverified:** the build was not run (no container daemon where this was written) and the
+base tag was not checked against the registry. **Node 20 has been end of life since April
+2026**; this pins its last release rather than moving to 22, which is its own decision.
+
+## 12.2 A restart can reach the bridge's shutdown handler (WORK-TODO #73 shape a)
+
+Block (1) of the same section: `exec node bridge-agent.js` in the command, `init: true`,
+`stop_grace_period: 90s`. Without it PID 1 is `sh`, SIGTERM never reaches node, and a
+running task is SIGKILLed with its `finally` block unrun (#73). With it a task gets the
+handler's 60 s; one still running after that is still lost.
+
+## 12.3 The example now records the `WORK_DIR` mount the box reported (§10.2)
+
+Block (3) carries the bind mount `docker inspect` reported on 2026-09-20, as a commented
+line with the check to run before adding it. Until it is checked, the uncommented block
+remains the 2026-09-14 capture.
+
+## 12.4 A backup age alert exists, with a host half (WORK-TODO #42 c)
+
+`scripts/backup-status.sh` runs on the HOST from cron and writes the newest file's name and
+age per backup directory to `/share/CACHEDEV1_DATA/jt-agent/.backup-status.json`
+(gitignored; `/bridge/.backup-status.json` in the container). `lib/backup-watch.js` reads
+it hourly when `BACKUP_STATUS_FILE` is set and posts to `#sqtools-ops` when a backup is
+older than `BACKUP_MAX_AGE_HOURS` (26), or when the status file itself is: a firmware update
+that wipes `/etc/config/crontab` stops the backups and this job together, and the stale
+status file is what reports it. The dumps are never mounted into the container, because
+the bridge executes LLM-authored code and the dumps hold customer data. The host cron line
+belongs in the rebuild path beside the backup jobs, and is wiped by the same firmware
+updates — which is the case the alert exists for.

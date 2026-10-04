@@ -89,7 +89,9 @@ describe('detectEcosystem', () => {
         const e = detectEcosystem(d);
         expect(e.ecosystem).toBe('python');
         expect(e.command).toBe('python3');
-        expect(e.display).toBe('python3 -m pip install -r requirements.txt');
+        // LOGIC CHANGE 2026-10-04 (#68): into the clone's venv, not system-wide.
+        expect(e.venv).toBe(true);
+        expect(e.display).toBe('.venv/bin/python -m pip install -r requirements.txt');
     });
 
     test('pyproject.toml -> python, pip install .', () => {
@@ -97,7 +99,7 @@ describe('detectEcosystem', () => {
         fs.writeFileSync(path.join(d, 'pyproject.toml'), '[project]\nname="x"\n');
         const e = detectEcosystem(d);
         expect(e.ecosystem).toBe('python');
-        expect(e.display).toBe('python3 -m pip install .');
+        expect(e.display).toBe('.venv/bin/python -m pip install .');
     });
 
     test('node wins over python when both manifests exist', () => {

@@ -40,8 +40,12 @@
 #   other   no recognised manifest                          -> nothing is installed and
 #           the task proceeds (research/audit tasks).
 #
-# THERE IS NO PLACE IN THIS FILE TO ADD A SYSTEM PACKAGE. There is no `build:` key and
-# no Dockerfile in this repository (nor in its history). The only thing that installs
+# A TRACKED Dockerfile NOW EXISTS (2026-10-04, WORK-TODO #70) and the live deployment
+# does NOT use it yet: switching is the PROPOSED BUILD block at the bottom, an owner step.
+# Until it is applied, the paragraph below describes the running deployment exactly.
+#
+# THERE IS NO PLACE IN THIS FILE TO ADD A SYSTEM PACKAGE. There is no `build:` key in the
+# uncommented block. The only thing that installs
 # anything is the `command:` below, which runs at every container START, as
 # `user: "1000:100"` — NOT root. `npm install -g` works there only because
 # NPM_CONFIG_PREFIX redirects npm's global prefix into the writable bind mount; apt has
@@ -120,3 +124,45 @@ services:
     #   - no-new-privileges:true
     # cap_drop:
     #   - ALL
+
+    # ---------------------------------------------------------------------------
+    # PROPOSED (B6, 2026-10-04) — three changes, each an owner decision, each
+    # independently revertable. UNTESTED against the live bridge. Apply one at a time
+    # with `docker compose logs -f jt-agent` open and run a real TASK: after each.
+    # ---------------------------------------------------------------------------
+
+    # (1) LET A RESTART STOP THE BRIDGE CLEANLY — WORK-TODO #73. Today PID 1 is `sh`,
+    # which does not forward SIGTERM, so `docker compose restart` never reaches
+    # bridge-agent.js's gracefulShutdown() and a running task is SIGKILLed ~10s later
+    # with its finally block (lock release, clone check) never run. `exec` makes node
+    # replace sh; `init: true` puts docker's tini in front to forward signals and reap
+    # the task's child processes; 90s covers the handler's 60s wait. What it does NOT
+    # do: a task still running after 60s is still lost (the handler then exits).
+    # Replace the `command:` line above with this one, and add the two keys:
+    # command: sh -c "npm ci && npm install -g @anthropic-ai/claude-code && exec node bridge-agent.js"
+    # init: true
+    # stop_grace_period: 90s
+    # Verify: docker compose restart jt-agent, then the log tail shows
+    # "Received SIGTERM, initiating graceful shutdown" and #sqtools-ops gets ":wave:".
+
+    # (2) BUILD THE IMAGE INSTEAD OF INSTALLING AT EVERY START — WORK-TODO #70. Pins the
+    # base and the Claude CLI (see Dockerfile), installs python3-venv once (#68), and the
+    # start command shrinks to the repo's own `npm ci`. Replace `image: node:20` with
+    # the two keys below, drop NPM_CONFIG_PREFIX and the PATH override from
+    # `environment:` (the CLI is now /usr/local/bin/claude, the CLAUDE_BIN default - and a
+    # stale copy in /bridge/.npm-global would otherwise shadow it), make sure .env does
+    # not set CLAUDE_BIN elsewhere, and use this command (with (1)'s exec):
+    # build: .
+    # image: jt-agent:local
+    # command: sh -c "npm ci && exec node bridge-agent.js"
+    # Rebuild path: docker compose build jt-agent && docker compose up -d jt-agent
+    # Verify: docker exec jt-agent claude --version   (prints the pinned version)
+
+    # (3) MAKE THIS FILE MATCH THE BOX ON WORK_DIR — WORK-TODO #73 shape (b), #25. On
+    # 2026-09-20 `docker inspect jt-agent` (operator-supplied) reported this bind mount,
+    # which the 2026-09-14 capture above does not have. If it is live, this file is
+    # stale and a rebuild from it would put WORK_DIR back in the container layer, where a
+    # --force-recreate deletes the task lock, the queue and every preserved clone.
+    # Check first:  docker inspect -f '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}' jt-agent
+    # Then add under `volumes:`:
+    #   - /share/CACHEDEV1_DATA/jt-agent/work:/tmp/bridge-agent

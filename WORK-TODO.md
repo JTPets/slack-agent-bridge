@@ -92,6 +92,11 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+At the **2026-10-04 B6 pass** those print **44** open items — **10** P1, **28** P2, **6** P3 —
+and **no duplicate ID**. That pass closed nothing and filed nothing: it did the repository
+halves of **#70, #73, #42 and #68** (each body says what is left on the box), and skipped
+**#59** and **#17**, which wait on the owner.
+
 At the **2026-10-04 B5 pass** those print **44** open items — **10** P1, **28** P2, **6** P3 —
 and **no duplicate ID**. That pass closed and purged **#46 and #9** (the commit body lists
 each close with the checks that ran), filed nothing, did the repo halves of **#4, #49, #52,
@@ -317,8 +322,8 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B3** | What reaches Slack is redacted and true; one helper per shared behaviour | #30, #31, #32, #33, #24, #7, #21, #58 (all closed 2026-10-04) | `lib/notify-owner.js`, `morning-digest.js`, `lib/llm-runner.js`, `lib/bulletin-board.js`, `lib/staff-tasks.js`, `lib/agent-context.js`, `lib/slack-client.js` | After B1: #30 removes `bridge-agent.js` / `auto-update.js` post helpers that B1 also edits |
 | **B4** | Records: config surface and docs that state what is no longer true | #34, #20, #63, #35, #48 (all closed 2026-10-04); #4b narrowed to owner decisions (now OD); #10 table refreshed; stale-claim sweep done | `CLAUDE.md`, `README.md`, `.env.example`, `docs/AGENTS.md`, `WORK-TODO.md` | After the in-flight records dispatch, which owns the same docs this week. Verifiable by reading |
 | **B5** | Commands and routing | #46, #9 (closed 2026-10-04); #4 cheap half, #49 (Q1-3 + bot path), #52 and #66 (repo halves), #64 (refusal half) done; #39 moved to B7 | `bridge-agent.js`, `lib/command-router.js`, `lib/dispatch-command.js`, `lib/dispatch-delivery.js`, `lib/task-history.js`, `lib/channel-reconcile.js`, `lib/main-watch.js` | After B1 and B3 (shared `bridge-agent.js`) |
-| **B6** | Deployment shape — repo halves of owner-side work | #70, #73, #42, #59, #68 (venv half), #17 (deploy-shape half) | `Dockerfile` (new), `docker-compose.example.yml`, `docs/CONFIG-SURFACE-AND-REBUILD.md`, `lib/dependency-install.js` | Last. Needs owner decisions (#17 shape, #73 exec/grace, #42 a mount) and follows the in-flight dispatch's edits to `lib/dependency-install.js` and the compose copy |
-| **OA** | Owner action only, nothing left in the repo | #3, #26, #40, #41, #43, #53, #55, #52, #66 | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
+| **B6** | Deployment shape — repo halves of owner-side work | Done 2026-10-04: #70 (Dockerfile), #73 (compose proposals), #42 (c), #68 (venv half). Skipped: #59 (its own text sequences it after #17/#73), #17 (deploy shape is the owner's choice) | `Dockerfile`, `.dockerignore`, `docker-compose.example.yml`, `lib/python-venv.js`, `lib/backup-watch.js`, `scripts/backup-status.sh`, `docs/CONFIG-SURFACE-AND-REBUILD.md` | Each repo half is inert until the owner applies it on the NAS |
+| **OA** | Owner action only, nothing left in the repo | #3, #26, #40, #41, #43, #53, #55, #52, #66, #70, #73 | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
 | **B7** | Landed vs completed | #39 | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/clone-lifecycle.js` | Needs a post-terminal queue writer for the pushed branch and SHA; separate from B5 so the delivery invariant is changed deliberately |
 | **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60, #49 | — | Small code once chosen; listed so nobody dispatches them undecided |
 | **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
@@ -332,16 +337,16 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 |---|---|---|---|---|---|
 | #55 | P1 | REPO DONE | OA | S | `scripts/channel-map.js` `--from-git`/`--resolve` built; owner rebuilds the map. Suggest P2: nothing for a branch |
 | #56 | P1 | OPEN, nothing to act on until it recurs | B2 | S | Not seen in 2 runs at triage or 3 on `e7edded`. The adjacent race was removed 2026-10-04 (`0773821` deleted the in-tree temp dir; the shared walker in `lib/source-walk.js` skips a vanished dir). The globalSetup signature is still unexplained |
-| #42 | P1 | OPEN | B6 | S/M | No backup check anywhere in the repo. **Correction:** part (c) is not buildable alone — the container mounts no backups path (`docker-compose.example.yml:75-80`), so it needs an owner mount or a host-side check |
+| #42 | P1 | (c) DONE in B6 (host status file + bridge age alert) | OA | S/M | `scripts/backup-status.sh` + `lib/backup-watch.js`. Owner: the host cron line and `BACKUP_STATUS_FILE`; (a) off-box pull; (b) a restore |
 | #41 | P1 | REPO DONE | OA | — | All remaining work is on the appliance |
 | #17 | P1 | Boot-commit report DONE in B1; deploy shape is a decision | OD + B6 | M | Boot post via `lib/repo-history.js` `loadedCommit()`. Remaining: choose start-the-daemon / push-triggered / manual, then B6 wires it |
-| #73 | P1 | REPO DONE for the warning; compose fix off-box | B6 | S | `gracefulShutdown` at `bridge-agent.js:2620`, handlers `:2684`; compose copy has no `init:`/`stop_grace_period:` |
+| #73 | P1 | REPO DONE (warning 2026-09-20; compose proposals in B6) | OA | S | `docker-compose.example.yml` PROPOSED blocks (1) exec/init/grace and (3) the WORK_DIR mount. Owner applies and verifies |
 | #25 | P1 | REPO DONE (alert fixed in B1) | OA | S | Alert text built by `lib/preserved-clone-alert.js`, test `tests/preserved-clone-alert.test.js`. Remaining: `WORK_DIR` on a mount in `docker-compose.example.yml` (with #73) |
 | #3 | P1 | REPO DONE | OA | — | `lib/agent-scheduler.js:133-141` refuses planned/unresolved; needs a live restart to confirm. Suggest P2 |
 | #4 | P1 | Cheap half DONE in B5 (immediate poll after `/dispatch`, one sweep at a time); socket intake parked | B5 | S/M | Namesake (message intake on the socket) is parked by its own text. Suggest P3: latency, not a defect |
 | #43 | P1 | REPO DONE | OA | — | `/dispatch` built and wired (`bridge-agent.js:2588`); Slack app steps remain. Suggest P2 |
-| #70 | P2 | OPEN | B6 | M | No `Dockerfile` ever; `docker-compose.example.yml:83` installs the CLI unpinned at every start |
-| #68 | P2 | in flight, then OPEN | B6 | M | Per-clone venv not written (`lib/dependency-install.js:127,138` still system pip) |
+| #70 | P2 | REPO DONE in B6 | OA | M | Tracked `Dockerfile` with pinned base and CLI, `.dockerignore`, compose block (2), rebuild doc Step 12. Build unverified here. Node 20 is EOL |
+| #68 | P2 | Venv half DONE in B6 | OA | M | `lib/python-venv.js`. Left: adopt the image (#70), name the pins, a real python dispatch (needs #57) |
 | #4b | P2 | OWNER DECISIONS ONLY (B4) | OD | — | Repo halves done in B4: all 59 `process.env` reads are in `.env.example` and `CLAUDE.md`, guarded. Left: the infra-repo/secrets-store decision and cleaning unread keys out of the live `.env` |
 | #30 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | M | Every client is built by `lib/slack-web.js` `createWebClient()`, which redacts every `chat.*` post; the six helper copies delegate to `postText`/`sendDM`. Guard `tests/slack-redaction.test.js` |
 | #31 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `lib/digest-failures.js` uses llm-runner `isRateLimitError`; no line promises a retry or re-queue. Guard `tests/digest-failures.test.js` |
@@ -376,7 +381,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #52 | P2 | REPO DONE in B5 | OA | S | `ASK: channels` built. Owner: deploy, run it, act on the output |
 | #53 | P2 | REPO DONE | OA | S | `#jester-agent` still has to be created by the owner |
 | #57 | P2 | in flight, **one constraint STALE** | — | S | Constraint 1 says "the bridge pushes nothing". At HEAD `cloneRepo` points `origin` at SSH and sets `core.sshCommand` to the bridge's own deploy key (`lib/clone-lifecycle.js:173-190`), so the executor pushes with the bridge's key |
-| #59 | P2 | OPEN, behind #17/#73 | B6 | M | No stall or wall-clock logic exists |
+| #59 | P2 | OPEN, behind #17/#73 — skipped in B6 by its own sequencing | B6 | M | No stall or wall-clock logic exists. Lands after the deploy path is settled and #73 block (1) is applied |
 | #67 | P2 | decision | OD | S stopgap | Stopgap: "fetch `origin/main` and re-read the max ID" in the executor contract |
 | #58 | P3 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | The adapter owns its deadline; timers cleared on `error`. `tests/llm-runner-deadline.test.js` |
 | #60 | P3 | deferred design rule | OD | — | Move to a design doc before it is ever purged |
@@ -792,6 +797,18 @@ the bridge uses. A reminder to run the command has the same failure mode as the 
 **Risk:** None to the running process — everything here is additive or read-only.
 **Status:** open — needs the NAS
 
+
+**B6, 2026-10-04 — (c) is built, without mounting the backups into the bridge.** The dumps
+hold customer data and the bridge runs LLM-authored code, so the container is given file
+names and ages only: `scripts/backup-status.sh` runs on the HOST from cron and writes a
+status file into the jt-agent share; `lib/backup-watch.js` reads it hourly when
+`BACKUP_STATUS_FILE` is set and posts to `#sqtools-ops` when a backup is older than
+`BACKUP_MAX_AGE_HOURS` (26) — **or when the status file itself is**, which is how a
+firmware-wiped crontab (the silent stoppage in half 2) gets reported. Guard
+`tests/backup-watch.test.js`, which runs the real script. **Remaining (owner):** install the
+host cron line and set `BACKUP_STATUS_FILE` (commands in the B6 reply); (a) the pulled
+off-box copy; (b) a restore actually performed.
+**Status:** open — (c) REPO DONE; (a), (b) and the cron line are on the box.
 ---
 
 ### 41. The NAS is the single point of failure for every stack and every credential, and its exposure has never been established
@@ -1138,6 +1155,15 @@ than fixed.**
 an uncleanly killed task costs; #22, its sibling, was met by `8516b7d` and purged 2026-10-02), #72 (the two answers to "is a task running?"), #26 (why (a)
 and (b) are off-repo), #71 (`ASK:` is outside every gate anyway).
 
+
+**B6, 2026-10-04 — shapes (a) and (b) are written into the off-box rebuild artifact, not
+applied.** `docker-compose.example.yml` PROPOSED block (1) carries `exec node bridge-agent.js`,
+`init: true` and `stop_grace_period: 90s` with its verification (the log shows "Received
+SIGTERM" and ops gets ":wave:"); block (3) carries the `WORK_DIR` bind mount the box reported
+on 2026-09-20, with the `docker inspect` to run before adding it. Neither can be tested from
+here. **Remaining (owner):** apply (1), restart once with a task running, and confirm the
+handler ran; check and apply (3). A task still running after the handler's 60 s is still lost.
+**Status:** REPO DONE — owner action.
 ---
 
 ### 25. The preserved scratch clone does not survive a container recreation — silent data loss inside the feature that prevents silent data loss
@@ -1785,6 +1811,30 @@ the list of what remains unreachable. Regenerate the figure with the grep in Ste
   store holds credentials. Neither is a change this repository can make.
 **Priority:** P2 | **Effort:** Low (docs) / Medium (infra repo) | **Status:** open
 
+
+**B6, 2026-10-04 — the repository half is done; the rebuild is the owner's.** A tracked
+`Dockerfile` exists: `FROM node:20.20.2-bookworm`, `@anthropic-ai/claude-code@2.1.289`,
+`python3-venv`, nothing copied in, and `.dockerignore` excludes the whole context so `.env`
+and `.deploy_key` never reach a build. The `build:` key is in `docker-compose.example.yml` as
+PROPOSED block (2), with the PATH/`NPM_CONFIG_PREFIX` change that must go with it, and
+`docs/CONFIG-SURFACE-AND-REBUILD.md` Step 12.1 puts the build in the rebuild path.
+**Unverified:** the build was not run (no container daemon where it was written), and the
+base tag was not checked against the registry. **New finding: Node 20 is end of life
+(April 2026)**; the pin is its last release, and moving to 22 is a separate decision.
+**Remaining (owner):** apply block (2) on the NAS, `docker compose build jt-agent`, restart,
+confirm `docker exec jt-agent claude --version` prints the pin.
+**Status:** REPO DONE — owner action.
+
+**B6, 2026-10-04 — DoD item 2 is done.** A python clone installs into `.venv/` inside the
+clone (`lib/python-venv.js`): `python3 -m venv .venv`, then `.venv/bin/python -m pip install`.
+`/.venv/` goes in the clone's `.git/info/exclude` first, or `detectUndeliveredWork` would
+preserve every python clone as uncommitted work. A venv that cannot be created (the live
+image has no `ensurepip`) is `INSTALLER_ABSENT`; a pip failure inside a created venv is
+still `INSTALL_FAILED`. Guard `tests/python-venv.test.js`, including a real venv install.
+The tracked `Dockerfile` (#70) adds `python3-venv`, which is DoD item 3's shape (a) — not
+adopted. **Two things this does not do, stated:** Phase 3 runs only `npm test`, so a python
+repo's tests are never run by the bridge; and the repo is unreachable anyway (#57).
+**Remaining:** items 3-5 (adopt the image, name the pins, a real python dispatch).
 ---
 
 ### 71. `ASK:` is invisible to every update gate — a conversation can be restarted mid-answer

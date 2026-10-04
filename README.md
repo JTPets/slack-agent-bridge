@@ -128,6 +128,8 @@ The agent responds directly without cloning any repo.
 |----------|---------|-------------|
 | `CLAUDE_BIN` | `/usr/local/bin/claude` | Path to Claude CLI binary |
 | `POLL_INTERVAL_MS` | `30000` | How often to check Slack (ms) |
+| `BACKUP_STATUS_FILE` | - | Container path of the status file `scripts/backup-status.sh` writes from host cron; set it to turn on the backup age alert |
+| `BACKUP_MAX_AGE_HOURS` | `26` | A backup, or the status file itself, older than this is posted to `#sqtools-ops` |
 | `MAIN_WATCH_INTERVAL_MS` | `1800000` | How often to compare origin `main` with the commit the bridge booted on; a difference is posted to `#sqtools-ops` once per new `main` commit. `0` = off |
 | `TASK_TIMEOUT_MS` | `600000` | Hard timeout per task (10 min) |
 | `INSTALL_TIMEOUT_MS` | `300000` | Hard timeout for installing a scratch clone's dependencies (5 min). Separate from `TASK_TIMEOUT_MS`; a timeout is a harness failure |
