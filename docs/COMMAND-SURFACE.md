@@ -238,6 +238,15 @@ everything else. So a verb has no notion of an invoking agent at all today.
 behaviour depends on the capability model, which is why the two are designed together and
 neither is built here.
 
+**Addendum 2026-10-04 (B5): the refusal half landed without the capability model.** A verb
+typed on its own in an agent channel is now refused with a pointer to `#claude-bridge`
+instead of being answered by the agent's model (`commandRouter.isBareCommand`, the `else` of
+the bridge-channel gate in `processConversation`; guard `tests/agent-channel-verbs.test.js`).
+That removes the confident wrong answer and widens nothing: no verb runs outside the bridge
+channel. Only the verb alone, or the verb plus one number or agent id, is refused, so a
+sentence that happens to start with a verb still reaches the agent. Running verbs in agent
+channels, with the invoking agent as an argument, still waits on the capability model.
+
 ---
 
 ## 4. `feedback` — a change request, never a silent edit

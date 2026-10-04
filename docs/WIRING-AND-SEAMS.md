@@ -584,6 +584,11 @@ summary of it.
    (asserted in `tests/slack-socket.test.js`). One intake path, one dedup owner, and a
    task that survives a restart because it exists as a message. The latency is paid
    against work that runs for ten minutes.
+   → **Amended 2026-10-04 (B5).** The post now goes to the channel the form was opened
+   in when the poll loop watches it, and is refused in the form otherwise (WORK-TODO
+   #46); a successful post triggers one immediate poll, so the latency above is gone
+   (#4's cheap half). Still one intake path: the form posts a message and `poll()` reads
+   it. See `CLAUDE.md` → "The `/dispatch` command".
 
 ### Failure paths, and the one that has no good answer
 

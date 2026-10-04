@@ -226,6 +226,7 @@ const { installDependencies } = require('./lib/dependency-install');
 // path is not called directly: one intake path, one dedup owner, and a task that
 // survives a restart because it exists as a message.
 const { startSocketMode } = require('./lib/slack-socket');
+const { createMainWatch, remoteMainSha } = require('./lib/main-watch');
 const { handleSlashCommand, handleViewSubmission } = require('./lib/dispatch-command');
 
 // ---- Config ----
@@ -1463,6 +1464,15 @@ function formatStatusResponse() {
   return response;
 }
 
+/** Agent ids, or none when the registry cannot be read (a verb argument check, not a gate). */
+function knownAgentIds() {
+  try {
+    return loadAgents().map(a => a.id);
+  } catch (err) {
+    return [];
+  }
+}
+
 // ---- Process a conversational message ----
 
 // LOGIC CHANGE 2026-03-26: Added processConversation for handling ASK: messages.
@@ -1528,6 +1538,23 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
         });
         return;
       }
+    } else if (commandRouter.isBareCommand(questionText, knownAgentIds())) {
+      // LOGIC CHANGE 2026-10-04 (WORK-TODO #64, the safe half): a verb typed on its own
+      // in an agent's channel used to fall through to that agent's model, which
+      // answered a question about the system from a persona that cannot see it - a
+      // confident wrong answer. Refuse it and say where the verb runs. The gate itself
+      // is NOT lifted: running verbs here needs the capability model (#64's other half).
+      const verb = commandRouter.parseCommand(questionText).verb;
+      console.log(`[${agentId}] Bridge verb \`${verb}\` refused in an agent channel: ${msg.ts}`);
+      await slack.chat.postMessage({
+        channel: sourceChannel,
+        thread_ts: msg.ts,
+        text: `:information_source: \`${verb}\` is a bridge command. It runs in <#${BRIDGE_CHANNEL}>, not here: ` +
+          `in this channel an ASK: goes to ${agentName} as a conversation, and a model would guess the answer. ` +
+          'Nothing was run.',
+        unfurl_links: false,
+      });
+      return;
     }
 
     // LOGIC CHANGE 2026-03-26: Check for built-in status query before calling LLM.
@@ -2029,10 +2056,48 @@ function describeSkipReason(msg) {
   return 'unprefixed message rejected by isNaturalConversationMessage';
 }
 
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #4, cheap half): one sweep at a time.
+// Before this, the only re-entrancy check was `isRunning`, which is set around a
+// TASK: and NOT around an ASK: answer. So a setInterval tick that landed while an ASK:
+// was being answered (a model call, routinely longer than POLL_INTERVAL_MS) started a
+// SECOND sweep: it could answer the same ASK: again (the dedup mark is written after
+// the answer), start a task beside the conversation, and its trailing
+// `isRunning = false` could clear the flag while the other sweep's task was still
+// running, letting a third sweep start a second task. The guard below makes the sweep
+// itself exclusive; a call that finds one in flight returns false and does nothing,
+// because the sweep in flight (or the next tick) reads whatever it would have read.
+// Guard: tests/poll-reentrancy.test.js.
+let pollInFlight = false;
+async function poll() {
+  if (pollInFlight) return false;
+  pollInFlight = true;
+  try {
+    await pollSweep();
+    return true;
+  } finally {
+    pollInFlight = false;
+  }
+}
+
+/**
+ * Poll once now, outside the interval - used after /dispatch posts a task so it starts
+ * without waiting up to POLL_INTERVAL_MS. Never throws and never reaches the operator:
+ * a skipped or failed immediate poll leaves the message for the next tick to read.
+ */
+function pollNow(reason) {
+  poll()
+    .then((ran) => {
+      if (!ran) console.log(`[bridge-agent] Immediate poll (${reason}) skipped: a sweep is in flight`);
+    })
+    .catch((err) => {
+      console.error(`[bridge-agent] Immediate poll (${reason}) failed; the next tick retries:`, err.message);
+    });
+}
+
 // LOGIC CHANGE 2026-03-27: Refactored poll() to iterate through all agent channels.
 // Each channel is polled for messages. TASK: messages always go to bridge agent.
 // ASK: messages are routed to the agent that owns the channel.
-async function poll() {
+async function pollSweep() {
   if (isRunning) return;
 
   // LOGIC CHANGE 2026-03-27: Check if shutting down before processing new tasks.
@@ -2237,9 +2302,12 @@ async function poll() {
             isNaturalConversationMessage(msg) &&
             !alreadyProcessed(msg) &&
             !isTaskProcessed(msg.ts)) {
-          // Check authorization for natural messages too
-          const isBotMessage = msg.user === BOT_USER_ID;
-          if (!isUserAuthorized(msg.user) && !isBotMessage) {
+          // Check authorization for natural messages too.
+          // LOGIC CHANGE 2026-10-04 (WORK-TODO #49): no bot exemption here. It exists on
+          // the TASK:/ASK: path so scheduled tasks posted AS the bot are not dropped;
+          // nothing scheduled posts natural conversation, and exempting the bot let its
+          // own reports reach a model. Only an allowlisted person starts one.
+          if (!isUserAuthorized(msg.user)) {
             console.log(`[bridge-agent] Ignoring natural message from unauthorized user: ${msg.user}`);
             continue;
           }
@@ -2435,6 +2503,22 @@ console.log(`  Turns:    ${DEFAULT_TURNS} per task unless TURNS: says otherwise 
 const BOOT_COMMIT = repoHistory.loadedCommit();
 console.log(`  Commit:   ${BOOT_COMMIT.available ? `${BOOT_COMMIT.short}${BOOT_COMMIT.dirty ? ' (tracked files modified)' : ''}` : `unknown (${BOOT_COMMIT.reason})`}`);
 postToOps(repoHistory.describeLoadedCommit(BOOT_COMMIT));
+
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #66): watch origin main against the commit above,
+// and say once per new main sha when they differ - the forgotten-deploy signal. First
+// check a minute after boot, then every MAIN_WATCH_INTERVAL_MS (0 turns it off).
+// Report-only; lib/main-watch.js pulls and restarts nothing.
+const MAIN_WATCH_INTERVAL_MS = parseInt(process.env.MAIN_WATCH_INTERVAL_MS || '1800000', 10);
+if (MAIN_WATCH_INTERVAL_MS > 0) {
+  const mainWatch = createMainWatch({
+    bootCommit: BOOT_COMMIT,
+    readMain: () => remoteMainSha(repoHistory.REPO_ROOT),
+    notify: postToOps,
+  });
+  const runMainWatch = () => mainWatch.tick().catch(err => console.error('[main-watch] tick threw:', err.message));
+  setTimeout(runMainWatch, 60000).unref();
+  setInterval(runMainWatch, MAIN_WATCH_INTERVAL_MS).unref();
+}
 console.log(`  Allowed:  ${ALLOWED_USER_IDS.join(', ')}`);
 console.log(`  Channels: ${channelsToPoll.length} (${channelsToPoll.map(c => c.agentId).join(', ')})`);
 
@@ -2648,7 +2732,11 @@ let socketMode = null;
       handleViewSubmission(envelope, {
         postMessage: (args) => slack.chat.postMessage({ ...args, unfurl_links: false }),
         isAuthorized: isUserAuthorized,
-        bridgeChannel: BRIDGE_CHANNEL,
+        // LOGIC CHANGE 2026-10-04 (WORK-TODO #46): the poll set, read at submit time so
+        // an activation since boot counts. A form opened anywhere else is refused.
+        watchedChannels: () => channelsToPoll,
+        // LOGIC CHANGE 2026-10-04 (WORK-TODO #4): start the task now, not next tick.
+        onDispatched: () => pollNow('dispatch'),
         notify: postToOps,
         // githubOrg is deliberately NOT passed: omitted, lib/dispatch-message.js
         // falls back to lib/task-parser.js's own DEFAULT_GITHUB_ORG, so the generator

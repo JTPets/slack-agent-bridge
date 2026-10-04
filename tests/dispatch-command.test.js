@@ -27,6 +27,8 @@ const { parseTask } = require('../lib/task-parser');
 const silent = { log: () => {}, warn: () => {}, error: () => {} };
 const AUTHORIZED = 'U_OWNER';
 const isAuthorized = (id) => id === AUTHORIZED;
+// The poll set: the form below is opened in C_CMD, which the bridge polls.
+const WATCHED = () => [{ channelId: 'C_CMD', agentId: 'bridge' }];
 
 function commandBody(overrides = {}) {
   return {
@@ -169,7 +171,7 @@ describe('authorisation reuses the existing allowlist check', () => {
 
     const result = await handleViewSubmission(
       { ack, body: submissionBody(goodValues, { user: { id: 'U_STRANGER' } }) },
-      { postMessage, isAuthorized, bridgeChannel: 'C_BRIDGE', logger: silent }
+      { postMessage, isAuthorized, watchedChannels: WATCHED, logger: silent }
     );
 
     expect(result.reason).toBe('unauthorized');
@@ -181,19 +183,19 @@ describe('authorisation reuses the existing allowlist check', () => {
 // ---------------------------------------------------------------------------
 // The success path: a valid submission becomes a message the parser reads back
 // ---------------------------------------------------------------------------
-describe('a valid submission posts a parseable message to the bridge channel', () => {
-  test('the post goes to the bridge channel and the modal then closes', async () => {
+describe('a valid submission posts a parseable message to the invoking channel', () => {
+  test('the post goes to the channel the form was opened in and the modal then closes', async () => {
     const ack = jest.fn(async () => {});
     const postMessage = jest.fn(async () => ({ ok: true, ts: '1.1' }));
 
     const result = await handleViewSubmission(
       { ack, body: submissionBody(goodValues) },
-      { postMessage, isAuthorized, bridgeChannel: 'C_BRIDGE', logger: silent }
+      { postMessage, isAuthorized, watchedChannels: WATCHED, logger: silent }
     );
 
     expect(result.posted).toBe(true);
     expect(postMessage).toHaveBeenCalledTimes(1);
-    expect(postMessage.mock.calls[0][0].channel).toBe('C_BRIDGE');
+    expect(postMessage.mock.calls[0][0].channel).toBe('C_CMD');
     // ack() with no payload closes the modal.
     expect(ack).toHaveBeenCalledWith();
   });
@@ -202,7 +204,7 @@ describe('a valid submission posts a parseable message to the bridge channel', (
     const postMessage = jest.fn(async () => ({ ok: true }));
     await handleViewSubmission(
       { ack: async () => {}, body: submissionBody(goodValues) },
-      { postMessage, isAuthorized, bridgeChannel: 'C_BRIDGE', logger: silent }
+      { postMessage, isAuthorized, watchedChannels: WATCHED, logger: silent }
     );
 
     const parsed = parseTask(postMessage.mock.calls[0][0].text);
@@ -219,7 +221,7 @@ describe('a valid submission posts a parseable message to the bridge channel', (
     const postMessage = jest.fn(async () => ({ ok: true }));
     await handleViewSubmission(
       { ack: async () => {}, body: submissionBody(goodValues) },
-      { postMessage, processTask, isAuthorized, bridgeChannel: 'C_BRIDGE', logger: silent }
+      { postMessage, processTask, isAuthorized, watchedChannels: WATCHED, logger: silent }
     );
     expect(processTask).not.toHaveBeenCalled();
   });
@@ -229,7 +231,7 @@ describe('a valid submission posts a parseable message to the bridge channel', (
     const ack = jest.fn(async () => {});
     const result = await handleViewSubmission(
       { ack, body: submissionBody(goodValues, { view: { callback_id: 'someone_elses_modal' } }) },
-      { postMessage, isAuthorized, bridgeChannel: 'C_BRIDGE', logger: silent }
+      { postMessage, isAuthorized, watchedChannels: WATCHED, logger: silent }
     );
     expect(result.reason).toBe('not_ours');
     expect(ack).toHaveBeenCalledWith();

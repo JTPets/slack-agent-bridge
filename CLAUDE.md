@@ -235,6 +235,7 @@ const POLL_INTERVAL = 5000;
 | `GITHUB_ORG` | Default GitHub org | `jtpets` |
 | `CLAUDE_BIN` | Path to claude binary | `/usr/local/bin/claude` |
 | `POLL_INTERVAL_MS` | Poll frequency in ms | `30000` |
+| `MAIN_WATCH_INTERVAL_MS` | How often `lib/main-watch.js` compares origin `main` (`git ls-remote`) with the commit the bridge booted on. A difference is posted to `#sqtools-ops` once per new `main` sha; an unreadable remote once per process. Report-only. `0` turns it off | `1800000` (30 min) |
 | `SLACK_APP_TOKEN` | Slack **app-level** token (`xapp-`) for the additive Socket Mode connection. **Never log this.** Absent or blank = Socket Mode off, which is a reported condition and **not** a startup failure; the poll loop is unaffected either way. A `xoxb-` bot token here is refused on shape. | - |
 | `SOCKET_MODE_DOWN_ALERT_MS` | How long the Socket Mode connection may be down before it is reported to `#sqtools-ops`, re-posted once per interval until it recovers | `300000` (5 min) |
 | `TASK_TIMEOUT_MS` | Hard kill timeout in ms. A running task is announced in `#sqtools-ops` at 80% of it (`lib/deadline-warning.js`, WORK-TODO #7); the kill itself is unchanged | `600000` |
@@ -248,7 +249,7 @@ const POLL_INTERVAL = 5000;
 | `REPOS` | Comma-separated repos. Read by `getConfiguredRepos()` in `lib/config.js` — the single owner of the list — for the nightly security review AND for the `/dispatch` form's repository select. Adding a repository is this variable plus `docker compose up -d --force-recreate jt-agent`; it is not a code change. **The default stopped naming `jtpets/SquareDashboardTool` on 2026-10-02**: the bridge cannot clone it (WORK-TODO #57), so listing it only made the audit and the form offer something that fails | `jtpets/slack-agent-bridge` |
 | `CLAUDE_RATE_LIMIT_PAUSE` | Initial pause duration (ms) when rate limit/bandwidth exhausted | `1800000` |
 | `STORE_TASKS_CHANNEL_ID` | #store-tasks channel ID for staff task management | - |
-| `NATURAL_CONVERSATION_MODE` | Enable natural language processing for messages without TASK:/ASK: prefixes | `false` |
+| `NATURAL_CONVERSATION_MODE` | Enable natural language processing for messages without TASK:/ASK: prefixes. Applies in EVERY polled channel; only an allowlisted person's message qualifies — a bot's post (this bot's included) never does, since 2026-10-04 (WORK-TODO #49) | `false` |
 | `GEMINI_API_KEY` | Google Gemini API key for fallback provider. **Never log this.** | - |
 | `LLM_FALLBACK_ENABLED` | Enable automatic fallback to secondary LLM on rate limits | `true` |
 | `LLM_FALLBACK_PROVIDER` | Secondary LLM provider to use when primary hits rate limits | `gemini` |
@@ -734,10 +735,14 @@ slack-agent-bridge/
 │   ├── owner-tasks.js    # Owner task PRESENTATION and command recognition: formatPendingTasks, isOwnerTasksQuery, extractActionRequired (ACTION REQUIRED detection). Also the facade that re-exports lib/owner-tasks-store.js, so `require('./lib/owner-tasks')` still answers for the whole surface
 │   ├── owner-tasks-store.js # The activation-checklist STORE: sole reader/writer of agents/activation-checklists.json plus the CRUD and readiness maths (loadChecklists, saveChecklists, getPendingTasks, completeTask, completeChecklistItem, getAgentReadiness, getAllAgentReadiness, addTask). Extracted from owner-tasks.js 2026-09-15 (WORK-TODO #10); the dependency runs one way, store <- view, so there is no cycle. Re-exported by lib/owner-tasks.js, so callers are unchanged
 │   ├── notify-owner.js   # Owner notification layer, the single path for owner-facing messages: init() injects the Slack client/owner id/ops channel; notifyOps posts an operational failure to #sqtools-ops (redacted) so a lib module never needs a fourth postToOps; notifyOwner routes by PRIORITY (CRITICAL -> the secretary agent's channel when active, else a direct DM; HIGH -> logged for a digest that does not exist yet; LOW -> logged only) plus taskFailed/taskCompleted/actionRequired/rateLimitHit/rateLimitCleared. Redacts via lib/redact-secrets.js before anything leaves
-│   ├── dispatch-command.js # THE COMMAND half of /dispatch: handleSlashCommand acknowledges within Slack's three-second window and THEN opens the modal from the trigger_id; handleViewSubmission composes the submission and POSTS it to the bridge channel, where poll() picks it up like any other message (one intake path, one dedup owner) — it never calls the task path. Authorisation is this module's own gate via lib/config.js isUserAuthorized, because a bot-posted message bypasses the poll loop's allowlist by design. Neither handler ever rejects
+│   ├── dispatch-command.js # THE COMMAND half of /dispatch: handleSlashCommand acknowledges within Slack's three-second window and THEN opens the modal from the trigger_id; handleViewSubmission composes the submission and POSTS it to the channel /dispatch was opened in when the poll loop watches it (so the task runs as that channel's agent), REFUSES it in the form anywhere else — never redirected to the bridge channel (WORK-TODO #46) — and then calls onDispatched, which bridge-agent.js uses to poll immediately (#4). poll() picks it up like any other message (one intake path, one dedup owner) — it never calls the task path. Authorisation is this module's own gate via lib/config.js isUserAuthorized, because a bot-posted message bypasses the poll loop's allowlist by design. Neither handler ever rejects
+│   ├── dispatch-delivery.js # Where and how a /dispatch submission is delivered: resolveDispatchTarget (the invoking channel when it is in the poll set, otherwise a refusal with the reason — WORK-TODO #46) and raceWithTimeout (the post bounded inside Slack's ack window). Split from dispatch-command.js 2026-10-04 for the 300-line rule; re-exported by it
 │   ├── dispatch-modal.js   # THE FORM half of /dispatch: buildModalView builds the five separate inputs FROM lib/dispatch-message.js's FIELD_KEYS (so form and generator cannot gain a field independently), extractSubmission reads them back out of a view_submission (Slack sends a blank optional input as null), and toSlackErrors keys a rejection by block_id so it lands on the offending input
 │   ├── dispatch-message.js # THE GENERATOR half of the /dispatch slash-command form: validateDispatchFields rejects (never sanitises) the five modal inputs — REPO:/BRANCH: through lib/git-identifiers.js, TURNS: against the parser's own MIN_TURNS/TURNS_CEILING, and an instructions body carrying a line that starts with a task field label — buildDispatchMessage emits UPPERCASE line-anchored labels with INSTRUCTIONS: last, and assertRoundTrip parses the result back and THROWS on any mismatch before it can be posted. The round trip is pinned in tests/integration.test.js beside the three other generators
-│   ├── command-router.js # THE verb -> handler table for built-in commands. A command is a VERB with known parameters; an agent is addressed by its channel, never by a command name (WORK-TODO #45). It is NOT a second registry: a verb whose kind is `scheduled` carries a task NAME from lib/agent-task-catalogue.js and delegates to getDeterministicTask(name).run(), because a cron job and an on-demand command are the same operation triggered differently. Handlers never post — they return { ok, text } and the caller posts. Registered today: help (renders the table itself), status (per-agent provider/model/adapter with provenance), agents (the surface table), holidays, check-inbox. `weather` is NOT registered: fetchWeather is private to morning-digest.js, which has no module.exports at all
+│   ├── task-history.js   # The `history [n]` verb (WORK-TODO #9): the last n finished tasks, newest first, with when (Toronto time) and how each ended, read from memory/history.json via memory-manager getTaskHistory. A non-number is refused with usage; an unreadable memory is a failure, never an empty history
+│   ├── channel-reconcile.js # The `channels` verb (WORK-TODO #52): public channels the bot is in vs channels an agent or a *_CHANNEL_ID declares, both directions. One paginated conversations.list; creates, joins and writes nothing. Private channels need groups:read, not held, and the report says so
+│   ├── main-watch.js     # WORK-TODO #66: `git ls-remote origin refs/heads/main` (async, argv) on MAIN_WATCH_INTERVAL_MS, compared with the boot commit from lib/repo-history.js; posts to #sqtools-ops ONCE per new main sha when they differ, and says "differs", never "behind" (ls-remote gives no history). An unreadable remote is reported once per process. Report-only
+│   ├── command-router.js # THE verb -> handler table for built-in commands. A command is a VERB with known parameters; an agent is addressed by its channel, never by a command name (WORK-TODO #45). It is NOT a second registry: a verb whose kind is `scheduled` carries a task NAME from lib/agent-task-catalogue.js and delegates to getDeterministicTask(name).run(), because a cron job and an on-demand command are the same operation triggered differently. Handlers never post — they return { ok, text } and the caller posts. Registered today: help (renders the table itself), status (per-agent provider/model/adapter with provenance), agents (the surface table), holidays, history (#9), channels (#52), available/activate/deactivate/create, check-inbox, critique. isBareCommand() recognises a verb typed on its own, which bridge-agent.js REFUSES in an agent channel with a pointer to #claude-bridge rather than letting a model answer it (#64, the safe half). `weather` is NOT registered: fetchWeather is private to morning-digest.js, which has no module.exports at all
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
 │   ├── channel-map-rebuild.js # THE reproduction path for the workspace channel mapping (WORK-TODO #55): reconstructFromHistory() recovers the ids from agents/agents.json as it stood when the markdown migration deleted it, joining on the AGENT ID so a name correction cannot orphan one; resolveDeclaredChannels() asks Slack what the declared names mean HERE, via the same resolveAgentChannel() the boot path calls. A value already resolved against the live workspace always beats a reconstructed one. Creates no channel, writes no tracked file
 │   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork, assertValidTargetDir. Every git call is an execFileSync argv array — no function here builds a shell command string
@@ -840,10 +845,16 @@ slack-agent-bridge/
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
 │   ├── heartbeat.test.js        # Tests for lib/heartbeat.js (emoji cycle, terminal reaction, failures never propagate)
 │   ├── dispatch-command.test.js # Tests for lib/dispatch-command.js: the ack precedes the modal open (a hanging views.open cannot delay it), the allowlist is the injected one, a rejected field is reported IN the form, and every failure path — modal open failure, post failure, and a post that outlives the ack window (reported as UNKNOWN, never as failed, because a confident 'failed' invites a resubmission that dispatches the task twice)
+│   ├── dispatch-routing.test.js # WORK-TODO #46 and #4: a submission posts to the invoking channel when it is polled, is refused in the form (not redirected to the bridge) when it is not, and onDispatched runs once after the ack and never for a refused or failed post; plus the bridge-agent.js wiring
+│   ├── poll-reentrancy.test.js # THE guard that poll() runs one sweep at a time: extracts poll()/pollNow() from bridge-agent.js's source and runs them against a controllable sweep (a second call while one is in flight does nothing; a throwing sweep releases the guard; pollNow never rejects), with the pre-2026-10-04 isRunning-only shape as the negative control
 │   ├── dispatch-failure-paths.test.js # Part four of /dispatch: a failure must never look like success. views.open failing after the ack reaches the operator AND #sqtools-ops; a rejected field keeps the modal OPEN with the reason on that input; a post that fails names the failure; a post that outlives the ack window reports the outcome as UNKNOWN rather than failed, because a confident 'failed' invites a resubmission and dedup is by message ts
 │   ├── dispatch-modal.test.js   # Tests for lib/dispatch-modal.js: five input blocks matching the generator's field list, only instructions multiline, defaults taken from the parser's own constants, and block_id-keyed error mapping
 │   ├── dispatch-message.test.js # Tests for lib/dispatch-message.js: per-field rejection reusing the identifier module's payload set, a field label inside the instructions body refused, and assertRoundTrip's negative controls (it THROWS on a lowercase label and on a silently changed field)
 │   ├── dispatch-body-delivery.test.js # THE regression guard for the 2026-09-20 "the dispatch body never reached the executor" failure. Two halves, because either alone is insufficient: that a body carrying no INSTRUCTIONS: label is REPORTED in task.errors rather than dropped in silence (the silence was the defect — the old parser returned errors: [] and the prompt fell back to the one-line TASK: description), and that a sentinel string in a well-formed body survives every hop from the raw Slack message text through parseTask and buildPrompt to the bytes the CLI receives on stdin. Like tests/llm-runner-prompt-size.test.js it SPAWNS FOR REAL, against a stub binary that copies stdin to stdout, because a mocked child_process accepts any payload and proves nothing about delivery
+│   ├── task-history.test.js     # Tests for lib/task-history.js and memory-manager getTaskHistory: default 10, clamp to 1-50, a non-number refused, an unreadable memory a failure, outcomes named; `task status` is not captured by the verb
+│   ├── channel-reconcile.test.js # Tests for lib/channel-reconcile.js: both directions, every owner named, pagination, an unfinished list throws, a Slack failure is a failure, and the module names no mutating Slack API
+│   ├── main-watch.test.js       # Tests for lib/main-watch.js: once per new main sha, "differs" never "behind", an unreadable remote once per process, an unknown boot commit compares nothing; and remoteMainSha against a REAL temp origin via git ls-remote
+│   ├── agent-channel-verbs.test.js # WORK-TODO #64 (safe half) and #49: isBareCommand's narrow shape, processConversation refusing a bare verb in an agent channel before any LLM call (the gate not lifted), and a bot's own post never reaching the natural-conversation path
 │   ├── command-router.test.js   # THE guard for the command table: it enumerates `async function handle*` from lib/command-router.js's own source and fails when one is not reachable from the table — a command that exists in code but not in the table. Also fails when a deterministic task is neither a registered verb nor an explicit NOT_COMMANDS entry, when a TASK_TEMPLATES name or an agent id is registered as a verb, and when help stops rendering from the table. Carries its own negative controls
 │   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
 │   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo argv/`--` separators, assertValidTargetDir rejections, deploy-key paths, cleanupDir, export surface)
@@ -1194,7 +1205,7 @@ never reaches `connected` counts as an outage. A deliberate `stop()` does not.
 
 **LOGIC CHANGE 2026-09-15.** `/dispatch` opens a modal with **five separate inputs** —
 task, repository, branch, turn budget, instructions — and posts the composed task message
-to `#claude-bridge`, where `poll()` picks it up like any other message. Five inputs is the
+to the channel `/dispatch` was opened in, where `poll()` picks it up like any other message. Five inputs is the
 whole point: nothing typed into one of them can merge two fields, which is exactly what a
 flattened pasted block does.
 
@@ -1206,8 +1217,20 @@ flattened pasted block does.
 
 **It posts a message; it does not call the task path.** `processTask` is never invoked
 from the form. One intake path, one owner of deduplication (`lib/bridge-state.js`, by
-message `ts`), and a task that survives a restart because it exists as a message. The cost
-is up to `POLL_INTERVAL_MS` of latency, paid against work that runs for ten minutes.
+message `ts`), and a task that survives a restart because it exists as a message.
+
+**LOGIC CHANGE 2026-10-04 — where it posts, and how soon it starts (WORK-TODO #46, #4).**
+The post goes to the channel the form was **opened in**, when the poll loop watches that
+channel (`channelsToPoll`, read at submit time), so the task runs as that channel's agent.
+Opened anywhere else (a DM, `#store-tasks`, a planned agent's channel) it is **refused in the
+form** with the reason, never redirected to `#claude-bridge` and never posted where nothing
+reads it (`lib/dispatch-delivery.js` `resolveDispatchTarget`). After a successful post,
+`onDispatched` starts one poll immediately (`pollNow`), so the task no longer waits up to
+`POLL_INTERVAL_MS`. `poll()` now runs **one sweep at a time** (`pollInFlight`): before, an
+interval tick during a long `ASK:` answer started a second concurrent sweep, which could
+answer an `ASK:` twice or start a second task. An immediate poll that finds a sweep in flight
+does nothing; that sweep or the next tick reads the message. Guards:
+`tests/dispatch-routing.test.js`, `tests/poll-reentrancy.test.js`.
 
 **Authorisation is the command's, not the poll loop's.** The poll loop's gate is
 `!isUserAuthorized(msg.user) && !isBotMessage` — a message posted **as the bot** goes
@@ -1725,6 +1748,35 @@ ASK: task status
 ASK: what are you working on
 ```
 Returns: currently running task, queued tasks, and last 5 completed tasks.
+
+### Task History
+```
+ASK: history          # last 10 finished tasks
+ASK: history 30       # last 30 (max 50)
+```
+Newest first, with when each finished (Toronto time) and how: completed, failed with its
+error, interrupted, or stopped at max turns. Read from `memory/history.json`, which keeps
+every finished task, unlike `what's queued`, whose queue keeps 24 hours. Spelled `history`
+and not `task history`, because a verb is the first word and `task` would capture
+`ASK: task status`. `lib/task-history.js`, WORK-TODO #9.
+
+### Channels vs Agents
+```
+ASK: channels
+```
+Read-only. Every public channel the bot is in, each with its owner (an agent, or a
+`*_CHANNEL_ID` variable) or **owned by nothing**; every agent channel the bot is not in; and
+every agent whose declared channel name never resolved. Private channels need `groups:read`,
+which the bot does not hold, and the report says so. `lib/channel-reconcile.js`,
+WORK-TODO #52.
+
+### A verb typed in an agent's channel
+A bridge verb typed **on its own** in an agent's channel (`ASK: status`, `ASK: history 20`,
+`ASK: status secretary`) is refused with a pointer to `#claude-bridge`. It used to reach that
+agent's model, which answered a question about the system as conversation. Only the verb
+alone, or the verb plus one number or agent id, is refused: `ASK: create a post about the
+sale` is a request to the agent and still goes to it. Verbs still do not RUN in agent
+channels; that needs the capability model (WORK-TODO #64).
 
 ### Create Channel
 Create a Slack channel and invite the bot:

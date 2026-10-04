@@ -92,6 +92,12 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+At the **2026-10-04 B5 pass** those print **44** open items — **10** P1, **28** P2, **6** P3 —
+and **no duplicate ID**. That pass closed and purged **#46 and #9** (the commit body lists
+each close with the checks that ran), filed nothing, did the repo halves of **#4, #49, #52,
+#64 and #66** (each body says what is left and whose it is), and moved **#39** to its own
+batch, B7.
+
 At the **2026-10-04 B4 pass** those print **46** open items — **10** P1, **30** P2, **6** P3 —
 and **no duplicate ID**. That pass closed and purged **#34, #20, #63, #35 and #48** (the
 commit body lists each close with the checks that ran), filed nothing, refreshed #10's table
@@ -310,10 +316,11 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B2** | The test apparatus | #56, #36 (closed 2026-10-04), #69 (closed 2026-10-04), #54 (closed 2026-10-04), #11 (closed 2026-10-04) | `tests/staff-tasks.test.js`, `tests/architecture-tree.test.js`, `lib/file-size-gate.js`, `lib/repo-history.js`, `lib/backlog-report.js`, `WORK-TODO.md` tier header | P1 under the apparatus rule (tier definition, top of this file). Could run beside B1 (no shared code file) but both purge from this file, so sequence them |
 | **B3** | What reaches Slack is redacted and true; one helper per shared behaviour | #30, #31, #32, #33, #24, #7, #21, #58 (all closed 2026-10-04) | `lib/notify-owner.js`, `morning-digest.js`, `lib/llm-runner.js`, `lib/bulletin-board.js`, `lib/staff-tasks.js`, `lib/agent-context.js`, `lib/slack-client.js` | After B1: #30 removes `bridge-agent.js` / `auto-update.js` post helpers that B1 also edits |
 | **B4** | Records: config surface and docs that state what is no longer true | #34, #20, #63, #35, #48 (all closed 2026-10-04); #4b narrowed to owner decisions (now OD); #10 table refreshed; stale-claim sweep done | `CLAUDE.md`, `README.md`, `.env.example`, `docs/AGENTS.md`, `WORK-TODO.md` | After the in-flight records dispatch, which owns the same docs this week. Verifiable by reading |
-| **B5** | Commands and routing | #46, #49, #4, #9, #39, #66, #52, #64 (gate half only, see row) | `bridge-agent.js`, `lib/command-router.js`, `lib/dispatch-command.js`, `lib/dispatch-modal.js`, `lib/task-queue.js`, `lib/critique-signals.js` | After B1 and B3 (shared `bridge-agent.js`, `lib/task-queue.js`) |
+| **B5** | Commands and routing | #46, #9 (closed 2026-10-04); #4 cheap half, #49 (Q1-3 + bot path), #52 and #66 (repo halves), #64 (refusal half) done; #39 moved to B7 | `bridge-agent.js`, `lib/command-router.js`, `lib/dispatch-command.js`, `lib/dispatch-delivery.js`, `lib/task-history.js`, `lib/channel-reconcile.js`, `lib/main-watch.js` | After B1 and B3 (shared `bridge-agent.js`) |
 | **B6** | Deployment shape — repo halves of owner-side work | #70, #73, #42, #59, #68 (venv half), #17 (deploy-shape half) | `Dockerfile` (new), `docker-compose.example.yml`, `docs/CONFIG-SURFACE-AND-REBUILD.md`, `lib/dependency-install.js` | Last. Needs owner decisions (#17 shape, #73 exec/grace, #42 a mount) and follows the in-flight dispatch's edits to `lib/dependency-install.js` and the compose copy |
-| **OA** | Owner action only, nothing left in the repo | #3, #26, #40, #41, #43, #53, #55 | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
-| **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60 | — | Small code once chosen; listed so nobody dispatches them undecided |
+| **OA** | Owner action only, nothing left in the repo | #3, #26, #40, #41, #43, #53, #55, #52, #66 | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
+| **B7** | Landed vs completed | #39 | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/clone-lifecycle.js` | Needs a post-terminal queue writer for the pushed branch and SHA; separate from B5 so the delivery invariant is changed deliberately |
+| **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60, #49 | — | Small code once chosen; listed so nobody dispatches them undecided |
 | **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
 
 ### Every item
@@ -331,7 +338,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #73 | P1 | REPO DONE for the warning; compose fix off-box | B6 | S | `gracefulShutdown` at `bridge-agent.js:2620`, handlers `:2684`; compose copy has no `init:`/`stop_grace_period:` |
 | #25 | P1 | REPO DONE (alert fixed in B1) | OA | S | Alert text built by `lib/preserved-clone-alert.js`, test `tests/preserved-clone-alert.test.js`. Remaining: `WORK_DIR` on a mount in `docker-compose.example.yml` (with #73) |
 | #3 | P1 | REPO DONE | OA | — | `lib/agent-scheduler.js:133-141` refuses planned/unresolved; needs a live restart to confirm. Suggest P2 |
-| #4 | P1 | OPEN, parked by its own text | B5 | S/M | Cheap half (poll right after `/dispatch` posts) not done — `lib/dispatch-command.js` never calls `poll()`. Suggest P3: latency, not a defect |
+| #4 | P1 | Cheap half DONE in B5 (immediate poll after `/dispatch`, one sweep at a time); socket intake parked | B5 | S/M | Namesake (message intake on the socket) is parked by its own text. Suggest P3: latency, not a defect |
 | #43 | P1 | REPO DONE | OA | — | `/dispatch` built and wired (`bridge-agent.js:2588`); Slack app steps remain. Suggest P2 |
 | #70 | P2 | OPEN | B6 | M | No `Dockerfile` ever; `docker-compose.example.yml:83` installs the CLI unpinned at every start |
 | #68 | P2 | in flight, then OPEN | B6 | M | Per-clone venv not written (`lib/dependency-install.js:127,138` still system pip) |
@@ -357,18 +364,16 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
 | #7 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `onDeadlineWarning` at 80% posts `lib/deadline-warning.js` to ops; `tests/llm-runner-deadline.test.js`, `tests/deadline-warning.test.js` |
 | #8 | P2 | **STALE** | SEED (close) | — | Dedup is by message `ts` (`lib/bridge-state.js:126`); a re-submitted task is a new message and runs. Re-read skips are already logged (`bridge-agent.js:1986`). Recommend close |
-| #9 | P2 | OPEN | B5 | S | `getRecentCompleted(limit)` exists (`lib/task-queue.js:608`); register a verb in `lib/command-router.js` |
-| #39 | P2 | OPEN | B5 | M | Queue row has no branch/SHA field (`lib/task-queue.js:221-240`) |
+| #39 | P2 | OPEN, not done in B5 | B7 | M | Queue row has no branch/SHA field (`lib/task-queue.js:221-240`). Skipped in B5: the push is detected in `processTask`'s `finally`, after the terminal queue write, so recording it is a new post-terminal queue writer that `tests/task-queue-delivery-invariant.test.js` must be taught about. Its own batch |
 | #40 | P2 | off-box | OA | S | Nothing in the repo can settle it |
 | #37 | P2 | decision | OD | S | `lib/notify-owner.js:165-168` returns `true` after only logging; HIGH is the default priority (`:147`) |
-| #64 | P2 | OPEN, gated on a capability check | B5 | S/M | Router runs only in the bridge channel (`bridge-agent.js:1472`) and is passed the bridge agent (`:1475`). The item says lift the gate only with a capability check, which does not exist |
-| #46 | P2 | OPEN | B5 | S/M | Invoking channel is stored (`lib/dispatch-modal.js:201`) and never used; the item's own grep no longer finds the target |
+| #64 | P2 | Refusal half DONE in B5; gate not lifted | — | M | A bare verb in an agent channel is refused with a pointer to `#claude-bridge`. Running verbs there waits on the capability model (#65, CAPABILITY-AND-ISOLATION-DESIGN) |
 | #47 | P2 | requirement for an unbuilt verb | OD | — | Suggest P3 |
 | #65 | P2 | OPEN, needs design | OD | M | `lib/config.js:168-170` lets the env var win over a definition that denies file-system |
-| #66 | P2 | OPEN | B5 | S/M | Only `auto-update.js` compares against `origin/main`, and nothing starts it |
-| #49 | P2 | OPEN | B5 | S | Half answerable from code now; add a guard that the bot's own replies cannot trigger the path. Suggest P3 while off |
+| #66 | P2 | REPO DONE (poll) in B5 | OA | S | `lib/main-watch.js` posts once per new `main` sha that differs from the boot commit. Owner: deploy and see what the first check says |
+| #49 | P2 | Q1-3 answered and bot path closed in B5 | OD | S | Remaining: the owner decides whether, and on which channels, to turn it on (cost depends on workspace volume). Suggest P3 while off |
 | #51 | P2 | decision | OD | — | Also: `CLAUDE.md` "Agent Activation" still says to edit the deleted `agents/agents.json` (B4) |
-| #52 | P2 | OPEN | B5 | S | Read-only reconcile report; `--report` cited in #52/#55 is not a flag (falls through to the default) |
+| #52 | P2 | REPO DONE in B5 | OA | S | `ASK: channels` built. Owner: deploy, run it, act on the output |
 | #53 | P2 | REPO DONE | OA | S | `#jester-agent` still has to be created by the owner |
 | #57 | P2 | in flight, **one constraint STALE** | — | S | Constraint 1 says "the bridge pushes nothing". At HEAD `cloneRepo` points `origin` at SSH and sets `core.sshCommand` to the bridge's own deploy key (`lib/clone-lifecycle.js:173-190`), so the executor pushes with the bridge's key |
 | #59 | P2 | OPEN, behind #17/#73 | B6 | M | No stall or wall-clock logic exists |
@@ -507,7 +512,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (30)
+**P2 — real gaps, no risk to the running process** (28)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -523,12 +528,10 @@ work behind an owner's name, which is the opposite of the point.
 - **#5** — [Mid-task `ask_on_slack` capability](#5-mid-task-ask_on_slack-capability)
 - **#6** — [Structured task result format](#6-structured-task-result-format)
 - **#8** — [Surface deduplication in status](#8-surface-deduplication-in-status)
-- **#9** — [`ASK: task history [n]` command](#9-ask-task-history-n-command)
 - **#39** — [The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged](#39-the-queue-cannot-tell-a-completed-task-from-a-landed-one--nothing-here-knows-whether-a-branch-merged)
 - **#40** — [Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout](#40-uncommitted-edits-in-the-live-deployment-tree--reported-not-verifiable-from-a-checkout)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
 - **#64** — [A verb typed in an agent's channel is answered by a model as conversation — the same text behaves differently depending on where it is typed](#64-a-verb-typed-in-an-agents-channel-is-answered-by-a-model-as-conversation--the-same-text-behaves-differently-depending-on-where-it-is-typed)
-- **#46** — [`/dispatch` posts to one fixed channel — routing by the invoking channel needs two things that do not exist](#46-dispatch-posts-to-one-fixed-channel--routing-by-the-invoking-channel-needs-two-things-that-do-not-exist)
 - **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
 - **#65** — [A per-agent provider override outranks a definition, so an agent's declared denial can be undone from `.env`](#65-a-per-agent-provider-override-outranks-a-definition-so-an-agents-declared-denial-can-be-undone-from-env)
 - **#66** — [Nothing watches the repository — no agent knows when `main` moves, so a merge and a deploy are unrelated events with nothing observing either](#66-nothing-watches-the-repository--no-agent-knows-when-main-moves-so-a-merge-and-a-deploy-are-unrelated-events-with-nothing-observing-either)
@@ -1415,6 +1418,15 @@ missing from the record: the choice as filed read "30 seconds or rewrite intake"
 done here — it touches the live intake path and belongs in its own change with its own
 regression test.
 
+
+**B5, 2026-10-04 — the middle row of the table above is done.** A successful `/dispatch`
+post now triggers one immediate poll (`onDispatched` → `pollNow`, `bridge-agent.js`), and
+`poll()` runs one sweep at a time (`pollInFlight`) — which also fixed a defect found on the
+way: an interval tick during a long `ASK:` answer used to start a second concurrent sweep
+(guards `tests/dispatch-routing.test.js`, `tests/poll-reentrancy.test.js`). A typed
+`TASK:` still waits for the next tick. What remains is this item's namesake, moving message
+intake to the socket, which stays parked for the reason above. **Triage suggestion stands:
+P3** — what is left is latency, not a defect; owner's call.
 ---
 
 ### 43. A flattened dispatch loses its fields — the connection for the fix exists, the command does not
@@ -2560,18 +2572,6 @@ reply-on-duplicate path.
 
 ---
 
-### 9. `ASK: task history [n]` command
-**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** ancestor heading in the
-2026-04-05 seed `4b6ee4a`.
-**Problem:** The status command returns the last 5 completed tasks; there is no
-`task history N`. `grep -in 'task history' bridge-agent.js lib/task-parser.js` → nothing.
-**Fix:** add a built-in `ASK: task history 20` that reads N back from memory with
-timestamps and outcomes.
-**Effort:** Low.
-**Priority:** P2 | **Effort:** Low | **Status:** open
-
----
-
 ### 39. The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged
 **Filed 2026-09-14,** from the autonomous-loop design
 ([`docs/AUTONOMOUS-LOOP-DESIGN.md`](docs/AUTONOMOUS-LOOP-DESIGN.md) section 4, part five).
@@ -2726,45 +2726,15 @@ every agent, which is a widening, not a fix. The two land together or not at all
 **Priority:** P2 | **Effort:** Low for the gate, Medium with the capability check that must accompany it
 **Status:** open — defect confirmed, intended behaviour recorded, blocked on the capability model
 
----
 
-### 46. `/dispatch` posts to one fixed channel — routing by the invoking channel needs two things that do not exist
-**Filed 2026-09-15,** from the command-router pass.
-**Problem:** `handleViewSubmission` in `lib/dispatch-command.js` posts the composed task
-message to `config.BRIDGE_CHANNEL` regardless of where `/dispatch` was invoked. Every task
-therefore runs as the bridge agent in the bridge channel, whatever channel the operator was
-standing in. The modal already records the invoking channel in `private_metadata`
-(`lib/dispatch-modal.js` → `buildModalView`), so the value is present and unused.
-**The attractive version:** post to the channel the command was invoked in. The existing
-channel→agent routing then decides the agent with **no new mechanism** — `poll()` already
-walks `channelsToPoll` and carries each channel's `agentConfig` into processing.
-**Why it is not done here — two dependencies, both real:**
-1. **A task does not execute as the channel's agent.** That is **#38**: `processTask`
-   resolves persona and provider from the module-level `agentConfig` (the bridge), not from
-   the polled channel's. Posting into the secretary's channel today would produce a task
-   that still runs as the bridge — the routing would look wired and change nothing.
-2. **A channel the poll loop does not watch swallows the task silently.** `channelsToPoll`
-   is built from *active* agents with channels (`bridge-agent.js:1934`, filtered by
-   `getActiveAgents()`), so `/dispatch` invoked in `#store-tasks`, a DM, or any planned
-   agent's channel would post a message nothing ever reads. The command must **refuse** an
-   unwatched channel in the modal — the same reject-never-degrade rule the field validators
-   already follow — not fall back to the bridge channel, which would be the silent
-   downgrade this whole path exists to remove.
-**Fix (after #38):** resolve the invoking channel against `channelsToPoll`; post there on a
-match; reject in-form with the reason on a miss. The `private_metadata` round trip and
-`tests/dispatch-command.test.js`'s failure-path coverage already exist.
-**UNBLOCKED 2026-09-16 — dependency 1 is closed and this status was stale.** #38 ("a task
-does not execute as the channel's agent") was closed and purged by `29af5c5` on 2026-09-15,
-guarded by `tests/task-agent-identity.test.js`. So the reason this item read "blocked" no
-longer holds. Dependency 2 stands and is the actual work: `/dispatch` must **refuse** an
-invoking channel that is not in `channelsToPoll`, never fall back to the bridge channel.
-Re-verify the remaining claim: `grep -n "BRIDGE_CHANNEL" lib/dispatch-command.js` -> the
-post target is still `config.BRIDGE_CHANNEL` regardless of where the command was invoked,
-so the namesake is unchanged. Citation drift: `buildChannelsToPoll` is at
-`bridge-agent.js:2107`, not `:1934`.
-**Citations re-checked 2026-10-04 (B4).** `buildChannelsToPoll` is at `bridge-agent.js:2363`. Regenerate: `grep -n "function buildChannelsToPoll" bridge-agent.js`.
-**Priority:** P2 | **Effort:** Low | **Status:** open — **unblocked**, not started
-
+**B5, 2026-10-04 — the refusal half landed; the gate is not lifted.** A bridge verb typed on
+its own in an agent channel (the verb alone, or the verb plus one number or agent id) is now
+refused with a pointer to `#claude-bridge` instead of being answered by the agent's model
+(`commandRouter.isBareCommand`, the `else` of the bridge-channel gate in
+`processConversation`; guard `tests/agent-channel-verbs.test.js`). A sentence that merely
+starts with a verb ("create a post about the sale") still goes to the agent. That removes the
+confident wrong answer and widens nothing. **Remaining, unchanged:** running verbs in agent
+channels with the invoking agent as an argument, which needs the capability model.
 ---
 
 ### 47. A global provider switch must say what it changed, and must not flatten per-agent settings
@@ -2902,6 +2872,20 @@ inbound path, no new credential and no deployment change.
 **Priority:** P2 | **Effort:** Low for the poll; the useful version is gated on #17
 **Status:** open — reported, not fixed
 
+
+**B5, 2026-10-04 — the poll is built: `lib/main-watch.js`.** A minute after boot and every
+`MAIN_WATCH_INTERVAL_MS` (default 30 min, `0` = off) it runs `git ls-remote -- origin
+refs/heads/main` in the deploy checkout (async, argv, no shell) and compares the result with
+the commit the bridge booted on (#17's boot report). When they differ it posts to
+`#sqtools-ops` **once per new `main` sha**, saying "differs" and naming the restart; it never
+says "behind", because `ls-remote` gives no history. An unreadable remote is posted once per
+process. Report-only: it pulls and restarts nothing. Guard `tests/main-watch.test.js`, which
+runs `ls-remote` against a real temp origin. **Unverified on the box:** whether `git` in the
+`jt-agent` container can reach `origin` from `/bridge` (a remote it cannot read is the one
+"Cannot watch `main`" post). Pieces 2 and 3 of the table (a durable `repo.merged` record and
+a reader) wait on the state store. **Remaining (owner):** deploy, and confirm which of the
+three things the first check posts — nothing, a difference, or "Cannot watch".
+**Status:** REPO DONE for the poll — owner observation.
 ---
 
 ### 49. `NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does
@@ -2928,6 +2912,21 @@ things that *would* depend on this path. Nothing should, until the four question
 have answers.
 **Priority:** P2 | **Effort:** Low to investigate; unknown to make safe | **Status:** open — question recorded, unanswered
 
+
+**Answered from code, B5 2026-10-04.** (1) **Every polled channel**, not only the bridge
+channel: the natural branch sits inside the per-channel loop in `poll()`. (2) **The allowlist
+gated it, but with the bot exempt** — and the bot's own top-level posts (an inbox report in
+the email-monitor channel, for one) carry `bot_id` and no `subtype`, so they passed
+`isNaturalConversationMessage` and would have been answered by a model. **Fixed:** a message
+with `bot_id` is never natural conversation (`lib/task-parser.js`), and the natural branch
+no longer exempts the bot (guard `tests/agent-channel-verbs.test.js`). (3) **Two agents in one
+channel cannot both answer** — a channel maps to one agent in `channelsToPoll`; **an agent
+cannot answer its own answer** — replies are posted as thread replies and
+`conversations.history` returns only top-level messages. (4) **Cost: not answerable from the
+repository.** It is one model call per human remark in any polled channel, on that channel's
+agent's provider; the volume is a property of the workspace. **Remaining (owner):** decide
+whether to turn it on, and if so, on which channels — today it is all or nothing.
+**Status:** open — questions 1-3 answered and the bot path closed; 4 is the owner's measurement.
 ---
 
 ### 51. A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it
@@ -3015,6 +3014,15 @@ verify its own half — but it is the only thing that closes this.
 **Risk:** Low — read-only, creates nothing
 **Status:** open — one direction is computable from the repo today, the other needs the report
 
+
+**B5, 2026-10-04 — the report exists: `ASK: channels`** (`lib/channel-reconcile.js`, guard
+`tests/channel-reconcile.test.js`). It lists every public channel the bot is in with its
+owner (an agent or a `*_CHANNEL_ID`) or "owned by nothing", every agent channel the bot is
+not in, and every agent whose channel name never resolved. Private channels need
+`groups:read`, not held, and the report says so. **Remaining (owner):** deploy, run
+`ASK: channels` in `#claude-bridge`, and act on what it prints (leave or own each unowned
+channel). Nothing more for a branch.
+**Status:** REPO DONE — owner action.
 ---
 
 ### 53. `jester` is an active commentary agent with a weekly schedule, no channel, and no defined material
