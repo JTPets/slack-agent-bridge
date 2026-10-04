@@ -313,7 +313,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | ID | Tier | Verdict at `71d2112` | Batch | Effort | Evidence, and what is left |
 |---|---|---|---|---|---|
 | #55 | P1 | REPO DONE | OA | S | `scripts/channel-map.js` `--from-git`/`--resolve` built; owner rebuilds the map. Suggest P2: nothing for a branch |
-| #56 | P1 | OPEN, nothing to act on until it recurs | B2 | S | Not seen in 2 runs. The adjacent race was removed 2026-10-04 (`0773821` deleted the in-tree temp dir; the shared walker in `lib/source-walk.js` skips a vanished dir). The globalSetup signature is still unexplained |
+| #56 | P1 | OPEN, nothing to act on until it recurs | B2 | S | Not seen in 2 runs at triage or 3 on `e7edded`. The adjacent race was removed 2026-10-04 (`0773821` deleted the in-tree temp dir; the shared walker in `lib/source-walk.js` skips a vanished dir). The globalSetup signature is still unexplained |
 | #42 | P1 | OPEN | B6 | S/M | No backup check anywhere in the repo. **Correction:** part (c) is not buildable alone — the container mounts no backups path (`docker-compose.example.yml:75-80`), so it needs an owner mount or a host-side check |
 | #41 | P1 | REPO DONE | OA | — | All remaining work is on the appliance |
 | #17 | P1 | Boot-commit report DONE in B1; deploy shape is a decision | OD + B6 | M | Boot post via `lib/repo-history.js` `loadedCommit()`. Remaining: choose start-the-daemon / push-triggered / manual, then B6 wires it |
@@ -720,10 +720,21 @@ the same class as this item — a gate that cannot start. It is an environment c
 a defect here, but a hunt for this flake that begins without confirming the runner is
 installed will misread `jest: not found` as the very failure it is hunting.
 
+**2026-10-04 (B2): the adjacent race is gone, the globalSetup signature is not explained.**
+`0773821` removed `<repo>/test-data-staff-tasks` (nothing read it) and `8bc987d` put every
+tree walk behind `lib/source-walk.js`, which skips a directory removed mid-walk
+(`tests/source-walk.test.js` fails against the old loop). The same pass found the
+globalSetup guard itself was half-blind: it watched `agents/shared/staff-tasks-state.json`,
+where nothing writes, while `tests/staff-tasks.test.js` deleted the live
+`data/staff-tasks-state.json` on every run; both fixed in `0773821`, with a negative control
+that turns the run red. Three full runs with the capture above, on `e7edded`:
+`exit=0` each time, 90 suites / 2620 tests / 0 skipped. Three more data points, not a
+running total: runs between 2026-09-16 and now were not all counted. None of this touches what this item records (`globalSetup` failing to
+*load*), so it stays open.
 **Priority:** P1 by the apparatus rule | **Effort:** Low to instrument, unknown to fix
 **Risk:** Unknown — a gate that can fail to start is the shape the apparatus rule is about
-**Status:** open — two unreproduced observations, same signature; 19 green runs since;
-instrument before hunting
+**Status:** open — two unreproduced observations, same signature; every counted run since is
+green; instrument before hunting
 
 ---
 
