@@ -16,8 +16,19 @@ brick the bridge, silently corrupt its state, or does it unblock the hardening t
 prevents those — then leverage per unit of effort.
 
 Priority tiers: **P1** = can brick or silently degrade the running bridge, or unblocks
-something that can | **P2** = real gap, no risk to the live process | **P3** = nice to have
-/ uncertain ROI.
+something that can — **or is a defect in the apparatus that tests other work** | **P2** =
+real gap, no risk to the live process | **P3** = nice to have / uncertain ROI.
+
+**The apparatus rule (from the closed #54, 2026-09-15; written here 2026-10-04 so it
+outlives the item).** Before assigning a tier, ask whether the defect is in the system under
+test or in the apparatus that tests it. A defect in the apparatus — a flaky suite, a gate
+that cannot start, a gate red for a non-code reason, a suite that mutates what it measures —
+is **P1 regardless of its symptom**, because every judgement made while it is open is
+unverified. Two defects were ranked by their visible symptom and deferred on scope grounds
+when they sat under verification: the `getRecentCompleted` ordering (P2, "cosmetic"; it made
+`tests/task-queue.test.js` red in 25 of 40 runs, closed `3d7ad70`) and the suite writing
+invented ids into the live `agents/shared/channel-map.json` (#50/#24, "latent"). The rule
+is applied at filing time; it is not a mandate to re-rank the file.
 
 **Every figure in this file carries the command that regenerates it.** A number with no
 command was removed. A figure only regenerable off-repo (on the NAS, or from the live
@@ -281,7 +292,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | Batch | Theme | Items | Main files | Why this position |
 |---|---|---|---|---|
 | **B1** | A running task is not lost, re-run or misreported | #25, #23, #72, #74, #17 (boot-commit half), #22 (purge) | `bridge-agent.js`, `lib/task-queue.js`, `lib/task-lock.js`, `auto-update.js` (comments), `tests/` | **First.** The deploy step in use kills a running task (#73); B1 makes what happens next honest and stops the re-run. #17's boot report answers "is main deployed?", which is how deploys were found forgotten. No file in common with the in-flight dispatch |
-| **B2** | The test apparatus | #56, #36, #69, #54, #11 | `tests/staff-tasks.test.js`, `tests/architecture-tree.test.js`, `lib/file-size-gate.js`, `lib/repo-history.js`, `lib/backlog-report.js`, `WORK-TODO.md` tier header | P1 under #54's own rule. Could run beside B1 (no shared code file) but both purge from this file, so sequence them |
+| **B2** | The test apparatus | #56, #36, #69, #54 (closed 2026-10-04), #11 | `tests/staff-tasks.test.js`, `tests/architecture-tree.test.js`, `lib/file-size-gate.js`, `lib/repo-history.js`, `lib/backlog-report.js`, `WORK-TODO.md` tier header | P1 under the apparatus rule (tier definition, top of this file). Could run beside B1 (no shared code file) but both purge from this file, so sequence them |
 | **B3** | What reaches Slack is redacted and true; one helper per shared behaviour | #30, #31, #32, #33, #24, #7, #21, #58 | `lib/notify-owner.js`, `morning-digest.js`, `lib/llm-runner.js`, `lib/bulletin-board.js`, `lib/staff-tasks.js`, `lib/agent-context.js`, `lib/slack-client.js` | After B1: #30 removes `bridge-agent.js` / `auto-update.js` post helpers that B1 also edits |
 | **B4** | Records: config surface and docs that state what is no longer true | #34, #4b, #20, #63, #35, #48, #10 (table refresh) + the stale-claim sweep below | `CLAUDE.md`, `README.md`, `.env.example`, `docs/AGENTS.md`, `WORK-TODO.md` | After the in-flight records dispatch, which owns the same docs this week. Verifiable by reading |
 | **B5** | Commands and routing | #46, #49, #4, #9, #39, #66, #52, #64 (gate half only, see row) | `bridge-agent.js`, `lib/command-router.js`, `lib/dispatch-command.js`, `lib/dispatch-modal.js`, `lib/task-queue.js`, `lib/critique-signals.js` | After B1 and B3 (shared `bridge-agent.js`, `lib/task-queue.js`) |
@@ -345,7 +356,6 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #51 | P2 | decision | OD | — | Also: `CLAUDE.md` "Agent Activation" still says to edit the deleted `agents/agents.json` (B4) |
 | #52 | P2 | OPEN | B5 | S | Read-only reconcile report; `--report` cited in #52/#55 is not a flag (falls through to the default) |
 | #53 | P2 | REPO DONE | OA | S | `#jester-agent` still has to be created by the owner |
-| #54 | P2 | OPEN | B2 | S | Amend the tier definition at the top of this file, then purge |
 | #57 | P2 | in flight, **one constraint STALE** | — | S | Constraint 1 says "the bridge pushes nothing". At HEAD `cloneRepo` points `origin` at SSH and sets `core.sshCommand` to the bridge's own deploy key (`lib/clone-lifecycle.js:173-190`), so the executor pushes with the bridge's key |
 | #59 | P2 | OPEN, behind #17/#73 | B6 | M | No stall or wall-clock logic exists |
 | #69 | P2 | OPEN | B2 | M | One-off check finds only `3d7ad70` Closes #43 — #67's ID reuse, not an unpurged close. A naive check would false-alarm on it |
@@ -460,11 +470,10 @@ grep -cE '^\*\*BLOCKED — OWNER DECISION' WORK-TODO.md
 who can move it, not that it stopped mattering. #3 and #55 are P1 precisely because the
 thing that would settle them is a restart nobody has done.
 
-**Deliberately not marked, though it is tempting:** #17, #25, #42, #49, #52 and #54 each
+**Deliberately not marked, though it is tempting:** #17, #25, #42, #49 and #52 each
 have an owner-side half **and** repo-side work still available — #25's alert text and its
 regression test, #42's age alert (the item says "(c) is buildable here"), #17's
-report-the-running-commit requirement, #52's computable direction, #54's rule needing a
-home in the tier definition, #49's answerable questions. Marking those would hide real
+report-the-running-commit requirement, #52's computable direction, #49's answerable questions. Marking those would hide real
 work behind an owner's name, which is the opposite of the point.
 
 ## Index
@@ -484,7 +493,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (43)
+**P2 — real gaps, no risk to the running process** (42)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -524,7 +533,6 @@ work behind an owner's name, which is the opposite of the point.
 - **#51** — [A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it](#51-a-command-that-writes-a-tracked-file-is-destroyed-by-the-next-pull-and-every-configuration-writing-command-shares-it)
 - **#52** — [The workspace's channels and the repository's agents have never been reconciled in either direction](#52-the-workspaces-channels-and-the-repositorys-agents-have-never-been-reconciled-in-either-direction)
 - **#53** — [`jester` is an active commentary agent with a weekly schedule, no channel, and no defined material](#53-jester-is-an-active-commentary-agent-with-a-weekly-schedule-no-channel-and-no-defined-material)
-- **#54** — [Two defects deferred on scope grounds were load-bearing — the deferral judgement, not the filing, is what failed](#54-two-defects-deferred-on-scope-grounds-were-load-bearing--the-deferral-judgement-not-the-filing-is-what-failed)
 - **#57** — [Before the bridge is given a private-repo credential — the constraints, not the plan](#57-before-the-bridge-is-given-a-private-repo-credential--the-constraints-not-the-plan)
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
 - **#69** — [A commit that says `Closes #N` while #N stays in the file is undetectable — the convention and the record are never reconciled](#69-a-commit-that-says-closes-n-while-n-stays-in-the-file-is-undetectable--the-convention-and-the-record-are-never-reconciled)
@@ -648,7 +656,7 @@ against a real Slack workspace and off-box export of the resolved map both outst
 > `tests/helpers/workspace-fixture.js` already uses. See **#36**, which owns the walkers and
 > now records that this is a reliability cost and not only a duplication one. Not fixed in
 > the pass that found it: that dispatch was read-only plus record correction. **Two observations, message
-captured neither time — filed because of the rule #54 records, not despite it.**
+captured neither time — filed because of the apparatus rule (tier definition at the top of this file; it was #54), not despite it.**
 
 **What was seen, twice, with the same signature.** A full `npx jest` run failed *before
 any suite ran*, with the stack ending in
@@ -679,7 +687,7 @@ npx jest --silent > /tmp/jest-out.txt 2>&1; echo "exit=$?"; head -40 /tmp/jest-o
 **Never react to a failing gate through `tail`.** Next steps if it recurs: the full
 stderr from the above, and `--runInBand` to rule out a worker interaction.
 
-**Why this is filed at P1 with one data point.** #54 records the rule: *a defect in the
+**Why this is filed at P1 with one data point.** The apparatus rule in this file's tier definition (it was #54) says: *a defect in the
 apparatus that tests other work is P1 regardless of its symptom, because everything
 downstream of it is unverified while it is open.* `globalSetup` is the guard that stops
 a test run writing the configuration the deployment reads (`live-state-teardown.js`).
@@ -707,13 +715,13 @@ needs far more runs than this to rule out, and the item's own framing ("treat it
 percent") already says so. Recorded as three more data points, not as progress.
 
 **Note for whoever picks this up:** the runner was **absent** in that container until
-`npm ci` was run (`ls node_modules/.bin/jest` -> no such file). Under the #54 rule that is
+`npm ci` was run (`ls node_modules/.bin/jest` -> no such file). Under the apparatus rule that is
 the same class as this item — a gate that cannot start. It is an environment condition, not
 a defect here, but a hunt for this flake that begins without confirming the runner is
 installed will misread `jest: not found` as the very failure it is hunting.
 
-**Priority:** P1 by the #54 rule | **Effort:** Low to instrument, unknown to fix
-**Risk:** Unknown — a gate that can fail to start is the shape #54 is about
+**Priority:** P1 by the apparatus rule | **Effort:** Low to instrument, unknown to fix
+**Risk:** Unknown — a gate that can fail to start is the shape the apparatus rule is about
 **Status:** open — two unreproduced observations, same signature; 19 green runs since;
 instrument before hunting
 
@@ -2337,7 +2345,7 @@ one writing suite so nothing races it. That is true and it was not the risk. A f
 ids written by `tests/slack-client.test.js` into the file the running bridge resolves
 agent channels from — and rewrote `agents/shared/watercooler-state.json` on every run.
 Not a race: a straightforward corruption of live configuration by a test suite, happening
-continuously. See #54 on the deferral judgement itself.
+continuously. See the apparatus rule in the tier definition at the top of this file (it was #54, closed 2026-10-04) on the deferral judgement itself.
 
 **`lib/slack-client.js` is the instructive one.** By the time it was found it already HAD
 the seam this item prescribes — ownership of `channel-map.json` moved to
@@ -3475,7 +3483,7 @@ channel, and nothing in this repository creates one. Remainder: `ASK: create cha
    and a large part of that is already computable with no model at all:
 
    - items in this file carrying a **Filed** date and still `Status: open` — how long each
-     has been open, and which were deferred on scope grounds and then bit (#54);
+     has been open, and which were deferred on scope grounds and then bit (the apparatus rule, top of this file);
    - `Closes <ID>` vs `Addresses <ID>` in commit bodies — work claimed complete against
      work claimed partial (`git log --grep='^Addresses #' --oneline`);
    - a definition-of-done list in a commit body against the suites that actually ran.
@@ -3525,54 +3533,6 @@ contrarian persona writes a complaint.
 **Status:** open — **blocked on `ASK: create channel #jester-agent`, and on nothing
 else.** The material, the critique, the on-demand trigger and the no-gating guard are
 all landed and green.
-
----
-
-### 54. Two defects deferred on scope grounds were load-bearing — the deferral judgement, not the filing, is what failed
-**Filed 2026-09-15.** **A decision record about how this backlog is used, not a code
-defect.** Both instances were filed correctly, with evidence, and then deferred for a
-reason that read well at the time and was wrong.
-
-| Filed as | Deferred because | What it actually was |
-|---|---|---|
-| `getRecentCompleted` sorts by a millisecond timestamp (P2, closed 3d7ad70) | "cosmetic ordering in one status command" | `tests/task-queue.test.js` failed in **25 of 40** isolated runs on the base commit. Every test run in this repository was a coin flip, so *every* gate was unreliable, including the ones judging unrelated work |
-| #50 / #24 — a suite writing fixtures into live configuration | "latent; each file has exactly one writing suite, so nothing races it" (#24's own words) | It was not latent. It was writing three invented ids into `agents/shared/channel-map.json` — the file the running bridge resolves agent channels from — on every run, while the same file being absent made 30 tests red in every fresh clone |
-
-**The common shape, and it is the useful part.** Both were ranked by the **visible
-symptom's** severity — a mis-ordered list, a tidiness issue in tests — when the thing that
-made them load-bearing was that they sat under **verification**. A defect in the thing
-that judges other work is not P2 because its symptom is small; its blast radius is every
-judgement made while it is open. #50 says this about itself in passing ("Dismissing red is
-the habit being trained") and was still filed P2.
-
-**The rule this records:** *before assigning a tier, ask whether the defect is in the
-system under test or in the apparatus that tests it.* A defect in the apparatus — a flaky
-suite, a gate that cannot start, a gate red for a non-code reason, a suite that mutates
-what it measures — is **P1 regardless of its symptom**, because everything downstream of
-it is unverified while it is open. The existing P1 definition ("can brick or silently
-degrade the running bridge") does not cover this, and both of these fell through that gap.
-
-**Not proposed:** re-ranking the whole file. Two instances is a pattern, not a mandate,
-and the next filing is where this is cheapest to apply.
-**Why this could not be closed in the 2026-09-16 audit, and what would close it.** Its
-Effort is "None — the decision is the artifact", so on a first reading it looks done. It is
-not closeable, for a reason that is structural rather than about this item: **this file
-purges closed items, so closing a decision record deletes the decision** unless the decision
-already lives somewhere else. `grep -rn "apparatus" CLAUDE.md docs/*.md` finds nothing — the
-rule exists only here. And it is load-bearing right now: **#56 cites it by number as the
-sole justification for its P1 ranking**, so purging this would leave #56's tier unexplained.
-
-Compare #45, closed the same day: its rule was independently written into
-`lib/command-router.js:12`, `CLAUDE.md:651` and a test, so purging the item cost nothing.
-That is the difference, and it is the close condition here too — **the remainder is one
-edit: put the rule in this file's own priority-tier definition.** The tier definition
-currently reads "P1 = can brick or silently degrade the running bridge, or unblocks
-something that can", and this item exists because that sentence does not cover a defect in
-the apparatus. Amend it, then close.
-
-**Priority:** P2 | **Effort:** Low (one edit to the tier definition above, then close)
-**Status:** open — the rule is written down here and nowhere else, so closing it would
-delete it; #56 depends on it
 
 ---
 
@@ -3902,7 +3862,7 @@ may be unavailable to this account, in this region, or at this tier. Querying on
 - The two must not share a code path that implies equal confidence. `resolveAgentLlm`
   (`lib/agent-llm-resolver.js`) already returns `model_source`, so the UI can say where a
   model name came from without claiming it was validated.
-**Why this could not be closed in the 2026-09-16 audit.** Same shape as #54: its namesake
+**Why this could not be closed in the 2026-09-16 audit.** Same shape as #54 had (closed 2026-10-04 once its rule moved into the tier definition): its namesake
 is "record the asymmetry, build neither yet", both halves of which are satisfied — and it is
 still not closeable, because the record lives only in this file and this file purges what it
 closes. Partial traces exist in code (`lib/llm-runner.js:982` explains why the startup probe
