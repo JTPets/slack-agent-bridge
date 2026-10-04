@@ -92,6 +92,11 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+At the **2026-10-04 B7 pass** those print **44** open items — **10** P1, **28** P2, **6** P3 —
+and **no duplicate ID**. That pass closed nothing and filed nothing: it did the recording
+half of **#39** (branch, head commit and remote refs on each repo task's queue row); the
+merge-state half stays open.
+
 At the **2026-10-04 B6 pass** those print **44** open items — **10** P1, **28** P2, **6** P3 —
 and **no duplicate ID**. That pass closed nothing and filed nothing: it did the repository
 halves of **#70, #73, #42 and #68** (each body says what is left on the box), and skipped
@@ -324,7 +329,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B5** | Commands and routing | #46, #9 (closed 2026-10-04); #4 cheap half, #49 (Q1-3 + bot path), #52 and #66 (repo halves), #64 (refusal half) done; #39 moved to B7 | `bridge-agent.js`, `lib/command-router.js`, `lib/dispatch-command.js`, `lib/dispatch-delivery.js`, `lib/task-history.js`, `lib/channel-reconcile.js`, `lib/main-watch.js` | After B1 and B3 (shared `bridge-agent.js`) |
 | **B6** | Deployment shape — repo halves of owner-side work | Done 2026-10-04: #70 (Dockerfile), #73 (compose proposals), #42 (c), #68 (venv half). Skipped: #59 (its own text sequences it after #17/#73), #17 (deploy shape is the owner's choice) | `Dockerfile`, `.dockerignore`, `docker-compose.example.yml`, `lib/python-venv.js`, `lib/backup-watch.js`, `scripts/backup-status.sh`, `docs/CONFIG-SURFACE-AND-REBUILD.md` | Each repo half is inert until the owner applies it on the NAS |
 | **OA** | Owner action only, nothing left in the repo | #3, #26, #40, #41, #43, #53, #55, #52, #66, #70, #73 | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
-| **B7** | Landed vs completed | #39 | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/clone-lifecycle.js` | Needs a post-terminal queue writer for the pushed branch and SHA; separate from B5 so the delivery invariant is changed deliberately |
+| **B7** | Landed vs completed | Done 2026-10-04: #39 recording half (`work` on the queue row, shown in `what's queued`). Left: merge state | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/task-work.js` | `recordWork` writes no status and no verdict, so the #74 invariant holds unchanged (its suite passes untouched) |
 | **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60, #49 | — | Small code once chosen; listed so nobody dispatches them undecided |
 | **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
 
@@ -369,7 +374,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
 | #7 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `onDeadlineWarning` at 80% posts `lib/deadline-warning.js` to ops; `tests/llm-runner-deadline.test.js`, `tests/deadline-warning.test.js` |
 | #8 | P2 | **STALE** | SEED (close) | — | Dedup is by message `ts` (`lib/bridge-state.js:126`); a re-submitted task is a new message and runs. Re-read skips are already logged (`bridge-agent.js:1986`). Recommend close |
-| #39 | P2 | OPEN, not done in B5 | B7 | M | Queue row has no branch/SHA field (`lib/task-queue.js:221-240`). Skipped in B5: the push is detected in `processTask`'s `finally`, after the terminal queue write, so recording it is a new post-terminal queue writer that `tests/task-queue-delivery-invariant.test.js` must be taught about. Its own batch |
+| #39 | P2 | Recording half DONE in B7; merge state OPEN | B7 | M | `lib/task-work.js` `describeWork` + `TaskQueue.recordWork` (writes `work` only, so the #74 invariant needed no change). Left: resolve merged-or-not from the remote, which D1/D2/D7 need |
 | #40 | P2 | off-box | OA | S | Nothing in the repo can settle it |
 | #37 | P2 | decision | OD | S | `lib/notify-owner.js:165-168` returns `true` after only logging; HIGH is the default priority (`:147`) |
 | #64 | P2 | Refusal half DONE in B5; gate not lifted | — | M | A bare verb in an agent channel is refused with a pointer to `#claude-bridge`. Running verbs there waits on the capability model (#65, CAPABILITY-AND-ISOLATION-DESIGN) |
@@ -2653,6 +2658,21 @@ completed/landed distinction that does not exist.
 **Compounded by, but separate from, #17.** #17 records that nothing can answer which
 commit the running process is on. That is "merged vs deployed"; this is "completed vs
 merged". Both would have to be answerable for a loop to close, and neither is.
+
+**B7, 2026-10-04 — the recording half is done; merge state is not.** `processTask` reads
+the clone's HEAD right after cloning and, in its `finally` before the clone can be deleted,
+records `describeWork()` (`lib/task-work.js`) on the queue row via `TaskQueue.recordWork()`:
+the branch, the head commit, how many commits the task added, and which `refs/heads/*` on
+the REMOTE have that commit as their tip (`git ls-remote`, never the `--single-branch`
+clone). `ASK: what's queued` shows it on each recent row, e.g. `feature/x` @ `abc1234`,
+2 new commit(s), on remote as feature/x, or NOT on the remote. An unreachable remote is
+"remote not checked", never "not on the remote". `recordWork` writes the `work` field
+only, never a status or a delivery verdict, so `tests/task-queue-delivery-invariant.test.js`
+passes unchanged; `_startRunning` clears `work` with the verdict. Guard:
+`tests/task-work.test.js` (real bare origin and clone; 6 of its 14 tests fail with the
+queue and bridge-agent.js changes reverted). **Still open:** whether that branch MERGED —
+that needs the remote's `main` checked against the recorded sha over time, which decisions
+D1, D2 and D7 depend on. Hence `Addresses`, not `Closes`.
 
 **Fix (shape, not chosen):** record the branch and head SHA on the queue row when the task
 pushes, then resolve merge state from the remote. Whatever does the resolving must ask the

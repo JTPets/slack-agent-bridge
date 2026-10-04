@@ -205,6 +205,7 @@ const { redact } = require('./lib/redact-secrets');
 // cleanupDir, detectUndeliveredWork) into lib/clone-lifecycle.js — seam A in
 // docs/WIRING-AND-SEAMS.md. Pure fs/execFileSync helpers with no bridge state.
 const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-lifecycle');
+const { headSha, describeWork, formatWork } = require('./lib/task-work');
 const { formatPreservedCloneAlert } = require('./lib/preserved-clone-alert');
 const { describeTaskStateDivergence } = require('./lib/task-state-divergence');
 const repoHistory = require('./lib/repo-history');
@@ -434,6 +435,21 @@ async function postToOps(text) {
   return postText(slack, OPS_CHANNEL, text, 'bridge-agent');
 }
 
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #39): record the branch, head commit and remote
+// refs a repo task left behind on its queue row (lib/task-work.js). Writes only the
+// row's `work` field, never a status or a delivery verdict, so the #74 invariant is
+// untouched. A failure is reported to ops, never fatal to the task.
+async function recordTaskWork(queueId, taskDir, baseSha, description) {
+  try {
+    taskQueue.getQueue().recordWork(queueId, describeWork(taskDir, baseSha));
+  } catch (workErr) {
+    console.error('[bridge-agent] Failed to record task work:', workErr.message);
+    await postToOps(
+      `:warning: Could not record which branch and commit "${description}" left behind: ${workErr.message}. ASK: what's queued will not show it.`
+    );
+  }
+}
+
 // ---- Drain-one: is a self-update waiting? ----
 
 // LOGIC CHANGE 2026-09-20: one-shot so an unexpected throw in the drain check is
@@ -551,6 +567,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
   const task = parseTask(msg.text);
   const startTime = Date.now();
   let taskDir = null;
+  let taskBaseSha = null;
   let taskSuccess = false;
   // LOGIC CHANGE 2026-09-14: Phase 3 used to run a hardcoded `npm test` while Phase 1
   // had already read the repo's own `scripts.test` into the plan and thrown it away.
@@ -658,6 +675,9 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
       taskDir = path.join(WORK_DIR, dirName);
       cloneRepo(task.repo, task.branch, taskDir);
       cwd = taskDir;
+      // LOGIC CHANGE 2026-10-04 (WORK-TODO #39): HEAD as cloned, so the work record
+      // can count the commits this task added.
+      taskBaseSha = headSha(taskDir);
 
       // LOGIC CHANGE 2026-09-20: install the clone's dependencies BEFORE the LLM runs
       // (WORK-TODO #61). This is what makes Phase 3's test gate real: `npm test` in a
@@ -1325,6 +1345,8 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
     // work is undelivered, preserve the clone and alert #sqtools-ops so it can be
     // recovered and pushed manually, rather than deleting it.
     if (taskDir && fs.existsSync(taskDir)) {
+      // LOGIC CHANGE 2026-10-04 (WORK-TODO #39): before the clone can be deleted.
+      if (queueId) await recordTaskWork(queueId, taskDir, taskBaseSha, task.description);
       const delivery = detectUndeliveredWork(taskDir);
       if (delivery.undelivered) {
         console.warn(`[bridge-agent] Preserving scratch clone ${taskDir} — ${delivery.reason}`);
@@ -1437,7 +1459,8 @@ function formatStatusResponse() {
       const emoji = task.status === 'completed' ? '✅'
         : task.status === 'interrupted' ? '⚠️'
         : '❌';
-      response += `• ${timeStr} ${emoji} ${task.description || 'No description'} (${task.status})\n`;
+      // LOGIC CHANGE 2026-10-04 (WORK-TODO #39): with the branch and commit it left.
+      response += `• ${timeStr} ${emoji} ${task.description || 'No description'} (${task.status})${formatWork(task.work)}\n`;
     }
   } else {
     // Fall back to memory history if queue is empty
