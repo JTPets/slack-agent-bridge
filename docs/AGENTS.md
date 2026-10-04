@@ -174,7 +174,7 @@ any edit:
 
 | Derived at startup, never again | Where | What a registry edit cannot change until restart |
 |---|---|---|
-| `agentConfig` — the bridge's own record | `bridge-agent.js:215-221` (`getAgent('bridge')`) | `MAX_TURNS` (`:241`), the bridge `system_prompt` (`:581`, `:661`), its provider (`:527`, `:700`) |
+| `agentConfig` — the bridge's own record | `bridge-agent.js:215-221` (`getAgent('bridge')`) | the bridge `system_prompt` (`:581`, `:661`), its provider (`:527`, `:700`) |
 | `channelsToPoll` | `bridge-agent.js:2030` calling `buildChannelsToPoll()` (`:1979`, which calls `getActiveAgents()` at `:1991`) | which channels are polled at all |
 | `activeJobs` — the cron registrations | `lib/agent-scheduler.js:32`, filled by `startScheduler()` (`:107 loadAgents()`), called at `bridge-agent.js:2126` | every schedule, its cron expression and its refusals |
 
@@ -644,6 +644,25 @@ The `denied` array explicitly blocks permissions. This is useful for:
 - Limiting blast radius of automated agents
 
 ## Memory Tiers
+
+> **What runs is not what this section describes (banner added 2026-10-04, WORK-TODO
+> #63).** `lib/memory-tiers.js` implements everything below, and **no production code
+> adds a short-term, long-term or permanent entry**, so promotion never triggers, decay has
+> nothing to decay, and the per-agent files are empty by construction. The exceptions:
+> working memory is *cleared* after each ASK: (`bridge-agent.js` `clearAgentWorkingMemory`,
+> nothing adds to it); the startup sweep (`startupMemoryCleanup`) runs over empty files;
+> and `migrateAgentMemory('bridge')` copies the legacy `memory/context.json` and
+> `memory/history.json` into the **bridge's** `context.json` and `long-term.json` once,
+> at the first startup after the tiers landed. `buildAgentContext`, the reader that would
+> put tiers into a prompt, has no production caller.
+>
+> What a prompt actually gets is the pre-tier path: `memory/tasks.json` and
+> `memory/history.json` (`memory/memory-manager.js`), global rather than per-agent, read
+> as the last 10 history entries by `buildTaskContext()`. `history.json` is append-only
+> and pruned by nothing. Whether the tiers get a writer or are replaced is decided in
+> [STATE-AND-MEMORY-DESIGN.md](STATE-AND-MEMORY-DESIGN.md) §4.2. Regenerate:
+> `grep -rn "addAgentShortTerm\|promoteAgentMemory\|setAgentPermanent\|addAgentWorkingMemory\|buildAgentContext" --include=*.js . | grep -v node_modules | grep -v '^./tests/'`
+> (only definitions and pass-throughs).
 
 Each agent maintains a tiered memory system with different retention policies:
 

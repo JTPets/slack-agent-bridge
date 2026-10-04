@@ -40,7 +40,6 @@ describe('Config integration', () => {
         expect(config.OPS_CHANNEL).toBe('C_OPS_TEST');
         expect(config.GITHUB_ORG).toBe('jtpets');
         expect(config.POLL_INTERVAL).toBeGreaterThan(0);
-        expect(config.MAX_TURNS).toBeGreaterThan(0);
         expect(config.TASK_TIMEOUT).toBeGreaterThan(0);
         expect(Array.isArray(config.ALLOWED_USER_IDS)).toBe(true);
     });

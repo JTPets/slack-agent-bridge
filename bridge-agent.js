@@ -32,7 +32,6 @@ require('dotenv').config();
  * Optional env vars:
  *   GITHUB_ORG          default GitHub org (default: jtpets)
  *   POLL_INTERVAL_MS    poll frequency (default: 30000)
- *   MAX_TURNS           Claude Code max turns per task (default: 50)
  *   TASK_TIMEOUT_MS     hard kill timeout (default: 600000 = 10min)
  *   CLAUDE_BIN          path to claude binary
  *   WORK_DIR            base dir for temp clones (default: /tmp/bridge-agent)
@@ -80,6 +79,10 @@ const {
   isShowTaskCommand,
   parseShowTaskCommand,
   alreadyProcessed,
+  DEFAULT_TURNS,
+  MIN_TURNS,
+  TURNS_CEILING,
+  conversationTurns,
 } = require('./lib/task-parser');
 
 // LOGIC CHANGE 2026-03-26: Extracted config loading and validation into
@@ -256,9 +259,9 @@ const {
   BOT_USER_ID,
 } = config;
 
-// LOGIC CHANGE 2026-03-26: MAX_TURNS can be overridden by agent registry.
-// Agent config takes precedence over env var.
-const MAX_TURNS = agentConfig?.max_turns || config.MAX_TURNS;
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #20): the module-scope MAX_TURNS (bridge agent's
+// max_turns, else the MAX_TURNS env var) is gone. Its one reader was the startup banner;
+// no task or conversation used it. See lib/task-parser.js for the budgets that are used.
 
 const slack = createWebClient(SLACK_BOT_TOKEN);
 
@@ -851,7 +854,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
     // LOGIC CHANGE 2026-03-26: Use runLLM from lib/llm-runner.js instead of
     // inline runClaudeCode. Supports multiple providers via LLM_PROVIDER env var.
     // LOGIC CHANGE 2026-03-26: Use task.turns for per-task control of LLM max
-    // turns instead of global MAX_TURNS. Defaults to 50, capped at 5-100 range.
+    // turns instead of a global turn count. Defaults to 50, capped at 5-100 range.
     // LOGIC CHANGE 2026-03-26: Auto-retry on max turns hit. If task hits max turns
     // and original turns < 100, automatically retry once with doubled turns (capped
     // at 100). Prevents infinite loops via retryCount tracking.
@@ -928,9 +931,11 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
       }
 
       // Hit max turns - check if we can retry
-      if (retryCount === 0 && currentTurns < 100) {
-        // Calculate retry turns: double but cap at 100
-        const retryTurns = Math.min(currentTurns * 2, 100);
+      // LOGIC CHANGE 2026-10-04 (WORK-TODO #20): the cap is the parser's TURNS_CEILING,
+      // not a second literal 100 that could drift from it.
+      if (retryCount === 0 && currentTurns < TURNS_CEILING) {
+        // Calculate retry turns: double but cap at the ceiling
+        const retryTurns = Math.min(currentTurns * 2, TURNS_CEILING);
         await postToOps(
           `:hourglass_flowing_sand: *Task hit max turns (${currentTurns}). Retrying with ${retryTurns} turns...*\n` +
           `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
@@ -1939,7 +1944,9 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
     // handling. Uses max-turns 10 for quick Q&A responses.
     // LOGIC CHANGE 2026-03-27: Pass handling agent's llm_provider for conversation handling.
     // Uses the agent's configured max_turns capped at 20 for conversations.
-    const maxTurns = Math.min(currentAgent?.max_turns || 10, 20);
+    // LOGIC CHANGE 2026-10-04 (WORK-TODO #20): the default and ceiling are named in
+    // lib/task-parser.js and applied by conversationTurns(), not two bare literals here.
+    const maxTurns = conversationTurns(currentAgent);
     // LOGIC CHANGE 2026-09-11: Pass llm_model and agentId (see the task call site).
     // LOGIC CHANGE 2026-09-13: runLLM -> runWithFallback, so a gemini agent whose
     // provider is rate limited or unreachable falls through the chain instead of
@@ -2417,7 +2424,9 @@ console.log(`  GitHub:   ${config.GITHUB_ORG || "jtpets"}`);
 console.log(`  WorkDir:  ${WORK_DIR}`);
 console.log(`  Interval: ${POLL_INTERVAL / 1000}s`);
 console.log(`  Timeout:  ${TASK_TIMEOUT / 1000}s`);
-console.log(`  Turns:    ${MAX_TURNS}`);
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #20): this line printed MAX_TURNS, which no task
+// used. It now states where a task's budget actually comes from.
+console.log(`  Turns:    ${DEFAULT_TURNS} per task unless TURNS: says otherwise (${MIN_TURNS}-${TURNS_CEILING})`);
 
 // LOGIC CHANGE 2026-10-02 (WORK-TODO #17): say which commit this process booted on,
 // read ONCE here and posted, so "is the running bridge on main?" has an answer that

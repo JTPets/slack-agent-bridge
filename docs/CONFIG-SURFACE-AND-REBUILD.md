@@ -347,6 +347,13 @@ mis-reason about turn limits. Recommend renaming `task-parser.js`'s constant to
 `TURNS_CEILING` (or `MAX_ALLOWED_TURNS`) so the name states the quantity. No other
 same-name/different-default divergence was found.
 
+> **Addendum 2026-10-04 (WORK-TODO #20, closed).** It was four quantities, not two, and the
+> env var reached no LLM call. The parser ceiling is now `TURNS_CEILING`; the conversation
+> path's 10/20 are `CONVERSATION_TURNS_DEFAULT`/`_CEILING` applied by `conversationTurns()`
+> in `lib/task-parser.js`; `lib/weekly-critique.js`'s is `CRITIQUE_TURNS`; and the
+> `MAX_TURNS` env var is no longer read by `lib/config.js` or `lib/llm-runner.js`. The
+> table rows above are left as the 2026-09-14 inventory recorded them.
+
 ---
 
 ## Step 5 — Rebuild path (as far as reach allows)
