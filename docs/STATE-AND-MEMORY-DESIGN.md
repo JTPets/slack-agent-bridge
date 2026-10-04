@@ -441,6 +441,8 @@ beyond that, and nothing records what happened.
 **And the per-agent memory that would hold it is empty by construction** — WORK-TODO
 **#63**, established in §8.2: `lib/memory-tiers.js` implements TTL, decay, archive and
 auto-promotion, and no production code adds a short-term, long-term or permanent entry.
+(#63 closed 2026-10-04 by bannering that in `docs/AGENTS.md` → Memory Tiers; the
+writer-or-replace question is this section's.)
 
 ## 4.2 Assessed against `lib/memory-tiers.js` — keep the vocabulary, replace the store
 

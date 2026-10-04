@@ -237,13 +237,14 @@ const POLL_INTERVAL = 5000;
 | `POLL_INTERVAL_MS` | Poll frequency in ms | `30000` |
 | `SLACK_APP_TOKEN` | Slack **app-level** token (`xapp-`) for the additive Socket Mode connection. **Never log this.** Absent or blank = Socket Mode off, which is a reported condition and **not** a startup failure; the poll loop is unaffected either way. A `xoxb-` bot token here is refused on shape. | - |
 | `SOCKET_MODE_DOWN_ALERT_MS` | How long the Socket Mode connection may be down before it is reported to `#sqtools-ops`, re-posted once per interval until it recovers | `300000` (5 min) |
-| `MAX_TURNS` | CC max turns per task | `50` |
 | `TASK_TIMEOUT_MS` | Hard kill timeout in ms. A running task is announced in `#sqtools-ops` at 80% of it (`lib/deadline-warning.js`, WORK-TODO #7); the kill itself is unchanged | `600000` |
 | `TASK_LOCK_STALE_MS` | Age at which a task lock is treated as orphaned and released. Must exceed the longest a task can legitimately run. | `2 × TASK_TIMEOUT_MS + 600000` (30 min at defaults) |
 | `INSTALL_TIMEOUT_MS` | Hard timeout for installing a scratch clone's own dependencies (`lib/dependency-install.js`). Separate from `TASK_TIMEOUT_MS` so a hung install cannot eat the LLM turn allowance; a timeout is a HARNESS failure with its own message. Raise it if a slow network causes false harness failures. | `300000` (5 min) |
 | `UPDATE_DEFER_ALERT_MS` | How long one self-update may be deferred before every cycle escalates to `#sqtools-ops` | `3600000` (60 min) |
 | `UPDATE_PENDING_STALE_MS` | How long the DRAIN-ONE pending-update marker (`$WORK_DIR/.update-pending`) may go unrefreshed before the bridge treats it as an orphan, clears it and reports it. **This is a heartbeat, not a ceiling on the wait** — a live updater refreshes it every `CHECK_INTERVAL_MS`, so a marker this quiet belongs to a process that is gone, and honouring it would leave the bridge silently refusing every dispatch for an update that is never coming. | `4 × CHECK_INTERVAL_MS` (20 min at defaults) |
 | `WORK_DIR` | Base dir for temp clones | `/tmp/bridge-agent` |
+| `DEPLOY_KEY_PATH` | SSH deploy key a scratch clone pushes with (`lib/clone-lifecycle.js` `cloneRepo`). No file at the path, or a path containing a `'`, leaves the clone **READ-ONLY**: the task runs and its push fails, and the undelivered clone is preserved and reported. The default is the container path | `/bridge/.deploy_key` |
+| `CRITIQUE_TIMEOUT_MS` | Timeout for the jester's one-shot weekly critique call (`lib/weekly-critique.js`) | `120000` |
 | `REPOS` | Comma-separated repos. Read by `getConfiguredRepos()` in `lib/config.js` — the single owner of the list — for the nightly security review AND for the `/dispatch` form's repository select. Adding a repository is this variable plus `docker compose up -d --force-recreate jt-agent`; it is not a code change. **The default stopped naming `jtpets/SquareDashboardTool` on 2026-10-02**: the bridge cannot clone it (WORK-TODO #57), so listing it only made the audit and the form offer something that fails | `jtpets/slack-agent-bridge` |
 | `CLAUDE_RATE_LIMIT_PAUSE` | Initial pause duration (ms) when rate limit/bandwidth exhausted | `1800000` |
 | `STORE_TASKS_CHANNEL_ID` | #store-tasks channel ID for staff task management | - |
@@ -270,6 +271,13 @@ const POLL_INTERVAL = 5000;
 | `LLM_METRICS_RETENTION_DAYS` | Days of verdict history to keep | `30` |
 
 **LLM_PROVIDER options:** `claude` (default), `gemini`, `ollama`, `openai` (not yet implemented)
+
+**There is no `MAX_TURNS` variable (removed 2026-10-04, WORK-TODO #20).** It reached no LLM
+call: every caller passes its own turn count. A `TASK:` gets the `TURNS:` header, default
+`DEFAULT_TURNS` (50), clamped to `MIN_TURNS`-`TURNS_CEILING` (5-100), and one max-turns
+retry at double, capped at the ceiling. An `ASK:` gets the answering agent's `max_turns`,
+default 10, capped at 20 (`conversationTurns()`). All of these live in
+`lib/task-parser.js`. A `MAX_TURNS` line left in `.env` is ignored.
 
 **Per-agent provider precedence:** `LLM_PROVIDER_<AGENTID>` env > the agent's definition `llm_provider` > global `LLM_PROVIDER` env > `claude`. Resolved by `resolveLlmProvider()` in `lib/config.js`. Because `agents.json` is tracked and auto-update runs `git reset --hard HEAD` before each pull, on-box edits to it are silently discarded — set the per-agent env var in `.env` (gitignored) instead so the override survives a pull.
 
@@ -323,6 +331,22 @@ Fallback is meant to be invisible to the agent. Invisible to the *operator* is t
 **Per-agent model override:** an agent in `agents/agents.json` may carry `llm_model` alongside `llm_provider`; it is passed through as `options.model` and wins over `OLLAMA_MODEL`. This is what lets a router model and a workhorse model share one provider. There is no hardcoded model name in the adapter — with neither `options.model` nor `OLLAMA_MODEL` set, the call throws a precondition error rather than guessing a model that may not be pulled.
 
 **Startup check:** `validateOllamaOnStartup()` probes `GET /api/tags` and, like `validateGeminiOnStartup`, **never prevents boot**. An unreachable or down server logs a loud warning, marks the provider unavailable, and the bridge starts normally with every agent on its configured provider. The availability flag is reporting state only — it never gates dispatch, because a sticky flag would route an agent away from its provider forever after one bad boot.
+
+**Model lists: ground truth for a local provider, a guess for a hosted one** (rule moved here
+from WORK-TODO #48, 2026-10-04). Whoever builds a model picker must not build one list:
+
+- For `ollama`, enumerate from `GET /api/tags` and treat the result as authoritative: a name
+  it returns can run now, a name it omits cannot. A model in `OLLAMA_MODEL` or an agent's
+  `llm_model` that is absent from it is a precondition failure, which is what the adapter
+  already does rather than guessing.
+- For `claude` and `gemini`, never present a list as if it were verified. A published model
+  list is not scoped to the credential in `.env`, the account, the region or the tier, and a
+  list hardcoded here goes stale silently. Accept a free-text model id and let the call fail
+  loudly with the provider's own error, or verify one id with one real call before recording
+  it. `resolveAgentLlm` (`lib/agent-llm-resolver.js`) returns `model_source`, so a UI can say
+  where a name came from without claiming it was validated.
+
+The two must not share a code path that implies equal confidence.
 
 #### Pi-side resource fencing (reproducible)
 
@@ -386,6 +410,7 @@ Tune `MemoryMax` to the model actually pulled — it must be below `(total RAM -
 |----------|-------------|---------|
 | `LOCAL_REPO_DIR` | Path to local repo, as seen by the auto-update process. **Load-bearing:** `validateConfig()` exits 1 if the path does not exist, and the default below is the dead Pi path — so an unset value is a hard startup failure, not a fallback. | `/home/jtpets/jt-agent` (stale Pi default — set explicitly) |
 | `CHECK_INTERVAL_MS` | Git poll frequency | `300000` |
+| `STATE_FILE` | auto-update's own state file (`lastKnownCommit`, `failedCommit`, `restartedIntoCommit`) | `$LOCAL_REPO_DIR/.auto-update-state.json` |
 
 ### Self-update — DESIGNED AND TESTED, **NOT WIRED** (verified 2026-09-14)
 
@@ -541,6 +566,9 @@ should be observable while it happens.
 | `STOREFRONT_ALLOWED_ORIGINS` | Comma-separated CORS origins | `http://localhost:3000,https://jtpets.ca` |
 | `STOREFRONT_SESSION_TTL_MS` | Session expiry time in ms | `3600000` |
 | `DELIVERY_QUOTES_FILE` | Path to delivery quotes JSON file | `data/delivery-quotes.json` |
+| `SQUARE_ACCESS_TOKEN` | Square API token for the storefront's catalog (`lib/integrations/square-catalog.js`). **Never log this.** Unset = the catalog is served from the cache file only | - |
+| `CATALOG_CACHE_FILE` | Local cache of the Square catalog | `data/catalog-cache.json` |
+| `CATALOG_CACHE_TTL_MS` | Age at which the cached catalog is refetched (when `SQUARE_ACCESS_TOKEN` is set) | `3600000` (1 h) |
 
 **Note:** `STORE_INBOX_CHANNEL_ID` (listed in Twilio section) is also used by the storefront widget for logging conversations and delivery quote requests.
 
@@ -663,7 +691,7 @@ slack-agent-bridge/
 │   │   ├── staff.json            # Staff member definitions (name, slackId, role)
 │   │   └── daily-tasks-template.json  # Recurring daily store tasks template
 │   ├── bridge/
-│   │   └── memory/       # Bridge agent's tiered memory directory
+│   │   └── memory/       # Bridge agent's tiered memory directory. NOTHING WRITES THESE in production apart from a one-time legacy import into context.json/long-term.json — see docs/AGENTS.md → Memory Tiers (WORK-TODO #63)
 │   │       ├── context.json      # Permanent: owner info, preferences
 │   │       ├── working.json      # Session: current task state
 │   │       ├── short-term.json   # 24-72h TTL: recent events, reminders
@@ -708,7 +736,7 @@ slack-agent-bridge/
 │   ├── notify-owner.js   # Owner notification layer, the single path for owner-facing messages: init() injects the Slack client/owner id/ops channel; notifyOps posts an operational failure to #sqtools-ops (redacted) so a lib module never needs a fourth postToOps; notifyOwner routes by PRIORITY (CRITICAL -> the secretary agent's channel when active, else a direct DM; HIGH -> logged for a digest that does not exist yet; LOW -> logged only) plus taskFailed/taskCompleted/actionRequired/rateLimitHit/rateLimitCleared. Redacts via lib/redact-secrets.js before anything leaves
 │   ├── dispatch-command.js # THE COMMAND half of /dispatch: handleSlashCommand acknowledges within Slack's three-second window and THEN opens the modal from the trigger_id; handleViewSubmission composes the submission and POSTS it to the bridge channel, where poll() picks it up like any other message (one intake path, one dedup owner) — it never calls the task path. Authorisation is this module's own gate via lib/config.js isUserAuthorized, because a bot-posted message bypasses the poll loop's allowlist by design. Neither handler ever rejects
 │   ├── dispatch-modal.js   # THE FORM half of /dispatch: buildModalView builds the five separate inputs FROM lib/dispatch-message.js's FIELD_KEYS (so form and generator cannot gain a field independently), extractSubmission reads them back out of a view_submission (Slack sends a blank optional input as null), and toSlackErrors keys a rejection by block_id so it lands on the offending input
-│   ├── dispatch-message.js # THE GENERATOR half of the /dispatch slash-command form: validateDispatchFields rejects (never sanitises) the five modal inputs — REPO:/BRANCH: through lib/git-identifiers.js, TURNS: against the parser's own MIN_TURNS/MAX_TURNS, and an instructions body carrying a line that starts with a task field label — buildDispatchMessage emits UPPERCASE line-anchored labels with INSTRUCTIONS: last, and assertRoundTrip parses the result back and THROWS on any mismatch before it can be posted. The round trip is pinned in tests/integration.test.js beside the three other generators
+│   ├── dispatch-message.js # THE GENERATOR half of the /dispatch slash-command form: validateDispatchFields rejects (never sanitises) the five modal inputs — REPO:/BRANCH: through lib/git-identifiers.js, TURNS: against the parser's own MIN_TURNS/TURNS_CEILING, and an instructions body carrying a line that starts with a task field label — buildDispatchMessage emits UPPERCASE line-anchored labels with INSTRUCTIONS: last, and assertRoundTrip parses the result back and THROWS on any mismatch before it can be posted. The round trip is pinned in tests/integration.test.js beside the three other generators
 │   ├── command-router.js # THE verb -> handler table for built-in commands. A command is a VERB with known parameters; an agent is addressed by its channel, never by a command name (WORK-TODO #45). It is NOT a second registry: a verb whose kind is `scheduled` carries a task NAME from lib/agent-task-catalogue.js and delegates to getDeterministicTask(name).run(), because a cron job and an on-demand command are the same operation triggered differently. Handlers never post — they return { ok, text } and the caller posts. Registered today: help (renders the table itself), status (per-agent provider/model/adapter with provenance), agents (the surface table), holidays, check-inbox. `weather` is NOT registered: fetchWeather is private to morning-digest.js, which has no module.exports at all
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
 │   ├── channel-map-rebuild.js # THE reproduction path for the workspace channel mapping (WORK-TODO #55): reconstructFromHistory() recovers the ids from agents/agents.json as it stood when the markdown migration deleted it, joining on the AGENT ID so a name correction cannot orphan one; resolveDeclaredChannels() asks Slack what the declared names mean HERE, via the same resolveAgentChannel() the boot path calls. A value already resolved against the live workspace always beats a reconstructed one. Creates no channel, writes no tracked file
@@ -799,6 +827,8 @@ slack-agent-bridge/
 │   ├── agent-llm-resolver.test.js # Tests for lib/agent-llm-resolver.js: the four-level provider precedence with its provenance label at each level, the model precedence, per-provider adapter inputs, and THE guard that no credential VALUE appears in any resolved output
 │   ├── agent-registry.test.js   # Tests for lib/agent-registry.js (includes activation helpers)
 │   ├── config.test.js           # Tests for lib/config.js
+│   ├── env-documented.test.js   # THE enumerating guard for undocumented configuration (WORK-TODO #34, #4b): every process.env read in production code, enumerated from disk with comments stripped, must have a NAME= line in .env.example and a row in this file. States its blind spot: modules reading an injected env object are not seen. Carries its own negative controls
+│   ├── turn-budgets.test.js     # WORK-TODO #20: the task and conversation turn budgets under their own names (TURNS_CEILING, conversationTurns), and a source read pinning bridge-agent.js to them rather than literals. Carries its own negative controls
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
 │   ├── llm-runner-prompt-size.test.js # THE regression guard for the 2026-09-20 `spawn E2BIG` dispatch failure. It is the one suite here that spawns for REAL (against a stub binary written to a temp dir), because E2BIG is raised by execve and a mocked child_process will happily accept an argv entry of any size — which is exactly why no other suite caught it. Asserts the platform limit is where it is claimed to be, that a prompt at and well past MAX_ARG_STRLEN now runs with every byte delivered, that a realistic prompt carrying this repo's own CLAUDE.md runs, and that the prompt is no longer in argv at all
 │   ├── llm-runner-deadline.test.js # The claude adapter's own deadline, against real stub binaries: a failed spawn at the DEFAULT timeout lets the process exit (it held the event loop 600 s before, WORK-TODO #58), the deadline still SIGTERMs into the interrupted path, and onDeadlineWarning fires once before the kill and never for a task that finishes first (#7)
@@ -1194,7 +1224,7 @@ emitted something the parser read differently would be this same defect from the
 direction.
 
 **Rejected, never sanitised, and reported in the form.** `REPO:`/`BRANCH:` go through
-`lib/git-identifiers.js`; `TURNS:` uses the parser's own `MIN_TURNS`/`MAX_TURNS` (5-100).
+`lib/git-identifiers.js`; `TURNS:` uses the parser's own `MIN_TURNS`/`TURNS_CEILING` (5-100).
 Note the parser **clamps** an out-of-range turn budget and **ignores** a non-numeric one;
 the form **refuses both**, because a silent downgrade is the class of failure this change
 exists to remove. The emitted value is always in range, so the two never disagree on a
@@ -1889,17 +1919,21 @@ Manual execution: `node scripts/watercooler.js [kickoff|retro]`
 
 ## Agent Activation
 
-When activating an agent from "planned" to "active" status:
-1. Use `ASK: create channel #agent-name` to create the channel
-2. Update `agents/agents.json` with the channel ID
-3. Remove the `status: "planned"` field
-4. Complete any activation checklist items
+**Corrected 2026-10-04.** This section described the pre-2026-09-15 flow: editing
+`agents/agents.json` (deleted by the markdown migration) and an `activateAgent` that
+created the channel and rewrote the registry. Neither is true. To turn a `planned` agent on:
 
-The agent registry helper `activateAgent(id, slackClient)` automates this:
-- Creates channel named `<id>-agent` if none assigned
-- Sets topic from agent's name and role
-- Updates the registry JSON
-- Returns `{ agent, channelCreated, channelId }`
+1. Create its declared channel (`channel_name` in `agents/<id>/agent.md`) with
+   `ASK: create channel #<name>`. Activation never creates a channel.
+2. `ASK: activate <id>`. `activateAgent(id, slackClient)` (`lib/agent-activation.js`)
+   resolves the declared name, joins the channel and records the decision in
+   `agents/shared/agent-activation.json` (gitignored, so it survives a restart and a pull).
+   A channel that does not resolve is refused with nothing recorded. It returns
+   `{ ok, agent, channelId, joined, reason?, note? }`.
+3. Complete any activation checklist items (`ASK: what do I need to do`).
+
+See "Agent Definition and Activation" under Built-in Commands, and
+[docs/AGENTS.md](docs/AGENTS.md) → "Activating an agent in this workspace".
 
 ---
 

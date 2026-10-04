@@ -17,7 +17,7 @@ const {
   SKILL_PUNCTUATION,
   DEFAULT_TURNS,
   MIN_TURNS,
-  MAX_TURNS
+  TURNS_CEILING
 } = require('../lib/task-parser');
 
 const TASK_PARSER_PATH = path.join(__dirname, '..', 'lib', 'task-parser.js');
@@ -432,14 +432,14 @@ INSTRUCTIONS: Do something`;
       expect(result.turns).toBe(50);
     });
 
-    test('caps TURNS at MAX_TURNS (100)', () => {
+    test('caps TURNS at TURNS_CEILING (100)', () => {
       const text = `TASK: Test task
 TURNS: 200
 INSTRUCTIONS: Do something`;
 
       const result = parseTask(text);
 
-      expect(result.turns).toBe(MAX_TURNS);
+      expect(result.turns).toBe(TURNS_CEILING);
       expect(result.turns).toBe(100);
     });
 
@@ -514,7 +514,7 @@ INSTRUCTIONS: Do something`;
       expect(result.turns).toBe(5);
     });
 
-    test('handles TURNS exactly at MAX_TURNS boundary', () => {
+    test('handles TURNS exactly at TURNS_CEILING boundary', () => {
       const text = `TASK: Test task
 TURNS: 100
 INSTRUCTIONS: Do something`;

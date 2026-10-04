@@ -243,7 +243,7 @@ capability-supplied set**, not a list of field names in its own right. There is 
 in the grammar that names a field the capability does not already allow, so "include full
 bodies" is not a rule that gets rejected — **it is not a rule that can be written**.
 
-This is the same move `lib/dispatch-message.js` makes with `DISPATCH_DEFAULT_TURNS = MAX_TURNS`:
+This is the same move `lib/dispatch-message.js` makes with `DISPATCH_DEFAULT_TURNS = TURNS_CEILING`:
 *"a default above its own ceiling is not expressible"*. Not validated against — not
 expressible.
 

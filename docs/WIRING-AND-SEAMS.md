@@ -96,7 +96,7 @@ and `llm-runner`'s live callers fall to 4.
 
 **`task-parser` moved 2 -> 4 on 2026-09-15** and its live callers are now
 `bridge-agent.js`, `lib/dispatch-message.js` and `lib/dispatch-modal.js` — the `/dispatch`
-form reads the parser's own `FIELD_LABELS`, `MIN_TURNS`/`MAX_TURNS` and `normalizeRepo`
+form reads the parser's own `FIELD_LABELS`, `MIN_TURNS`/`TURNS_CEILING` (named `MAX_TURNS` until 2026-10-04) and `normalizeRepo`
 rather than restating any of them, which is the point (§7).
 
 `bridge-agent.js` alone has **24** first-party `require` lines
@@ -618,14 +618,14 @@ ephemeral fails too, ops still hears and nothing throws.
 **Changed.**
 
 1. **The turn budget default is now the ceiling.** `DISPATCH_DEFAULT_TURNS` in
-   `lib/dispatch-message.js` is **defined as `MAX_TURNS`**, not written as `100`. The
+   `lib/dispatch-message.js` is **defined as `TURNS_CEILING`** (named `MAX_TURNS` until 2026-10-04), not written as `100`. The
    parser's `DEFAULT_TURNS` (50) is unchanged and still the right default for a hand-typed
    message with no `TURNS:` line; the form is not that, and the standing convention is
    `TURNS: 100` on every bridge dispatch. **What enforces the ceiling, so the two cannot
-   disagree:** they are the same constant. `MAX_TURNS` is what the `parsed > MAX_TURNS`
+   disagree:** they are the same constant. `TURNS_CEILING` is what the `parsed > TURNS_CEILING`
    rejection in `validateDispatchFields` compares against, and the default is that
    constant, so a default above its own ceiling is not expressible and raising the ceiling
-   moves both. The tests assert the **identity** (`DISPATCH_DEFAULT_TURNS === MAX_TURNS`),
+   moves both. The tests assert the **identity** (`DISPATCH_DEFAULT_TURNS === TURNS_CEILING`),
    not the number — hardcoding either side turns them red.
 
 2. **The repository field is a select sourced from `REPOS`.** `getConfiguredRepos()` in
@@ -659,7 +659,7 @@ same class as a hand-maintained command list. It cannot be forgotten.
   a change to the prepended block changes every future dispatch with nobody reading the
   diff at dispatch time. Today the preamble is visible in the message.
 - **It consumes the instructions budget.** The modal input is capped at 3000 characters
-  and the emitted message grows by the preamble's length, against `MAX_TURNS` work.
+  and the emitted message grows by the preamble's length, against `TURNS_CEILING` work.
 - **`assertRoundTrip` constrains what it may contain.** A prepended block is part of the
   `INSTRUCTIONS:` body, so no line in it may begin with a field label in any case —
   including the lines quoting the contract, which names `TASK:`/`REPO:` repeatedly. A

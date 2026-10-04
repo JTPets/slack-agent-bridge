@@ -25,7 +25,7 @@ const {
   parseTask,
   FIELD_LABELS,
   MIN_TURNS,
-  MAX_TURNS,
+  TURNS_CEILING,
 } = require('../lib/task-parser');
 
 const wellFormed = {
@@ -55,7 +55,7 @@ describe('validateDispatchFields accepts a well-formed submission', () => {
   });
 
   // LOGIC CHANGE 2026-09-15: a blank budget now means the FORM's default, which is
-  // the ceiling (MAX_TURNS), not the parser's DEFAULT_TURNS of 50. This test
+  // the ceiling (TURNS_CEILING), not the parser's DEFAULT_TURNS of 50. This test
   // previously encoded the old default and is flipped in the same change as the
   // behaviour, per docs/EXECUTOR-CONTRACT.md section 5.
   test('an omitted repo is empty, an omitted branch is main, an omitted budget is the CEILING', () => {
@@ -75,7 +75,7 @@ describe('validateDispatchFields accepts a well-formed submission', () => {
   test('the form default IS the ceiling — asserted as an identity, not as 100', () => {
     // If these two ever stop being the same constant, the form can offer a default
     // its own validator rejects. That is the disagreement this pins shut.
-    expect(DISPATCH_DEFAULT_TURNS).toBe(MAX_TURNS);
+    expect(DISPATCH_DEFAULT_TURNS).toBe(TURNS_CEILING);
   });
 
   test('one above the form default is rejected, so the default is genuinely the top', () => {
@@ -84,7 +84,7 @@ describe('validateDispatchFields accepts a well-formed submission', () => {
       turns: String(DISPATCH_DEFAULT_TURNS + 1), instructions: 'go',
     });
     expect(ok).toBe(false);
-    expect(errors.turns).toContain(String(MAX_TURNS));
+    expect(errors.turns).toContain(String(TURNS_CEILING));
   });
 
   test('a repo URL and a bare name normalise exactly as the parser normalises them', () => {
@@ -144,10 +144,10 @@ describe('rejected fields name the field and the reason', () => {
   });
 
   test('the turn budget is rejected, not clamped, outside the parser floor and ceiling', () => {
-    expect(validateDispatchFields({ ...wellFormed, turns: String(MAX_TURNS + 1) }).errors.turns)
-      .toContain(`between ${MIN_TURNS} and ${MAX_TURNS}`);
+    expect(validateDispatchFields({ ...wellFormed, turns: String(TURNS_CEILING + 1) }).errors.turns)
+      .toContain(`between ${MIN_TURNS} and ${TURNS_CEILING}`);
     expect(validateDispatchFields({ ...wellFormed, turns: String(MIN_TURNS - 1) }).errors.turns)
-      .toContain(`between ${MIN_TURNS} and ${MAX_TURNS}`);
+      .toContain(`between ${MIN_TURNS} and ${TURNS_CEILING}`);
   });
 
   test('a non-numeric turn budget is rejected, not silently defaulted', () => {

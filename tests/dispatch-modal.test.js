@@ -20,7 +20,7 @@ const {
 } = require('../lib/dispatch-modal');
 
 const { FIELD_KEYS, DISPATCH_DEFAULT_TURNS } = require('../lib/dispatch-message');
-const { MIN_TURNS, MAX_TURNS } = require('../lib/task-parser');
+const { MIN_TURNS, TURNS_CEILING } = require('../lib/task-parser');
 
 /** Build a view_submission `view` carrying the given raw values. */
 function submissionView(values, metadata = { channelId: 'C_CMD', userId: 'U_OWNER' }) {
@@ -91,14 +91,14 @@ describe('the modal has five separate inputs — the entire point of the form', 
   // change, per docs/EXECUTOR-CONTRACT.md section 5.
   //
   // It asserts the IDENTITY, not the number. Writing `toBe('100')` would let the
-  // default and the ceiling drift apart the moment MAX_TURNS moved — which is the
+  // default and the ceiling drift apart the moment TURNS_CEILING moved — which is the
   // exact failure "state what enforces the ceiling" was asking about.
   test('the turn budget defaults to the CEILING, and the default IS the ceiling', () => {
     const block = view.blocks.find((b) => b.block_id === BLOCK_IDS.turns);
-    expect(DISPATCH_DEFAULT_TURNS).toBe(MAX_TURNS);
+    expect(DISPATCH_DEFAULT_TURNS).toBe(TURNS_CEILING);
     expect(block.element.initial_value).toBe(String(DISPATCH_DEFAULT_TURNS));
     expect(block.hint.text).toContain(String(MIN_TURNS));
-    expect(block.hint.text).toContain(String(MAX_TURNS));
+    expect(block.hint.text).toContain(String(TURNS_CEILING));
   });
 
   test('the default the form offers is one the validator would accept', () => {

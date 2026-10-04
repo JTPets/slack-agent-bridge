@@ -128,10 +128,10 @@ The agent responds directly without cloning any repo.
 |----------|---------|-------------|
 | `CLAUDE_BIN` | `/usr/local/bin/claude` | Path to Claude CLI binary |
 | `POLL_INTERVAL_MS` | `30000` | How often to check Slack (ms) |
-| `MAX_TURNS` | `50` | Default max LLM turns per task |
 | `TASK_TIMEOUT_MS` | `600000` | Hard timeout per task (10 min) |
 | `INSTALL_TIMEOUT_MS` | `300000` | Hard timeout for installing a scratch clone's dependencies (5 min). Separate from `TASK_TIMEOUT_MS`; a timeout is a harness failure |
 | `WORK_DIR` | `/tmp/bridge-agent` | Temp directory for clones |
+| `DEPLOY_KEY_PATH` | `/bridge/.deploy_key` | SSH deploy key a scratch clone pushes with. No file there = the clone is read-only and pushes fail |
 | `GITHUB_ORG` | - | Default org for short repo names |
 | `SLACK_APP_TOKEN` | - | App-level token (`xapp-`) for the additive Socket Mode connection. Unset = Socket Mode off, which is a supported state — see below |
 | `SOCKET_MODE_DOWN_ALERT_MS` | `300000` | How long the Socket Mode connection may be down before `#sqtools-ops` is told |

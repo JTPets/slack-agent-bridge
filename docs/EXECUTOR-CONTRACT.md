@@ -190,8 +190,8 @@ stop.
   message rather than an executor working from a description. Guard:
   `tests/dispatch-body-delivery.test.js`. **If you are composing a dispatch by hand,
   the body goes under `INSTRUCTIONS:`.**
-- **`TURNS:` default 50, minimum 5, ceiling 100** (`MIN_TURNS`/`MAX_TURNS`,
-  `lib/task-parser.js:81-83` — cited here as `:55-56` until 2026-09-20); out-of-range values are clamped, non-numeric ignored. On
+- **`TURNS:` default 50, minimum 5, ceiling 100** (`MIN_TURNS`/`TURNS_CEILING`,
+  `lib/task-parser.js` — the ceiling was named `MAX_TURNS` until 2026-10-04, WORK-TODO #20); out-of-range values are clamped, non-numeric ignored. On
   a max-turns hit the task retries **once** with doubled turns, capped at 100. Dispatch
   bridge work with `TURNS: 100`.
 - **You are in a scratch clone, never the live tree.** Each repo task runs in a fresh

@@ -49,7 +49,6 @@ describe('config module', () => {
 
       expect(config.GITHUB_ORG).toBe('jtpets');
       expect(config.POLL_INTERVAL).toBe(30000);
-      expect(config.MAX_TURNS).toBe(50);
       expect(config.TASK_TIMEOUT).toBe(600000);
       // LOGIC CHANGE 2026-09-13: This assertion previously encoded the defect - it
       // pinned the Raspberry Pi home path that cannot exist on the container image.
@@ -63,7 +62,6 @@ describe('config module', () => {
       process.env.OPS_CHANNEL_ID = 'C67890';
       process.env.GITHUB_ORG = 'customorg';
       process.env.POLL_INTERVAL_MS = '5000';
-      process.env.MAX_TURNS = '100';
       process.env.TASK_TIMEOUT_MS = '300000';
       process.env.CLAUDE_BIN = '/usr/local/bin/claude';
       process.env.WORK_DIR = '/var/tmp/bridge';
@@ -73,7 +71,6 @@ describe('config module', () => {
 
       expect(config.GITHUB_ORG).toBe('customorg');
       expect(config.POLL_INTERVAL).toBe(5000);
-      expect(config.MAX_TURNS).toBe(100);
       expect(config.TASK_TIMEOUT).toBe(300000);
       expect(config.CLAUDE_BIN).toBe('/usr/local/bin/claude');
       expect(config.WORK_DIR).toBe('/var/tmp/bridge');
@@ -366,7 +363,11 @@ describe('config module', () => {
       expect(config.POLL_INTERVAL).toBeNaN();
     });
 
-    test('handles numeric string MAX_TURNS', () => {
+    // LOGIC CHANGE 2026-10-04 (WORK-TODO #20): this test used to assert that
+    // MAX_TURNS=25 came back as config.MAX_TURNS === 25. It encoded the defect: the value
+    // reached one startup banner line and no LLM call, so the test passed while the knob
+    // moved nothing. The env var is no longer read; setting it changes nothing here.
+    test('MAX_TURNS in the environment is not read (it reached no LLM call)', () => {
       process.env.SLACK_BOT_TOKEN = 'xoxb-test';
       process.env.BRIDGE_CHANNEL_ID = 'C12345';
       process.env.OPS_CHANNEL_ID = 'C67890';
@@ -375,7 +376,8 @@ describe('config module', () => {
       const { loadConfig } = require('../lib/config');
       const config = loadConfig();
 
-      expect(config.MAX_TURNS).toBe(25);
+      expect(config).not.toHaveProperty('MAX_TURNS');
+      delete process.env.MAX_TURNS;
     });
   });
 

@@ -92,6 +92,12 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+At the **2026-10-04 B4 pass** those print **46** open items — **10** P1, **30** P2, **6** P3 —
+and **no duplicate ID**. That pass closed and purged **#34, #20, #63, #35 and #48** (the
+commit body lists each close with the checks that ran), filed nothing, refreshed #10's table
+and the figures in #44, narrowed #4b to its owner decisions, corrected #57's push claim, and
+added re-checked citations to #3, #25, #40, #46, #64, #65 and #66.
+
 At the **2026-10-04 B3 pass** those print **51** open items — **10** P1, **34** P2, **7** P3 —
 and **no duplicate ID**. That pass closed and purged **#30, #31, #32, #33, #24, #7, #21 and
 #58** (the commit body lists each close with the checks that ran), filed nothing, and removed their
@@ -303,11 +309,11 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B1** | A running task is not lost, re-run or misreported | #25, #23, #72, #74, #17 (boot-commit half), #22 (purge) | `bridge-agent.js`, `lib/task-queue.js`, `lib/task-lock.js`, `auto-update.js` (comments), `tests/` | **First.** The deploy step in use kills a running task (#73); B1 makes what happens next honest and stops the re-run. #17's boot report answers "is main deployed?", which is how deploys were found forgotten. No file in common with the in-flight dispatch |
 | **B2** | The test apparatus | #56, #36 (closed 2026-10-04), #69 (closed 2026-10-04), #54 (closed 2026-10-04), #11 (closed 2026-10-04) | `tests/staff-tasks.test.js`, `tests/architecture-tree.test.js`, `lib/file-size-gate.js`, `lib/repo-history.js`, `lib/backlog-report.js`, `WORK-TODO.md` tier header | P1 under the apparatus rule (tier definition, top of this file). Could run beside B1 (no shared code file) but both purge from this file, so sequence them |
 | **B3** | What reaches Slack is redacted and true; one helper per shared behaviour | #30, #31, #32, #33, #24, #7, #21, #58 (all closed 2026-10-04) | `lib/notify-owner.js`, `morning-digest.js`, `lib/llm-runner.js`, `lib/bulletin-board.js`, `lib/staff-tasks.js`, `lib/agent-context.js`, `lib/slack-client.js` | After B1: #30 removes `bridge-agent.js` / `auto-update.js` post helpers that B1 also edits |
-| **B4** | Records: config surface and docs that state what is no longer true | #34, #4b, #20, #63, #35, #48, #10 (table refresh) + the stale-claim sweep below | `CLAUDE.md`, `README.md`, `.env.example`, `docs/AGENTS.md`, `WORK-TODO.md` | After the in-flight records dispatch, which owns the same docs this week. Verifiable by reading |
+| **B4** | Records: config surface and docs that state what is no longer true | #34, #20, #63, #35, #48 (all closed 2026-10-04); #4b narrowed to owner decisions (now OD); #10 table refreshed; stale-claim sweep done | `CLAUDE.md`, `README.md`, `.env.example`, `docs/AGENTS.md`, `WORK-TODO.md` | After the in-flight records dispatch, which owns the same docs this week. Verifiable by reading |
 | **B5** | Commands and routing | #46, #49, #4, #9, #39, #66, #52, #64 (gate half only, see row) | `bridge-agent.js`, `lib/command-router.js`, `lib/dispatch-command.js`, `lib/dispatch-modal.js`, `lib/task-queue.js`, `lib/critique-signals.js` | After B1 and B3 (shared `bridge-agent.js`, `lib/task-queue.js`) |
 | **B6** | Deployment shape — repo halves of owner-side work | #70, #73, #42, #59, #68 (venv half), #17 (deploy-shape half) | `Dockerfile` (new), `docker-compose.example.yml`, `docs/CONFIG-SURFACE-AND-REBUILD.md`, `lib/dependency-install.js` | Last. Needs owner decisions (#17 shape, #73 exec/grace, #42 a mount) and follows the in-flight dispatch's edits to `lib/dependency-install.js` and the compose copy |
 | **OA** | Owner action only, nothing left in the repo | #3, #26, #40, #41, #43, #53, #55 | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
-| **OD** | Owner decision first | #27, #29, #37, #44, #51, #65, #67, #71, #47, #60 | — | Small code once chosen; listed so nobody dispatches them undecided |
+| **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60 | — | Small code once chosen; listed so nobody dispatches them undecided |
 | **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
 
 ### Every item
@@ -329,7 +335,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #43 | P1 | REPO DONE | OA | — | `/dispatch` built and wired (`bridge-agent.js:2588`); Slack app steps remain. Suggest P2 |
 | #70 | P2 | OPEN | B6 | M | No `Dockerfile` ever; `docker-compose.example.yml:83` installs the CLI unpinned at every start |
 | #68 | P2 | in flight, then OPEN | B6 | M | Per-clone venv not written (`lib/dependency-install.js:127,138` still system pip) |
-| #4b | P2 | OPEN, partly STALE | B4 | S | 25 `process.env` keys missing from `.env.example` (different set from the filed 25). "CLAUDE.md is stale" and the MAX_TURNS bullet are superseded |
+| #4b | P2 | OWNER DECISIONS ONLY (B4) | OD | — | Repo halves done in B4: all 59 `process.env` reads are in `.env.example` and `CLAUDE.md`, guarded. Left: the infra-repo/secrets-store decision and cleaning unread keys out of the live `.env` |
 | #30 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | M | Every client is built by `lib/slack-web.js` `createWebClient()`, which redacts every `chat.*` post; the six helper copies delegate to `postText`/`sendDM`. Guard `tests/slack-redaction.test.js` |
 | #31 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `lib/digest-failures.js` uses llm-runner `isRateLimitError`; no line promises a retry or re-queue. Guard `tests/digest-failures.test.js` |
 | #71 | P2 | OPEN, needs a shape | OD | S | No lock/queue/drain call in `processConversation`. Latent while nothing starts the updater |
@@ -339,14 +345,14 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #75 | P2 | in flight (closes in the records dispatch) | — | S | `docker-compose.example.yml:77-79` comment still calls `:ro` "the one real containment boundary" |
 | #62 | P2 | in flight | — | S | Note for that dispatch: `data/.gitkeep` **is** tracked (`bf6d1ca`), so the rule needs `!data/.gitkeep` |
 | #24 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `init({ bulletinFile })` and `init({ stateFile })`; the bulletin suite runs on a temp file |
-| #20 | P2 | OPEN | B4 | S | A fifth binding now exists (`lib/weekly-critique.js:54`); most cited lines drifted |
+| #20 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | `TURNS_CEILING`, `conversationTurns()`, `CRITIQUE_TURNS`; the `MAX_TURNS` env var is no longer read. Guard `tests/turn-budgets.test.js` |
 | #33 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S/M | `lib/time-format.js` `dayKey(date, zone)`; guard `tests/time-format.test.js` |
 | #32 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `lib/time-format.js` `formatTimestamp`, all four sites; guard `tests/time-format.test.js` |
-| #34 | P2 | OPEN | B4 | S | Read at `lib/clone-lifecycle.js:173`; absent from `CLAUDE.md`, `README.md`, `.env.example` |
-| #35 | P2 | OPEN, moot | B4 | S | A cap on tiers nothing writes caps nothing; fold into #63 |
-| #63 | P2 | OPEN | B4 | S (banner) | Nuance to record: `bridge-agent.js:2278` migrates legacy history into the bridge's tiers once at startup |
-| #10 | P2 | OPEN, table stale | B4 (refresh) | L | 72 files over 300 lines, all declared. `lib/owner-tasks-view.js` named in the table does not exist; `lib/task-queue.js` is 756 lines, so its "under on code" justification is false |
-| #44 | P2 | decision | OD | S | Figures stale (now 42 of 72) |
+| #34 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Documented in `CLAUDE.md`, `README.md`, `.env.example`; guard `tests/env-documented.test.js` |
+| #35 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Dissolved: recorded in `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 (a cap belongs on what reaches a prompt) |
+| #63 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Banner on `docs/AGENTS.md` → Memory Tiers, including the one-time legacy import; the writer question is `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 |
+| #10 | P2 | OPEN, table refreshed in B4 | — | L | 71 over (41 suites / 30 modules), all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
+| #44 | P2 | decision | OD | S | Figures refreshed in B4 (41 of 71) |
 | #5 | P2 | OPEN, speculative | SEED | L | Nothing built. Changes the execution model — park |
 | #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
 | #7 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `onDeadlineWarning` at 80% posts `lib/deadline-warning.js` to ops; `tests/llm-runner-deadline.test.js`, `tests/deadline-warning.test.js` |
@@ -369,7 +375,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #67 | P2 | decision | OD | S stopgap | Stopgap: "fetch `origin/main` and re-read the max ID" in the executor contract |
 | #58 | P3 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | The adapter owns its deadline; timers cleared on `error`. `tests/llm-runner-deadline.test.js` |
 | #60 | P3 | deferred design rule | OD | — | Move to a design doc before it is ever purged |
-| #48 | P3 | OPEN | B4 | S | Move the two-bullet rule into `CLAUDE.md`, then purge |
+| #48 | P3 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Rule moved to `CLAUDE.md` → Local LLM (Ollama) provider |
 | #21 | P3 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | A logger that drops only `already_in_channel`, in `createWebClient()` |
 | #29 | P3 | decision | OD | S to drop | Gmail scope is read-only (`lib/integrations/gmail.js:96`) |
 | #13 | P3 | idea | SEED | L | Recommend drop: widens what a task can do while #27 is undecided |
@@ -377,9 +383,9 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #15 | P3 | idea, weaker than written | SEED | S/M | `lib/task-decomposer.js` has no production caller, so the scorer it would use is dead code. Recommend drop |
 | #16 | P3 | idea | SEED | L | Recommend drop: needs runtime channel creation, which activation now refuses by design |
 
-### Stale claims found — corrected in B4, not here
+### Stale claims found — corrected in B4 (2026-10-04)
 
-Left as written so this pass edits no item body. B4 makes each correction:
+**Done.** Each bullet below was corrected on its item in B4 (citations re-checked with a regeneration grep, `--report` replaced by the default no-flag run, #10/#44 figures regenerated, #57 corrected, `CLAUDE.md` "Agent Activation" rewritten). #4b's superseded bullets are marked on the item. #31 was purged in B3. Kept as the list of what was checked:
 
 - **#3, #20, #25, #30, #40, #46, #64, #65, #66** — cited line numbers drifted; actuals are in the table above or on the agents' notes.
 - **#52, #55** — `scripts/channel-map.js --report` is not a flag.
@@ -501,7 +507,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (34)
+**P2 — real gaps, no risk to the running process** (30)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -512,10 +518,6 @@ work behind an owner's name, which is the opposite of the point.
 - **#27** — [A task has write access to the entire live deployment, including every credential — recorded, undecided](#27-a-task-has-write-access-to-the-entire-live-deployment-including-every-credential--recorded-undecided)
 - **#75** — [`/repo:ro` stops a write and not a read — SqTools' production secrets are readable by any code a dispatch runs, against any repository](#75-reporo-stops-a-write-and-not-a-read--sqtools-production-secrets-are-readable-by-any-code-a-dispatch-runs-against-any-repository)
 - **#62** — [Two runtime files under `data/` are neither tracked nor gitignored — `git clean -fd` deletes them and `git add -A` publishes them](#62-two-runtime-files-under-data-are-neither-tracked-nor-gitignored--git-clean--fd-deletes-them-and-git-add--a-publishes-them)
-- **#20** — [`MAX_TURNS` names four different quantities, and the env var is dead config](#20-max_turns-names-four-different-quantities-and-the-env-var-is-dead-config)
-- **#34** — [`DEPLOY_KEY_PATH` is read but undocumented](#34-deploy_key_path-is-read-but-undocumented)
-- **#35** — [Per-agent memory has TTL and decay but no max-entries cap](#35-per-agent-memory-has-ttl-and-decay-but-no-max-entries-cap)
-- **#63** — [The tiered memory system is implemented, documented in the present tense, and written by nothing](#63-the-tiered-memory-system-is-implemented-documented-in-the-present-tense-and-written-by-nothing)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
 - **#44** — [The 300-line rule is one rule over two different problems — scope it, or say it covers both](#44-the-300-line-rule-is-one-rule-over-two-different-problems--scope-it-or-say-it-covers-both)
 - **#5** — [Mid-task `ask_on_slack` capability](#5-mid-task-ask_on_slack-capability)
@@ -538,10 +540,9 @@ work behind an owner's name, which is the opposite of the point.
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
 - **#67** — [IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide](#67-ids-are-allocated-at-write-time-from-an-append-only-list-so-two-branches-cut-from-the-same-base-always-collide)
 
-**P3 — nice to have / uncertain ROI** (7)
+**P3 — nice to have / uncertain ROI** (6)
 
 - **#60** — [If the bridge is ever to act on the NAS, the capability is an allowlisted command set — not a shell](#60-if-the-bridge-is-ever-to-act-on-the-nas-the-capability-is-an-allowlisted-command-set--not-a-shell)
-- **#48** — [A model list is enumerable for a local provider and is a guess for a hosted one — record the asymmetry, build neither yet](#48-a-model-list-is-enumerable-for-a-local-provider-and-is-a-guess-for-a-hosted-one--record-the-asymmetry-build-neither-yet)
 - **#29** — [`gmail-unsubscribe` is a declared agent permission that no code implements](#29-gmail-unsubscribe-is-a-declared-agent-permission-that-no-code-implements)
 - **#13** — [MCP server wrapper](#13-mcp-server-wrapper)
 - **#14** — [Watercooler retro → LinkedIn draft](#14-watercooler-retro--linkedin-draft)
@@ -554,7 +555,7 @@ work behind an owner's name, which is the opposite of the point.
 **BLOCKED — OWNER ACTION (off-repo).** The mechanism, the reconstruction command and the
 guard all landed. Both remainders are the owner's: a real `docker compose restart jt-agent`
 to exercise the live resolution path for the first time, and a decision about where
-`node scripts/channel-map.js --report` output is kept off-box. Remainder for a branch: none.
+`node scripts/channel-map.js` output is kept off-box. Remainder for a branch: none.
 **Filed 2026-09-15,** from the incident on the evening of 2026-09-15. **P1 because it
 already happened**: a deploy left five active agents with no resolved channel and stopped
 two scheduled agents, and the recovery was a human reading identifiers out of terminal
@@ -616,12 +617,12 @@ command rather than archaeology.
 - **`jester` still declares a channel that does not exist** and no real name exists to
   substitute; see #53.
 - **Nothing exports the resolved map off-box.** If both the NAS and Slack are unavailable
-  the mapping is gone. `node scripts/channel-map.js --report` prints it; where that output
+  the mapping is gone. `node scripts/channel-map.js` prints it; where that output
   is kept is an owner decision that has not been made (same class as #42).
 
 **Regenerate the whole picture:**
 ```bash
-node scripts/channel-map.js --report      # declared name -> resolved id, per agent
+node scripts/channel-map.js               # declared name -> resolved id, per agent
 node scripts/agent-surface.js             # and what each agent therefore gets
 ```
 **Priority:** P1 | **Effort:** Medium (done); Low to close the remainder
@@ -985,8 +986,6 @@ run outside tests, and whose startup config is currently wrong.
 
 ---
 
----
-
 ### 73. The deploy step in use kills a running task without ever signalling the bridge — every guard in the update protocol is bypassed by the one command that actually deploys
 **Filed 2026-09-20,** by the pass that re-verified the four standing "known blocker" claims.
 **This item exists because a 2026-09-20 pass considered it and decided NOT to file it** — its
@@ -1232,6 +1231,7 @@ evidence.
    `docker exec` needed to reach it. A regression test on the alert text is the close.
    Do **not** "fix" this by making cleanup delete the clone anyway.
 
+**Citations re-checked 2026-10-04 (B4).** The undelivered check is called at `bridge-agent.js:1323`; the alert text is `lib/preserved-clone-alert.js` (B1); `WORK_DIR` defaults at `lib/config.js:42`. Regenerate: `grep -n "detectUndeliveredWork(" bridge-agent.js`. Line numbers in `bridge-agent.js` move with every change, so the grep is the citation.
 **Priority:** P1 — it is the silent-data-loss class, which is the top of this file's
 ranking axis, and the loss is of work a human was told had been saved for them.
 **Effort:** Low for half 2; Low for half 1 but it is the owner's to make.
@@ -1359,6 +1359,7 @@ startup output that closes this item is:
 
 Regenerate the expected table before comparing: `node scripts/agent-surface.js`.
 
+**Citations re-checked 2026-10-04 (B4).** The refusal of a `planned` agent is at `lib/agent-scheduler.js:133` inside `startScheduler` (`:103`); `getActiveAgents()` filters at `lib/agent-registry.js:173`. Regenerate: `grep -n "function startScheduler\|status === 'planned'" lib/agent-scheduler.js`. The claim stands.
 **Priority:** P1 | **Effort:** Low | **Status:** open — fix landed on a branch, not verified live; close condition restated above
 
 ---
@@ -1758,6 +1759,18 @@ the list of what remains unreachable. Regenerate the figure with the grep in Ste
   deferred to John — not executed by this task.**
 **Effort:** Low for the doc fixes; Medium for standing up the infra repo + secrets store.
 **Risk:** None to the running process (documentation + read-only inventory only).
+**B4, 2026-10-04 — the repository halves are done; what is left is the owner's.**
+- *The 25 keys:* done. Every `process.env` read in production code (59 at B4) has a line in
+  `.env.example` and a row in `CLAUDE.md`, and `tests/env-documented.test.js` fails when
+  one does not. (The B4 set of 25 was not the filed set of 25; the guard makes the figure moot.)
+- *`MAX_TURNS`:* closed as #20. The env var is no longer read, so a `MAX_TURNS=200` line in
+  the live `.env` is ignored and can be deleted.
+- *"CLAUDE.md is stale":* superseded. `CLAUDE.md` now records `npm ci`, the compose `TZ`
+  and that nothing starts `auto-update.js` (#17).
+- **Left, owner decisions:** (1) delete the unread keys from the live `/bridge/.env`
+  (`PM2_PROCESS_NAME`, the six `*_CHANNEL_ID` keys no code reads, and now `MAX_TURNS`);
+  (2) whether a dedicated infra repo owns the cross-stack runbook, and which off-box secrets
+  store holds credentials. Neither is a change this repository can make.
 **Priority:** P2 | **Effort:** Low (docs) / Medium (infra repo) | **Status:** open
 
 ---
@@ -2234,164 +2247,10 @@ swap, `*.local`, `work/` and `agents/shared/` families closed 2026-10-02; `data/
 
 ---
 
-### 20. `MAX_TURNS` names four different quantities, and the env var is dead config
-**Filed 2026-09-14.** Supersedes and extends the `MAX_TURNS` bullet in item 4b, which
-recorded two of the four.
-
-**Problem:** the name `MAX_TURNS` / `max_turns` / `maxTurns` is bound to four unrelated
-quantities. Regenerate:
-`grep -rn "MAX_TURNS\|max_turns\|maxTurns" --include=*.js . | grep -v node_modules | grep -v '^./tests/'`
-
-| Binding | Quantity | Value |
-|---------|----------|-------|
-| `lib/config.js:34`, `lib/llm-runner.js:172` | env-driven **default** | 50 |
-| `lib/task-parser.js:83` | hard **ceiling** on the `TURNS:` header | 100 |
-| `lib/task-parser.js:81` `DEFAULT_TURNS` | **default when no header**, a hardcoded literal | 50 |
-| `bridge-agent.js:1742` | conversation path's **own** default *and* ceiling | 10 / 20 |
-
-**Citations re-checked 2026-09-16** — every line number in this table had drifted (filed as
-`:56`, `:14`, `:1498`); the four bindings themselves are unchanged and the item's claim
-holds. The export is at `lib/task-parser.js:488`, not `:463`. **A new consumer appeared
-while this was open:** `lib/dispatch-modal.js:23` imports `MIN_TURNS`/`MAX_TURNS` from the
-parser, so the rename in fix part 1 now has two consumers to update, not one.
-
-`bridge-agent.js:1498` is the source of the `max-turns=20` the owner observed in
-`[llm-runner] Spawning Claude in /tmp/bridge-agent (max-turns=20)` and could not place:
-`const maxTurns = Math.min(currentAgent?.max_turns || 10, 20);`. It reads neither the env
-var nor either parser constant. `secretary`, `email-monitor` and `story-bot` carry
-`max_turns: 20` in `agents.json`; `jester` carries 10; every code agent carries 50 and is
-silently clamped to 20 on the `ASK:` path.
-
-**Correction to the dispatch — `MAX_TURNS=200` in the live `.env` raises nothing.** It is
-unreachable on every non-test path:
-- `lib/llm-runner.js:348` `options.maxTurns || DEFAULT_MAX_TURNS` — but **every** non-test
-  callsite passes `maxTurns` explicitly, so the `||` arm never fires. Regenerate:
-  `grep -rn "runLLM(\|runWithFallback(" --include=*.js . | grep -v node_modules | grep -v '^./tests/'`
-  → `security-review.js:294` (10), `bots/storefront.js:444` (15), `bridge-agent.js:665`
-  (`currentTurns`), `bridge-agent.js:1503` (`maxTurns`), `lib/watercooler.js:536` (5),
-  `lib/task-decomposer.js:341` (`maxTurns`). Six of six explicit.
-- `lib/config.js:34` feeds only `bridge-agent.js:208`
-  (`agentConfig?.max_turns || config.MAX_TURNS`), which for the bridge agent resolves to
-  its registry value 50, not the env 200 — and that binding is consumed by exactly one
-  line, the startup banner at `:1897`.
-
-So `MAX_TURNS` in `.env` changes one thing: nothing. **The standing convention of putting
-`TURNS: 100` on every dispatch is correct, but not for the stated reason** — without the
-header a task gets 50 from the `task-parser.js:14` literal (not from the env), and with it
-up to 100 from the `:56` ceiling. The header is load-bearing; the env var is not.
-
-**Fix (naming and reachability are separate changes — do the rename first, it is safe):**
-1. Rename `lib/task-parser.js:56 MAX_TURNS` → `TURNS_CEILING` (it is exported at `:463`,
-   so grep consumers). Rename the `bridge-agent.js:1498` literals to named constants
-   (`CONVERSATION_TURNS_DEFAULT`, `CONVERSATION_TURNS_CEILING`).
-2. Decide what `MAX_TURNS` in `.env` is *for*. Either wire it to something reachable (the
-   conversation ceiling is the honest candidate) or delete it from `CLAUDE.md`'s env table
-   and `.env.example` and say in the commit body that it was dead. Do not leave a
-   documented knob that moves nothing — that is the doc-vs-reality drift class.
-3. Add a test asserting the conversation path's effective turns for an agent with
-   `max_turns: 50`, so the clamp is stated somewhere other than one un-commented
-   `Math.min`.
-**Effort:** Low.
-**Risk:** Low for (1) and (3). (2) is a behaviour decision, not a refactor — if
-`MAX_TURNS=200` is wired to anything it will actually raise turn counts for the first
-time, so land it alone.
-**Priority:** P2 | **Effort:** Low | **Status:** open
-
----
-
-### 34. `DEPLOY_KEY_PATH` is read but undocumented
-**Filed 2026-09-13** (derived: `git log -S'DEPLOY_KEY_PATH` is read but undocumented' --reverse -- WORK-TODO.md`
--> `e2a19e2`, where it was an unnumbered heading; numbered `58b231d` on 2026-09-14).
-**Problem:** The scratch-clone push fix reads a new env var,
-`process.env.DEPLOY_KEY_PATH || "/bridge/.deploy_key"` (`lib/clone-lifecycle.js:173`), but it
-was never added to `CLAUDE.md`'s Environment Variables section or `.env.example`
-(`grep -rn DEPLOY_KEY_PATH CLAUDE.md .env.example` → nothing). This violates the repo's
-own env-var rule ("When adding a new env var to code you MUST … update the Environment
-Variables section in this CLAUDE.md"). The default path is container-specific
-(`/bridge/…`), so an operator on a different layout has no signposted way to point it at
-their key — the clone silently falls back to READ-ONLY and pushes fail.
-**Fix:** document `DEPLOY_KEY_PATH` (description + default `/bridge/.deploy_key`) in the
-`CLAUDE.md` Optional env table and in `.env.example`. Doc-only.
-**Effort:** Low.
-
-**Re-verified 2026-09-14.** Still true, and the citation moved: the read is now at
-`lib/clone-lifecycle.js:173` (seam A extraction), not `bridge-agent.js`.
-`grep -rn DEPLOY_KEY_PATH CLAUDE.md .env.example README.md` -> still no hits.
-*Given a stable number this revision (it was filed as an unnumbered "New (2026-09-13)"
-heading, which cross-references could not point at).*
-**Priority:** P2 | **Effort:** Low | **Status:** open
-
----
-
-### 35. Per-agent memory has TTL and decay but no max-entries cap
-**Filed 2026-09-13** (derived: `20dc049`, as the unnumbered heading "Reconcile — per-agent
-memory: entry caps vs. the tiering that already landed"; numbered `58b231d` on 2026-09-14).
-**Substance is older:** ancestor heading "Per-agent memory size limits" in the 2026-04-05
-seed `4b6ee4a`.
-**Problem:** The old backlog asked for "per-agent memory size limits (max entries,
-evict oldest)." Tiered memory with TTL and time-based decay already shipped
-(`lib/memory-tiers.js` — `ttl` at `:40`, `decayMs` at `:134`; tests in
-`tests/memory-tiers.test.js`). What is *not* there is a hard **max-entries cap** per
-tier. Don't re-file the whole item — the only open piece is the count cap.
-**Fix:** add an optional max-entries cap per tier in `lib/memory-tiers.js`, evicting
-oldest-by-TTL when exceeded. Keep it consistent with the existing decay logic.
-**Effort:** Low.
-
-**Re-verified 2026-09-14.** `grep -n "maxEntries\|MAX_ENTRIES" lib/memory-tiers.js` -> no
-hits; TTL and decay are there, the count cap is not.
-*Given a stable number this revision (it was filed as an unnumbered "Reconcile" heading).*
-**Priority:** P2 | **Effort:** Low | **Status:** open
-
----
-
-### 63. The tiered memory system is implemented, documented in the present tense, and written by nothing
-**Filed 2026-09-16,** from the Step 8 state enumeration
-([`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) §8.2).
-
-**Distinct from #35,** which asks for a max-entries cap on those tiers. A cap on a tier
-nothing writes is a cap on nothing. This is the prior question.
-
-**Verified at HEAD.** Regenerate:
-```bash
-# the tier write API - who calls it in production?
-grep -rn "addAgentShortTerm\|promoteAgentMemory\|setAgentPermanent\|addShortTerm\|addPermanent" \
-  --include=*.js . | grep -v node_modules | grep -v '^./tests/'
-# -> only lib/memory-tiers.js (definitions) and memory/memory-manager.js (pass-throughs)
-# what bridge-agent actually calls
-grep -on "memory\.[a-zA-Z]*(" bridge-agent.js | sort -u -t: -k2
-# -> addTask, buildTaskContext, clearAgentWorkingMemory, completeTask, failTask,
-#    loadMemory, migrateAgentMemory, startupMemoryCleanup
-```
-
-`lib/memory-tiers.js` implements TTL expiry (`:118`), decay to archive (`:131`),
-auto-promotion at three re-adds (`AUTO_PROMOTE_THRESHOLD`, `:13`) and a startup sweep.
-**No production code adds a short-term, long-term or permanent entry.** So the promotion
-threshold can never be reached, the decay sweep has nothing to decay, and
-`agents/<id>/memory/{working,short-term,long-term,archive}.json` are empty by construction.
-
-**What runs instead** is the pre-tier path: `memory/tasks.json` and `memory/history.json`
-(`memory/memory-manager.js:11-13`), which are **global, not per-agent** — there is no agent
-id in either path — and reach a prompt as the **last 10** history entries (`:141`).
-`history.json` is append-only and pruned by nothing.
-
-**Why it is worth filing rather than deleting the tiers.** `docs/AGENTS.md` → "Memory
-Tiers" describes expiry, promotion, decay and archival in the present tense across four
-tables, and `CLAUDE.md`'s architecture tree lists the five files per agent. This is the
-same shape as `lib/task-decomposer.js` (`docs/WIRING-AND-SEAMS.md` §3): documentation that
-oversells what the running system does. Either the tiers get a writer or the documentation
-gets a banner — and which one is the memory-model decision, not a tidying decision.
-
-**Not a defect to fix in passing.** The design that decides it is
-[`docs/STATE-AND-MEMORY-DESIGN.md`](docs/STATE-AND-MEMORY-DESIGN.md). Until that is
-accepted, the honest repository-side action is the banner.
-**Priority:** P2 | **Effort:** Low to document; the writer is a design decision | **Status:** open
-
----
-
 ### 10. Split the god-files that break the repo's own 300-line rule
 **Filed 2026-09-13** (derived: `20dc049`).
 **Problem:** The repo enforces a 300-line-per-file rule (`lib/validate.js`, `MAX_LINES = 300`)
-and **65** `.js` files exceed it. Until 2026-09-15 the gate was **unconditionally red**, so a
+and **71** `.js` files exceed it (2026-10-04; regenerate with the command below). Until 2026-09-15 the gate was **unconditionally red**, so a
 new violation could not be told apart from the standing ones without diffing path lists by
 hand — that happened twice in the week of 2026-09-08. The exceptions had never been examined.
 
@@ -2438,99 +2297,74 @@ for(const f of walk(process.cwd())){const L=fs.readFileSync(f,'utf8').split('\n'
 The rule counts `split('\n').length`, which reads one higher than `wc -l` on a
 newline-terminated file — that is why these numbers and `wc -l` disagree by one.
 
-**Re-run 2026-09-20 at `f13e012`, same working command: 72 over the limit — 42 test suites,
-30 source modules — and `npm run validate` reports "72 declared exceptions, each with a
-recorded reason", so the gate is still green.** The three since 2026-09-16 are all from the
-delivery-signal and drain-one merges: `lib/update-drain.js` (373),
-`tests/update-drain.test.js` (393) and `tests/task-delivery-signal.test.js` (389);
-**`auto-update.js` is now 985 lines, not the 879 recorded in the source-module table below**
-(`node -e "const g=require('./lib/file-size-gate');console.log(g.measure().find(f=>f.path==='auto-update.js').lines)"`).
-Its disposition — split deferred because nothing starts the daemon — is unchanged.
+**Refreshed 2026-10-04 on the B4 branch (base `7bb315f`), from the working command above: 71 over the limit — 41 test suites, 30 source modules — every one declared, so the gate is green.** The tables below are regenerated from that measurement; earlier figures (58 → 72) and the per-revision history are in git. Since the last table: `lib/agent-scheduler.js` and `lib/owner-tasks.js` were split and are back under the limit (the owner-tasks split moved the **store** out to `lib/owner-tasks-store.js`; the old row named a `lib/owner-tasks-view.js` that never existed), `tests/test-gate-honesty.test.js` came back under in B2, and `lib/update-drain.js`, `lib/bridge-state.js` and `lib/command-router.js` went over and carry entries in `lib/validate-exceptions.json` that had no row here.
 
-**Figures as of 2026-09-16, from the working command above: 69 over the limit — 40 test
-suites, 29 source modules — and 69 declared exceptions, so the gate is green.** The tables
-below say 65 / 36 / 29 and were correct on 2026-09-15; the four new files are test suites
-added by the jester work. The source-module table is unchanged at 29 and every disposition
-in it still holds.
-
-**The largest file is `bridge-agent.js` at 2469 lines** (2026-09-16; it was 2227 when the
-table below was built, and the table's row still reads 2227), and it is the main agent module —
-the premise the seam work rests on. Its seams are declared in
+**The largest file is `bridge-agent.js` at 2735 lines.** Its seams are declared in
 [`docs/WIRING-AND-SEAMS.md`](docs/WIRING-AND-SEAMS.md) §6 (A and B landed; C, D, E open).
 It is **excluded from splitting during size-limit work**: cutting the monolith inside a
 gate-cleanup produces a diff nobody can review.
 
-**A correction to this item's own history.** Earlier revisions recorded 58 / 59 / 63 files and
-`bridge-agent.js` at 2040, then 2210, then 2093. The file count is now 65 and
-`bridge-agent.js` is 2227 — it grew again with the `/dispatch` work. The +2 files since
-2026-09-14 are guards and modules added by intervening work, which is a knowing trade.
+**Third category is empty.** Every over-limit file is a source module or a test suite. Whether
+the rule was meant to cover tests is a question about the rule, filed as **#44**, not a
+property of any individual file.
 
-**Third category is empty.** Every over-limit file is either a source module (**29**) or a
-test suite (**36**). Nothing in the list falls outside a rule that was never meant to cover it
-on grounds of kind — the "was this rule meant to cover tests?" question is real but it is a
-question about the rule, filed as **#44**, not a property of any individual file.
-
-**The measurement that reframes 16 of the 29 source modules.** The rule counts raw lines, and
-this repository's own contract *requires* per-change prose: `LOGIC CHANGE` comments, module
-headers that state why a guard exists, and the evidence behind a decision. Sixteen source
-modules are over 300 **lines** while under 300 lines of **code**: `lib/task-queue.js`
-(198 comment / 296 code), `lib/code-review-pipeline.js` (133/293), `security-review.js`
-(79/287), `lib/integrations/email-sanitizer.js` (130/282), `lib/slack-client.js` (124/273),
-`memory/memory-manager.js` (93/255), `lib/integrations/email-categorizer.js` (139/247),
-`lib/bulletin-board.js` (99/247), `lib/agent-scheduler.js` (107/240), `lib/email-rate-limiter.js`
-(111/231), `lib/integrations/holidays.js` (103/229), `lib/integrations/google-calendar.js`
-(99/225), `lib/task-parser.js` (228/224), `lib/owner-tasks.js` (92/221), `lib/notify-owner.js`
-(176/192), `lib/clone-lifecycle.js` (170/158). The two extremes are worth naming:
-`lib/clone-lifecycle.js` is **49% comment** and was extracted (Seam A) specifically to be one
-concern, and `lib/notify-owner.js` carries more comment than code. Splitting either moves
-prose between files and changes no responsibility. This is the second axis of **#44**.
+**The measurement that reframes 18 of the 30 source modules.** The rule counts raw lines, and
+this repository's own contract *requires* per-change prose (`LOGIC CHANGE` comments, module
+headers that state why a guard exists). These are over 300 **lines** while under 300 lines of
+**code** (comment/code): `lib/task-parser.js` (301/263), `lib/integrations/email-categorizer.js` (180/270), `lib/code-review-pipeline.js` (133/293), `lib/agent-context.js` (118/297), `lib/bulletin-board.js` (151/258), `lib/integrations/email-sanitizer.js` (130/282), `lib/slack-client.js` (131/250), `security-review.js` (92/268), `lib/notify-owner.js` (180/173), `morning-digest.js` (85/270), `memory/memory-manager.js` (93/255), `lib/email-rate-limiter.js` (111/231), `lib/integrations/holidays.js` (103/229), `lib/bridge-state.js` (158/185), `lib/update-drain.js` (161/181), `lib/command-router.js` (170/180), `lib/integrations/google-calendar.js` (99/225), `lib/clone-lifecycle.js` (170/158). `lib/task-queue.js` is **no longer** in this
+list (357 code lines), which falsified its old justification; its row is corrected below.
+Splitting a file that is mostly prose moves prose between files and changes no
+responsibility. This is the second axis of **#44**.
 
 ---
 
 #### The record — every over-limit file, with category, disposition and reason
 
-Category: **src** = source module, **test** = test suite. Disposition: **SPLIT (done)**,
-**split (deferred)** — a real seam or concern boundary exists and is named, work tracked here —
-or **justify** — the file should not be split and the reason is stated. `code` is non-comment,
-non-blank lines.
+Category: **src** = source module, **test** = test suite. Disposition: **split (deferred)** — a
+real seam or concern boundary exists and is named, work tracked here — or **justify** — the
+file should not be split and the reason is stated. `code` is non-comment, non-blank lines.
+Done splits leave the table: `lib/agent-scheduler.js` (catalogue moved to
+`lib/agent-task-catalogue.js`) and `lib/owner-tasks.js` (store moved to
+`lib/owner-tasks-store.js`).
 
-**Source modules (29)**
+**Source modules (30)**
 
 | lines | code | file | disposition | reason |
 |------:|-----:|------|-------------|--------|
-| 2227 | 1378 | `bridge-agent.js` | split (deferred) | The monolith. Seams C (`lib/ask-commands.js`), D (rate-limit state), E (poll loop) are declared in WIRING-AND-SEAMS §6. Deferred **by this task's own terms**: not cut during a size-limit exercise. |
-| 1104 | 623 | `lib/llm-runner.js` | split (deferred) | Boundary: one module per provider adapter (claude / openai / ollama / gemini) behind the existing `runLLM` + `runWithFallback` dispatcher. Deferred because WIRING-AND-SEAMS §4 pins exactly who is on the fallback chain — a move here must not "fix" that. |
-| 879 | 505 | `auto-update.js` | split (deferred) | Boundary: git porcelain (`runGit`/`gitFetch`/`gitPull`/`gitResetHard`/`gitResetTo`/`npmInstall`) and the deferral gate (`checkTaskQueue`/`evaluateTaskDeferral`) are two separable concerns. Deferred: nothing starts this daemon (#17), so a refactor buys no safety and risks the 62 tests that inject a dependency bag into `checkForUpdates()`. |
-| 726 | 449 | `lib/watercooler.js` | split (deferred) | Boundary: the standup catalogue (`AGENT_DISPLAY`/`STANDUP_TYPES`/`AGENT_STANDUP_PROMPTS`) vs. context gathering vs. `runStandup` orchestration. |
-| 722 | 425 | `lib/staff-tasks.js` | split (deferred) | Four concerns in one file: staff/template loading, task state, store-hours + time parsing, Slack rendering + command recognition. The recognisers (`isStaffTaskCommand`, `parseAssignCommand`) belong with Seam C. |
+| 2735 | 1571 | `bridge-agent.js` | split (deferred) | The monolith. Seams C (`lib/ask-commands.js`), D (rate-limit state), E (poll loop) are declared in WIRING-AND-SEAMS §6. Deferred **by this task's own terms**: not cut during a size-limit exercise. |
+| 1183 | 655 | `lib/llm-runner.js` | split (deferred) | Boundary: one module per provider adapter (claude / openai / ollama / gemini) behind the existing `runLLM` + `runWithFallback` dispatcher. Deferred because WIRING-AND-SEAMS §4 pins exactly who is on the fallback chain — a move here must not "fix" that. |
+| 995 | 538 | `auto-update.js` | split (deferred) | Boundary: git porcelain (`runGit`/`gitFetch`/`gitPull`/`gitResetHard`/`gitResetTo`/`npmInstall`) and the deferral gate (`checkTaskQueue`/`evaluateTaskDeferral`) are two separable concerns. Deferred: nothing starts this daemon (#17), so a refactor buys no safety and risks the 62 tests that inject a dependency bag into `checkForUpdates()`. |
+| 761 | 357 | `lib/task-queue.js` | justify | One state machine over one file. **Corrected 2026-10-04:** this row said "under the limit on code (296)"; it is 357 code lines now, so that half of the justification is false. What remains true: the length is the `markRunning`, `completionSeq` and delivery-verdict history in comments, and the store has one owner. A split would cut on terminal-writers vs. readers (`getRecentCompleted`, `getStatus`); deferred, not justified. |
+| 754 | 456 | `lib/watercooler.js` | split (deferred) | Boundary: the standup catalogue (`AGENT_DISPLAY`/`STANDUP_TYPES`/`AGENT_STANDUP_PROMPTS`) vs. context gathering vs. `runStandup` orchestration. |
+| 741 | 433 | `lib/staff-tasks.js` | split (deferred) | Four concerns in one file: staff/template loading, task state, store-hours + time parsing, Slack rendering + command recognition. The recognisers (`isStaffTaskCommand`, `parseAssignCommand`) belong with Seam C. |
+| 614 | 263 | `lib/task-parser.js` | split (deferred) | Boundary: task-message parsing vs. the ASK-command recognisers (`isStatusQuery` … `parseShowTaskCommand`), which belong in Seam C's `lib/ask-commands.js` alongside the handlers they gate. **Deferred deliberately** so recogniser and handler move in one change. Also under the limit on code (224). |
 | 598 | 350 | `lib/approval-queue.js` | split (deferred) | Boundary: the queue store vs. presentation (`formatPendingTasks`/`formatTaskDetails`/`getTaskAge`). |
 | 598 | 351 | `lib/integrations/gmail.js` | split (deferred) | Boundary: auth/client construction vs. MIME decoding (`stripHtml`/`decodeBase64Url`/`extractBody`/`transformEmail`) vs. the read API. The decoder is pure and testable alone. |
 | 579 | 398 | `lib/task-decomposer.js` | justify | **Zero production callers** (WIRING-AND-SEAMS §3) — reachable only from its own test. Splitting dead code multiplies unexecuted surface. The open decision is delete-or-wire, which is the owner's, not a split. |
 | 570 | 343 | `lib/memory-tiers.js` | split (deferred) | Boundary: entry lifecycle + file I/O vs. maintenance (`cleanupMemory`/`autoPromote`/`startupCleanup`/`migrateToTiers`). |
-| 557 | 296 | `lib/task-queue.js` | justify | One state machine over one file, and **under the limit on code** (296). Its length is the deferral/`markRunning` history recorded in comments, which is what makes the `running`-vs-`pending` defect auditable. |
 | 547 | 329 | `lib/security-followup.js` | split (deferred) | Boundary: finding parsing (`parseFindings`/`groupFindingsByFile`) vs. dedup bookkeeping vs. the Slack-side orchestration in `processSecurityBulletin`. |
-| 517 | 349 | `bots/storefront.js` | split (deferred) | Boundary: Express routes vs. session store vs. prompt building. It is also the one entry point serving public HTTP, so its routes deserve isolation on security grounds, not only size. |
-| 512 | 353 | `morning-digest.js` | split (deferred) | Boundary: `buildDigest` is a 190-line function assembling independent sections (weather, calendar, email, tasks, staff); each section builder is separable. |
-| 497 | 224 | `lib/task-parser.js` | split (deferred) | Boundary: task-message parsing vs. the ASK-command recognisers (`isStatusQuery` … `parseShowTaskCommand`), which belong in Seam C's `lib/ask-commands.js` alongside the handlers they gate. **Deferred deliberately** so recogniser and handler move in one change. Also under the limit on code (224). |
+| 519 | 349 | `bots/storefront.js` | split (deferred) | Boundary: Express routes vs. session store vs. prompt building. It is also the one entry point serving public HTTP, so its routes deserve isolation on security grounds, not only size. |
+| 498 | 270 | `lib/integrations/email-categorizer.js` | justify | **Under the limit on code** (247). The file's length is the `DEFAULT_RULES` catalogue and the precedence documentation that makes `rules.json` readable as a specification. |
 | 476 | 293 | `lib/code-review-pipeline.js` | justify | Three phases of one pipeline, and **under the limit on code** (293). The phases share the `context` object; splitting them puts one data structure's producers and consumers in three files. |
+| 472 | 297 | `lib/agent-context.js` | split (deferred) | Boundary: one context builder per persona (`buildSecretaryContext`, `buildSecurityContext`, `buildJesterContext`, `buildStoryBotContext`, `buildCodeAgentContext`); they share nothing but the anti-hallucination preamble. |
+| 470 | 258 | `lib/bulletin-board.js` | justify | **Under the limit on code** (247). Store plus its two renderers over one JSON file; the renderers exist to keep bulletin formatting from being re-derived per caller, which is the defect CANONICAL-HELPERS §32 records. |
 | 470 | 282 | `lib/integrations/email-sanitizer.js` | justify | **Under the limit on code** (282). 130 lines are the `INJECTION_PATTERNS` catalogue and the rationale for each pattern — a security-relevant enumeration whose comments are the point. |
-| 452 | 305 | `lib/agent-context.js` | split (deferred) | Boundary: one context builder per persona (`buildSecretaryContext`, `buildSecurityContext`, `buildJesterContext`, `buildStoryBotContext`, `buildCodeAgentContext`); they share nothing but the anti-hallucination preamble. |
-| 443 | 273 | `lib/slack-client.js` | justify | **Under the limit on code** (273). It is one factory closure (`createSlackClient`) plus channel-map persistence; a cut inside the factory would split a single object's methods across files. |
-| 432 | 247 | `lib/integrations/email-categorizer.js` | justify | **Under the limit on code** (247). The file's length is the `DEFAULT_RULES` catalogue and the precedence documentation that makes `rules.json` readable as a specification. |
-| 429 | 287 | `security-review.js` | split (deferred) | Boundary: its private `cloneRepo`/`execCommand`/`sendDM`/`postToOps` are **duplicates** of behaviour already canonical elsewhere (`docs/CANONICAL-HELPERS.md` §1, §2; #30). The right cut is de-duplication, not a new module — it belongs to #30, not to a size pass. **2026-10-04:** #30 removed the `sendDM`/`postToOps` duplicates (`lib/slack-web.js`); `cloneRepo`/`execCommand` remain. |
-| 421 | 192 | `lib/notify-owner.js` | justify | More comment (176) than code (192). It was the **canonical destination** named by CANONICAL-HELPERS §1/§2. **2026-10-04:** #30 put the canonical post in `lib/slack-web.js` instead (it must be reachable by scripts that never call `notifyOwner.init`), and `notifyChannel` now delegates to it. |
-| 406 | 247 | `lib/bulletin-board.js` | justify | **Under the limit on code** (247). Store plus its two renderers over one JSON file; the renderers exist to keep bulletin formatting from being re-derived per caller, which is the defect CANONICAL-HELPERS §32 records. |
+| 427 | 250 | `lib/slack-client.js` | justify | **Under the limit on code** (273). It is one factory closure (`createSlackClient`) plus channel-map persistence; a cut inside the factory would split a single object's methods across files. |
+| 422 | 268 | `security-review.js` | split (deferred) | Boundary: its private `cloneRepo`/`execCommand`/`sendDM`/`postToOps` are **duplicates** of behaviour already canonical elsewhere (`docs/CANONICAL-HELPERS.md` §1, §2; #30). The right cut is de-duplication, not a new module — it belongs to #30, not to a size pass. **2026-10-04:** #30 removed the `sendDM`/`postToOps` duplicates (`lib/slack-web.js`); `cloneRepo`/`execCommand` remain. |
+| 406 | 173 | `lib/notify-owner.js` | justify | More comment (176) than code (192). It was the **canonical destination** named by CANONICAL-HELPERS §1/§2. **2026-10-04:** #30 put the canonical post in `lib/slack-web.js` instead (it must be reachable by scripts that never call `notifyOwner.init`), and `notifyChannel` now delegates to it. |
+| 406 | 270 | `morning-digest.js` | split (deferred) | Boundary: `buildDigest` is a 190-line function assembling independent sections (weather, calendar, email, tasks, staff); each section builder is separable. |
 | 400 | 255 | `memory/memory-manager.js` | split (deferred) | Boundary: task/context storage vs. the prompt-context builders (`buildTaskContext`, `buildAgentContext`, ~150 lines) which are rendering, not storage. |
 | 397 | 231 | `lib/email-rate-limiter.js` | justify | **Under the limit on code** (231). One sliding-window algorithm applied to three buckets; splitting per bucket triples the surface for a single algorithm. |
-| 390 | 240 | `lib/agent-scheduler.js` | **SPLIT (done)** | Catalogue vs. registrar: `TASK_TEMPLATES` + `DETERMINISTIC_TASKS` (what tasks exist) moved to `lib/agent-task-catalogue.js`; the cron registrar (when and how they fire) stays. |
 | 387 | 229 | `lib/integrations/holidays.js` | split (deferred) | Boundary: the Nager.Date public-holiday client + cache vs. the hardcoded `PET_AWARENESS_DATES` calendar — two unrelated data domains. **Deferred:** both sides use `parseDate`/`formatDate`, and where a shared date helper lives has to be settled against CANONICAL-HELPERS' date rows (#32, #33) rather than decided by a size pass. |
-| 368 | 221 | `lib/owner-tasks.js` | **SPLIT (done)** | Store vs. presentation: the checklist store stays; `formatPendingTasks`, `isOwnerTasksQuery` and `extractActionRequired` (rendering and recognition) moved to `lib/owner-tasks-view.js`. |
+| 374 | 185 | `lib/bridge-state.js` | split (deferred) | Single owner of the four local state files. The seam is by file — poll cursors + dedup vs. channel map + activation — and is worth cutting only when a consumer needs one half alone. Full reason in `lib/validate-exceptions.json`. |
+| 373 | 181 | `lib/update-drain.js` | justify | 62% comment over one small marker codec that mirrors `lib/task-lock.js`; the comments are the drain-one reasoning (no ceiling, heartbeat not deadline). Full reason in `lib/validate-exceptions.json`. |
+| 368 | 180 | `lib/command-router.js` | split (deferred) | The four inline renderers (help, status, agents, holidays) belong with the modules whose data they render, as the activation handlers already do; the table stays in one file. Full reason in `lib/validate-exceptions.json`. |
 | 367 | 225 | `lib/integrations/google-calendar.js` | justify | **Under the limit on code** (225). Its length is six near-identical `get{Today,Yesterday,Tomorrow}Events` / `getAll*` pairs over one `transformEvent`; the real fix is de-duplicating them into one range-parameterised call, which shortens the file rather than splitting it. Filed as the boundary here so a later pass does not "split" it into two copies of the same code. |
 | 347 | 158 | `lib/clone-lifecycle.js` | justify | **49% comment, 158 lines of code.** It was extracted 2026-09-14 as Seam A precisely to be one concern, and its comments carry the argv-array and delivery-detection reasoning that three lost tasks paid for. Splitting it would undo the seam to satisfy a line count. |
 
-**Test suites (36)**
+**Test suites (41)**
 
-All 36 carry the same disposition — **justify, provisional** — for the same reason: a test
+All 41 carry the same disposition — **justify, provisional** — for the same reason: a test
 suite's length is its **assertion count**, not its responsibility count, and whether the
 300-line rule was ever meant to reach `tests/` is filed undecided as **#44**. Each entry's
 recorded reason names the subject it covers, so the exception is per-file rather than a
@@ -2538,27 +2372,10 @@ blanket rule. One has a boundary worth naming now:
 
 | lines | file | note |
 |------:|------|------|
-| 1837 | `tests/llm-runner.test.js` | Largest suite in the repo and the one case where a split is independently justified: one suite per provider adapter plus one for the fallback chain, mirroring the `lib/llm-runner.js` boundary above. Deferred with it, so suite and module move together. |
+| 1864 | `tests/llm-runner.test.js` | Largest suite in the repo and the one case where a split is independently justified: one suite per provider adapter plus one for the fallback chain, mirroring the `lib/llm-runner.js` boundary above. Deferred with it, so suite and module move together. |
 
-The remaining 35, each justified as the suite for the subject named:
-`tests/task-parser.test.js` (860), `tests/retry-logic.test.js` (685),
-`tests/integration.test.js` (639), `tests/approval-queue.test.js` (638),
-`tests/security-followup.test.js` (635), `tests/agent-registry.test.js` (631),
-`tests/auto-update-restart.test.js` (613), `tests/task-decomposer.test.js` (610),
-`tests/email-categorizer.test.js` (603), `tests/notify-owner.test.js` (596),
-`tests/email-sanitizer.test.js` (582), `tests/memory-tiers.test.js` (579),
-`tests/slack-socket.test.js` (565), `tests/holidays.test.js` (564),
-`tests/task-queue.test.js` (559), `tests/slack-client.test.js` (557),
-`tests/watercooler.test.js` (531), `tests/config.test.js` (516),
-`tests/gmail.test.js` (512), `tests/smoke.test.js` (492),
-`tests/storefront.test.js` (479), `tests/owner-tasks.test.js` (451),
-`tests/email-rate-limiter.test.js` (445), `tests/bug-fixes.test.js` (436),
-`tests/bulletin-board.test.js` (434), `tests/clone-lifecycle.test.js` (429),
-`tests/code-review-pipeline.test.js` (400), `tests/agent-context.test.js` (389),
-`tests/agent-scheduler.test.js` (376), `tests/staff-tasks.test.js` (367),
-`tests/test-gate-honesty.test.js` (365; back under the limit 2026-10-04 when #36 moved its walker out, entry removed), `tests/auto-update-defer.test.js` (357),
-`tests/multi-channel-routing.test.js` (352), `tests/message-detection.test.js` (319),
-`tests/undelivered-work.test.js` (302).
+The remaining 40, each justified as the suite for the subject named:
+`tests/task-parser.test.js` (860), `tests/task-queue.test.js` (704), `tests/retry-logic.test.js` (685), `tests/security-followup.test.js` (643), `tests/approval-queue.test.js` (638), `tests/integration.test.js` (638), `tests/auto-update-restart.test.js` (613), `tests/task-decomposer.test.js` (610), `tests/email-categorizer.test.js` (603), `tests/slack-client.test.js` (598), `tests/notify-owner.test.js` (596), `tests/email-sanitizer.test.js` (582), `tests/memory-tiers.test.js` (579), `tests/slack-socket.test.js` (565), `tests/holidays.test.js` (564), `tests/watercooler.test.js` (549), `tests/auto-update-defer.test.js` (544), `tests/config.test.js` (539), `tests/gmail.test.js` (512), `tests/agent-registry.test.js` (504), `tests/smoke.test.js` (498), `tests/storefront.test.js` (479), `tests/bulletin-board.test.js` (453), `tests/owner-tasks.test.js` (451), `tests/bug-fixes.test.js` (448), `tests/email-rate-limiter.test.js` (445), `tests/agent-context.test.js` (439), `tests/clone-lifecycle.test.js` (429), `tests/agent-scheduler.test.js` (408), `tests/code-review-pipeline.test.js` (400), `tests/update-drain.test.js` (393), `tests/task-delivery-signal.test.js` (389), `tests/staff-tasks.test.js` (363), `tests/agent-activation.test.js` (361), `tests/multi-channel-routing.test.js` (359), `tests/dispatch-modal.test.js` (339), `tests/message-detection.test.js` (319), `tests/task-agent-identity.test.js` (308), `tests/undelivered-work.test.js` (304), `tests/dispatch-message.test.js` (301).
 
 **Fix:** work the source-module table top-down, cheapest first, each extraction on the named
 boundary and each keeping `node -e "require('./bridge-agent.js')"` green (the CLAUDE.md
@@ -2614,6 +2431,7 @@ fallback chain with six trigger conditions. Under the rule as written, the cheap
 make a suite compliant is **to delete assertions**, and the second cheapest is to scatter one
 subject across files so no reader can see what is and is not covered. A rule whose easiest
 compliance path is less testing is pointed the wrong way.
+**Figures re-run 2026-10-04 (B4), same command: 71 over the limit — 41 test suites, 30 source modules, so 41 of 71 (58%) are test suites; `tests/llm-runner.test.js` is 1864 lines.** 18 of the 30 source modules are under 300 lines of code (#10 lists them). The decision is unchanged.
 
 ### The argument for scoping the rule to source files (suites governed differently, or not at all)
 
@@ -2831,6 +2649,7 @@ commit it, or record why it is deliberately local.
 
 **Sequencing that matters:** this must be answered **before** #17 is resolved by starting
 `auto-update.js`, not after.
+**Citations re-checked 2026-10-04 (B4).** Since B1 the boot post in `#sqtools-ops` warns when tracked files in the deploy tree differ from the loaded commit (`lib/repo-history.js` `describeLoadedCommit`), so the claim is now answerable from Slack. **Operator-observed during the 2026-10-04 deploy of `f9613c0`:** `agents/activation-checklists.json` is modified in `/bridge`, which is the expected dirty warning. Remainder unchanged: a decision per modified file.
 **Priority:** P2 | **Effort:** Low (one command on the box, then a decision per file) | **Status:** open — blocked on an owner check
 
 ---
@@ -2903,6 +2722,7 @@ finds **no production reader** of either field
 ([`docs/CAPABILITY-AND-ISOLATION-DESIGN.md`](docs/CAPABILITY-AND-ISOLATION-DESIGN.md) §2).
 Lifting the channel gate **without** the capability check would make every verb runnable by
 every agent, which is a widening, not a fix. The two land together or not at all.
+**Citations re-checked 2026-10-04 (B4).** The router call is `commandRouter.runCommand` at `bridge-agent.js:1501`, passed `agent: agentConfig` at `:1503`. Regenerate: `grep -n "commandRouter.runCommand" -A2 bridge-agent.js`.
 **Priority:** P2 | **Effort:** Low for the gate, Medium with the capability check that must accompany it
 **Status:** open — defect confirmed, intended behaviour recorded, blocked on the capability model
 
@@ -2942,6 +2762,7 @@ Re-verify the remaining claim: `grep -n "BRIDGE_CHANNEL" lib/dispatch-command.js
 post target is still `config.BRIDGE_CHANNEL` regardless of where the command was invoked,
 so the namesake is unchanged. Citation drift: `buildChannelsToPoll` is at
 `bridge-agent.js:2107`, not `:1934`.
+**Citations re-checked 2026-10-04 (B4).** `buildChannelsToPoll` is at `bridge-agent.js:2363`. Regenerate: `grep -n "function buildChannelsToPoll" bridge-agent.js`.
 **Priority:** P2 | **Effort:** Low | **Status:** open — **unblocked**, not started
 
 ---
@@ -3026,6 +2847,7 @@ durability problem.
 
 Until (2), an owner who pins jester to claude gets what they asked for and nothing says it
 contradicts his declaration.
+**Citations re-checked 2026-10-04 (B4).** `resolveLlmProvider` starts at `lib/config.js:166`; the CLI flag is at `lib/llm-runner.js:380`. Regenerate: `grep -n "function resolveLlmProvider" lib/config.js; grep -n "dangerously-skip-permissions" lib/llm-runner.js`.
 **Priority:** P2 | **Effort:** Low once (1) exists | **Status:** open — reported, not fixed, and the instance is unverified from a checkout
 
 ---
@@ -3076,6 +2898,7 @@ running process for N hours"*, which is the sentence the 11-hour gap needed.
 "nothing deploys a merge". This item is the third, distinct gap — **nothing observes that
 `main` moved at all** — and it is the cheapest of the three, because a poll needs no
 inbound path, no new credential and no deployment change.
+**Citations re-checked 2026-10-04 (B4).** The `origin/main` comparison is at `auto-update.js:129-133` (`runGit(['rev-parse', 'origin/main'])`). Regenerate: `grep -n "origin/main" auto-update.js`.
 **Priority:** P2 | **Effort:** Low for the poll; the useful version is gated on #17
 **Status:** open — reported, not fixed
 
@@ -3162,7 +2985,7 @@ mechanisms; a fix that adds a fourth is not one.
 
 **Direction one — agents with no channel.** Regenerate:
 ```bash
-node scripts/channel-map.js --report   # any row printing "unresolved"
+node scripts/channel-map.js   # any row printing "unresolved"
 ```
 Today: `jester` (active, scheduled, declares a name nothing created), `marketing` and
 `storefront` (planned, declaring names their checklists record as created, so probably
@@ -3287,7 +3110,7 @@ fallback at `:147`), using `execFileSync` with an argv array.
 **Constraint 1 — READ-ONLY deploy key, never a PAT with write scope.** The bridge pushes
 nothing; Claude Code inside the task does the pushing, with its own credential. A write-scoped
 token on the bridge would grant every branch it ever clones the ability to write to SqTools.
-Note `DEPLOY_KEY_PATH` is already read but undocumented — **#34**.
+**Correction 2026-10-04 (B4):** "the bridge pushes nothing" is not true at HEAD. `cloneRepo` re-points `origin` at SSH and sets `core.sshCommand` to the bridge's own deploy key (`DEPLOY_KEY_PATH`, `lib/clone-lifecycle.js:173-190`), so the executor in the task pushes **with the bridge's key**. A SqTools key handled the same way would give every task against SqTools push access. The constraint therefore needs a per-repository key whose push is gated, or a read-only key and no push, not "the bridge holds no write credential". `DEPLOY_KEY_PATH` is documented since B4 (#34 closed).
 
 **Constraint 2 — the credential must never be reachable from a container that runs branch
 code.** `npm ci` executed install scripts from whatever branch was cloned (scratch-clone
@@ -3465,44 +3288,6 @@ capability before those are resolved would widen a blast radius that is already 
 undecided.
 
 **Not decided here:** whether this is built at all.
-
-### 48. A model list is enumerable for a local provider and is a guess for a hosted one — record the asymmetry, build neither yet
-**Filed 2026-09-15,** from the provider-resolution pass. **Recorded so that whoever builds
-a model picker does not build one list.**
-**The asymmetry.** `lib/llm-runner.js`'s ollama adapter already talks to an endpoint that
-answers this exactly: `GET /api/tags` returns the models actually pulled on that host, and
-`validateOllamaOnStartup()` calls it today. That list is **ground truth** — a name it
-returns can be run right now, a name it omits cannot.
-No hosted provider offers the equivalent. A published model list is a marketing document:
-it changes without notice, it is not scoped to the credential in `.env`, and a model on it
-may be unavailable to this account, in this region, or at this tier. Querying one answers
-"what exists" when the question is "what can this key run".
-**What this means for any model UI:**
-- For `ollama`, enumerate from `/api/tags` and treat the result as authoritative. A model
-  in `OLLAMA_MODEL` or an agent's `llm_model` that is absent from it is a **precondition
-  failure**, which is what the adapter already does rather than guessing.
-- For `claude`/`gemini`, do **not** present a list as if it were verified. Either accept a
-  free-text model id and let the call fail loudly with the provider's own error, or verify
-  one specific id with one real call before recording it. A hardcoded list in this repo
-  would go stale silently, which is the doc-drift class.
-- The two must not share a code path that implies equal confidence. `resolveAgentLlm`
-  (`lib/agent-llm-resolver.js`) already returns `model_source`, so the UI can say where a
-  model name came from without claiming it was validated.
-**Why this could not be closed in the 2026-09-16 audit.** Same shape as #54 had (closed 2026-10-04 once its rule moved into the tier definition): its namesake
-is "record the asymmetry, build neither yet", both halves of which are satisfied — and it is
-still not closeable, because the record lives only in this file and this file purges what it
-closes. Partial traces exist in code (`lib/llm-runner.js:982` explains why the startup probe
-uses `/api/tags`; `lib/agent-llm-resolver.js` returns `model_source`), but the *decision* —
-never present a hosted provider's model list as if it were verified — is written nowhere
-else, and this item exists precisely to reach a future reader who is about to build one.
-**The remainder is one edit:** move the two-bullet rule into the document that owns provider
-behaviour (`docs/AGENTS.md`, or `CLAUDE.md`'s LLM section beside the ollama contract), then
-close this. Until then, closing it destroys the artifact.
-
-**Priority:** P3 | **Effort:** Low (move the rule to an owning doc, then close)
-**Status:** open — distinction recorded **only here**, neither list built
-
----
 
 ### 29. `gmail-unsubscribe` is a declared agent permission that no code implements
 **BLOCKED — OWNER DECISION.** Drop the permission and the three rules-file keys as

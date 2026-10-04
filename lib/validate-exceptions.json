@@ -142,7 +142,7 @@
     {
       "path": "lib/task-queue.js",
       "lines_when_declared": 557,
-      "reason": "JUSTIFIED. One state machine over one file, and under the limit on code (296 non-comment non-blank lines). Its length is the deferral and markRunning history recorded in comments, which is what makes the running-vs-pending defect auditable. See WORK-TODO #44's second axis: the rule counts raw lines."
+      "reason": "DEFERRED. One state machine over one file with one owner. Corrected 2026-10-04: this entry said the file was under the limit on code (296); it is 357 code lines now, so that half of the justification no longer holds. The length is still mostly the markRunning, completionSeq and delivery-verdict history in comments. A split would cut terminal writers from readers (getRecentCompleted, getStatus); recorded against WORK-TODO #10."
     },
     {
       "path": "lib/security-followup.js",

@@ -150,7 +150,7 @@ describe('lib/ modules load without errors', () => {
         expect(taskParser).toHaveProperty('EMOJI_FAILED');
         expect(taskParser).toHaveProperty('DEFAULT_TURNS');
         expect(taskParser).toHaveProperty('MIN_TURNS');
-        expect(taskParser).toHaveProperty('MAX_TURNS');
+        expect(taskParser).toHaveProperty('TURNS_CEILING');
 
         expect(typeof taskParser.parseTask).toBe('function');
         expect(typeof taskParser.isTaskMessage).toBe('function');
