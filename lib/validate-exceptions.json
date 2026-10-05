@@ -35,11 +35,6 @@
       "reason": "JUSTIFIED, PROVISIONALLY. Test suite for lib/task-parser.js — field-label anchoring, value rejection, turn clamping and the ASK-command recognisers. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
     },
     {
-      "path": "lib/watercooler.js",
-      "lines_when_declared": 726,
-      "reason": "DEFERRED. Boundary named: the standup catalogue (AGENT_DISPLAY / STANDUP_TYPES / AGENT_STANDUP_PROMPTS) vs. context gathering vs. runStandup orchestration. WORK-TODO #10."
-    },
-    {
       "path": "lib/staff-tasks.js",
       "lines_when_declared": 722,
       "reason": "DEFERRED. Four concerns in one file: staff/template loading, task state, store-hours and time parsing, Slack rendering plus command recognition. The recognisers (isStaffTaskCommand, parseAssignCommand) belong with seam C's lib/ask-commands.js, so they should move once, with their handlers. WORK-TODO #10."
@@ -88,11 +83,6 @@
       "path": "lib/approval-queue.js",
       "lines_when_declared": 598,
       "reason": "DEFERRED. Boundary named: the queue store vs. presentation (formatPendingTasks / formatTaskDetails / getTaskAge). WORK-TODO #10."
-    },
-    {
-      "path": "lib/integrations/gmail.js",
-      "lines_when_declared": 598,
-      "reason": "DEFERRED. Boundary named: auth and client construction vs. MIME decoding (stripHtml / decodeBase64Url / extractBody / transformEmail, all pure and testable alone) vs. the read API. WORK-TODO #10."
     },
     {
       "path": "tests/notify-owner.test.js",

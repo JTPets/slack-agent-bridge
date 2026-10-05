@@ -336,6 +336,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **OA** | Owner action only, nothing left in the repo | #3, #26, #40, #41, #43, #53, #55, #52, #66, #70, #73 | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
 | **B7** | Landed vs completed | Done 2026-10-04: #39 recording half (`work` on the queue row, shown in `what's queued`). Left: merge state | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/task-work.js` | `recordWork` writes no status and no verdict, so the #74 invariant holds unchanged (its suite passes untouched) |
 | **B8** | Small repo halves left after B7 | Done 2026-10-04: #62 (closed), #75 repo half. B9 (same day): `lib/repo-history.js` reads `Closes #N. Addresses #M` on one line as two claims, not two closes | `.gitignore`, `tests/gitignore-publishable.test.js`, `docker-compose.example.yml` | No runtime code |
+| **B10** | #10 file splits, by the boundaries its table names | Started 2026-10-05: `lib/integrations/gmail.js`, `lib/watercooler.js` | the split modules, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves; facades keep every caller unchanged. `bridge-agent.js` stays excluded |
 | **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60, #49, #75 | — | Small code once chosen; listed so nobody dispatches them undecided |
 | **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
 
@@ -374,7 +375,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #34 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Documented in `CLAUDE.md`, `README.md`, `.env.example`; guard `tests/env-documented.test.js` |
 | #35 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Dissolved: recorded in `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 (a cap belongs on what reaches a prompt) |
 | #63 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Banner on `docs/AGENTS.md` → Memory Tiers, including the one-time legacy import; the writer question is `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 |
-| #10 | P2 | OPEN, table refreshed in B4 | — | L | 71 over (41 suites / 30 modules), all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
+| #10 | P2 | OPEN, B10 splitting | — | L | 69 over (41 suites / 28 modules) after B10, all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
 | #44 | P2 | decision | OD | S | Figures refreshed in B4 (41 of 71) |
 | #5 | P2 | OPEN, speculative | SEED | L | Nothing built. Changes the execution model — park |
 | #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
@@ -2256,7 +2257,7 @@ is ever to act on the NAS, the capability is an allowlist, not a shell).
 ### 10. Split the god-files that break the repo's own 300-line rule
 **Filed 2026-09-13** (derived: `20dc049`).
 **Problem:** The repo enforces a 300-line-per-file rule (`lib/validate.js`, `MAX_LINES = 300`)
-and **71** `.js` files exceed it (2026-10-04; regenerate with the command below). Until 2026-09-15 the gate was **unconditionally red**, so a
+and **69** `.js` files exceed it (2026-10-05, after B10; regenerate with the command below). Until 2026-09-15 the gate was **unconditionally red**, so a
 new violation could not be told apart from the standing ones without diffing path lists by
 hand — that happened twice in the week of 2026-09-08. The exceptions had never been examined.
 
@@ -2330,10 +2331,14 @@ Category: **src** = source module, **test** = test suite. Disposition: **split (
 real seam or concern boundary exists and is named, work tracked here — or **justify** — the
 file should not be split and the reason is stated. `code` is non-comment, non-blank lines.
 Done splits leave the table: `lib/agent-scheduler.js` (catalogue moved to
-`lib/agent-task-catalogue.js`) and `lib/owner-tasks.js` (store moved to
-`lib/owner-tasks-store.js`).
+`lib/agent-task-catalogue.js`), `lib/owner-tasks.js` (store moved to
+`lib/owner-tasks-store.js`), and in B10 (2026-10-05) `lib/integrations/gmail.js` (598 -> 299:
+auth to `gmail-auth.js`, MIME decoding and sanitisation to `gmail-message.js`) and
+`lib/watercooler.js` (754 -> 273: `watercooler-catalogue.js`, `watercooler-context.js`,
+`watercooler-prompt.js`). Each split file stays as a facade re-exporting every name it had;
+`tests/module-splits.test.js` fails if a facade drops a name or holds a copy instead of the moved function.
 
-**Source modules (30)**
+**Source modules (28)**
 
 | lines | code | file | disposition | reason |
 |------:|-----:|------|-------------|--------|
@@ -2341,11 +2346,9 @@ Done splits leave the table: `lib/agent-scheduler.js` (catalogue moved to
 | 1183 | 655 | `lib/llm-runner.js` | split (deferred) | Boundary: one module per provider adapter (claude / openai / ollama / gemini) behind the existing `runLLM` + `runWithFallback` dispatcher. Deferred because WIRING-AND-SEAMS §4 pins exactly who is on the fallback chain — a move here must not "fix" that. |
 | 995 | 538 | `auto-update.js` | split (deferred) | Boundary: git porcelain (`runGit`/`gitFetch`/`gitPull`/`gitResetHard`/`gitResetTo`/`npmInstall`) and the deferral gate (`checkTaskQueue`/`evaluateTaskDeferral`) are two separable concerns. Deferred: nothing starts this daemon (#17), so a refactor buys no safety and risks the 62 tests that inject a dependency bag into `checkForUpdates()`. |
 | 761 | 357 | `lib/task-queue.js` | justify | One state machine over one file. **Corrected 2026-10-04:** this row said "under the limit on code (296)"; it is 357 code lines now, so that half of the justification is false. What remains true: the length is the `markRunning`, `completionSeq` and delivery-verdict history in comments, and the store has one owner. A split would cut on terminal-writers vs. readers (`getRecentCompleted`, `getStatus`); deferred, not justified. |
-| 754 | 456 | `lib/watercooler.js` | split (deferred) | Boundary: the standup catalogue (`AGENT_DISPLAY`/`STANDUP_TYPES`/`AGENT_STANDUP_PROMPTS`) vs. context gathering vs. `runStandup` orchestration. |
 | 741 | 433 | `lib/staff-tasks.js` | split (deferred) | Four concerns in one file: staff/template loading, task state, store-hours + time parsing, Slack rendering + command recognition. The recognisers (`isStaffTaskCommand`, `parseAssignCommand`) belong with Seam C. |
 | 614 | 263 | `lib/task-parser.js` | split (deferred) | Boundary: task-message parsing vs. the ASK-command recognisers (`isStatusQuery` … `parseShowTaskCommand`), which belong in Seam C's `lib/ask-commands.js` alongside the handlers they gate. **Deferred deliberately** so recogniser and handler move in one change. Also under the limit on code (224). |
 | 598 | 350 | `lib/approval-queue.js` | split (deferred) | Boundary: the queue store vs. presentation (`formatPendingTasks`/`formatTaskDetails`/`getTaskAge`). |
-| 598 | 351 | `lib/integrations/gmail.js` | split (deferred) | Boundary: auth/client construction vs. MIME decoding (`stripHtml`/`decodeBase64Url`/`extractBody`/`transformEmail`) vs. the read API. The decoder is pure and testable alone. |
 | 579 | 398 | `lib/task-decomposer.js` | justify | **Zero production callers** (WIRING-AND-SEAMS §3) — reachable only from its own test. Splitting dead code multiplies unexecuted surface. The open decision is delete-or-wire, which is the owner's, not a split. |
 | 570 | 343 | `lib/memory-tiers.js` | split (deferred) | Boundary: entry lifecycle + file I/O vs. maintenance (`cleanupMemory`/`autoPromote`/`startupCleanup`/`migrateToTiers`). |
 | 547 | 329 | `lib/security-followup.js` | split (deferred) | Boundary: finding parsing (`parseFindings`/`groupFindingsByFile`) vs. dedup bookkeeping vs. the Slack-side orchestration in `processSecurityBulletin`. |
