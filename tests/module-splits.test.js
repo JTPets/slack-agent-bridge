@@ -62,6 +62,41 @@ const SPLITS = [
             'APPROVAL_REQUIRED_SOURCES', 'MAX_PENDING_AGE_MS',
         ],
     },
+    {
+        facade: 'lib/staff-tasks.js',
+        parts: ['lib/staff-tasks-store.js', 'lib/staff-tasks-time.js', 'lib/staff-tasks-slack.js', 'lib/staff-tasks-commands.js'],
+        exports: [
+            'loadStaff', 'getStaffByName', 'getStaffBySlackId', 'getEscalationRecipients',
+            'loadDailyTemplate', 'loadTasksState', 'saveTasksState', 'formatTask', 'formatCompletedTask',
+            'createTask', 'completeTask', 'getDailyTasks', 'getOverdueTasks', 'getCriticalOverdueTasks',
+            'postDailyTasks', 'escalateTask', 'checkAndEscalateOverdue', 'isStoreHours',
+            'parseTimeToMinutes', 'getCurrentTimeMinutes', 'normalizeTimeString', 'parseAssignCommand',
+            'isStaffTaskCommand', 'parseStaffTaskCommandType', 'formatDigestSummary', 'formatOverdueList',
+            'formatTodayList', 'PRIORITY_EMOJI', 'STORE_HOURS', 'STAFF_FILE', 'TEMPLATE_FILE', 'init',
+            'DEFAULT_TASKS_STATE_FILE', 'TASKS_STATE_FILE',
+        ],
+    },
+    {
+        facade: 'lib/security-followup.js',
+        parts: ['lib/security-findings.js', 'lib/security-followup-dedup.js'],
+        exports: [
+            'parseFindings', 'groupFindingsByFile', 'getHighestSeverity', 'findCodeAgent',
+            'buildTaskMessage', 'filterActionableFindings', 'processSecurityBulletin',
+            'createSecurityFollowupHandler', 'formatFollowupSummary', 'wasRecentlyCreated',
+            'recordTaskCreated', 'cleanupDedupMap', 'clearDedupMap', 'SEVERITY_LEVELS', 'SEVERITY_EMOJI',
+        ],
+    },
+    {
+        facade: 'memory/memory-manager.js',
+        parts: ['memory/memory-store.js', 'memory/memory-context.js'],
+        exports: [
+            'loadMemory', 'saveMemory', 'addTask', 'completeTask', 'failTask', 'getTaskHistory',
+            'getActiveTasks', 'getContext', 'updateContext', 'buildTaskContext', 'buildAgentContext',
+            'addAgentWorkingMemory', 'clearAgentWorkingMemory', 'addAgentShortTerm', 'promoteAgentMemory',
+            'setAgentPermanent', 'cleanupAgentMemory', 'autoPromoteAgentMemory', 'startupMemoryCleanup',
+            'migrateAgentMemory',
+        ],
+    },
 ];
 
 const load = (rel) => require(path.join(__dirname, '..', rel));
@@ -109,6 +144,21 @@ describe('the watercooler state-file override still reaches the code that reads 
             wc.init();
         }
         expect(wc.WATERCOOLER_STATE_FILE).toBe(wc.DEFAULT_WATERCOOLER_STATE_FILE);
+    });
+});
+
+describe('the staff-tasks state-file override still reaches the store', () => {
+    test('init() through the facade moves the path the store reads', () => {
+        const st = load('lib/staff-tasks.js');
+        const store = load('lib/staff-tasks-store.js');
+        try {
+            expect(st.init({ stateFile: '/nonexistent/st-state.json' })).toBe('/nonexistent/st-state.json');
+            expect(store.getStateFile()).toBe('/nonexistent/st-state.json');
+            expect(st.TASKS_STATE_FILE).toBe('/nonexistent/st-state.json');
+        } finally {
+            st.init();
+        }
+        expect(st.TASKS_STATE_FILE).toBe(st.DEFAULT_TASKS_STATE_FILE);
     });
 });
 
