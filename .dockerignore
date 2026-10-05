@@ -1,0 +1,3 @@
+# Nothing is COPYed into the image (see Dockerfile), so nothing is sent to the build.
+# Above all this keeps .env, .deploy_key and the agent state out of the build context.
+*

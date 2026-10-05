@@ -515,7 +515,11 @@ describe('the wiring in bridge-agent.js', () => {
     test('the composed task is POSTED, not handed to the task path directly', () => {
         const seam = code.slice(code.indexOf('startSocketMode({'));
         expect(seam).toMatch(/postMessage:\s*\(args\)\s*=>\s*slack\.chat\.postMessage/);
-        expect(seam).toMatch(/bridgeChannel:\s*BRIDGE_CHANNEL/);
+        // LOGIC CHANGE 2026-10-04 (WORK-TODO #46): this line asserted a fixed
+        // `bridgeChannel: BRIDGE_CHANNEL` target, which was the defect #46 records. The
+        // target is now the invoking channel, checked against the poll set.
+        expect(seam).toMatch(/watchedChannels:\s*\(\)\s*=>\s*channelsToPoll/);
+        expect(seam).not.toMatch(/bridgeChannel:/);
         expect(seam).not.toMatch(/processTask/);
     });
 

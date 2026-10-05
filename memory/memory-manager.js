@@ -113,6 +113,14 @@ function failTask(id, error) {
     return task;
 }
 
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #9): newest-first read of finished tasks, for the
+// `history` verb (lib/task-history.js). history.json is append-only and is written by
+// completeTask/failTask above, so this is every task this checkout has finished.
+function getTaskHistory(limit = 10) {
+    const history = loadMemory(HISTORY_FILE);
+    return limit > 0 ? history.slice(-limit).reverse() : [];
+}
+
 function getActiveTasks() {
     return loadMemory(TASKS_FILE).filter(t => t.status === 'active');
 }
@@ -380,6 +388,7 @@ module.exports = {
     addTask,
     completeTask,
     failTask,
+    getTaskHistory,
     getActiveTasks,
     getContext,
     updateContext,

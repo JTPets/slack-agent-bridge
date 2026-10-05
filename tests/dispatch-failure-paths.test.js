@@ -29,6 +29,8 @@ const { parseTask } = require('../lib/task-parser');
 const silent = { log: () => {}, warn: () => {}, error: () => {} };
 const AUTHORIZED = 'U_OWNER';
 const isAuthorized = (id) => id === AUTHORIZED;
+// The poll set: the form below is opened in C_CMD, which the bridge polls.
+const WATCHED = () => [{ channelId: 'C_CMD', agentId: 'bridge' }];
 
 function commandBody(overrides = {}) {
   return {
@@ -119,7 +121,7 @@ describe('a rejected field is reported IN THE FORM, not posted', () => {
 
     const result = await handleViewSubmission(
       { ack, body: submissionBody({ ...goodValues, repo: 'jtpets/my;repo' }) },
-      { postMessage, isAuthorized, bridgeChannel: 'C_BRIDGE', logger: silent }
+      { postMessage, isAuthorized, watchedChannels: WATCHED, logger: silent }
     );
 
     expect(result.reason).toBe('rejected');
@@ -136,7 +138,7 @@ describe('a rejected field is reported IN THE FORM, not posted', () => {
       // "no" would NORMALISE to "jtpets/no" and pass — the bare-name default org is
       // the parser's own behaviour. "no;repo" is rejected by the identifier module.
       { ack, body: submissionBody({ task: '', repo: 'no;repo', branch: '..x', turns: 'many', instructions: '' }) },
-      { postMessage: async () => {}, isAuthorized, bridgeChannel: 'C_BRIDGE', logger: silent }
+      { postMessage: async () => {}, isAuthorized, watchedChannels: WATCHED, logger: silent }
     );
     expect(result.reason).toBe('rejected');
     expect(Object.keys(ack.mock.calls[0][0].errors).sort()).toEqual(
@@ -149,7 +151,7 @@ describe('a rejected field is reported IN THE FORM, not posted', () => {
     const ack = jest.fn(async () => {});
     await handleViewSubmission(
       { ack, body: submissionBody({ ...goodValues, instructions: 'Do it.\nREPO: someone/else' }) },
-      { postMessage, isAuthorized, bridgeChannel: 'C_BRIDGE', logger: silent }
+      { postMessage, isAuthorized, watchedChannels: WATCHED, logger: silent }
     );
     expect(postMessage).not.toHaveBeenCalled();
     expect(ack.mock.calls[0][0].errors[BLOCK_IDS.instructions]).toMatch(/Line 2/);
@@ -165,7 +167,7 @@ describe('the socket is connected but the channel post fails', () => {
       { ack, body: submissionBody(goodValues) },
       {
         postMessage: async () => { throw new Error('channel_not_found'); },
-        isAuthorized, bridgeChannel: 'C_BRIDGE', notify, logger: silent,
+        isAuthorized, watchedChannels: WATCHED, notify, logger: silent,
       }
     );
 
@@ -186,24 +188,24 @@ describe('the socket is connected but the channel post fails', () => {
       { ack, body: submissionBody(goodValues) },
       {
         postMessage: () => new Promise(() => {}), // never settles
-        isAuthorized, bridgeChannel: 'C_BRIDGE', notify, logger: silent, postTimeoutMs: 20,
+        isAuthorized, watchedChannels: WATCHED, notify, logger: silent, postTimeoutMs: 20,
       }
     );
 
     expect(result.reason).toBe('post_timeout');
     const text = ack.mock.calls[0][0].errors[BLOCK_IDS.instructions];
     expect(text).toMatch(/UNKNOWN/);
-    expect(text).toMatch(/CHECK the bridge channel/);
+    expect(text).toMatch(/CHECK the channel/);
     expect(text).not.toMatch(/Not dispatched/);
     expect(notify).toHaveBeenCalledTimes(1);
   });
 
-  test('an unconfigured bridge channel is refused before any post is attempted', async () => {
+  test('an empty poll set is refused before any post is attempted', async () => {
     const postMessage = jest.fn(async () => {});
     const ack = jest.fn(async () => {});
     const result = await handleViewSubmission(
       { ack, body: submissionBody(goodValues) },
-      { postMessage, isAuthorized, bridgeChannel: '', logger: silent }
+      { postMessage, isAuthorized, watchedChannels: () => [], logger: silent }
     );
     expect(result.reason).toBe('no_channel');
     expect(postMessage).not.toHaveBeenCalled();

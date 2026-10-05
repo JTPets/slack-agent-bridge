@@ -235,6 +235,7 @@ const POLL_INTERVAL = 5000;
 | `GITHUB_ORG` | Default GitHub org | `jtpets` |
 | `CLAUDE_BIN` | Path to claude binary | `/usr/local/bin/claude` |
 | `POLL_INTERVAL_MS` | Poll frequency in ms | `30000` |
+| `MAIN_WATCH_INTERVAL_MS` | How often `lib/main-watch.js` compares origin `main` (`git ls-remote`) with the commit the bridge booted on. A difference is posted to `#sqtools-ops` once per new `main` sha; an unreadable remote once per process. Report-only. `0` turns it off | `1800000` (30 min) |
 | `SLACK_APP_TOKEN` | Slack **app-level** token (`xapp-`) for the additive Socket Mode connection. **Never log this.** Absent or blank = Socket Mode off, which is a reported condition and **not** a startup failure; the poll loop is unaffected either way. A `xoxb-` bot token here is refused on shape. | - |
 | `SOCKET_MODE_DOWN_ALERT_MS` | How long the Socket Mode connection may be down before it is reported to `#sqtools-ops`, re-posted once per interval until it recovers | `300000` (5 min) |
 | `TASK_TIMEOUT_MS` | Hard kill timeout in ms. A running task is announced in `#sqtools-ops` at 80% of it (`lib/deadline-warning.js`, WORK-TODO #7); the kill itself is unchanged | `600000` |
@@ -243,12 +244,14 @@ const POLL_INTERVAL = 5000;
 | `UPDATE_DEFER_ALERT_MS` | How long one self-update may be deferred before every cycle escalates to `#sqtools-ops` | `3600000` (60 min) |
 | `UPDATE_PENDING_STALE_MS` | How long the DRAIN-ONE pending-update marker (`$WORK_DIR/.update-pending`) may go unrefreshed before the bridge treats it as an orphan, clears it and reports it. **This is a heartbeat, not a ceiling on the wait** — a live updater refreshes it every `CHECK_INTERVAL_MS`, so a marker this quiet belongs to a process that is gone, and honouring it would leave the bridge silently refusing every dispatch for an update that is never coming. | `4 × CHECK_INTERVAL_MS` (20 min at defaults) |
 | `WORK_DIR` | Base dir for temp clones | `/tmp/bridge-agent` |
+| `BACKUP_STATUS_FILE` | Container path of the backup status file `scripts/backup-status.sh` writes from HOST cron (on the NAS, `/share/CACHEDEV1_DATA/jt-agent/.backup-status.json` = `/bridge/.backup-status.json`). Unset = backups are not watched, and the startup log says so. `lib/backup-watch.js` reads it hourly (WORK-TODO #42) | - |
+| `BACKUP_MAX_AGE_HOURS` | A backup, or the status file itself (the host job stopped), older than this is posted to `#sqtools-ops`; repeated daily while it persists, and once on recovery | `26` |
 | `DEPLOY_KEY_PATH` | SSH deploy key a scratch clone pushes with (`lib/clone-lifecycle.js` `cloneRepo`). No file at the path, or a path containing a `'`, leaves the clone **READ-ONLY**: the task runs and its push fails, and the undelivered clone is preserved and reported. The default is the container path | `/bridge/.deploy_key` |
 | `CRITIQUE_TIMEOUT_MS` | Timeout for the jester's one-shot weekly critique call (`lib/weekly-critique.js`) | `120000` |
 | `REPOS` | Comma-separated repos. Read by `getConfiguredRepos()` in `lib/config.js` — the single owner of the list — for the nightly security review AND for the `/dispatch` form's repository select. Adding a repository is this variable plus `docker compose up -d --force-recreate jt-agent`; it is not a code change. **The default stopped naming `jtpets/SquareDashboardTool` on 2026-10-02**: the bridge cannot clone it (WORK-TODO #57), so listing it only made the audit and the form offer something that fails | `jtpets/slack-agent-bridge` |
 | `CLAUDE_RATE_LIMIT_PAUSE` | Initial pause duration (ms) when rate limit/bandwidth exhausted | `1800000` |
 | `STORE_TASKS_CHANNEL_ID` | #store-tasks channel ID for staff task management | - |
-| `NATURAL_CONVERSATION_MODE` | Enable natural language processing for messages without TASK:/ASK: prefixes | `false` |
+| `NATURAL_CONVERSATION_MODE` | Enable natural language processing for messages without TASK:/ASK: prefixes. Applies in EVERY polled channel; only an allowlisted person's message qualifies — a bot's post (this bot's included) never does, since 2026-10-04 (WORK-TODO #49) | `false` |
 | `GEMINI_API_KEY` | Google Gemini API key for fallback provider. **Never log this.** | - |
 | `LLM_FALLBACK_ENABLED` | Enable automatic fallback to secondary LLM on rate limits | `true` |
 | `LLM_FALLBACK_PROVIDER` | Secondary LLM provider to use when primary hits rate limits | `gemini` |
@@ -667,6 +670,7 @@ slack-agent-bridge/
 ├── security-review.js    # Cron job script: security audit of commits from last 24h
 ├── scripts/
 │   ├── watercooler.js    # Cron/manual script: weekly team standup conversation (Friday 5PM)
+│   ├── backup-status.sh  # HOST-side (NAS cron, never a container): writes the newest file name and age per backup directory to a JSON status file that lib/backup-watch.js reads (WORK-TODO #42). POSIX sh, temp file + rename
 │   ├── migrate-agent-definitions.js # THE migration from agents/agents.json to agents/<id>/agent.md, and the seeding step that made it safe: it writes the definitions AND seeds agents/shared/channel-map.json with the ids the legacy file held, keyed by the name each definition declares. Without the seed the bridge would resolve a convention-derived channel name against Slack at boot and a wrong name would silently stop a working channel being polled. `--dry-run` to print without writing
 │   ├── channel-map.js    # THE command that answers "which channel does each agent actually run in?" and rebuilds the answer when the workspace state is lost. `--from-git` reconstructs from the deleted agents/agents.json in git history (this workspace, offline, no token); `--resolve` resolves every declared name against Slack (any workspace, needs a token); no flag is a read-only report. Creates no channel and writes no tracked file
 │   ├── close-reconcile.js # `node scripts/close-reconcile.js [--at <sha>] [--repo <dir>]`: prints lib/close-reconcile.js's report. Exit 0 clean, 1 when a `Closes #N` leaves #N in WORK-TODO.md, 2 when it could not look (shallow clone, no git, a refused ref) — never 0 for that. Also run by `npm run validate`
@@ -734,14 +738,20 @@ slack-agent-bridge/
 │   ├── owner-tasks.js    # Owner task PRESENTATION and command recognition: formatPendingTasks, isOwnerTasksQuery, extractActionRequired (ACTION REQUIRED detection). Also the facade that re-exports lib/owner-tasks-store.js, so `require('./lib/owner-tasks')` still answers for the whole surface
 │   ├── owner-tasks-store.js # The activation-checklist STORE: sole reader/writer of agents/activation-checklists.json plus the CRUD and readiness maths (loadChecklists, saveChecklists, getPendingTasks, completeTask, completeChecklistItem, getAgentReadiness, getAllAgentReadiness, addTask). Extracted from owner-tasks.js 2026-09-15 (WORK-TODO #10); the dependency runs one way, store <- view, so there is no cycle. Re-exported by lib/owner-tasks.js, so callers are unchanged
 │   ├── notify-owner.js   # Owner notification layer, the single path for owner-facing messages: init() injects the Slack client/owner id/ops channel; notifyOps posts an operational failure to #sqtools-ops (redacted) so a lib module never needs a fourth postToOps; notifyOwner routes by PRIORITY (CRITICAL -> the secretary agent's channel when active, else a direct DM; HIGH -> logged for a digest that does not exist yet; LOW -> logged only) plus taskFailed/taskCompleted/actionRequired/rateLimitHit/rateLimitCleared. Redacts via lib/redact-secrets.js before anything leaves
-│   ├── dispatch-command.js # THE COMMAND half of /dispatch: handleSlashCommand acknowledges within Slack's three-second window and THEN opens the modal from the trigger_id; handleViewSubmission composes the submission and POSTS it to the bridge channel, where poll() picks it up like any other message (one intake path, one dedup owner) — it never calls the task path. Authorisation is this module's own gate via lib/config.js isUserAuthorized, because a bot-posted message bypasses the poll loop's allowlist by design. Neither handler ever rejects
+│   ├── dispatch-command.js # THE COMMAND half of /dispatch: handleSlashCommand acknowledges within Slack's three-second window and THEN opens the modal from the trigger_id; handleViewSubmission composes the submission and POSTS it to the channel /dispatch was opened in when the poll loop watches it (so the task runs as that channel's agent), REFUSES it in the form anywhere else — never redirected to the bridge channel (WORK-TODO #46) — and then calls onDispatched, which bridge-agent.js uses to poll immediately (#4). poll() picks it up like any other message (one intake path, one dedup owner) — it never calls the task path. Authorisation is this module's own gate via lib/config.js isUserAuthorized, because a bot-posted message bypasses the poll loop's allowlist by design. Neither handler ever rejects
+│   ├── dispatch-delivery.js # Where and how a /dispatch submission is delivered: resolveDispatchTarget (the invoking channel when it is in the poll set, otherwise a refusal with the reason — WORK-TODO #46) and raceWithTimeout (the post bounded inside Slack's ack window). Split from dispatch-command.js 2026-10-04 for the 300-line rule; re-exported by it
 │   ├── dispatch-modal.js   # THE FORM half of /dispatch: buildModalView builds the five separate inputs FROM lib/dispatch-message.js's FIELD_KEYS (so form and generator cannot gain a field independently), extractSubmission reads them back out of a view_submission (Slack sends a blank optional input as null), and toSlackErrors keys a rejection by block_id so it lands on the offending input
 │   ├── dispatch-message.js # THE GENERATOR half of the /dispatch slash-command form: validateDispatchFields rejects (never sanitises) the five modal inputs — REPO:/BRANCH: through lib/git-identifiers.js, TURNS: against the parser's own MIN_TURNS/TURNS_CEILING, and an instructions body carrying a line that starts with a task field label — buildDispatchMessage emits UPPERCASE line-anchored labels with INSTRUCTIONS: last, and assertRoundTrip parses the result back and THROWS on any mismatch before it can be posted. The round trip is pinned in tests/integration.test.js beside the three other generators
-│   ├── command-router.js # THE verb -> handler table for built-in commands. A command is a VERB with known parameters; an agent is addressed by its channel, never by a command name (WORK-TODO #45). It is NOT a second registry: a verb whose kind is `scheduled` carries a task NAME from lib/agent-task-catalogue.js and delegates to getDeterministicTask(name).run(), because a cron job and an on-demand command are the same operation triggered differently. Handlers never post — they return { ok, text } and the caller posts. Registered today: help (renders the table itself), status (per-agent provider/model/adapter with provenance), agents (the surface table), holidays, check-inbox. `weather` is NOT registered: fetchWeather is private to morning-digest.js, which has no module.exports at all
+│   ├── task-history.js   # The `history [n]` verb (WORK-TODO #9): the last n finished tasks, newest first, with when (Toronto time) and how each ended, read from memory/history.json via memory-manager getTaskHistory. A non-number is refused with usage; an unreadable memory is a failure, never an empty history
+│   ├── channel-reconcile.js # The `channels` verb (WORK-TODO #52): public channels the bot is in vs channels an agent or a *_CHANNEL_ID declares, both directions. One paginated conversations.list; creates, joins and writes nothing. Private channels need groups:read, not held, and the report says so
+│   ├── main-watch.js     # WORK-TODO #66: `git ls-remote origin refs/heads/main` (async, argv) on MAIN_WATCH_INTERVAL_MS, compared with the boot commit from lib/repo-history.js; posts to #sqtools-ops ONCE per new main sha when they differ, and says "differs", never "behind" (ls-remote gives no history). An unreadable remote is reported once per process. Report-only
+│   ├── command-router.js # THE verb -> handler table for built-in commands. A command is a VERB with known parameters; an agent is addressed by its channel, never by a command name (WORK-TODO #45). It is NOT a second registry: a verb whose kind is `scheduled` carries a task NAME from lib/agent-task-catalogue.js and delegates to getDeterministicTask(name).run(), because a cron job and an on-demand command are the same operation triggered differently. Handlers never post — they return { ok, text } and the caller posts. Registered today: help (renders the table itself), status (per-agent provider/model/adapter with provenance), agents (the surface table), holidays, history (#9), channels (#52), available/activate/deactivate/create, check-inbox, critique. isBareCommand() recognises a verb typed on its own, which bridge-agent.js REFUSES in an agent channel with a pointer to #claude-bridge rather than letting a model answer it (#64, the safe half). `weather` is NOT registered: fetchWeather is private to morning-digest.js, which has no module.exports at all
 │   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
 │   ├── channel-map-rebuild.js # THE reproduction path for the workspace channel mapping (WORK-TODO #55): reconstructFromHistory() recovers the ids from agents/agents.json as it stood when the markdown migration deleted it, joining on the AGENT ID so a name correction cannot orphan one; resolveDeclaredChannels() asks Slack what the declared names mean HERE, via the same resolveAgentChannel() the boot path calls. A value already resolved against the live workspace always beats a reconstructed one. Creates no channel, writes no tracked file
 │   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork, assertValidTargetDir. Every git call is an execFileSync argv array — no function here builds a shell command string
 │   ├── preserved-clone-alert.js # The text of the #sqtools-ops alert posted when a scratch clone is kept for undelivered work: formatPreservedCloneAlert says the path is INSIDE the jt-agent container, gives the `docker exec` that reaches it, and says a `--force-recreate` deletes it unless WORK_DIR is on a mount (WORK-TODO #25). Pure: builds a string, posts nothing
+│   ├── python-venv.js    # WORK-TODO #68's venv half: createVenv runs `python3 -m venv .venv` in a python clone (PEP 668 refuses a system-wide pip install) after adding `/.venv/` to the clone's .git/info/exclude, so the clone never reads as holding uncommitted work. A venv that cannot be created is reported for INSTALLER_ABSENT (the image's failure), a timeout for TIMED_OUT
+│   ├── backup-watch.js   # WORK-TODO #42 (c): reads BACKUP_STATUS_FILE hourly (written on the HOST by scripts/backup-status.sh) and posts to #sqtools-ops when a backup directory is missing, empty or older than BACKUP_MAX_AGE_HOURS, or when the status file itself is stale (the host cron stopped). Posts when the problem set changes, daily while it persists, once on recovery. Sees file names and ages only, never the dumps
 │   ├── dependency-install.js # Installs a scratch clone's OWN dependencies BEFORE the LLM runs, so Phase-3's test gate is real instead of vacuous (WORK-TODO #61): detectEcosystem (node -> npm ci/npm install, both --ignore-scripts, python -> python3 -m pip) and installDependencies, which returns one of three failure outcomes NEVER collapsed into one — INSTALL_FAILED / INSTALLER_ABSENT / TIMED_OUT are all HARNESS failures the caller stops the dispatch on, distinct from a CODE failure (tests ran and failed) and a pass. A repo with no recognised manifest installs nothing and proceeds. No shell: spawnSync with an argv array. Bounded by INSTALL_TIMEOUT_MS
 │   ├── bridge-state.js    # State persistence (seam B): sole owner of .bridge-agent-state.json (per-channel poll cursors) and processed-tasks.json (task dedup); init, get/setLastChecked, isTaskProcessed, markTaskProcessed, cleanupProcessedTasks
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap). Its client comes from lib/slack-web.js
@@ -758,7 +768,8 @@ slack-agent-bridge/
 │   ├── task-state-divergence.js # The #sqtools-ops text for when the bridge's answers to "is a task running?" diverge (WORK-TODO #72): a task running without its lock, a queue entry not marked running, or a terminal queue write that failed. Each says what the divergence does to the poll loop and the self-update gate. Pure: builds a string, posts nothing; processTask posts it at each of the five best-effort write sites
 │   ├── update-drain.js   # Sole owner of $WORK_DIR/.update-pending, the DRAIN-ONE marker: once an update is known, bridge-agent.js REFUSES new dispatches, so the update waits for ONE task instead of for however long work keeps arriving. markPending/inspect/clear/clearIfStale/describeRefusal. THERE IS NO CEILING — a pending update may wait indefinitely, is never forced, and never kills a task; the staleness rule is a HEARTBEAT on `lastSeenAt` (a marker no updater is refreshing is an orphan, and honouring it would leave the bridge silently accepting no work at all), never a deadline on `since`, which grows without limit. Errs toward pending, like the task lock errs toward held. Decides and describes; does no I/O beyond the marker, no Slack call, no git call
 │   ├── task-parser.js    # Task message parsing and message type detection
-│   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update. markRunning() is the live `running` transition; dequeue() has no production caller
+│   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update. markRunning() is the live `running` transition; dequeue() has no production caller. recordWork() writes a row's `work` field only (#39)
+│   ├── task-work.js      # WORK-TODO #39, recording half: headSha (HEAD as cloned), describeWork (branch, head, commits added, which remote refs/heads/* carry the head, asked via git ls-remote, never the single-branch clone) and formatWork for the status reply. Never throws; an unreachable remote is "not checked", never "not on the remote". Says nothing about merge state
 │   ├── update-verifier.js # Pre-restart gate for auto-update: node --check on entry points, restart plan (guard c)
 │   ├── validate.js       # Pre-commit validation (`npm run validate`): checks bridge-agent.js loads in a subprocess, then runs the declaration-driven file-size gate (lib/file-size-gate.js) and the close reconciliation (lib/close-reconcile.js, which fails on a shallow clone). It needs a populated .env for the first check — without one it reports the missing vars and fails, which is a local-environment condition, not a code defect
 │   ├── weekly-critique.js # The jester's weekly post: deterministic task `weekly-critique`. Builds the digest (lib/critique-digest.js), resolves the critic from the SAME declaration the cron registrar reads (so the verb and the schedule cannot name different agents), and posts one critique in his channel on his provider. A THIN week calls no model at all — a model handed an empty digest and a contrarian persona produces a complaint, so the only reliable honest "nothing to report" is not to ask. Calls runLLM and NOT runWithFallback, deliberately: the chain can land on claude, whose adapter spawns a CLI with --dangerously-skip-permissions, and jester's definition denies file-system. It writes NO state of any kind and its verdict gates nothing — enforced by tests/weekly-critique.test.js, not asserted
@@ -840,16 +851,24 @@ slack-agent-bridge/
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
 │   ├── heartbeat.test.js        # Tests for lib/heartbeat.js (emoji cycle, terminal reaction, failures never propagate)
 │   ├── dispatch-command.test.js # Tests for lib/dispatch-command.js: the ack precedes the modal open (a hanging views.open cannot delay it), the allowlist is the injected one, a rejected field is reported IN the form, and every failure path — modal open failure, post failure, and a post that outlives the ack window (reported as UNKNOWN, never as failed, because a confident 'failed' invites a resubmission that dispatches the task twice)
+│   ├── dispatch-routing.test.js # WORK-TODO #46 and #4: a submission posts to the invoking channel when it is polled, is refused in the form (not redirected to the bridge) when it is not, and onDispatched runs once after the ack and never for a refused or failed post; plus the bridge-agent.js wiring
+│   ├── poll-reentrancy.test.js # THE guard that poll() runs one sweep at a time: extracts poll()/pollNow() from bridge-agent.js's source and runs them against a controllable sweep (a second call while one is in flight does nothing; a throwing sweep releases the guard; pollNow never rejects), with the pre-2026-10-04 isRunning-only shape as the negative control
 │   ├── dispatch-failure-paths.test.js # Part four of /dispatch: a failure must never look like success. views.open failing after the ack reaches the operator AND #sqtools-ops; a rejected field keeps the modal OPEN with the reason on that input; a post that fails names the failure; a post that outlives the ack window reports the outcome as UNKNOWN rather than failed, because a confident 'failed' invites a resubmission and dedup is by message ts
 │   ├── dispatch-modal.test.js   # Tests for lib/dispatch-modal.js: five input blocks matching the generator's field list, only instructions multiline, defaults taken from the parser's own constants, and block_id-keyed error mapping
 │   ├── dispatch-message.test.js # Tests for lib/dispatch-message.js: per-field rejection reusing the identifier module's payload set, a field label inside the instructions body refused, and assertRoundTrip's negative controls (it THROWS on a lowercase label and on a silently changed field)
 │   ├── dispatch-body-delivery.test.js # THE regression guard for the 2026-09-20 "the dispatch body never reached the executor" failure. Two halves, because either alone is insufficient: that a body carrying no INSTRUCTIONS: label is REPORTED in task.errors rather than dropped in silence (the silence was the defect — the old parser returned errors: [] and the prompt fell back to the one-line TASK: description), and that a sentinel string in a well-formed body survives every hop from the raw Slack message text through parseTask and buildPrompt to the bytes the CLI receives on stdin. Like tests/llm-runner-prompt-size.test.js it SPAWNS FOR REAL, against a stub binary that copies stdin to stdout, because a mocked child_process accepts any payload and proves nothing about delivery
+│   ├── task-history.test.js     # Tests for lib/task-history.js and memory-manager getTaskHistory: default 10, clamp to 1-50, a non-number refused, an unreadable memory a failure, outcomes named; `task status` is not captured by the verb
+│   ├── channel-reconcile.test.js # Tests for lib/channel-reconcile.js: both directions, every owner named, pagination, an unfinished list throws, a Slack failure is a failure, and the module names no mutating Slack API
+│   ├── main-watch.test.js       # Tests for lib/main-watch.js: once per new main sha, "differs" never "behind", an unreadable remote once per process, an unknown boot commit compares nothing; and remoteMainSha against a REAL temp origin via git ls-remote
+│   ├── agent-channel-verbs.test.js # WORK-TODO #64 (safe half) and #49: isBareCommand's narrow shape, processConversation refusing a bare verb in an agent channel before any LLM call (the gate not lifted), and a bot's own post never reaching the natural-conversation path
 │   ├── command-router.test.js   # THE guard for the command table: it enumerates `async function handle*` from lib/command-router.js's own source and fails when one is not reachable from the table — a command that exists in code but not in the table. Also fails when a deterministic task is neither a registered verb nor an explicit NOT_COMMANDS entry, when a TASK_TEMPLATES name or an agent id is registered as a verb, and when help stops rendering from the table. Carries its own negative controls
 │   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
 │   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo argv/`--` separators, assertValidTargetDir rejections, deploy-key paths, cleanupDir, export surface)
 │   ├── undelivered-work.test.js # Tests for detectUndeliveredWork + processTask's delivery-gated cleanup (the regression guard for the three tasks lost to unconditional cleanup)
 │   ├── preserved-clone-alert.test.js # Regression test for WORK-TODO #25: the preserved-clone alert names the container, the `docker exec` to reach the path, and that a recreate deletes the clone unless WORK_DIR is mounted, using the configured WORK_DIR
 │   ├── dependency-install.test.js # Tests for lib/dependency-install.js: ecosystem detection (node ci-vs-install, python, none), every classification via an injected runner, AND the three outcomes produced for real — a real out-of-sync `npm ci` proving the HARNESS classification, a real `npm ci` then a failing `node --test` proving the CODE classification, and the same then a passing suite proving a pass
+│   ├── python-venv.test.js      # Tests for lib/python-venv.js and the python path of installDependencies: venv first then the VENV interpreter runs pip (never system python3 -m pip), a venv that cannot be created is INSTALLER_ABSENT and pip never runs, the exclude keeps the clone clean (negative control: without it .venv shows in git status), and a REAL venv install of an empty requirements.txt
+│   ├── backup-watch.test.js     # Tests for lib/backup-watch.js against status files written by the REAL scripts/backup-status.sh: fresh, stale, empty, missing, and THE silent-stoppage case (a fresh dump in a status file nobody refreshed); when it posts (on change, daily, on recovery); and the bridge-agent.js wiring
 │   ├── dependency-install-scripts.test.js # THE guard that a scratch clone's npm install runs NO lifecycle script: real lib/dependency-install.js, real npm, a package whose pre/post/install/prepare scripts write a marker — absent after both the lockfile (`npm ci --ignore-scripts`) and no-lockfile (`npm install --ignore-scripts`) paths, present in a negative control run without the flag. Split from dependency-install.test.js for the 300-line gate
 │   ├── bridge-state.test.js     # Tests for lib/bridge-state.js (poll cursors, legacy migration, processed-task dedup; temp-dir CRUD)
 │   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management, joinAgentChannels)
@@ -889,6 +908,7 @@ slack-agent-bridge/
 │   ├── task-delivery-signal.test.js # THE guard that a finished task is a DELIVERED task. Two halves: a source walk over processTask's three terminal regions (success/failure/interrupted) asserting the result post PRECEDES the terminal queue write and that the lock is released only after all of them — the ordering held before this suite but was incidental, and an incidental ordering is what lib/update-drain.js would have been gating a restart on; and a replay against a REAL TaskQueue proving the verdict is durable, that a caller recording nothing gets an explicit `delivered: false` rather than an optimistic default, and that a completed task whose post FAILED is distinguishable from one whose post landed. Carries its own negative controls
 │   ├── task-rerun-guard.test.js # THE guard for WORK-TODO #23: the poll loop marks a TASK: message processed between the enqueue and processTask, so a task killed mid-run is not re-read and re-run on the next poll (a loop under `restart: unless-stopped`). Reads the TASK: branch from bridge-agent.js's source, because the property is an ordering. Carries its own negative controls
 │   ├── task-state-divergence.test.js # THE guard for #72's reporting half: every best-effort lock/queue write failure in processTask (lock acquire, markRunning, interrupt, complete, fail) posts describeTaskStateDivergence with the right kind to #sqtools-ops rather than only logging. Reads the five sites from bridge-agent.js's source. Carries its own negative controls
+│   ├── task-work.test.js        # Tests for lib/task-work.js against a REAL bare origin and clone (unchanged, committed-unpushed, pushed feature branch with no local tracking ref, unreachable remote), TaskQueue.recordWork leaving status and delivery byte-identical, and the bridge-agent.js wiring (base sha after the clone, work recorded before cleanup, rendered in the status reply)
 │   ├── task-queue-delivery-invariant.test.js # THE guard for WORK-TODO #74: no TaskQueue writer leaves a TERMINAL row without a delivery verdict. A source walk over lib/task-queue.js asserts every method writing a terminal status calls normalizeDelivery() and that the only null-verdict writers are enqueue and _startRunning, plus a replay driving every terminal transition with no verdict. So auto-update's undelivered-row branch stays unreachable by invariant, not by accident. Carries its own negative controls
 │   ├── task-decomposer.test.js  # Tests for lib/task-decomposer.js (complexity analysis, decomposition, agent routing)
 │   ├── security-followup.test.js # Tests for lib/security-followup.js (finding parsing, task generation)
@@ -933,6 +953,8 @@ slack-agent-bridge/
 ├── README.md             # Project overview
 ├── COMMANDMENTS.md       # Non-negotiable rules, prepended to every task prompt
 ├── WORK-TODO.md          # The backlog: flat, one ### heading per OPEN item, stable numeric IDs never reused, closed items purged (git history + the `Closes <ID>` commit body are the record), index regenerated from the headings. Counts are commands, not figures: `grep -cE '^### [0-9]+[a-z]?\. ' WORK-TODO.md`
+├── Dockerfile            # PROPOSED jt-agent image (WORK-TODO #70), not yet used by the live compose: node:20.20.2-bookworm and @anthropic-ai/claude-code pinned by version, python3-venv installed once (#68). Copies nothing in — the code is the bind-mounted checkout and the credentials stay in the env_file. Adoption is the PROPOSED block (2) in docker-compose.example.yml. Node 20 is end of life since April 2026
+├── .dockerignore         # Excludes the whole build context, because the Dockerfile copies nothing — so .env and .deploy_key are never sent to a build
 ├── docker-compose.example.yml # The deployment definition, off-box. Reproduces the live compose captured 2026-09-14 (untracked and now gitignored on the NAS) and carries the proposed container hardening as commented blocks — see docs/CONFIG-SURFACE-AND-REBUILD.md Step 7.7. No secret belongs in it; credentials live only in the off-repo env_file
 ├── .gitattributes        # Line-ending normalization (* text=auto eol=lf) - stops CRLF corruption
 └── .gitignore            # Git ignore rules (node_modules, .env, .claude-home/, *.bak, etc.)
@@ -1074,6 +1096,14 @@ it: `python3` is present but `pip` is absent** (operator-supplied, 2026-09-20 �
 "Supported toolchains" immediately below). Every python dispatch therefore fails as
 `INSTALLER_ABSENT`, a clear refusal, never a silent skip. End-to-end python remains
 UNVERIFIED: no python repo is cloned in any test here, and the deployed image is off-box.
+**Since 2026-10-04 (B6, #68) a python clone installs into a venv inside the clone**
+(`lib/python-venv.js`: `python3 -m venv .venv`, then `.venv/bin/python -m pip install …`;
+`.venv/` goes in the clone's `.git/info/exclude` so the clone does not read as undelivered
+work). PEP 668 is in force on the image, so a system-wide install would refuse even with
+pip. On today's image the venv step itself fails (no `ensurepip`) and is reported as
+`INSTALLER_ABSENT`; the tracked `Dockerfile` (#70, not yet adopted on the box) adds
+`python3-venv`, which supplies it. Phase 3 still runs only `npm test`, so a python
+repo's tests are not run by the bridge either way.
 
 #### Supported toolchains — a STATED list, because an unstated one drifts
 
@@ -1087,7 +1117,7 @@ That is the same class as a Postgres-major mismatch.
 | Ecosystem | Manifest (`detectEcosystem`) | Installer | Status in the `jt-agent` image |
 |-----------|------------------------------|-----------|--------------------------------|
 | **node** | `package.json`; a `package-lock.json` or `npm-shrinkwrap.json` selects `npm ci` over `npm install` | `npm` | **SUPPORTED.** node and npm *are* the image (`image: node:20`) |
-| **python** | `requirements.txt`, `pyproject.toml`, `setup.py` | `python3 -m pip` | **NOT SUPPORTED.** `python3` is present, `pip` is not, so every python dispatch refuses with `INSTALLER_ABSENT`. WORK-TODO **#68** |
+| **python** | `requirements.txt`, `pyproject.toml`, `setup.py` | `python3 -m venv .venv`, then the venv's `python -m pip` | **NOT SUPPORTED.** `python3` is present, `pip` is not, so every python dispatch refuses with `INSTALLER_ABSENT`. WORK-TODO **#68** |
 | **`none`** *(anything else)* | no recognised manifest | nothing is run | **NOT DETECTED.** Nothing is installed and the task proceeds — the research/audit and no-dependency case, not a refusal |
 
 **The python row is operator-supplied and dated, not regenerable from a checkout.**
@@ -1194,7 +1224,7 @@ never reaches `connected` counts as an outage. A deliberate `stop()` does not.
 
 **LOGIC CHANGE 2026-09-15.** `/dispatch` opens a modal with **five separate inputs** —
 task, repository, branch, turn budget, instructions — and posts the composed task message
-to `#claude-bridge`, where `poll()` picks it up like any other message. Five inputs is the
+to the channel `/dispatch` was opened in, where `poll()` picks it up like any other message. Five inputs is the
 whole point: nothing typed into one of them can merge two fields, which is exactly what a
 flattened pasted block does.
 
@@ -1206,8 +1236,20 @@ flattened pasted block does.
 
 **It posts a message; it does not call the task path.** `processTask` is never invoked
 from the form. One intake path, one owner of deduplication (`lib/bridge-state.js`, by
-message `ts`), and a task that survives a restart because it exists as a message. The cost
-is up to `POLL_INTERVAL_MS` of latency, paid against work that runs for ten minutes.
+message `ts`), and a task that survives a restart because it exists as a message.
+
+**LOGIC CHANGE 2026-10-04 — where it posts, and how soon it starts (WORK-TODO #46, #4).**
+The post goes to the channel the form was **opened in**, when the poll loop watches that
+channel (`channelsToPoll`, read at submit time), so the task runs as that channel's agent.
+Opened anywhere else (a DM, `#store-tasks`, a planned agent's channel) it is **refused in the
+form** with the reason, never redirected to `#claude-bridge` and never posted where nothing
+reads it (`lib/dispatch-delivery.js` `resolveDispatchTarget`). After a successful post,
+`onDispatched` starts one poll immediately (`pollNow`), so the task no longer waits up to
+`POLL_INTERVAL_MS`. `poll()` now runs **one sweep at a time** (`pollInFlight`): before, an
+interval tick during a long `ASK:` answer started a second concurrent sweep, which could
+answer an `ASK:` twice or start a second task. An immediate poll that finds a sweep in flight
+does nothing; that sweep or the next tick reads the message. Guards:
+`tests/dispatch-routing.test.js`, `tests/poll-reentrancy.test.js`.
 
 **Authorisation is the command's, not the poll loop's.** The poll loop's gate is
 `!isUserAuthorized(msg.user) && !isBotMessage` — a message posted **as the bot** goes
@@ -1724,7 +1766,39 @@ ASK: queue status
 ASK: task status
 ASK: what are you working on
 ```
-Returns: currently running task, queued tasks, and last 5 completed tasks.
+Returns: currently running task, queued tasks, and last 5 completed tasks. Since
+2026-10-04 each recent repo task also shows the branch and short commit it ended on, how
+many commits it added, and whether that commit is a branch tip on the remote
+(`lib/task-work.js`, WORK-TODO #39). It does **not** say whether the branch merged.
+
+### Task History
+```
+ASK: history          # last 10 finished tasks
+ASK: history 30       # last 30 (max 50)
+```
+Newest first, with when each finished (Toronto time) and how: completed, failed with its
+error, interrupted, or stopped at max turns. Read from `memory/history.json`, which keeps
+every finished task, unlike `what's queued`, whose queue keeps 24 hours. Spelled `history`
+and not `task history`, because a verb is the first word and `task` would capture
+`ASK: task status`. `lib/task-history.js`, WORK-TODO #9.
+
+### Channels vs Agents
+```
+ASK: channels
+```
+Read-only. Every public channel the bot is in, each with its owner (an agent, or a
+`*_CHANNEL_ID` variable) or **owned by nothing**; every agent channel the bot is not in; and
+every agent whose declared channel name never resolved. Private channels need `groups:read`,
+which the bot does not hold, and the report says so. `lib/channel-reconcile.js`,
+WORK-TODO #52.
+
+### A verb typed in an agent's channel
+A bridge verb typed **on its own** in an agent's channel (`ASK: status`, `ASK: history 20`,
+`ASK: status secretary`) is refused with a pointer to `#claude-bridge`. It used to reach that
+agent's model, which answered a question about the system as conversation. Only the verb
+alone, or the verb plus one number or agent id, is refused: `ASK: create a post about the
+sale` is a request to the agent and still goes to it. Verbs still do not RUN in agent
+channels; that needs the capability model (WORK-TODO #64).
 
 ### Create Channel
 Create a Slack channel and invite the bot:

@@ -39,7 +39,11 @@ agents/shared/channel-map.json
 # fact about THIS workspace, not about the repository.
 agents/shared/agent-activation.json
 agents/shared/approval-queue.json
-data/delivery-quotes.json
+# data/ holds runtime files only (delivery quotes, staff-task state with staff names,
+# the Square catalog cache). INVERSE rule, 2026-10-04 (WORK-TODO #62): an allowlist of
+# today's filenames fails open when a new writer appears. Only the placeholder is tracked.
+data/*
+!data/.gitkeep
 
 # Memory data files (local only)
 memory/*.json
@@ -89,6 +93,12 @@ models/
 # auto-update.js writes this next to the repo. Sibling of .bridge-agent-state.json,
 # which was already ignored; this one was not.
 .auto-update-state.json
+
+# Written by scripts/backup-status.sh from host cron into the deploy checkout and read by
+# lib/backup-watch.js (WORK-TODO #42). Runtime state, never tracked. The temp file the
+# script renames from is covered too.
+/.backup-status.json
+/.backup-status.json.tmp.*
 .npm-global/
 *.bak*
 .deploy_key*

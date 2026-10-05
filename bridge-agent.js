@@ -205,6 +205,7 @@ const { redact } = require('./lib/redact-secrets');
 // cleanupDir, detectUndeliveredWork) into lib/clone-lifecycle.js — seam A in
 // docs/WIRING-AND-SEAMS.md. Pure fs/execFileSync helpers with no bridge state.
 const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-lifecycle');
+const { headSha, describeWork, formatWork } = require('./lib/task-work');
 const { formatPreservedCloneAlert } = require('./lib/preserved-clone-alert');
 const { describeTaskStateDivergence } = require('./lib/task-state-divergence');
 const repoHistory = require('./lib/repo-history');
@@ -226,6 +227,8 @@ const { installDependencies } = require('./lib/dependency-install');
 // path is not called directly: one intake path, one dedup owner, and a task that
 // survives a restart because it exists as a message.
 const { startSocketMode } = require('./lib/slack-socket');
+const { createMainWatch, remoteMainSha } = require('./lib/main-watch');
+const { createBackupWatch } = require('./lib/backup-watch');
 const { handleSlashCommand, handleViewSubmission } = require('./lib/dispatch-command');
 
 // ---- Config ----
@@ -432,6 +435,21 @@ async function postToOps(text) {
   return postText(slack, OPS_CHANNEL, text, 'bridge-agent');
 }
 
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #39): record the branch, head commit and remote
+// refs a repo task left behind on its queue row (lib/task-work.js). Writes only the
+// row's `work` field, never a status or a delivery verdict, so the #74 invariant is
+// untouched. A failure is reported to ops, never fatal to the task.
+async function recordTaskWork(queueId, taskDir, baseSha, description) {
+  try {
+    taskQueue.getQueue().recordWork(queueId, describeWork(taskDir, baseSha));
+  } catch (workErr) {
+    console.error('[bridge-agent] Failed to record task work:', workErr.message);
+    await postToOps(
+      `:warning: Could not record which branch and commit "${description}" left behind: ${workErr.message}. ASK: what's queued will not show it.`
+    );
+  }
+}
+
 // ---- Drain-one: is a self-update waiting? ----
 
 // LOGIC CHANGE 2026-09-20: one-shot so an unexpected throw in the drain check is
@@ -549,6 +567,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
   const task = parseTask(msg.text);
   const startTime = Date.now();
   let taskDir = null;
+  let taskBaseSha = null;
   let taskSuccess = false;
   // LOGIC CHANGE 2026-09-14: Phase 3 used to run a hardcoded `npm test` while Phase 1
   // had already read the repo's own `scripts.test` into the plan and thrown it away.
@@ -656,6 +675,9 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
       taskDir = path.join(WORK_DIR, dirName);
       cloneRepo(task.repo, task.branch, taskDir);
       cwd = taskDir;
+      // LOGIC CHANGE 2026-10-04 (WORK-TODO #39): HEAD as cloned, so the work record
+      // can count the commits this task added.
+      taskBaseSha = headSha(taskDir);
 
       // LOGIC CHANGE 2026-09-20: install the clone's dependencies BEFORE the LLM runs
       // (WORK-TODO #61). This is what makes Phase 3's test gate real: `npm test` in a
@@ -1323,6 +1345,8 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
     // work is undelivered, preserve the clone and alert #sqtools-ops so it can be
     // recovered and pushed manually, rather than deleting it.
     if (taskDir && fs.existsSync(taskDir)) {
+      // LOGIC CHANGE 2026-10-04 (WORK-TODO #39): before the clone can be deleted.
+      if (queueId) await recordTaskWork(queueId, taskDir, taskBaseSha, task.description);
       const delivery = detectUndeliveredWork(taskDir);
       if (delivery.undelivered) {
         console.warn(`[bridge-agent] Preserving scratch clone ${taskDir} — ${delivery.reason}`);
@@ -1435,7 +1459,8 @@ function formatStatusResponse() {
       const emoji = task.status === 'completed' ? '✅'
         : task.status === 'interrupted' ? '⚠️'
         : '❌';
-      response += `• ${timeStr} ${emoji} ${task.description || 'No description'} (${task.status})\n`;
+      // LOGIC CHANGE 2026-10-04 (WORK-TODO #39): with the branch and commit it left.
+      response += `• ${timeStr} ${emoji} ${task.description || 'No description'} (${task.status})${formatWork(task.work)}\n`;
     }
   } else {
     // Fall back to memory history if queue is empty
@@ -1461,6 +1486,15 @@ function formatStatusResponse() {
   }
 
   return response;
+}
+
+/** Agent ids, or none when the registry cannot be read (a verb argument check, not a gate). */
+function knownAgentIds() {
+  try {
+    return loadAgents().map(a => a.id);
+  } catch (err) {
+    return [];
+  }
 }
 
 // ---- Process a conversational message ----
@@ -1528,6 +1562,23 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
         });
         return;
       }
+    } else if (commandRouter.isBareCommand(questionText, knownAgentIds())) {
+      // LOGIC CHANGE 2026-10-04 (WORK-TODO #64, the safe half): a verb typed on its own
+      // in an agent's channel used to fall through to that agent's model, which
+      // answered a question about the system from a persona that cannot see it - a
+      // confident wrong answer. Refuse it and say where the verb runs. The gate itself
+      // is NOT lifted: running verbs here needs the capability model (#64's other half).
+      const verb = commandRouter.parseCommand(questionText).verb;
+      console.log(`[${agentId}] Bridge verb \`${verb}\` refused in an agent channel: ${msg.ts}`);
+      await slack.chat.postMessage({
+        channel: sourceChannel,
+        thread_ts: msg.ts,
+        text: `:information_source: \`${verb}\` is a bridge command. It runs in <#${BRIDGE_CHANNEL}>, not here: ` +
+          `in this channel an ASK: goes to ${agentName} as a conversation, and a model would guess the answer. ` +
+          'Nothing was run.',
+        unfurl_links: false,
+      });
+      return;
     }
 
     // LOGIC CHANGE 2026-03-26: Check for built-in status query before calling LLM.
@@ -2029,10 +2080,48 @@ function describeSkipReason(msg) {
   return 'unprefixed message rejected by isNaturalConversationMessage';
 }
 
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #4, cheap half): one sweep at a time.
+// Before this, the only re-entrancy check was `isRunning`, which is set around a
+// TASK: and NOT around an ASK: answer. So a setInterval tick that landed while an ASK:
+// was being answered (a model call, routinely longer than POLL_INTERVAL_MS) started a
+// SECOND sweep: it could answer the same ASK: again (the dedup mark is written after
+// the answer), start a task beside the conversation, and its trailing
+// `isRunning = false` could clear the flag while the other sweep's task was still
+// running, letting a third sweep start a second task. The guard below makes the sweep
+// itself exclusive; a call that finds one in flight returns false and does nothing,
+// because the sweep in flight (or the next tick) reads whatever it would have read.
+// Guard: tests/poll-reentrancy.test.js.
+let pollInFlight = false;
+async function poll() {
+  if (pollInFlight) return false;
+  pollInFlight = true;
+  try {
+    await pollSweep();
+    return true;
+  } finally {
+    pollInFlight = false;
+  }
+}
+
+/**
+ * Poll once now, outside the interval - used after /dispatch posts a task so it starts
+ * without waiting up to POLL_INTERVAL_MS. Never throws and never reaches the operator:
+ * a skipped or failed immediate poll leaves the message for the next tick to read.
+ */
+function pollNow(reason) {
+  poll()
+    .then((ran) => {
+      if (!ran) console.log(`[bridge-agent] Immediate poll (${reason}) skipped: a sweep is in flight`);
+    })
+    .catch((err) => {
+      console.error(`[bridge-agent] Immediate poll (${reason}) failed; the next tick retries:`, err.message);
+    });
+}
+
 // LOGIC CHANGE 2026-03-27: Refactored poll() to iterate through all agent channels.
 // Each channel is polled for messages. TASK: messages always go to bridge agent.
 // ASK: messages are routed to the agent that owns the channel.
-async function poll() {
+async function pollSweep() {
   if (isRunning) return;
 
   // LOGIC CHANGE 2026-03-27: Check if shutting down before processing new tasks.
@@ -2237,9 +2326,12 @@ async function poll() {
             isNaturalConversationMessage(msg) &&
             !alreadyProcessed(msg) &&
             !isTaskProcessed(msg.ts)) {
-          // Check authorization for natural messages too
-          const isBotMessage = msg.user === BOT_USER_ID;
-          if (!isUserAuthorized(msg.user) && !isBotMessage) {
+          // Check authorization for natural messages too.
+          // LOGIC CHANGE 2026-10-04 (WORK-TODO #49): no bot exemption here. It exists on
+          // the TASK:/ASK: path so scheduled tasks posted AS the bot are not dropped;
+          // nothing scheduled posts natural conversation, and exempting the bot let its
+          // own reports reach a model. Only an allowlisted person starts one.
+          if (!isUserAuthorized(msg.user)) {
             console.log(`[bridge-agent] Ignoring natural message from unauthorized user: ${msg.user}`);
             continue;
           }
@@ -2435,6 +2527,40 @@ console.log(`  Turns:    ${DEFAULT_TURNS} per task unless TURNS: says otherwise 
 const BOOT_COMMIT = repoHistory.loadedCommit();
 console.log(`  Commit:   ${BOOT_COMMIT.available ? `${BOOT_COMMIT.short}${BOOT_COMMIT.dirty ? ' (tracked files modified)' : ''}` : `unknown (${BOOT_COMMIT.reason})`}`);
 postToOps(repoHistory.describeLoadedCommit(BOOT_COMMIT));
+
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #66): watch origin main against the commit above,
+// and say once per new main sha when they differ - the forgotten-deploy signal. First
+// check a minute after boot, then every MAIN_WATCH_INTERVAL_MS (0 turns it off).
+// Report-only; lib/main-watch.js pulls and restarts nothing.
+const MAIN_WATCH_INTERVAL_MS = parseInt(process.env.MAIN_WATCH_INTERVAL_MS || '1800000', 10);
+if (MAIN_WATCH_INTERVAL_MS > 0) {
+  const mainWatch = createMainWatch({
+    bootCommit: BOOT_COMMIT,
+    readMain: () => remoteMainSha(repoHistory.REPO_ROOT),
+    notify: postToOps,
+  });
+  const runMainWatch = () => mainWatch.tick().catch(err => console.error('[main-watch] tick threw:', err.message));
+  setTimeout(runMainWatch, 60000).unref();
+  setInterval(runMainWatch, MAIN_WATCH_INTERVAL_MS).unref();
+}
+
+// LOGIC CHANGE 2026-10-04 (WORK-TODO #42 c): the backup age alert. The host writes
+// BACKUP_STATUS_FILE (scripts/backup-status.sh, host cron); this reads it hourly and
+// posts to #sqtools-ops when a backup, or the host job itself, is older than
+// BACKUP_MAX_AGE_HOURS. Off - and said so in the log - until the file is configured.
+const BACKUP_STATUS_FILE = process.env.BACKUP_STATUS_FILE || '';
+if (BACKUP_STATUS_FILE) {
+  const backupWatch = createBackupWatch({
+    file: BACKUP_STATUS_FILE,
+    maxAgeMs: (parseFloat(process.env.BACKUP_MAX_AGE_HOURS) || 26) * 3600000,
+    notify: postToOps,
+  });
+  const runBackupWatch = () => backupWatch.tick().catch(err => console.error('[backup-watch] tick threw:', err.message));
+  setTimeout(runBackupWatch, 90000).unref();
+  setInterval(runBackupWatch, 3600000).unref();
+} else {
+  console.log('  Backups:  NOT watched (BACKUP_STATUS_FILE unset; see scripts/backup-status.sh)');
+}
 console.log(`  Allowed:  ${ALLOWED_USER_IDS.join(', ')}`);
 console.log(`  Channels: ${channelsToPoll.length} (${channelsToPoll.map(c => c.agentId).join(', ')})`);
 
@@ -2648,7 +2774,11 @@ let socketMode = null;
       handleViewSubmission(envelope, {
         postMessage: (args) => slack.chat.postMessage({ ...args, unfurl_links: false }),
         isAuthorized: isUserAuthorized,
-        bridgeChannel: BRIDGE_CHANNEL,
+        // LOGIC CHANGE 2026-10-04 (WORK-TODO #46): the poll set, read at submit time so
+        // an activation since boot counts. A form opened anywhere else is refused.
+        watchedChannels: () => channelsToPoll,
+        // LOGIC CHANGE 2026-10-04 (WORK-TODO #4): start the task now, not next tick.
+        onDispatched: () => pollNow('dispatch'),
         notify: postToOps,
         // githubOrg is deliberately NOT passed: omitted, lib/dispatch-message.js
         // falls back to lib/task-parser.js's own DEFAULT_GITHUB_ORG, so the generator
