@@ -130,11 +130,6 @@
       "reason": "JUSTIFIED, PROVISIONALLY. Test suite for lib/config.js — env loading, validation and defaults. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
     },
     {
-      "path": "morning-digest.js",
-      "lines_when_declared": 512,
-      "reason": "DEFERRED. Boundary named: buildDigest is a ~190-line function assembling independent sections (weather, calendar, email, tasks, staff); each section builder is separable. WORK-TODO #10."
-    },
-    {
       "path": "tests/gmail.test.js",
       "lines_when_declared": 512,
       "reason": "JUSTIFIED, PROVISIONALLY. Test suite for lib/integrations/gmail.js — OAuth, email parsing and the read API. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
@@ -303,11 +298,6 @@
       "path": "tests/dispatch-message.test.js",
       "lines_when_declared": 300,
       "reason": "JUSTIFIED, PROVISIONALLY. The suite for lib/dispatch-message.js: per-field rejection reusing tests/git-identifiers.test.js's own injection payload set, a field label inside the instructions body, and assertRoundTrip's negative controls. It crossed the limit by one line when the form's default turn budget became the ceiling (2026-09-15) and three assertions were added pinning the default to MAX_TURNS as an identity rather than as the number 100. Same category and same WORK-TODO #44 caveat as the entry above."
-    },
-    {
-      "path": "lib/command-router.js",
-      "lines_when_declared": 316,
-      "reason": "DEFERRED, with a named seam. It went over on 2026-09-15 when the activation verbs were registered. The verbs themselves cost 20 lines; the bulk is four inline handlers (help, status, agents, holidays) that are RENDERERS of other modules' data and belong with those modules — which is exactly where the activation handlers were put (lib/agent-activation.js), so the pattern is already established and the remaining four are the seam. Moving them touches lib/agent-llm-resolver.js, lib/agent-surface.js and lib/integrations/holidays.js, so it is its own change rather than something bundled into a feature. The TABLE must stay in one file: it is the thing tests/command-router.test.js enumerates. Recorded against WORK-TODO #10."
     },
     {
       "path": "tests/agent-activation.test.js",

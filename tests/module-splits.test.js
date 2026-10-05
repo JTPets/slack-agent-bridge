@@ -128,6 +128,19 @@ const SPLITS = [
             'DEFAULT_ACTIVATION_FILE',
         ],
     },
+    {
+        // Nothing the router exported moved: the four report handlers and renderHelp
+        // were never exported, so the export list is unchanged and the guard that
+        // matters is tests/command-router.test.js enumerating handlers across both files.
+        // morning-digest.js is not listed: it has no exports and requiring it starts the
+        // cron job, so its split is pinned by tests/digest-sections.test.js instead.
+        facade: 'lib/command-router.js',
+        parts: ['lib/command-renderers.js'],
+        exports: [
+            'COMMANDS', 'NOT_COMMANDS', 'DETERMINISTIC_TASKS', 'parseCommand', 'isCommand',
+            'isBareCommand', 'runCommand', 'listVerbs',
+        ],
+    },
 ];
 
 const load = (rel) => require(path.join(__dirname, '..', rel));

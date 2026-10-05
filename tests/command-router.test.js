@@ -28,10 +28,12 @@ const {
 const { getDeterministicTask, TASK_TEMPLATES } = require('../lib/agent-task-catalogue');
 
 const ROUTER_SRC = fs.readFileSync(path.join(__dirname, '..', 'lib', 'command-router.js'), 'utf8');
+// LOGIC CHANGE 2026-10-05 (#10): handlers live in the router AND lib/command-renderers.js.
+const HANDLER_SRC = ROUTER_SRC + fs.readFileSync(path.join(__dirname, '..', 'lib', 'command-renderers.js'), 'utf8');
 
 describe('THE guard: a command in code but not in the table is red', () => {
     // Enumerated from the module's own source, not from a list kept beside it.
-    const declaredHandlers = [...ROUTER_SRC.matchAll(/^async function (handle\w+)\s*\(/gm)].map(m => m[1]);
+    const declaredHandlers = [...HANDLER_SRC.matchAll(/^async function (handle\w+)\s*\(/gm)].map(m => m[1]);
 
     test('the enumeration finds the handlers at all (control for the assertion below)', () => {
         expect(declaredHandlers.length).toBeGreaterThan(0);
