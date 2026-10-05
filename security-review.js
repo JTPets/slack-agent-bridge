@@ -30,7 +30,6 @@ require('dotenv').config();
 // LOGIC CHANGE 2026-10-04 (WORK-TODO #30, #21): every Slack client is built by lib/slack-web.js,
 // which redacts secrets out of every chat.* post and drops the already_in_channel warning.
 const { createWebClient, postText, sendDM: slackSendDM } = require('./lib/slack-web');
-const { spawn } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
@@ -87,143 +86,9 @@ function postToOps(text) {
 
 // ---- Git helpers ----
 
-/**
- * Execute a command and return stdout.
- * Uses spawn for safety (no shell injection).
- */
-function execCommand(command, args, options = {}) {
-    return new Promise((resolve, reject) => {
-        const child = spawn(command, args, {
-            ...options,
-            stdio: ['ignore', 'pipe', 'pipe'],
-        });
-
-        let stdout = '';
-        let stderr = '';
-
-        child.stdout.on('data', (chunk) => {
-            stdout += chunk.toString();
-        });
-
-        child.stderr.on('data', (chunk) => {
-            stderr += chunk.toString();
-        });
-
-        child.on('close', (code) => {
-            if (code === 0) {
-                resolve(stdout.trim());
-            } else {
-                reject(new Error(`Command failed with code ${code}: ${stderr}`));
-            }
-        });
-
-        child.on('error', (err) => {
-            reject(new Error(`Spawn failed: ${err.message}`));
-        });
-    });
-}
-
-/**
- * Clone a repository into a temp directory.
- *
- * LOGIC CHANGE 2026-09-14: `repo` is asserted here and `--` separates the
- * positional arguments. execCommand already uses spawn with an argv array, so no
- * shell was ever involved — but two gaps in the same class were still open:
- * an entry in REPOS goes into a URL AND into the mkdtemp prefix in reviewRepo
- * (via repo.replace('/', '-')), unvalidated; and without `--`, git's own option
- * parser would read a positional beginning with "-" as a flag no matter how it
- * arrived. REPOS is operator-set, not Slack-set, so this is the boundary half of
- * the same closure, not a live defect. A rejected entry throws; main()'s per-repo
- * catch records it and the nightly report names it, so one bad entry cannot
- * silently skip a repo or take the whole review down.
- */
-async function cloneRepo(repo, tempDir) {
-    assertValidRepo(repo);
-    const repoUrl = `https://github.com/${repo}.git`;
-    console.log(`[security-review] Cloning ${repo}...`);
-
-    await execCommand('git', ['clone', '--depth', '100', '--', repoUrl, tempDir]);
-    console.log(`[security-review] Cloned ${repo} to ${tempDir}`);
-}
-
-/**
- * Get commits from the last 24 hours.
- * Returns array of commit hashes.
- */
-async function getRecentCommits(repoDir) {
-    try {
-        const output = await execCommand(
-            'git',
-            ['log', '--since=24 hours ago', '--format=%H', '--no-merges'],
-            { cwd: repoDir }
-        );
-
-        if (!output) {
-            return [];
-        }
-
-        return output.split('\n').filter(Boolean);
-    } catch (err) {
-        console.error('[security-review] Failed to get commits:', err.message);
-        return [];
-    }
-}
-
-/**
- * Get the diff for specified commits.
- */
-async function getDiff(repoDir, commits) {
-    if (commits.length === 0) {
-        return '';
-    }
-
-    // Get diff from oldest commit's parent to newest commit
-    const oldest = commits[commits.length - 1];
-    const newest = commits[0];
-
-    try {
-        // Try to get diff from parent of oldest commit
-        const diff = await execCommand(
-            'git',
-            ['diff', `${oldest}^`, newest],
-            { cwd: repoDir }
-        );
-        return diff;
-    } catch {
-        // If oldest commit has no parent (initial commit), show all changes
-        try {
-            const diff = await execCommand(
-                'git',
-                ['show', '--format=', ...commits],
-                { cwd: repoDir }
-            );
-            return diff;
-        } catch (err) {
-            console.error('[security-review] Failed to get diff:', err.message);
-            return '';
-        }
-    }
-}
-
-/**
- * Get commit log summary for display.
- */
-async function getCommitLog(repoDir, commits) {
-    if (commits.length === 0) {
-        return 'No commits in the last 24 hours.';
-    }
-
-    try {
-        const log = await execCommand(
-            'git',
-            ['log', '--since=24 hours ago', '--format=%h %s (%an)', '--no-merges'],
-            { cwd: repoDir }
-        );
-        return log;
-    } catch (err) {
-        return `${commits.length} commits`;
-    }
-}
+// LOGIC CHANGE 2026-10-05 (WORK-TODO #10): the clone and the git reads moved to
+// lib/security-review-git.js. This file keeps the report, delivery and follow-up.
+const { cloneRepo, getRecentCommits, getDiff, getCommitLog } = require('./lib/security-review-git');
 
 // ---- Main logic ----
 

@@ -92,6 +92,9 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+At the **2026-10-05 B14 pass** those print **44** open items — **10** P1, **27** P2, **7** P3 —
+and **no duplicate ID**. That pass filed **#76** and closed nothing (#10 stays open).
+
 At the **2026-10-04 B8 pass** those print **43** open items — **10** P1, **27** P2, **6** P3 —
 and **no duplicate ID**. That pass closed **#62** (`data/*` with `!data/.gitkeep`) and did
 the repository half of **#75** (the compose comment; drop-the-mount as a PROPOSED block).
@@ -340,6 +343,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B11** | #10 file splits, continued | Done 2026-10-05: `lib/staff-tasks.js`, `lib/security-followup.js`, `memory/memory-manager.js` | the split modules, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves; facades keep every caller unchanged |
 | **B12** | #10 wave plan, and its Wave 1 | Done 2026-10-05: the six-wave plan in #10; `lib/agent-context.js`, `bots/storefront.js`, `lib/bridge-state.js` | the split modules, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves, except that the storefront routes read the catalog flag through an accessor. Next is Wave 2 (command-router, morning-digest) |
 | **B13** | #10 Wave 2 | Done 2026-10-05: `lib/command-router.js` (renderers out, guard reads both files), `morning-digest.js` (characterised, then `lib/digest-sections.js` and `lib/integrations/weather.js` out) | the split modules, `tests/command-router.test.js`, `tests/command-renderers.test.js`, `tests/digest-sections.test.js`, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves, except `buildDigest` takes its memory dir as an option (default unchanged). Next is Wave 3 (security-review and google-calendar de-duplication), which changes behaviour and is reviewed one file at a time |
+| **B14** | Dependabot #13/#14, then #10 Wave 3 | Done 2026-10-05: `@slack/web-api` 8, `@slack/socket-mode` 3.1, `googleapis` 178.0 with a Node 20 engines guard (Dependabot PRs closed, Node-22-only googleapis ignored); `security-review.js` (git reads to `lib/security-review-git.js`), `lib/integrations/google-calendar.js` (collapsed; reads `GOOGLE_REFRESH_TOKEN`) | `package.json`, `package-lock.json`, `.github/dependabot.yml`, `tests/dependency-upgrade.test.js`, the split modules, `tests/security-review-git.test.js`, `tests/google-calendar.test.js`, `lib/validate-exceptions.json`, `tests/smoke.test.js` | Runtime code. The calendar now accepts `GOOGLE_REFRESH_TOKEN`, so on a box with only that name set it starts fetching events. Next is Wave 4, owner-gated |
 | **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60, #49, #75 | — | Small code once chosen; listed so nobody dispatches them undecided |
 | **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
 
@@ -378,7 +382,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #34 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Documented in `CLAUDE.md`, `README.md`, `.env.example`; guard `tests/env-documented.test.js` |
 | #35 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Dissolved: recorded in `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 (a cap belongs on what reaches a prompt) |
 | #63 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Banner on `docs/AGENTS.md` → Memory Tiers, including the one-time legacy import; the writer question is `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 |
-| #10 | P2 | OPEN, B10-B13 splitting; wave plan in the item | — | L | 59 over (41 suites / 18 modules) after B13, all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
+| #10 | P2 | OPEN, B10-B14 splitting; wave plan in the item | — | L | 57 over (41 suites / 16 modules) after B14, all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
 | #44 | P2 | decision | OD | S | Figures refreshed in B4 (41 of 71) |
 | #5 | P2 | OPEN, speculative | SEED | L | Nothing built. Changes the execution model — park |
 | #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
@@ -569,8 +573,9 @@ work behind an owner's name, which is the opposite of the point.
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
 - **#67** — [IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide](#67-ids-are-allocated-at-write-time-from-an-append-only-list-so-two-branches-cut-from-the-same-base-always-collide)
 
-**P3 — nice to have / uncertain ROI** (6)
+**P3 — nice to have / uncertain ROI** (7)
 
+- **#76** — [The calendar's day boundaries are process-local time](#76-the-calendars-day-boundaries-are-process-local-time)
 - **#60** — [If the bridge is ever to act on the NAS, the capability is an allowlisted command set — not a shell](#60-if-the-bridge-is-ever-to-act-on-the-nas-the-capability-is-an-allowlisted-command-set--not-a-shell)
 - **#29** — [`gmail-unsubscribe` is a declared agent permission that no code implements](#29-gmail-unsubscribe-is-a-declared-agent-permission-that-no-code-implements)
 - **#13** — [MCP server wrapper](#13-mcp-server-wrapper)
@@ -2267,7 +2272,7 @@ is ever to act on the NAS, the capability is an allowlist, not a shell).
 ### 10. Split the god-files that break the repo's own 300-line rule
 **Filed 2026-09-13** (derived: `20dc049`).
 **Problem:** The repo enforces a 300-line-per-file rule (`lib/validate.js`, `MAX_LINES = 300`)
-and **61** `.js` files exceed it (2026-10-05, after B12; regenerate with the command below). Until 2026-09-15 the gate was **unconditionally red**, so a
+and **57** `.js` files exceed it (2026-10-05, after B14; regenerate with the command below). Until 2026-09-15 the gate was **unconditionally red**, so a
 new violation could not be told apart from the standing ones without diffing path lists by
 hand — that happened twice in the week of 2026-09-08. The exceptions had never been examined.
 
@@ -2356,10 +2361,12 @@ auth to `gmail-auth.js`, MIME decoding and sanitisation to `gmail-message.js`) a
 `lib/bridge-state.js` (374 -> 100: `bridge-state-poll.js`, `bridge-state-workspace.js`); in B13 (2026-10-05), Wave 2:
 `lib/command-router.js` (420 -> 298: the four report handlers and the help renderer to `command-renderers.js`) and
 `morning-digest.js` (406 -> 120: `lib/digest-sections.js`, `lib/integrations/weather.js`; it has no exports, so it is
-pinned by `tests/digest-sections.test.js`, not by the facade check). Each split file stays as a facade re-exporting every name it had;
+pinned by `tests/digest-sections.test.js`, not by the facade check); in B14 (2026-10-05), Wave 3: `security-review.js` (422 -> 286:
+the clone and git reads to `lib/security-review-git.js`) and `lib/integrations/google-calendar.js` (367 -> 252, not split:
+three copies collapsed into one). Each split file stays as a facade re-exporting every name it had;
 `tests/module-splits.test.js` fails if a facade drops a name or holds a copy instead of the moved function.
 
-**Source modules (18)**
+**Source modules (16)**
 
 | lines | code | file | disposition | reason |
 |------:|-----:|------|-------------|--------|
@@ -2374,12 +2381,10 @@ pinned by `tests/digest-sections.test.js`, not by the facade check). Each split 
 | 470 | 258 | `lib/bulletin-board.js` | justify | **Under the limit on code** (247). Store plus its two renderers over one JSON file; the renderers exist to keep bulletin formatting from being re-derived per caller, which is the defect CANONICAL-HELPERS §32 records. |
 | 470 | 282 | `lib/integrations/email-sanitizer.js` | justify | **Under the limit on code** (282). 130 lines are the `INJECTION_PATTERNS` catalogue and the rationale for each pattern — a security-relevant enumeration whose comments are the point. |
 | 427 | 250 | `lib/slack-client.js` | justify | **Under the limit on code** (273). It is one factory closure (`createSlackClient`) plus channel-map persistence; a cut inside the factory would split a single object's methods across files. |
-| 422 | 268 | `security-review.js` | split (deferred) | Boundary: its private `cloneRepo`/`execCommand`/`sendDM`/`postToOps` are **duplicates** of behaviour already canonical elsewhere (`docs/CANONICAL-HELPERS.md` §1, §2; #30). The right cut is de-duplication, not a new module — it belongs to #30, not to a size pass. **2026-10-04:** #30 removed the `sendDM`/`postToOps` duplicates (`lib/slack-web.js`); `cloneRepo`/`execCommand` remain. |
 | 406 | 173 | `lib/notify-owner.js` | justify | More comment (176) than code (192). It was the **canonical destination** named by CANONICAL-HELPERS §1/§2. **2026-10-04:** #30 put the canonical post in `lib/slack-web.js` instead (it must be reachable by scripts that never call `notifyOwner.init`), and `notifyChannel` now delegates to it. |
 | 397 | 231 | `lib/email-rate-limiter.js` | justify | **Under the limit on code** (231). One sliding-window algorithm applied to three buckets; splitting per bucket triples the surface for a single algorithm. |
 | 387 | 229 | `lib/integrations/holidays.js` | split (deferred) | Boundary: the Nager.Date public-holiday client + cache vs. the hardcoded `PET_AWARENESS_DATES` calendar — two unrelated data domains. **Deferred:** both sides use `parseDate`/`formatDate`, and where a shared date helper lives has to be settled against CANONICAL-HELPERS' date rows (#32, #33) rather than decided by a size pass. |
 | 373 | 181 | `lib/update-drain.js` | justify | 62% comment over one small marker codec that mirrors `lib/task-lock.js`; the comments are the drain-one reasoning (no ceiling, heartbeat not deadline). Full reason in `lib/validate-exceptions.json`. |
-| 367 | 225 | `lib/integrations/google-calendar.js` | justify | **Under the limit on code** (225). Its length is six near-identical `get{Today,Yesterday,Tomorrow}Events` / `getAll*` pairs over one `transformEvent`; the real fix is de-duplicating them into one range-parameterised call, which shortens the file rather than splitting it. Filed as the boundary here so a later pass does not "split" it into two copies of the same code. |
 | 347 | 158 | `lib/clone-lifecycle.js` | justify | **49% comment, 158 lines of code.** It was extracted 2026-09-14 as Seam A precisely to be one concern, and its comments carry the argv-array and delivery-detection reasoning that three lost tasks paid for. Splitting it would undo the seam to satisfy a line count. |
 
 **Test suites (41)**
@@ -2436,7 +2441,9 @@ As planned, with three differences. `renderHelp` moved to the renderers as well,
 | `lib/command-router.js` | 420 | `command-renderers.js` (`handleStatus`, `handleAgents`, `handleHolidays`, `handleChannels`) | the `COMMANDS` table, `handleHelp` (it renders the table), `handleScheduledTask`, parse, run, list | `tests/command-router.test.js` enumerates `async function handle*` in the router's own source, so it must enumerate router plus renderers. `tests/weekly-critique-gating.test.js` requires that only the router and the catalogue name the task, so `handleScheduledTask` stays. | Medium, because of the guard change. Needs a negative control: a renderer the table cannot reach must still fail. |
 | `morning-digest.js` | 406 | `lib/integrations/weather.js` (`WEATHER_API_URL`, `decodeWeatherCode`, `fetchWeather`, which also unblocks a `weather` verb); `lib/digest-sections.js` (event formatting, `loadJsonFile`, `isWithinLast24Hours`, and the sections of the 158-line `buildDigest`) | `main()`, the dotenv-first line | none. It has **no exports and no tests**, and it calls `main()` when required. | Medium. Cutting `buildDigest` into sections is a refactor, not a move. First guard `main()` with `require.main === module`, then write a characterisation test of the digest text, then cut. |
 
-**Wave 3 — de-duplication; behaviour-touching, so review each one**
+**Wave 3 — de-duplication; behaviour-touching, so review each one (DONE in B14, 2026-10-05)**
+
+Two differences from the plan. **`security-review.js` was a move, not a de-duplication.** The plan said to use `lib/clone-lifecycle.js`; its `cloneRepo` is the wrong tool here: it clones `--depth 1` and configures the deploy key for pushing, while the review needs `--depth 100` of history to read the last 24 hours and never pushes. So the five git helpers moved unchanged to `lib/security-review-git.js`, which already used `spawn` with argv arrays and validated the repo first, and gained their first tests (`tests/security-review-git.test.js`, real temporary repositories). **`google-calendar.js` changed one behaviour on purpose:** its OAuth path read only `GOOGLE_CALENDAR_REFRESH_TOKEN`, while CLAUDE.md, `.env.example` and Gmail treat `GOOGLE_REFRESH_TOKEN` as the primary name. It now reads through `lib/config.js` `getGoogleRefreshToken`, so a `.env` holding only `GOOGLE_REFRESH_TOKEN` gets a calendar where it got none. The collapse itself is behaviour-preserving: `tests/google-calendar.test.js` passed 18 of 18 against the three-copy code before the cut, and its 19th test (the token name) fails against it. The day range's dependence on the process timezone is kept and filed as **#76**.
 
 | file | lines | change | risk |
 |------|------:|--------|------|
@@ -3363,6 +3370,31 @@ branch. Worth recording so it is not mistaken for a solution.
 change at this rate of collision.
 
 ## P3 — Nice to have / uncertain ROI
+
+### 76. The calendar's day boundaries are process-local time
+**Filed 2026-10-05,** by the B14 collapse of `lib/integrations/google-calendar.js`.
+
+`dayRange(offset)` builds "today" as local midnight to the next local midnight with
+`new Date(y, m, d + offset)`, so the window depends on the process timezone. CLAUDE.md
+→ Tech Stack says the code names `America/Toronto` at every site and depends on no
+process timezone, and `tests/timezone-explicit.test.js` does not catch this one: it looks
+for `toLocale*String`, `Intl.DateTimeFormat` and `cron.schedule`, not for the `Date`
+constructor's local fields.
+
+**Harmless today.** The `jt-agent` container sets `TZ: America/New_York`, which shares
+Toronto's offset and DST rule (CLAUDE.md → Tech Stack). It becomes wrong if the container
+ever runs in UTC: "today's events" would run from 20:00 or 19:00 Toronto time the day before.
+
+**Fix:** compute the Toronto midnight explicitly (the store's zone is `STORE_TIME_ZONE`,
+used by `lib/time-format.js`) and extend the timezone guard to the `Date` constructor's
+local-field form, with a negative control. Not done in B14 because B14 was a behaviour-preserving
+collapse.
+
+Regenerate: `grep -n "getFullYear\|getDate()" lib/integrations/google-calendar.js`
+
+**Priority:** P3 | **Effort:** S | **Status:** open
+
+---
 
 ### 60. If the bridge is ever to act on the NAS, the capability is an allowlisted command set — not a shell
 
