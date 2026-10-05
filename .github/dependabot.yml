@@ -10,3 +10,11 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "deps"
+    # LOGIC CHANGE 2026-10-05: googleapis 178.1.1 and every release from 180 declare
+    # engines.node >=22, and the jt-agent image is Node 20 (Dockerfile, compose
+    # `image: node:20`). A PR for one would pass CI on a newer Node and break the box.
+    # Remove this ignore when the image moves to Node 22; tests/dependency-upgrade.test.js
+    # fails on a Node-22-only production package either way.
+    ignore:
+      - dependency-name: "googleapis"
+        versions: [">=178.1.0"]

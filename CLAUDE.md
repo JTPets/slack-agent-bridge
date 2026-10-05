@@ -29,7 +29,7 @@ Node.js Slack polling agent that monitors Slack channels for task messages and e
 ## Tech Stack
 
 - **Runtime**: Node.js 18+
-- **Slack SDK**: @slack/web-api ^7.0.0
+- **Slack SDK**: @slack/web-api ^8.2.0 (fetch transport since 2026-10-05; errors still carry `err.data.error`, proven by `tests/dependency-upgrade.test.js`)
 - **Process supervisor**: the container runtime (`restart: unless-stopped`). There is no PM2 and no process manager inside the `jt-agent` image.
 - **Timezone**: `America/Toronto`, named **explicitly at every site** — the code does
   not depend on the process timezone. No file reads `process.env.TZ`; every
@@ -667,7 +667,7 @@ slack-agent-bridge/
 ├── bridge-agent.js       # Main entry point: Slack polling, task execution via Claude CLI
 ├── auto-update.js        # Git polling daemon: pulls, verifies, then exits so the container supervisor restarts the bridge
 ├── morning-digest.js     # Cron job script: sends daily task stats DM to owner. Since 2026-10-05 (WORK-TODO #10) keeps the token check, the Slack client and main(); the text is built by lib/digest-sections.js
-├── security-review.js    # Cron job script: security audit of commits from last 24h
+├── security-review.js    # Cron job script: security audit of commits from last 24h. Since 2026-10-05 (WORK-TODO #10) keeps the review, the report, delivery and follow-up; the clone and git reads are lib/security-review-git.js
 ├── scripts/
 │   ├── watercooler.js    # Cron/manual script: weekly team standup conversation (Friday 5PM)
 │   ├── backup-status.sh  # HOST-side (NAS cron, never a container): writes the newest file name and age per backup directory to a JSON status file that lib/backup-watch.js reads (WORK-TODO #42). POSIX sh, temp file + rename
@@ -778,6 +778,7 @@ slack-agent-bridge/
 │   ├── test-verdict.js   # THE honest classifier for a test-command run: classifyTestRun distinguishes passed / failed / runner_absent / no_assertions / timed_out / not_run, and a pass requires exit 0 AND a positive parsed assertion count. A fully skipped suite, a command that exits 0 printing nothing, and `jest: not found` are each a failed gate, never a pass. Every test invocation in the repo routes through it (tests/test-gate-honesty.test.js)
 │   ├── redact-secrets.js # Secret scrubber for any string bound for Slack or the logs: redact() applies value-driven scrubbing (the live value of every env var whose NAME matches SENSITIVE_NAME, so a token is caught whatever its shape) then pattern-driven scrubbing (Slack/Anthropic/Google/GitHub tokens, PEM private keys, OAuth refresh tokens, bearer headers). Exists because spawned-LLM stderr was surfaced verbatim to #sqtools-ops
 │   ├── security-followup.js # Security finding → auto-task pipeline: parses findings, creates TASK messages. Since 2026-10-05 (WORK-TODO #10) keeps processSecurityBulletin and its handler and re-exports the two modules below
+│   ├── security-review-git.js # The nightly review's git half: cloneRepo (--depth 100, so the 24-hour window has history; clone-lifecycle's depth-1 push clone cannot serve it), getRecentCommits (last 24 h, no merges), getDiff (with the initial-commit `git show` fallback), getCommitLog, execCommand. spawn with argv arrays; the repo is validated before git runs. Moved out of security-review.js 2026-10-05
 │   ├── security-findings.js # Severity scale, parseFindings, grouping by file, the code agent for a repo, the remediation TASK message, actionable filtering, the summary line
 │   ├── security-followup-dedup.js # In-process 24-hour memory of queued (repo, file, severity) tasks so the same one is not queued twice; forgotten on restart
 │   ├── approval-queue.js # Manual approval queue for auto-generated tasks: queueTask, approveTask, rejectTask. Facade since 2026-10-05 (WORK-TODO #10) over the three modules below; init() still returns it for chaining
@@ -807,7 +808,7 @@ slack-agent-bridge/
 │   ├── digest-failures.js # The morning digest's grouping and wording for yesterday's failed tasks: categorizeFailures (rate limit decided by lib/llm-runner.js isRateLimitError, not a third pattern set) and formatFailureSections. Every failure is action needed — nothing retries or re-queues a failed task, and the digest no longer says otherwise (WORK-TODO #31)
 │   ├── deadline-warning.js # The #sqtools-ops text posted when a running task reaches 80% of TASK_TIMEOUT_MS (lib/llm-runner.js onDeadlineWarning, WORK-TODO #7). Pure: builds a string, posts nothing
 │   └── integrations/
-│       ├── google-calendar.js  # Google Calendar API integration for fetching events (today, tomorrow, yesterday)
+│       ├── google-calendar.js  # Google Calendar API integration for fetching events (today, tomorrow, yesterday). Since 2026-10-05 one dayRange, one per-calendar fetcher and one merge behind the twelve exported names (WORK-TODO #10), and the OAuth token read through lib/config.js getGoogleRefreshToken, so GOOGLE_REFRESH_TOKEN works here too. The day range is still process-local time (WORK-TODO #76)
 │       ├── gmail.js            # Gmail API integration: getRecentEmails, getEmailById, getEmailHeaders (read-only). Facade since 2026-10-05 (WORK-TODO #10): re-exports gmail-auth.js and gmail-message.js
 │       ├── gmail-auth.js       # Building the read-only Gmail client from the environment (service account or OAuth trio), reporting WHY when it cannot: createGmailClient, getGmailClient, hasCredentials
 │       ├── gmail-message.js    # A Gmail API message to the plain email object: MIME body extraction, HTML stripping, header lookup, prompt-injection sanitisation of body and snippet. Pure
@@ -894,6 +895,8 @@ slack-agent-bridge/
 │   ├── agent-channel-verbs.test.js # WORK-TODO #64 (safe half) and #49: isBareCommand's narrow shape, processConversation refusing a bare verb in an agent channel before any LLM call (the gate not lifted), and a bot's own post never reaching the natural-conversation path
 │   ├── command-router.test.js   # THE guard for the command table: it enumerates `async function handle*` from lib/command-router.js's and lib/command-renderers.js's own source and fails when one is not reachable from the table — a command that exists in code but not in the table. Also fails when a deterministic task is neither a registered verb nor an explicit NOT_COMMANDS entry, when a TASK_TEMPLATES name or an agent id is registered as a verb, and when help stops rendering from the table. Carries its own negative controls
 │   ├── command-renderers.test.js # That the handler enumeration really reads lib/command-renderers.js (every renderer reachable from the table, the table holding the same function objects) with two negative controls — an unregistered renderer is caught, and a router-only read would miss them — plus renderHelp
+│   ├── security-review-git.test.js # Tests for lib/security-review-git.js against REAL temp repositories: the 24-hour window (older commits and merges left out), the diff across the window, the initial-commit fallback, a non-repository is [], and a malformed repo is refused before git runs
+│   ├── google-calendar.test.js # Tests for lib/integrations/google-calendar.js over a mocked googleapis client, run against the three-copy code before the 2026-10-05 collapse: each window, the request shape, the event shape, the all-calendars merge order, every failure is [], and the regression test that GOOGLE_REFRESH_TOKEN alone configures it
 │   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
 │   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo argv/`--` separators, assertValidTargetDir rejections, deploy-key paths, cleanupDir, export surface)
 │   ├── undelivered-work.test.js # Tests for detectUndeliveredWork + processTask's delivery-gated cleanup (the regression guard for the three tasks lost to unconditional cleanup)
@@ -915,6 +918,7 @@ slack-agent-bridge/
 │   ├── file-size-gate.test.js # THE enumerating guard for the 300-line rule: green only when every over-limit file carries a recorded justification, red when a new one appears undeclared, and red when a declared entry has rotted. Carries its own negative controls, because both live assertions are "expect this list to be empty"
 │   ├── timezone-explicit.test.js # THE enumerating guard for the "no dependence on the process timezone" class: every non-test .js file must name timeZone/timezone at each toLocale*String, Intl.DateTimeFormat and cron.schedule call, and nothing may read process.env.TZ
 │   ├── time-format.test.js      # Tests for lib/time-format.js at the boundary hour in both DST phases, and THE enumerating guards for #33 (no `toISOString().split('T')`/`.slice(0, 10)` day key in production) and #32 (no inline bulletin-timestamp rendering), each with negative controls. Also the staff-task regression: state written at 21:30 Toronto is still today's at 21:30 Toronto
+│   ├── dependency-upgrade.test.js # The 2026-10-05 dependency move: the REAL @slack/web-api 8 client over an injected fetch still rejects with `err.data.error` (read at a dozen sites) and still redacts on the wire (an unguarded client as the negative control), and every production package in the lockfile admits the Node version the Dockerfile pins and the compose image's major (googleapis 180+ need Node 22), with negative controls
 │   ├── digest-sections.test.js  # CHARACTERISATION of the morning digest text (an empty day and a full day, pinned line by line; run against the pre-split code before the 2026-10-05 split), that a throwing section is skipped, the helpers that moved with it, and lib/integrations/weather.js via a mocked https.get
 │   ├── digest-failures.test.js  # Regression tests for WORK-TODO #31: an error that merely mentions a rate limit is not filed as one, and no digest line promises an automatic retry or re-queue that does not happen
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)

@@ -450,7 +450,9 @@ describe('lib/ modules load without errors', () => {
     // B13 adds command-router.js (over lib/command-renderers.js) and the two modules
     // morning-digest.js now requires, lib/digest-sections.js and lib/integrations/weather.js. Neither was in this list before, so a broken require
     // in a part would have reached production with smoke green. The parts are loaded
-    // through their facades, which is how every caller reaches them.
+    // through their facades, which is how every caller reaches them. B14 adds
+    // lib/security-review-git.js, which security-review.js (a cron script with no exports)
+    // now requires, so it is loaded directly.
     test.each([
         ['../lib/integrations/gmail', ['fetchRecentEmails', 'createGmailClient', 'transformEmail']],
         ['../lib/watercooler', ['runStandup', 'buildStandupPrompt', 'getLastStandupTime', 'isStandupCommand']],
@@ -462,6 +464,7 @@ describe('lib/ modules load without errors', () => {
         ['../lib/command-router', ['runCommand', 'parseCommand', 'isBareCommand', 'listVerbs']],
         ['../lib/digest-sections', ['buildDigest', 'loadJsonFile', 'isWithinLast24Hours']],
         ['../lib/integrations/weather', ['fetchWeather', 'decodeWeatherCode']],
+        ['../lib/security-review-git', ['cloneRepo', 'getRecentCommits', 'getDiff', 'getCommitLog', 'execCommand']],
     ])('%s loads through its split parts', (mod, names) => {
         const m = require(mod);
         for (const n of names) expect(typeof m[n]).toBe('function');

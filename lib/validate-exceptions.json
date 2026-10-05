@@ -190,11 +190,6 @@
       "reason": "JUSTIFIED. Under the limit on code (247). The length is the DEFAULT_RULES catalogue and the precedence documentation that makes agents/email-monitor/memory/rules.json readable as a specification."
     },
     {
-      "path": "security-review.js",
-      "lines_when_declared": 429,
-      "reason": "DEFERRED, and it belongs to a different item. Its private cloneRepo / execCommand / sendDM / postToOps duplicate behaviour already canonical elsewhere (docs/CANONICAL-HELPERS.md sections 1 and 2). The right cut is de-duplication under WORK-TODO #30, not a new module under a size pass."
-    },
-    {
       "path": "tests/clone-lifecycle.test.js",
       "lines_when_declared": 429,
       "reason": "JUSTIFIED, PROVISIONALLY. Test suite for lib/clone-lifecycle.js — cloneRepo argv and -- separators, assertValidTargetDir rejections, cleanupDir. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
@@ -243,11 +238,6 @@
       "path": "tests/staff-tasks.test.js",
       "lines_when_declared": 367,
       "reason": "JUSTIFIED, PROVISIONALLY. Test suite for lib/staff-tasks.js — assignments, escalations and daily tasks. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
-    },
-    {
-      "path": "lib/integrations/google-calendar.js",
-      "lines_when_declared": 367,
-      "reason": "JUSTIFIED, with the real fix named. Under the limit on code (225). Its length is six near-identical get{Today,Yesterday,Tomorrow}Events / getAll* pairs over one transformEvent; the fix is de-duplicating them into one range-parameterised call, which SHORTENS the file. Recorded here so a later pass does not 'split' it into two copies of the same code."
     },
     {
       "path": "lib/update-drain.js",

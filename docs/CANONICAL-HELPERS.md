@@ -356,7 +356,7 @@ grep -rnE "function truncate|\.slice\(0, *[0-9]{3,4}\)" --include='*.js' . \
 | `lib/llm-runner.js:118,400` | 2000 | head |
 | `lib/llm-runner.js:419,569,574,594,664,667,695` | 500 | head |
 | `bots/storefront.js:222` | 2000 | head |
-| `security-review.js:385` | 500 | head |
+| `security-review.js:245` | 500 | head |
 
 Head-only and head+tail are genuinely different — an error whose signal is in the last
 line survives one and not the other — but every caller is a display path and no
@@ -395,7 +395,7 @@ grep -rnE "isValid[A-Za-z]*\(|assertValid[A-Za-z]*\(" --include='*.js' . \
 
 **Canonical implementation: `lib/git-identifiers.js`.** Every consumer calls it and none
 re-derives a pattern: `lib/task-parser.js:139,161` (boundary),
-`lib/clone-lifecycle.js:128-130,241` (sink), `security-review.js:156,252`. Rejection
+`lib/clone-lifecycle.js:128-130,241` (sink), `lib/security-review-git.js:73` (`cloneRepo`) and `security-review.js:102` (`reviewRepo`). Rejection
 messages are generated from the same character lists the patterns use, guarded by
 `tests/git-identifiers.test.js`.
 
