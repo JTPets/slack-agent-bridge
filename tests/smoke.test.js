@@ -446,7 +446,9 @@ describe('lib/ modules load without errors', () => {
     });
 
     // LOGIC CHANGE 2026-10-05 (WORK-TODO #10): gmail.js, watercooler.js, approval-queue.js,
-    // staff-tasks.js, security-followup.js, agent-context.js and bridge-state.js became facades over new modules. Neither was in this list before, so a broken require
+    // staff-tasks.js, security-followup.js, agent-context.js and bridge-state.js became facades over new modules.
+    // B13 adds command-router.js (over lib/command-renderers.js) and the two modules
+    // morning-digest.js now requires, lib/digest-sections.js and lib/integrations/weather.js. Neither was in this list before, so a broken require
     // in a part would have reached production with smoke green. The parts are loaded
     // through their facades, which is how every caller reaches them.
     test.each([
@@ -457,6 +459,9 @@ describe('lib/ modules load without errors', () => {
         ['../lib/security-followup', ['processSecurityBulletin', 'parseFindings', 'wasRecentlyCreated']],
         ['../lib/agent-context', ['buildEnrichedPrompt', 'buildSecretaryContext', 'buildJesterContext', 'formatEventsForPrompt']],
         ['../lib/bridge-state', ['init', 'markTaskProcessed', 'getChannelId', 'setActivation']],
+        ['../lib/command-router', ['runCommand', 'parseCommand', 'isBareCommand', 'listVerbs']],
+        ['../lib/digest-sections', ['buildDigest', 'loadJsonFile', 'isWithinLast24Hours']],
+        ['../lib/integrations/weather', ['fetchWeather', 'decodeWeatherCode']],
     ])('%s loads through its split parts', (mod, names) => {
         const m = require(mod);
         for (const n of names) expect(typeof m[n]).toBe('function');

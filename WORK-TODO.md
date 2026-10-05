@@ -339,6 +339,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B10** | #10 file splits, by the boundaries its table names | Done 2026-10-05: `lib/integrations/gmail.js`, `lib/watercooler.js`, `lib/memory-tiers.js`, `lib/approval-queue.js` | the split modules, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves; facades keep every caller unchanged. `bridge-agent.js` stays excluded |
 | **B11** | #10 file splits, continued | Done 2026-10-05: `lib/staff-tasks.js`, `lib/security-followup.js`, `memory/memory-manager.js` | the split modules, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves; facades keep every caller unchanged |
 | **B12** | #10 wave plan, and its Wave 1 | Done 2026-10-05: the six-wave plan in #10; `lib/agent-context.js`, `bots/storefront.js`, `lib/bridge-state.js` | the split modules, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves, except that the storefront routes read the catalog flag through an accessor. Next is Wave 2 (command-router, morning-digest) |
+| **B13** | #10 Wave 2 | Done 2026-10-05: `lib/command-router.js` (renderers out, guard reads both files), `morning-digest.js` (characterised, then `lib/digest-sections.js` and `lib/integrations/weather.js` out) | the split modules, `tests/command-router.test.js`, `tests/command-renderers.test.js`, `tests/digest-sections.test.js`, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves, except `buildDigest` takes its memory dir as an option (default unchanged). Next is Wave 3 (security-review and google-calendar de-duplication), which changes behaviour and is reviewed one file at a time |
 | **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60, #49, #75 | — | Small code once chosen; listed so nobody dispatches them undecided |
 | **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
 
@@ -377,7 +378,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #34 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Documented in `CLAUDE.md`, `README.md`, `.env.example`; guard `tests/env-documented.test.js` |
 | #35 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Dissolved: recorded in `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 (a cap belongs on what reaches a prompt) |
 | #63 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Banner on `docs/AGENTS.md` → Memory Tiers, including the one-time legacy import; the writer question is `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 |
-| #10 | P2 | OPEN, B10-B12 splitting; wave plan in the item | — | L | 61 over (41 suites / 20 modules) after B12, all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
+| #10 | P2 | OPEN, B10-B13 splitting; wave plan in the item | — | L | 59 over (41 suites / 18 modules) after B13, all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
 | #44 | P2 | decision | OD | S | Figures refreshed in B4 (41 of 71) |
 | #5 | P2 | OPEN, speculative | SEED | L | Nothing built. Changes the execution model — park |
 | #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
@@ -2345,10 +2346,13 @@ auth to `gmail-auth.js`, MIME decoding and sanitisation to `gmail-message.js`) a
 `memory/memory-manager.js` (400 -> 137: `memory-store.js`, `memory-context.js`); in B12 (2026-10-05), Wave 1 of the plan below:
 `lib/agent-context.js` (472 -> 143: `agent-context-sources.js`, `agent-context-ops.js`, `agent-context-voices.js`),
 `bots/storefront.js` (519 -> 288: `storefront-session.js`, `storefront-records.js`, `storefront-prompt.js`) and
-`lib/bridge-state.js` (374 -> 100: `bridge-state-poll.js`, `bridge-state-workspace.js`). Each split file stays as a facade re-exporting every name it had;
+`lib/bridge-state.js` (374 -> 100: `bridge-state-poll.js`, `bridge-state-workspace.js`); in B13 (2026-10-05), Wave 2:
+`lib/command-router.js` (420 -> 298: the four report handlers and the help renderer to `command-renderers.js`) and
+`morning-digest.js` (406 -> 120: `lib/digest-sections.js`, `lib/integrations/weather.js`; it has no exports, so it is
+pinned by `tests/digest-sections.test.js`, not by the facade check). Each split file stays as a facade re-exporting every name it had;
 `tests/module-splits.test.js` fails if a facade drops a name or holds a copy instead of the moved function.
 
-**Source modules (20)**
+**Source modules (18)**
 
 | lines | code | file | disposition | reason |
 |------:|-----:|------|-------------|--------|
@@ -2365,11 +2369,9 @@ auth to `gmail-auth.js`, MIME decoding and sanitisation to `gmail-message.js`) a
 | 427 | 250 | `lib/slack-client.js` | justify | **Under the limit on code** (273). It is one factory closure (`createSlackClient`) plus channel-map persistence; a cut inside the factory would split a single object's methods across files. |
 | 422 | 268 | `security-review.js` | split (deferred) | Boundary: its private `cloneRepo`/`execCommand`/`sendDM`/`postToOps` are **duplicates** of behaviour already canonical elsewhere (`docs/CANONICAL-HELPERS.md` §1, §2; #30). The right cut is de-duplication, not a new module — it belongs to #30, not to a size pass. **2026-10-04:** #30 removed the `sendDM`/`postToOps` duplicates (`lib/slack-web.js`); `cloneRepo`/`execCommand` remain. |
 | 406 | 173 | `lib/notify-owner.js` | justify | More comment (176) than code (192). It was the **canonical destination** named by CANONICAL-HELPERS §1/§2. **2026-10-04:** #30 put the canonical post in `lib/slack-web.js` instead (it must be reachable by scripts that never call `notifyOwner.init`), and `notifyChannel` now delegates to it. |
-| 406 | 270 | `morning-digest.js` | split (deferred) | Boundary: `buildDigest` is a 190-line function assembling independent sections (weather, calendar, email, tasks, staff); each section builder is separable. |
 | 397 | 231 | `lib/email-rate-limiter.js` | justify | **Under the limit on code** (231). One sliding-window algorithm applied to three buckets; splitting per bucket triples the surface for a single algorithm. |
 | 387 | 229 | `lib/integrations/holidays.js` | split (deferred) | Boundary: the Nager.Date public-holiday client + cache vs. the hardcoded `PET_AWARENESS_DATES` calendar — two unrelated data domains. **Deferred:** both sides use `parseDate`/`formatDate`, and where a shared date helper lives has to be settled against CANONICAL-HELPERS' date rows (#32, #33) rather than decided by a size pass. |
 | 373 | 181 | `lib/update-drain.js` | justify | 62% comment over one small marker codec that mirrors `lib/task-lock.js`; the comments are the drain-one reasoning (no ceiling, heartbeat not deadline). Full reason in `lib/validate-exceptions.json`. |
-| 368 | 180 | `lib/command-router.js` | split (deferred) | The four inline renderers (help, status, agents, holidays) belong with the modules whose data they render, as the activation handlers already do; the table stays in one file. Full reason in `lib/validate-exceptions.json`. |
 | 367 | 225 | `lib/integrations/google-calendar.js` | justify | **Under the limit on code** (225). Its length is six near-identical `get{Today,Yesterday,Tomorrow}Events` / `getAll*` pairs over one `transformEvent`; the real fix is de-duplicating them into one range-parameterised call, which shortens the file rather than splitting it. Filed as the boundary here so a later pass does not "split" it into two copies of the same code. |
 | 347 | 158 | `lib/clone-lifecycle.js` | justify | **49% comment, 158 lines of code.** It was extracted 2026-09-14 as Seam A precisely to be one concern, and its comments carry the argv-array and delivery-detection reasoning that three lost tasks paid for. Splitting it would undo the seam to satisfy a line count. |
 
@@ -2418,7 +2420,9 @@ check (`tests/module-splits.test.js`) and the suites that call it.
 | `bots/storefront.js` | 519 | `storefront-session.js` (session map, the unref'd cleanup timer, `getOrCreateSession`, `sanitizeInput`); `storefront-records.js` (Slack logging, the delivery-quotes file); `storefront-prompt.js` (catalog init, `STOREFRONT_AGENT_CONFIG`, `buildPrompt`) | Express app, routes, `listen`, the dotenv-first line, all 13 exports | none in production (an entry point) | smoke checks dotenv first | Low-medium. It is the public HTTP entry point. `sessions` must stay the same Map, and the routes' read of `catalogInitialized` goes through an accessor. |
 | `lib/bridge-state.js` | 374 | `bridge-state-poll.js` (poll cursors, dedup, legacy migration); `bridge-state-workspace.js` (channel map, activation, the shared JSON codec) | `init()`, which forwards the path overrides to both parts and returns the facade; all 20 exports | 6 production modules plus `tests/helpers/workspace-fixture.js` | none | Low. `init` is the only shared entry. |
 
-**Wave 2 — one guard to extend, or a test to write first**
+**Wave 2 — one guard to extend, or a test to write first (DONE in B13, 2026-10-05)**
+
+As planned, with three differences. `renderHelp` moved to the renderers as well, because the router was still 314 lines without it; `handleHelp` stays in the router and passes it the table. `morning-digest.js` did **not** get a `require.main` guard: the characterisation test targets `lib/digest-sections.js` directly, so the entry script's behaviour is untouched (it still exits 1 with no token and runs `main()` when executed). And the test was run against the pre-split `buildDigest` (a scratch copy with `main()` removed) and passed before the cut, so it pins the old text, not the new. The router guard's second-file read is proven by `tests/command-renderers.test.js`, which carries the negative controls; `tests/command-router.test.js` had two lines of headroom under the limit and took only the read.
 
 | file | lines | targets (seam) | facade keeps | guards | risk |
 |------|------:|----------------|--------------|--------|------|

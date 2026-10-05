@@ -260,7 +260,7 @@ describe('lib/email-check', () => {
 
     describe('gmail.fetchRecentEmails verdict shape', () => {
         // Guards the contract lib/email-check.js depends on. getRecentEmails must
-        // keep its []-on-failure shape for morning-digest.js:368.
+        // keep its []-on-failure shape for lib/digest-sections.js buildDigest.
         it('exports both the verdict-carrying fetch and the legacy array fetch', () => {
             expect(typeof gmail.fetchRecentEmails).toBe('function');
             expect(typeof gmail.getRecentEmails).toBe('function');
