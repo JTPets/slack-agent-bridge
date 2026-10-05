@@ -445,13 +445,14 @@ describe('lib/ modules load without errors', () => {
         expect(Array.isArray(holidays.PET_AWARENESS_DATES)).toBe(true);
     });
 
-    // LOGIC CHANGE 2026-10-05 (WORK-TODO #10): gmail.js and watercooler.js became
-    // facades over new modules. Neither was in this list before, so a broken require
+    // LOGIC CHANGE 2026-10-05 (WORK-TODO #10): gmail.js, watercooler.js and
+    // approval-queue.js became facades over new modules. Neither was in this list before, so a broken require
     // in a part would have reached production with smoke green. The parts are loaded
     // through their facades, which is how every caller reaches them.
     test.each([
         ['../lib/integrations/gmail', ['fetchRecentEmails', 'createGmailClient', 'transformEmail']],
         ['../lib/watercooler', ['runStandup', 'buildStandupPrompt', 'getLastStandupTime', 'isStandupCommand']],
+        ['../lib/approval-queue', ['queueTask', 'approveTask', 'cleanup', 'formatPendingTasks']],
     ])('%s loads through its split parts', (mod, names) => {
         const m = require(mod);
         for (const n of names) expect(typeof m[n]).toBe('function');

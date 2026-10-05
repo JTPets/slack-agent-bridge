@@ -38,6 +38,30 @@ const SPLITS = [
             'AGENT_STANDUP_PROMPTS', 'DEFAULT_STANDUP_TYPE',
         ],
     },
+    {
+        facade: 'lib/memory-tiers.js',
+        parts: ['lib/memory-tiers-store.js', 'lib/memory-tiers-entries.js', 'lib/memory-tiers-maintenance.js'],
+        exports: [
+            'MEMORY_FILES', 'DEFAULT_SHORT_TERM_TTL', 'DEFAULT_LONG_TERM_DECAY_DAYS', 'AUTO_PROMOTE_THRESHOLD',
+            'createEntry', 'getAgentMemoryPath', 'ensureMemoryDir', 'loadMemoryFile', 'saveMemoryFile',
+            'isExpired', 'shouldDecay', 'addWorkingMemory', 'clearWorkingMemory', 'addShortTerm',
+            'promoteToLongTerm', 'addPermanent', 'getRelevantMemory', 'cleanupMemory', 'autoPromote',
+            'startupCleanup', 'migrateToTiers', 'touchEntry',
+        ],
+    },
+    {
+        facade: 'lib/approval-queue.js',
+        parts: ['lib/approval-queue-store.js', 'lib/approval-queue-decisions.js', 'lib/approval-queue-view.js'],
+        // init is wrapped on purpose: the store's init sets the path, the facade's
+        // returns the facade so `init(...).queueTask` keeps working.
+        wrapped: ['init'],
+        exports: [
+            'init', 'loadQueue', 'saveQueue', 'queueTask', 'getPendingTasks', 'getTaskById', 'approveTask',
+            'approveAllTasks', 'rejectTask', 'rejectAllTasks', 'cleanup', 'getStats', 'formatPendingTasks',
+            'formatTaskDetails', 'requiresApproval', 'clearQueue', 'DEFAULT_QUEUE_FILE',
+            'APPROVAL_REQUIRED_SOURCES', 'MAX_PENDING_AGE_MS',
+        ],
+    },
 ];
 
 const load = (rel) => require(path.join(__dirname, '..', rel));
@@ -49,6 +73,7 @@ function mismatches(split) {
     const out = [];
     for (const name of split.exports) {
         if (!(name in facade)) { out.push(`${name}: missing from ${split.facade}`); continue; }
+        if ((split.wrapped || []).includes(name)) continue;
         for (const part of parts) {
             if (name in part && typeof part[name] === 'function' && part[name] !== facade[name]) {
                 out.push(`${name}: facade and part export different functions`);
@@ -84,6 +109,24 @@ describe('the watercooler state-file override still reaches the code that reads 
             wc.init();
         }
         expect(wc.WATERCOOLER_STATE_FILE).toBe(wc.DEFAULT_WATERCOOLER_STATE_FILE);
+    });
+});
+
+describe('the approval-queue path override still reaches the store', () => {
+    test('init() through the facade returns the facade and moves the store path', () => {
+        const os = require('os');
+        const fs = require('fs');
+        const aq = load('lib/approval-queue.js');
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aq-split-'));
+        try {
+            const file = path.join(dir, 'q.json');
+            expect(aq.init({ queueFile: file })).toBe(aq);
+            aq.clearQueue();
+            expect(fs.existsSync(file)).toBe(true);
+        } finally {
+            aq.init({ queueFile: aq.DEFAULT_QUEUE_FILE });
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 });
 

@@ -80,11 +80,6 @@
       "reason": "JUSTIFIED, PROVISIONALLY. Test suite for lib/integrations/email-categorizer.js — categorisation and rules precedence. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
     },
     {
-      "path": "lib/approval-queue.js",
-      "lines_when_declared": 598,
-      "reason": "DEFERRED. Boundary named: the queue store vs. presentation (formatPendingTasks / formatTaskDetails / getTaskAge). WORK-TODO #10."
-    },
-    {
       "path": "tests/notify-owner.test.js",
       "lines_when_declared": 596,
       "reason": "JUSTIFIED, PROVISIONALLY. Test suite for lib/notify-owner.js — priority routing, secretary-vs-DM fallback and redaction. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
@@ -103,11 +98,6 @@
       "path": "lib/task-decomposer.js",
       "lines_when_declared": 579,
       "reason": "JUSTIFIED. Zero production callers (docs/WIRING-AND-SEAMS.md section 3) — reachable only from its own test. Splitting dead code multiplies unexecuted surface; the open decision is delete-or-wire, which is the owner's, not a split."
-    },
-    {
-      "path": "lib/memory-tiers.js",
-      "lines_when_declared": 570,
-      "reason": "DEFERRED. Boundary named: entry lifecycle plus file I/O vs. maintenance (cleanupMemory / autoPromote / startupCleanup / migrateToTiers). WORK-TODO #10."
     },
     {
       "path": "tests/slack-socket.test.js",
