@@ -29,7 +29,7 @@ Node.js Slack polling agent that monitors Slack channels for task messages and e
 ## Tech Stack
 
 - **Runtime**: Node.js 18+
-- **Slack SDK**: @slack/web-api ^7.0.0
+- **Slack SDK**: @slack/web-api ^8.2.0 (fetch transport since 2026-10-05; errors still carry `err.data.error`, proven by `tests/dependency-upgrade.test.js`)
 - **Process supervisor**: the container runtime (`restart: unless-stopped`). There is no PM2 and no process manager inside the `jt-agent` image.
 - **Timezone**: `America/Toronto`, named **explicitly at every site** — the code does
   not depend on the process timezone. No file reads `process.env.TZ`; every
@@ -915,6 +915,7 @@ slack-agent-bridge/
 │   ├── file-size-gate.test.js # THE enumerating guard for the 300-line rule: green only when every over-limit file carries a recorded justification, red when a new one appears undeclared, and red when a declared entry has rotted. Carries its own negative controls, because both live assertions are "expect this list to be empty"
 │   ├── timezone-explicit.test.js # THE enumerating guard for the "no dependence on the process timezone" class: every non-test .js file must name timeZone/timezone at each toLocale*String, Intl.DateTimeFormat and cron.schedule call, and nothing may read process.env.TZ
 │   ├── time-format.test.js      # Tests for lib/time-format.js at the boundary hour in both DST phases, and THE enumerating guards for #33 (no `toISOString().split('T')`/`.slice(0, 10)` day key in production) and #32 (no inline bulletin-timestamp rendering), each with negative controls. Also the staff-task regression: state written at 21:30 Toronto is still today's at 21:30 Toronto
+│   ├── dependency-upgrade.test.js # The 2026-10-05 dependency move: the REAL @slack/web-api 8 client over an injected fetch still rejects with `err.data.error` (read at a dozen sites) and still redacts on the wire (an unguarded client as the negative control), and every production package in the lockfile admits the Node version the Dockerfile pins and the compose image's major (googleapis 180+ need Node 22), with negative controls
 │   ├── digest-sections.test.js  # CHARACTERISATION of the morning digest text (an empty day and a full day, pinned line by line; run against the pre-split code before the 2026-10-05 split), that a throwing section is skipped, the helpers that moved with it, and lib/integrations/weather.js via a mocked https.get
 │   ├── digest-failures.test.js  # Regression tests for WORK-TODO #31: an error that merely mentions a rate limit is not filed as one, and no digest line promises an automatic retry or re-queue that does not happen
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)

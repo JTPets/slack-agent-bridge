@@ -422,11 +422,18 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 
 ### Not tracked anywhere
 
-`origin/dependabot/npm_and_yarn/slack/web-api-8.0.0` (`3cda991`) bumps `@slack/web-api`
-7 → 8 in `package.json` only, from a base 144 commits behind `main`, and does not touch the
-committed `package-lock.json`. It cannot merge as is. No item tracks it; a major bump may
-change the logger default #21 depends on. Recommend closing that PR and letting the next
-Dependabot run regenerate it against the lockfile.
+**Dependabot PRs #13 and #14 — done on the triage branch 2026-10-05 (B14), PRs to be closed.**
+`@slack/web-api` 7 → 8.2 (with `@slack/socket-mode` 3.1, which requires it) and `googleapis`
+171 → 178.0, made with the lockfile and the suite rather than merged from branches 189
+commits behind. Two findings: **googleapis 178.1.1 and every release from 180 require Node
+22**, and the image is Node 20, so the range is `~178.0.0` and
+`tests/dependency-upgrade.test.js` fails on any production package whose `engines` excludes
+the Node the Dockerfile pins (the suite runs on the developer's Node, so nothing else would
+notice). And web-api 8 kept `err.data.error`, which a dozen sites read; the same suite proves
+it, and the redaction, against the real client over an injected fetch. The #21 logger is
+passed explicitly, so v8's default does not reach it. **Not done: `dotenv` 17 → 18.** It is a
+rewrite that ships no changelog, every entry point loads it first, and Dependabot did not
+propose it; it waits for a changelog or its own change.
 
 **Secretary email intake — a candidate, not filed.** Per the owner (2026-10-02), email is
 the bridge's inbound data path: SqTools and other systems send the 6 am min/max audit,

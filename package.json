@@ -9,18 +9,19 @@
     "validate": "node lib/validate.js"
   },
   "dependencies": {
-    "@slack/socket-mode": "^3.0.1",
-    "@slack/web-api": "^7.0.0",
+    "@slack/socket-mode": "^3.1.0",
+    "@slack/web-api": "^8.2.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "fuse.js": "^7.1.0",
-    "googleapis": "^171.4.0",
+    "googleapis": "~178.0.0",
     "node-cron": "^4.2.1"
   },
   "devDependencies": {
-    "jest": "^30.3.0",
-    "supertest": "^7.2.2"
+    "jest": "^30.5.2",
+    "semver": "^7.8.5",
+    "supertest": "^7.3.1"
   },
   "jest": {
     "globalSetup": "<rootDir>/tests/helpers/live-state-setup.js",
