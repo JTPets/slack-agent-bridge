@@ -97,6 +97,37 @@ const SPLITS = [
             'migrateAgentMemory',
         ],
     },
+    {
+        facade: 'lib/agent-context.js',
+        parts: ['lib/agent-context-sources.js', 'lib/agent-context-ops.js', 'lib/agent-context-voices.js'],
+        exports: [
+            'buildEnrichedPrompt', 'buildAgentDataContext', 'buildSecretaryContext', 'buildSecurityContext',
+            'buildJesterContext', 'buildStoryBotContext', 'buildCodeAgentContext', 'buildGenericContext',
+            'formatEventsForPrompt', 'ANTI_HALLUCINATION_RULE',
+        ],
+    },
+    {
+        facade: 'bots/storefront.js',
+        parts: ['bots/storefront-session.js', 'bots/storefront-records.js', 'bots/storefront-prompt.js'],
+        exports: [
+            'app', 'getOrCreateSession', 'buildPrompt', 'sanitizeInput', 'cleanExpiredSessions', 'sessions',
+            'STOREFRONT_AGENT_CONFIG', 'loadDeliveryQuotes', 'saveDeliveryQuotes', 'logDeliveryQuoteToSlack',
+            'DELIVERY_QUOTES_FILE', 'initializeCatalog', 'catalogInitialized',
+        ],
+    },
+    {
+        facade: 'lib/bridge-state.js',
+        parts: ['lib/bridge-state-poll.js', 'lib/bridge-state-workspace.js'],
+        // init is wrapped on purpose: it forwards to both parts and returns the facade.
+        wrapped: ['init'],
+        exports: [
+            'init', 'loadState', 'saveState', 'getLastChecked', 'setLastChecked', 'loadProcessedTasks',
+            'saveProcessedTasks', 'isTaskProcessed', 'markTaskProcessed', 'cleanupProcessedTasks',
+            'loadChannelMap', 'saveChannelMap', 'getChannelId', 'setChannelId', 'loadActivations',
+            'getActivation', 'setActivation', 'clearActivation', 'DEFAULT_CHANNEL_MAP_FILE',
+            'DEFAULT_ACTIVATION_FILE',
+        ],
+    },
 ];
 
 const load = (rel) => require(path.join(__dirname, '..', rel));
@@ -177,6 +208,41 @@ describe('the approval-queue path override still reaches the store', () => {
             aq.init({ queueFile: aq.DEFAULT_QUEUE_FILE });
             fs.rmSync(dir, { recursive: true, force: true });
         }
+    });
+});
+
+describe('the bridge-state init() override reaches both halves', () => {
+    test('one init() through the facade moves all four paths and returns the facade', () => {
+        const os = require('os');
+        const fs = require('fs');
+        const bs = load('lib/bridge-state.js');
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bs-split-'));
+        const files = ['state', 'processed', 'channels', 'activation'].map((n) => path.join(dir, n + '.json'));
+        try {
+            const [stateFile, processedTasksFile, channelMapFile, activationFile] = files;
+            expect(bs.init({ stateFile, processedTasksFile, channelMapFile, activationFile })).toBe(bs);
+            bs.setLastChecked('C0SPLIT', '1.0');
+            bs.markTaskProcessed('2.0');
+            bs.setChannelId('split-test', 'C0SPLIT');
+            bs.setActivation('split-agent', true);
+            for (const f of files) expect(fs.existsSync(f)).toBe(true);
+            expect(bs.getChannelId('split-test')).toBe('C0SPLIT');
+            expect(bs.isTaskProcessed('2.0')).toBe(true);
+        } finally {
+            // The overrides stay pointed at the deleted temp dir. Jest gives each test
+            // file its own module registry, so no other suite sees them, and nothing in
+            // this file writes bridge state after this test.
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+});
+
+describe('the storefront catalog flag is read live, not copied at load', () => {
+    test('the facade exports the prompt module accessor itself', () => {
+        const sf = load('bots/storefront.js');
+        const prompt = load('bots/storefront-prompt.js');
+        expect(sf.catalogInitialized).toBe(prompt.isCatalogInitialized);
+        expect(sf.catalogInitialized()).toBe(false);
     });
 });
 
