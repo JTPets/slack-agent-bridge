@@ -1151,7 +1151,7 @@ code** (repository-verified, regenerable from any checkout):
 | Question | Answer | Site |
 |---|---|---|
 | Where does a dispatch's clone live? | `path.join(WORK_DIR, 'task-<ts>')` — a path **in this container** | `bridge-agent.js:646`, `lib/config.js:41` |
-| Where does the agent CLI run? | an ordinary **child process** of the bridge, `--dangerously-skip-permissions`, `cwd` = the clone | `lib/llm-runner.js:385` (argv `:369-374`), from `bridge-agent.js:896-897` with `cwd` set at `:648` |
+| Where does the agent CLI run? | an ordinary **child process** of the bridge, `--dangerously-skip-permissions`, `cwd` = the clone | `lib/llm-adapter-claude.js:87` (argv `:55-60`), from `bridge-agent.js:896-897` with `cwd` set at `:648` |
 | Does a dispatch run code before any review or test? | **yes** — the clone's own `npm ci`, i.e. the branch's dependency install scripts | `bridge-agent.js:660` → `lib/dependency-install.js:161` |
 | Is there a second container, or a route to one? | **no** | `grep -rn "docker\.sock\|dockerode" --include=*.js . \| grep -v node_modules` → nothing; `docs/COMMAND-SURFACE.md` §5 |
 

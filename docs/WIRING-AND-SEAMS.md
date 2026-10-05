@@ -235,7 +235,7 @@ this repository has ever implemented that, and the only OAuth scope requested is
 
 `runWithFallback` is the chain (try provider → on rate-limit/timeout/malformed, fall to
 the next). `runLLM` is a single provider attempt. **Both** record exactly one metrics
-verdict (`recordVerdict` at `lib/llm-runner.js:309,323` for `runLLM`; `:806,827,859,883`
+verdict (`recordVerdict` at `lib/llm-dispatch.js:72,86` for `runLLM`; `lib/llm-fallback.js:110,131,163,187`
 for `runWithFallback`), so the "every call is measured" claim in CLAUDE.md holds for
 both — the difference is *failover*, not *visibility*.
 
@@ -264,11 +264,11 @@ deliberately, and the reason is a security posture rather than an oversight.**
 `lib/weekly-critique.js` runs as the `jester` agent, whose definition
 (`agents/jester/agent.md`) **denies `file-system` and `github`**. The fallback chain can
 land on `claude`, and `runClaudeAdapter` spawns the CLI with
-`--dangerously-skip-permissions` in `cwd` (`lib/llm-runner.js:357`) — so an automatic
+`--dangerously-skip-permissions` in `cwd` (`lib/llm-adapter-claude.js:59`) — so an automatic
 fallback would hand the one agent explicitly denied file-system access a tool-capable
 engine, to save a weekly joke. It calls `runLLM` with the agent's resolved provider, and
 a provider failure is reported to `#sqtools-ops` instead of routed around. Visibility is
-unaffected: `runLLM` records a verdict too (`lib/llm-runner.js:309,323`), billed to
+unaffected: `runLLM` records a verdict too (`lib/llm-dispatch.js:72,86`), billed to
 `jester`. Defence in depth for an operator who pins him to claude on purpose:
 `maxTurns: 1` and a fresh empty temp dir as `cwd`, removed in a `finally`. Asserted in
 `tests/weekly-critique.test.js` → `describe('the call is one shot, on his provider, with

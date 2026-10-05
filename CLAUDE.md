@@ -118,7 +118,7 @@ exec(`claude --print "${message}"`); // NEVER DO THIS
 
 #### An argv array is not a place to put a prompt — MAX_ARG_STRLEN
 
-**LOGIC CHANGE 2026-09-20.** `runClaudeAdapter` (`lib/llm-runner.js`) passes the prompt on
+**LOGIC CHANGE 2026-09-20.** `runClaudeAdapter` (`lib/llm-adapter-claude.js`, exported through `lib/llm-runner.js`) passes the prompt on
 the child's **stdin**, not as the `-p` argv entry. Linux caps a **single argv entry** at
 `MAX_ARG_STRLEN` = `32 * PAGE_SIZE` = **131072 bytes**, independently of the much larger
 total argv/environ limit that `getconf ARG_MAX` reports. Exceeding it fails at `execve`
@@ -323,7 +323,7 @@ Fallback is meant to be invisible to the agent. Invisible to the *operator* is t
 
 ### Local LLM (Ollama) provider
 
-`runOllamaAdapter` in `lib/llm-runner.js` posts to Ollama's **native** `/api/chat` (not the OpenAI-compatible `/v1/chat/completions`), non-streaming, single-shot.
+`runOllamaAdapter` in `lib/llm-adapter-ollama.js` (exported through `lib/llm-runner.js`) posts to Ollama's **native** `/api/chat` (not the OpenAI-compatible `/v1/chat/completions`), non-streaming, single-shot.
 
 **Why native and not the OpenAI-compatible path:** the compat endpoint's request struct carries no `keep_alive` and no `options` field, so model residency and context size cannot be set per request — both are load-bearing on a memory-fenced Pi. Thinking control *is* reachable over compat (`reasoning_effort: "none"`), but `keep_alive`/`num_ctx` are not. **There is no `enable_thinking` field on either path** — Ollama's knob is `think`, which takes a boolean or one of `low`/`medium`/`high`/`max`.
 
@@ -739,7 +739,14 @@ slack-agent-bridge/
 │   ├── validate-exceptions.json # The declared exceptions to the 300-line limit: one { path, reason } per file allowed to exceed it. The source of truth for lib/file-size-gate.js — a file over the limit that is not in here fails the gate, and an entry that no longer describes reality fails it too. The full record behind each entry (category, disposition, the seam a deferred split would cut on) is WORK-TODO #10
 │   ├── heartbeat.js      # Per-task progress reactions on the source Slack message: createHeartbeat().start() adds :eyes: then cycles HEARTBEAT_EMOJIS every 30s; .stop(success) clears them and adds the terminal :white_check_mark:/:x: (null = none, the rate-limit case). Every Slack call is try/caught — a heartbeat failure can never fail a task
 │   ├── git-identifiers.js # Boundary validation for Slack-controlled REPO:/BRANCH: values (isValidRepo, isValidBranch, assertValid*); *_PUNCTUATION + describeCharset() generate the rejection messages from the same character lists the patterns use
-│   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, gemini, ollama), fallback chain, startup validation
+│   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, gemini, ollama), fallback chain, startup validation. Facade since 2026-10-05 (WORK-TODO #10): every name it exported, each the same object as in the seven modules below
+│   ├── llm-errors.js     # Rate-limit and bandwidth detection (isRateLimitError, the pattern lists), exit diagnostics (describeClaudeExit, signalFromExitCode), RateLimitError/BandwidthExhaustedError, and the fallback-reason tags
+│   ├── llm-defaults.js   # The LLM configuration read from the environment (provider, binary, turns, timeout, fallback chains, Ollama settings) and normalizeThink
+│   ├── llm-dispatch.js   # runLLM: one provider, one call, one recorded verdict. Its own module so lib/llm-fallback.js can call it without a require cycle through the facade
+│   ├── llm-adapter-claude.js # The Claude CLI adapter: prompt on stdin (MAX_ARG_STRLEN), the deadline kill and the 80% warning (WARN_AT_FRACTION)
+│   ├── llm-adapter-gemini.js # The Gemini adapter and its startup check, plus the OpenAI placeholder adapter
+│   ├── llm-adapter-ollama.js # The Ollama adapter (native /api/chat), its startup check and the reporting-only availability flag
+│   ├── llm-fallback.js   # resolveFallbackChain, providerAvailability and runWithFallback, the chain both LLM entry points in bridge-agent.js call
 │   ├── memory-tiers.js   # Tiered memory system: TTL expiry, auto-promote, cleanup, archive. Facade since 2026-10-05 (WORK-TODO #10) over the three modules below
 │   ├── memory-tiers-store.js # Tier file names, TTL constants, the entry shape, per-agent paths, tolerant load/save, isExpired/shouldDecay
 │   ├── memory-tiers-entries.js # Per-tier reads and writes for one agent: working, short-term (re-add counting), promotion, permanent context, getRelevantMemory, touchEntry
@@ -816,7 +823,10 @@ slack-agent-bridge/
 │       ├── email-categorizer.js # Email categorization by sender/subject patterns (vendor_deal, customer, newsletter, etc.)
 │       ├── email-sanitizer.js  # Email content sanitization: prompt injection protection for LLM-bound content
 │       ├── square-catalog.js   # Square Catalog API loader with a local cache file: loadCatalog serves from CATALOG_CACHE_FILE while it is younger than CATALOG_CACHE_TTL_MS, otherwise fetches from Square when SQUARE_ACCESS_TOKEN is set; refreshCatalog/getCatalogStatus/clearCache
-│       ├── holidays.js         # Canadian public holidays (Nager.Date API) and pet awareness dates
+│       ├── holidays.js         # Canadian public holidays (Nager.Date API) and pet awareness dates. Facade since 2026-10-05 (WORK-TODO #10) over the three modules below; keeps getTodaySpecialDates
+│       ├── holidays-public.js  # The Nager.Date client, its in-process cache and the Ontario filter: getTodayHoliday, getUpcomingHolidays, isHoliday, clearCache
+│       ├── pet-awareness.js    # The static pet-awareness date list and its lookups (today, active, upcoming)
+│       ├── local-date.js       # parseDate/formatDate for the holiday code. Process-local time, like the calendar day range (WORK-TODO #76)
 │       ├── weather.js          # Today's Hamilton forecast from Open-Meteo (no key): fetchWeather resolves null on any failure, never rejects; decodeWeatherCode. Moved out of morning-digest.js 2026-10-05 (WORK-TODO #10)
 │       └── httpsms.js          # httpSMS API wrapper: sendSMS, getMessages, registerWebhook (free SMS via Android)
 ├── memory/

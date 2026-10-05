@@ -37,7 +37,7 @@ property of the system rather than a property of that one function?**
 grep -rn "permissions\|denied" --include=*.js . | grep -v node_modules | grep -v '^./tests/'
 # -> morning-digest.js:225        the STRING 'permission denied' in an error matcher
 # -> lib/agent-create.js:73,74    WRITING the two fields into a new definition
-# -> lib/llm-runner.js:357        the flag --dangerously-skip-permissions
+# -> lib/llm-adapter-claude.js:59        the flag --dangerously-skip-permissions
 # -> lib/weekly-critique.js:31    a comment about that flag
 ```
 
@@ -100,7 +100,7 @@ defined containment relation, and this one has none and validates nothing.
 `jester` denies `file-system`, and `docs/JESTER-DESIGN.md` §4 records that
 `lib/weekly-critique.js` calls `runLLM` rather than `runWithFallback` **because** the chain
 can land on `claude`, whose adapter spawns a CLI with `--dangerously-skip-permissions`
-(`lib/llm-runner.js:357`). The denial did not stop that; a hand-written call-site decision,
+(`lib/llm-adapter-claude.js:59`). The denial did not stop that; a hand-written call-site decision,
 `maxTurns: 1` (`lib/weekly-critique.js:54`) and an empty temp `cwd` did. The security
 property is real and it is held by three lines of a module, not by the field that names it.
 
