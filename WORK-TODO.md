@@ -338,6 +338,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B8** | Small repo halves left after B7 | Done 2026-10-04: #62 (closed), #75 repo half. B9 (same day): `lib/repo-history.js` reads `Closes #N. Addresses #M` on one line as two claims, not two closes | `.gitignore`, `tests/gitignore-publishable.test.js`, `docker-compose.example.yml` | No runtime code |
 | **B10** | #10 file splits, by the boundaries its table names | Done 2026-10-05: `lib/integrations/gmail.js`, `lib/watercooler.js`, `lib/memory-tiers.js`, `lib/approval-queue.js` | the split modules, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves; facades keep every caller unchanged. `bridge-agent.js` stays excluded |
 | **B11** | #10 file splits, continued | Done 2026-10-05: `lib/staff-tasks.js`, `lib/security-followup.js`, `memory/memory-manager.js` | the split modules, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves; facades keep every caller unchanged |
+| **B12** | #10 wave plan, and its Wave 1 | Done 2026-10-05: the six-wave plan in #10; `lib/agent-context.js`, `bots/storefront.js`, `lib/bridge-state.js` | the split modules, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves, except that the storefront routes read the catalog flag through an accessor. Next is Wave 2 (command-router, morning-digest) |
 | **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60, #49, #75 | — | Small code once chosen; listed so nobody dispatches them undecided |
 | **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
 
@@ -376,7 +377,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #34 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Documented in `CLAUDE.md`, `README.md`, `.env.example`; guard `tests/env-documented.test.js` |
 | #35 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Dissolved: recorded in `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 (a cap belongs on what reaches a prompt) |
 | #63 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Banner on `docs/AGENTS.md` → Memory Tiers, including the one-time legacy import; the writer question is `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 |
-| #10 | P2 | OPEN, B10-B11 splitting | — | L | 64 over (41 suites / 23 modules) after B11, all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
+| #10 | P2 | OPEN, B10-B12 splitting; wave plan in the item | — | L | 61 over (41 suites / 20 modules) after B12, all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
 | #44 | P2 | decision | OD | S | Figures refreshed in B4 (41 of 71) |
 | #5 | P2 | OPEN, speculative | SEED | L | Nothing built. Changes the execution model — park |
 | #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
@@ -2258,7 +2259,7 @@ is ever to act on the NAS, the capability is an allowlist, not a shell).
 ### 10. Split the god-files that break the repo's own 300-line rule
 **Filed 2026-09-13** (derived: `20dc049`).
 **Problem:** The repo enforces a 300-line-per-file rule (`lib/validate.js`, `MAX_LINES = 300`)
-and **64** `.js` files exceed it (2026-10-05, after B11; regenerate with the command below). Until 2026-09-15 the gate was **unconditionally red**, so a
+and **61** `.js` files exceed it (2026-10-05, after B12; regenerate with the command below). Until 2026-09-15 the gate was **unconditionally red**, so a
 new violation could not be told apart from the standing ones without diffing path lists by
 hand — that happened twice in the week of 2026-09-08. The exceptions had never been examined.
 
@@ -2341,10 +2342,13 @@ auth to `gmail-auth.js`, MIME decoding and sanitisation to `gmail-message.js`) a
 `approval-queue-decisions.js`, `approval-queue-view.js`); in B11 (2026-10-05) `lib/staff-tasks.js` (741 -> 83:
 `staff-tasks-store.js`, `staff-tasks-time.js`, `staff-tasks-slack.js`, `staff-tasks-commands.js`),
 `lib/security-followup.js` (547 -> 285: `security-findings.js`, `security-followup-dedup.js`) and
-`memory/memory-manager.js` (400 -> 137: `memory-store.js`, `memory-context.js`). Each split file stays as a facade re-exporting every name it had;
+`memory/memory-manager.js` (400 -> 137: `memory-store.js`, `memory-context.js`); in B12 (2026-10-05), Wave 1 of the plan below:
+`lib/agent-context.js` (472 -> 143: `agent-context-sources.js`, `agent-context-ops.js`, `agent-context-voices.js`),
+`bots/storefront.js` (519 -> 288: `storefront-session.js`, `storefront-records.js`, `storefront-prompt.js`) and
+`lib/bridge-state.js` (374 -> 100: `bridge-state-poll.js`, `bridge-state-workspace.js`). Each split file stays as a facade re-exporting every name it had;
 `tests/module-splits.test.js` fails if a facade drops a name or holds a copy instead of the moved function.
 
-**Source modules (23)**
+**Source modules (20)**
 
 | lines | code | file | disposition | reason |
 |------:|-----:|------|-------------|--------|
@@ -2354,10 +2358,8 @@ auth to `gmail-auth.js`, MIME decoding and sanitisation to `gmail-message.js`) a
 | 761 | 357 | `lib/task-queue.js` | justify | One state machine over one file. **Corrected 2026-10-04:** this row said "under the limit on code (296)"; it is 357 code lines now, so that half of the justification is false. What remains true: the length is the `markRunning`, `completionSeq` and delivery-verdict history in comments, and the store has one owner. A split would cut on terminal-writers vs. readers (`getRecentCompleted`, `getStatus`); deferred, not justified. |
 | 614 | 263 | `lib/task-parser.js` | split (deferred) | Boundary: task-message parsing vs. the ASK-command recognisers (`isStatusQuery` … `parseShowTaskCommand`), which belong in Seam C's `lib/ask-commands.js` alongside the handlers they gate. **Deferred deliberately** so recogniser and handler move in one change. Also under the limit on code (224). |
 | 579 | 398 | `lib/task-decomposer.js` | justify | **Zero production callers** (WIRING-AND-SEAMS §3) — reachable only from its own test. Splitting dead code multiplies unexecuted surface. The open decision is delete-or-wire, which is the owner's, not a split. |
-| 519 | 349 | `bots/storefront.js` | split (deferred) | Boundary: Express routes vs. session store vs. prompt building. It is also the one entry point serving public HTTP, so its routes deserve isolation on security grounds, not only size. |
 | 498 | 270 | `lib/integrations/email-categorizer.js` | justify | **Under the limit on code** (247). The file's length is the `DEFAULT_RULES` catalogue and the precedence documentation that makes `rules.json` readable as a specification. |
 | 476 | 293 | `lib/code-review-pipeline.js` | justify | Three phases of one pipeline, and **under the limit on code** (293). The phases share the `context` object; splitting them puts one data structure's producers and consumers in three files. |
-| 472 | 297 | `lib/agent-context.js` | split (deferred) | Boundary: one context builder per persona (`buildSecretaryContext`, `buildSecurityContext`, `buildJesterContext`, `buildStoryBotContext`, `buildCodeAgentContext`); they share nothing but the anti-hallucination preamble. |
 | 470 | 258 | `lib/bulletin-board.js` | justify | **Under the limit on code** (247). Store plus its two renderers over one JSON file; the renderers exist to keep bulletin formatting from being re-derived per caller, which is the defect CANONICAL-HELPERS §32 records. |
 | 470 | 282 | `lib/integrations/email-sanitizer.js` | justify | **Under the limit on code** (282). 130 lines are the `INJECTION_PATTERNS` catalogue and the rationale for each pattern — a security-relevant enumeration whose comments are the point. |
 | 427 | 250 | `lib/slack-client.js` | justify | **Under the limit on code** (273). It is one factory closure (`createSlackClient`) plus channel-map persistence; a cut inside the factory would split a single object's methods across files. |
@@ -2366,7 +2368,6 @@ auth to `gmail-auth.js`, MIME decoding and sanitisation to `gmail-message.js`) a
 | 406 | 270 | `morning-digest.js` | split (deferred) | Boundary: `buildDigest` is a 190-line function assembling independent sections (weather, calendar, email, tasks, staff); each section builder is separable. |
 | 397 | 231 | `lib/email-rate-limiter.js` | justify | **Under the limit on code** (231). One sliding-window algorithm applied to three buckets; splitting per bucket triples the surface for a single algorithm. |
 | 387 | 229 | `lib/integrations/holidays.js` | split (deferred) | Boundary: the Nager.Date public-holiday client + cache vs. the hardcoded `PET_AWARENESS_DATES` calendar — two unrelated data domains. **Deferred:** both sides use `parseDate`/`formatDate`, and where a shared date helper lives has to be settled against CANONICAL-HELPERS' date rows (#32, #33) rather than decided by a size pass. |
-| 374 | 185 | `lib/bridge-state.js` | split (deferred) | Single owner of the four local state files. The seam is by file — poll cursors + dedup vs. channel map + activation — and is worth cutting only when a consumer needs one half alone. Full reason in `lib/validate-exceptions.json`. |
 | 373 | 181 | `lib/update-drain.js` | justify | 62% comment over one small marker codec that mirrors `lib/task-lock.js`; the comments are the drain-one reasoning (no ceiling, heartbeat not deadline). Full reason in `lib/validate-exceptions.json`. |
 | 368 | 180 | `lib/command-router.js` | split (deferred) | The four inline renderers (help, status, agents, holidays) belong with the modules whose data they render, as the activation handlers already do; the table stays in one file. Full reason in `lib/validate-exceptions.json`. |
 | 367 | 225 | `lib/integrations/google-calendar.js` | justify | **Under the limit on code** (225). Its length is six near-identical `get{Today,Yesterday,Tomorrow}Events` / `getAll*` pairs over one `transformEvent`; the real fix is de-duplicating them into one range-parameterised call, which shortens the file rather than splitting it. Filed as the boundary here so a later pass does not "split" it into two copies of the same code. |
@@ -2386,6 +2387,80 @@ blanket rule. One has a boundary worth naming now:
 
 The remaining 40, each justified as the suite for the subject named:
 `tests/task-parser.test.js` (860), `tests/task-queue.test.js` (704), `tests/retry-logic.test.js` (685), `tests/security-followup.test.js` (643), `tests/approval-queue.test.js` (638), `tests/integration.test.js` (638), `tests/auto-update-restart.test.js` (613), `tests/task-decomposer.test.js` (610), `tests/email-categorizer.test.js` (603), `tests/slack-client.test.js` (598), `tests/notify-owner.test.js` (596), `tests/email-sanitizer.test.js` (582), `tests/memory-tiers.test.js` (579), `tests/slack-socket.test.js` (565), `tests/holidays.test.js` (564), `tests/watercooler.test.js` (549), `tests/auto-update-defer.test.js` (544), `tests/config.test.js` (539), `tests/gmail.test.js` (512), `tests/agent-registry.test.js` (504), `tests/smoke.test.js` (498), `tests/storefront.test.js` (479), `tests/bulletin-board.test.js` (453), `tests/owner-tasks.test.js` (451), `tests/bug-fixes.test.js` (448), `tests/email-rate-limiter.test.js` (445), `tests/agent-context.test.js` (439), `tests/clone-lifecycle.test.js` (429), `tests/agent-scheduler.test.js` (408), `tests/code-review-pipeline.test.js` (400), `tests/update-drain.test.js` (393), `tests/task-delivery-signal.test.js` (389), `tests/staff-tasks.test.js` (363), `tests/agent-activation.test.js` (361), `tests/multi-channel-routing.test.js` (359), `tests/dispatch-modal.test.js` (339), `tests/message-detection.test.js` (319), `tests/task-agent-identity.test.js` (308), `tests/undelivered-work.test.js` (304), `tests/dispatch-message.test.js` (301).
+
+#### The wave plan — every remaining source module, grouped so a wave runs as one batch
+
+**Written 2026-10-05 (B12), from the measurement above at `5cd6fb9`.** It gives each remaining
+over-limit source module its seams, its target files, what the front file (facade) keeps, who
+depends on it, and the risk. The files are then grouped into waves. The line ranges come from a
+top-level parse of each file. Regenerate them with the `node -e` list command above and
+`grep -n '^function\|^async function\|^class' <file>`.
+
+**Why the waves are one branch each, and not parallel branches.** Every split edits the same
+five bookkeeping files: `lib/validate-exceptions.json`, `tests/module-splits.test.js` (SPLITS),
+`tests/smoke.test.js`, the CLAUDE.md tree and this item. Two branches that each split a
+different file would still conflict in all five. So:
+- Inside a wave, the source files are separate and each facade keeps its consumers unchanged, so
+  each file can be cut by its own worker at the same time.
+- The bookkeeping is applied once, at the end, on one branch.
+- The waves themselves run one after another.
+
+**What makes a file harder.** A file is harder when a guard reads its source text, because that
+guard has to follow the moved code in the same change, together with its negative control. The
+"guards" column below names each case. A file no guard reads only needs the facade identity
+check (`tests/module-splits.test.js`) and the suites that call it.
+
+**Wave 1 — clean seams, no source-reading guard, no owner decision (DONE in B12, 2026-10-05; kept here as the worked example)**
+
+| file | lines | targets (seam) | facade keeps | dependents | guards | risk |
+|------|------:|----------------|--------------|------------|--------|------|
+| `lib/agent-context.js` | 472 | `agent-context-sources.js` (the three degraded-mode requires, `ANTI_HALLUCINATION_RULE`, `formatEventsForPrompt`); `agent-context-ops.js` (secretary, security and code-agent builders); `agent-context-voices.js` (jester, story-bot and generic builders) | `buildAgentDataContext`, `buildEnrichedPrompt`, all 10 exports | `bridge-agent.js`, `lib/weekly-critique.js` | none (timezone guard scans every file anyway) | Low. The degraded-mode fallback must stay in one place, and the suite's `jest.mock` calls are registry-wide, so they reach the new files. |
+| `bots/storefront.js` | 519 | `storefront-session.js` (session map, the unref'd cleanup timer, `getOrCreateSession`, `sanitizeInput`); `storefront-records.js` (Slack logging, the delivery-quotes file); `storefront-prompt.js` (catalog init, `STOREFRONT_AGENT_CONFIG`, `buildPrompt`) | Express app, routes, `listen`, the dotenv-first line, all 13 exports | none in production (an entry point) | smoke checks dotenv first | Low-medium. It is the public HTTP entry point. `sessions` must stay the same Map, and the routes' read of `catalogInitialized` goes through an accessor. |
+| `lib/bridge-state.js` | 374 | `bridge-state-poll.js` (poll cursors, dedup, legacy migration); `bridge-state-workspace.js` (channel map, activation, the shared JSON codec) | `init()`, which forwards the path overrides to both parts and returns the facade; all 20 exports | 6 production modules plus `tests/helpers/workspace-fixture.js` | none | Low. `init` is the only shared entry. |
+
+**Wave 2 — one guard to extend, or a test to write first**
+
+| file | lines | targets (seam) | facade keeps | guards | risk |
+|------|------:|----------------|--------------|--------|------|
+| `lib/command-router.js` | 420 | `command-renderers.js` (`handleStatus`, `handleAgents`, `handleHolidays`, `handleChannels`) | the `COMMANDS` table, `handleHelp` (it renders the table), `handleScheduledTask`, parse, run, list | `tests/command-router.test.js` enumerates `async function handle*` in the router's own source, so it must enumerate router plus renderers. `tests/weekly-critique-gating.test.js` requires that only the router and the catalogue name the task, so `handleScheduledTask` stays. | Medium, because of the guard change. Needs a negative control: a renderer the table cannot reach must still fail. |
+| `morning-digest.js` | 406 | `lib/integrations/weather.js` (`WEATHER_API_URL`, `decodeWeatherCode`, `fetchWeather`, which also unblocks a `weather` verb); `lib/digest-sections.js` (event formatting, `loadJsonFile`, `isWithinLast24Hours`, and the sections of the 158-line `buildDigest`) | `main()`, the dotenv-first line | none. It has **no exports and no tests**, and it calls `main()` when required. | Medium. Cutting `buildDigest` into sections is a refactor, not a move. First guard `main()` with `require.main === module`, then write a characterisation test of the digest text, then cut. |
+
+**Wave 3 — de-duplication; behaviour-touching, so review each one**
+
+| file | lines | change | risk |
+|------|------:|--------|------|
+| `security-review.js` | 422 | Replace the private `cloneRepo`/`execCommand` with `lib/clone-lifecycle.js` and an argv-array helper (CANONICAL-HELPERS §1/§2, the #30 class). That is a size fix, not a split. | Medium. A cron script that the suite only smoke-loads. |
+| `lib/integrations/google-calendar.js` | 367 | Collapse the three range builders and six fetchers into one range-parameterised pair, keeping the nine exported names as thin wrappers. The file gets shorter; it is not split. | Low-medium. Covered by `tests/agent-context.test.js` and `tests/integration.test.js` through the mocked client only. |
+
+**Wave 4 — each waits on an owner decision or a guard redesign; do them one at a time**
+
+| file | lines | targets (seam) | what it waits on |
+|------|------:|----------------|------------------|
+| `lib/llm-runner.js` (+ `tests/llm-runner.test.js`, 1864) | 1183 | `llm-errors.js` (rate-limit and bandwidth detection, error classes, exit-signal description, fallback-reason tags); `llm-adapter-claude.js`; `llm-adapter-ollama.js`; `llm-adapter-gemini.js` (plus the openai stub); `llm-fallback.js` (`resolveFallbackChain`, `providerAvailability`, `runWithFallback`, both startup validators). The facade keeps `runLLM` and every export. The suite splits along the same lines in the same change. | The owner's go-ahead. It has 18 consumers, the highest risk here. WIRING-AND-SEAMS §4 pins who is on the fallback chain and must not change. `tests/integration.test.js` reads this file's source for the `runWithFallback` wiring. The two real-spawn suites (prompt size, deadline) must follow `runClaudeAdapter`. |
+| `lib/task-parser.js` | 620 | The ASK recognisers (`isStatusQuery` … `parseShowTaskCommand`, `isNaturalConversationMessage`) move to `lib/ask-commands.js` with Seam C's handlers from `bridge-agent.js`. | Lifting the `bridge-agent.js` exclusion for Seam C. `tests/task-parser.test.js` reads this file's source for its anti-drift guards. |
+| `auto-update.js` | 995 | `lib/update-git.js` (`runGit` … `npmInstall`); `lib/update-deferral.js` (`checkTaskQueue`, `evaluateTaskDeferral`); `lib/update-state.js` (`loadState`, `saveState`) | #17. If the daemon is deleted rather than started, the file leaves the list with no split. |
+| `lib/integrations/holidays.js` | 387 | `holidays-public.js` (Nager client, cache, Ontario filter); `pet-awareness.js`. `parseDate`/`formatDate` go to `lib/time-format.js`. | Checking those two against CANONICAL-HELPERS' date rows (#32, #33). |
+| `lib/task-decomposer.js` | 579 | none | The owner's delete-or-wire decision. It has zero production callers. |
+| `lib/task-queue.js` | 790 | `task-queue-delivery.js` (`normalizeDelivery`, `deliveryRecorded`); the readers (`getRecentCompleted`, `getStatus`, the module-level `getQueueStatus`) go to `task-queue-view.js` as a prototype mixin. All terminal writers stay in `task-queue.js`. | A guard redesign. `tests/task-queue-delivery-invariant.test.js` and `tests/task-queue-lifecycle.test.js` walk this file's source. Splitting a class this way is the least mechanical cut on the list. |
+| `bridge-agent.js` | 2868 | Seams C, D and E (WIRING-AND-SEAMS §6) | Its own exclusion. Seam C pairs with `lib/task-parser.js` above. |
+
+**Wave 5 — the files under 300 lines of code; this wave depends on #44**
+
+`lib/integrations/email-categorizer.js`, `lib/code-review-pipeline.js`,
+`lib/bulletin-board.js`, `lib/integrations/email-sanitizer.js`, `lib/slack-client.js`,
+`lib/notify-owner.js`, `lib/email-rate-limiter.js`, `lib/update-drain.js` and
+`lib/clone-lifecycle.js`.
+- If #44 decides to count code lines, these leave the list with no split.
+- If #44 keeps raw lines, each is cut on the boundary its row in the table above names. Two of
+  those cuts are guarded by source reads:
+  - `lib/code-review-pipeline.js`: `tests/code-review-pipeline.test.js` and
+    `tests/test-gate-honesty.test.js`.
+  - `lib/clone-lifecycle.js`: `tests/clone-lifecycle.test.js`, `tests/undelivered-work.test.js`
+    and `tests/no-shell-execution.test.js`.
+
+**Wave T — the 41 test suites, after #44.** If the rule is scoped out of `tests/`, there is
+nothing to do. Otherwise each suite splits by its top-level `describe`, one file per subject.
+`tests/llm-runner.test.js` moves with Wave 4, not here.
 
 **Fix:** work the source-module table top-down, cheapest first, each extraction on the named
 boundary and each keeping `node -e "require('./bridge-agent.js')"` green (the CLAUDE.md

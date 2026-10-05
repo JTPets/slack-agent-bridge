@@ -446,7 +446,7 @@ describe('lib/ modules load without errors', () => {
     });
 
     // LOGIC CHANGE 2026-10-05 (WORK-TODO #10): gmail.js, watercooler.js, approval-queue.js,
-    // staff-tasks.js and security-followup.js became facades over new modules. Neither was in this list before, so a broken require
+    // staff-tasks.js, security-followup.js, agent-context.js and bridge-state.js became facades over new modules. Neither was in this list before, so a broken require
     // in a part would have reached production with smoke green. The parts are loaded
     // through their facades, which is how every caller reaches them.
     test.each([
@@ -455,6 +455,8 @@ describe('lib/ modules load without errors', () => {
         ['../lib/approval-queue', ['queueTask', 'approveTask', 'cleanup', 'formatPendingTasks']],
         ['../lib/staff-tasks', ['createTask', 'getOverdueTasks', 'parseAssignCommand', 'isStoreHours']],
         ['../lib/security-followup', ['processSecurityBulletin', 'parseFindings', 'wasRecentlyCreated']],
+        ['../lib/agent-context', ['buildEnrichedPrompt', 'buildSecretaryContext', 'buildJesterContext', 'formatEventsForPrompt']],
+        ['../lib/bridge-state', ['init', 'markTaskProcessed', 'getChannelId', 'setActivation']],
     ])('%s loads through its split parts', (mod, names) => {
         const m = require(mod);
         for (const n of names) expect(typeof m[n]).toBe('function');

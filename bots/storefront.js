@@ -10,6 +10,11 @@
  * LOGIC CHANGE 2026-03-27: Initial implementation of storefront chat bot.
  * Uses lib/llm-runner.js for Claude integration with storefront agent config.
  * Logs all conversations to #store-inbox Slack channel.
+ *
+ * LOGIC CHANGE 2026-10-05 (WORK-TODO #10): split on the boundary #10 named. Sessions are in
+ * bots/storefront-session.js, Slack logging and delivery quotes in bots/storefront-records.js,
+ * and the catalog, persona and prompt in bots/storefront-prompt.js. This file keeps the
+ * Express app, its routes and the listen, and re-exports every name it exported before.
  */
 
 require('dotenv').config();
@@ -17,274 +22,37 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const fs = require('fs').promises;
 const crypto = require('crypto');
-// LOGIC CHANGE 2026-10-04 (WORK-TODO #30, #21): every Slack client is built by lib/slack-web.js,
-// which redacts secrets out of every chat.* post and drops the already_in_channel warning.
-const { createWebClient } = require('../lib/slack-web');
 const { runLLM } = require('../lib/llm-runner');
-// LOGIC CHANGE 2026-03-27: Added catalog search for product recommendations
-const { initCatalog, searchCatalog, getCatalogStats } = require('../lib/integrations/catalog-search');
-const { loadCatalog } = require('../lib/integrations/square-catalog');
+const { searchCatalog } = require('../lib/integrations/catalog-search');
+const {
+    sessions,
+    cleanExpiredSessions,
+    getOrCreateSession,
+    sanitizeInput,
+} = require('./storefront-session');
+const {
+    DELIVERY_QUOTES_FILE,
+    logToSlack,
+    loadDeliveryQuotes,
+    saveDeliveryQuotes,
+    logDeliveryQuoteToSlack,
+} = require('./storefront-records');
+const {
+    initializeCatalog,
+    isCatalogInitialized,
+    STOREFRONT_AGENT_CONFIG,
+    buildPrompt,
+} = require('./storefront-prompt');
 
 // Configuration
 const PORT = parseInt(process.env.STOREFRONT_PORT || '3001', 10);
-const STORE_INBOX_CHANNEL_ID = process.env.STORE_INBOX_CHANNEL_ID || 'C0APPBSAP4H';
 const ALLOWED_ORIGINS = (process.env.STOREFRONT_ALLOWED_ORIGINS || 'http://localhost:3000,https://jtpets.ca').split(',');
-
-// LOGIC CHANGE 2026-03-27: Delivery quotes storage file path
-const DELIVERY_QUOTES_FILE = process.env.DELIVERY_QUOTES_FILE || path.join(__dirname, '..', 'data', 'delivery-quotes.json');
-
-// LOGIC CHANGE 2026-03-27: Session storage for conversation context.
-// Maps session IDs to conversation history. Sessions expire after 1 hour.
-const SESSION_TTL_MS = parseInt(process.env.STOREFRONT_SESSION_TTL_MS || '3600000', 10);
-const sessions = new Map();
-
-// Slack client for logging
-let slackClient = null;
-if (process.env.SLACK_BOT_TOKEN) {
-    slackClient = createWebClient(process.env.SLACK_BOT_TOKEN);
-}
-
-// ---- Catalog initialization ----
-
-// LOGIC CHANGE 2026-03-27: Initialize catalog on startup for product search
-let catalogInitialized = false;
-
-async function initializeCatalog() {
-    try {
-        console.log('[storefront] Loading product catalog...');
-        const items = await loadCatalog();
-        if (items.length > 0) {
-            initCatalog(items);
-            catalogInitialized = true;
-            const stats = getCatalogStats();
-            console.log(`[storefront] Catalog initialized: ${stats.itemCount} products, ${stats.categories} categories`);
-        } else {
-            console.log('[storefront] No catalog items available');
-        }
-    } catch (err) {
-        console.error('[storefront] Failed to initialize catalog:', err.message);
-    }
-}
 
 // LOGIC CHANGE 2026-03-27: Only initialize catalog when running as main process
 // to avoid async operations during test imports
 if (require.main === module) {
     initializeCatalog();
-}
-
-// Storefront agent configuration from agents.json
-const STOREFRONT_AGENT_CONFIG = {
-    name: 'Storefront Agent',
-    role: 'Customer-facing AI for product inquiries, nutrition consults, order creation',
-    maxTurns: 15,
-    systemPrompt: `You are the Storefront Agent for JT Pets, a premium pet food store in Toronto.
-You help customers with product inquiries, provide pet nutrition consultations, and assist with order creation.
-
-Guidelines:
-- Be friendly, warm, and approachable
-- Be knowledgeable about pet nutrition, dietary needs, and product benefits
-- Recommend products based on pet age, breed, and health conditions
-- Be helpful and patient, always prioritize pet wellbeing
-- Keep responses concise but informative
-- If asked about pricing or availability, let customers know they can visit the store or call for current details
-- Never share internal business information or make promises about delivery times
-
-Store Information:
-- Name: JT Pets
-- Location: Toronto, Ontario
-- Specialization: Premium pet food and nutrition
-- Services: Pet nutrition consultations, custom diet recommendations`,
-};
-
-/**
- * Clean expired sessions periodically.
- */
-function cleanExpiredSessions() {
-    const now = Date.now();
-    for (const [sessionId, session] of sessions.entries()) {
-        if (now - session.lastActivity > SESSION_TTL_MS) {
-            sessions.delete(sessionId);
-        }
-    }
-}
-
-// Run session cleanup every 5 minutes.
-// .unref() so this module-scope timer does not pin the Node event loop open.
-// Without it, `require('bots/storefront')` keeps the process alive forever:
-// tests/smoke.test.js require()s this module and jest hung after the suite passed
-// ("Jest did not exit one second after the test run has completed"), which blocked
-// wiring `npm run test:smoke` into the self-update gate. .unref() lets the process
-// exit when this timer is the only thing left, while a real server stays alive on
-// its HTTP listener and the cleanup keeps running. See WORK-TODO.md item 1.
-const sessionCleanupTimer = setInterval(cleanExpiredSessions, 5 * 60 * 1000);
-sessionCleanupTimer.unref();
-
-/**
- * Get or create a session.
- * @param {string} sessionId - Session ID
- * @returns {Object} Session object with history array
- */
-function getOrCreateSession(sessionId) {
-    if (!sessions.has(sessionId)) {
-        sessions.set(sessionId, {
-            id: sessionId,
-            history: [],
-            lastActivity: Date.now(),
-            createdAt: Date.now(),
-        });
-    }
-    const session = sessions.get(sessionId);
-    session.lastActivity = Date.now();
-    return session;
-}
-
-/**
- * Build a prompt from conversation history.
- * @param {Array} history - Array of { role, content } messages
- * @param {string} userMessage - Current user message
- * @param {Array} [productMatches] - Optional array of matching products from catalog search
- * @returns {string} Formatted prompt for the LLM
- */
-function buildPrompt(history, userMessage, productMatches = []) {
-    let prompt = STOREFRONT_AGENT_CONFIG.systemPrompt + '\n\n';
-
-    // LOGIC CHANGE 2026-03-27: Include matching products from catalog search
-    if (productMatches.length > 0) {
-        prompt += 'Relevant products from our catalog that may help answer this question:\n';
-        for (const match of productMatches) {
-            const priceStr = match.price ? `$${match.price.toFixed(2)}` : 'Price varies';
-            const categoryStr = match.category ? ` (${match.category})` : '';
-            prompt += `- ${match.name}${categoryStr}: ${priceStr}\n`;
-        }
-        prompt += '\nUse these products to provide specific recommendations when relevant.\n\n';
-    }
-
-    // Add conversation history (last 10 messages to keep context manageable)
-    const recentHistory = history.slice(-10);
-    if (recentHistory.length > 0) {
-        prompt += 'Previous conversation:\n';
-        for (const msg of recentHistory) {
-            const role = msg.role === 'user' ? 'Customer' : 'Agent';
-            prompt += `${role}: ${msg.content}\n`;
-        }
-        prompt += '\n';
-    }
-
-    prompt += `Customer: ${userMessage}\n\nAgent:`;
-    return prompt;
-}
-
-/**
- * Log a conversation to Slack #store-inbox channel.
- * @param {string} sessionId - Session ID
- * @param {string} userMessage - Customer message
- * @param {string} agentResponse - Agent response
- */
-async function logToSlack(sessionId, userMessage, agentResponse) {
-    if (!slackClient) {
-        console.log('[storefront] No Slack client configured, skipping log');
-        return;
-    }
-
-    try {
-        // LOGIC CHANGE 2026-03-27: Format conversation log for Slack.
-        // Uses thread to group conversation sessions.
-        const shortSessionId = sessionId.substring(0, 8);
-        const message = `*Chat Session ${shortSessionId}*\n` +
-            `> *Customer:* ${userMessage}\n` +
-            `> *Agent:* ${agentResponse}`;
-
-        await slackClient.chat.postMessage({
-            channel: STORE_INBOX_CHANNEL_ID,
-            text: message,
-            unfurl_links: false,
-            unfurl_media: false,
-        });
-    } catch (err) {
-        // Don't fail the chat if logging fails
-        console.error('[storefront] Failed to log to Slack:', err.message);
-    }
-}
-
-/**
- * Sanitize user input to prevent injection attacks.
- * @param {string} input - Raw user input
- * @returns {string} Sanitized input
- */
-function sanitizeInput(input) {
-    if (!input || typeof input !== 'string') {
-        return '';
-    }
-    // Remove control characters and limit length
-    return input
-        .replace(/[\x00-\x1f\x7f]/g, '')
-        .trim()
-        .slice(0, 2000);
-}
-
-/**
- * LOGIC CHANGE 2026-03-27: Load delivery quotes from JSON file.
- * @returns {Promise<Array>} Array of quote objects
- */
-async function loadDeliveryQuotes() {
-    try {
-        const data = await fs.readFile(DELIVERY_QUOTES_FILE, 'utf8');
-        return JSON.parse(data);
-    } catch (err) {
-        if (err.code === 'ENOENT') {
-            return [];
-        }
-        throw err;
-    }
-}
-
-/**
- * LOGIC CHANGE 2026-03-27: Save delivery quotes to JSON file.
- * @param {Array} quotes - Array of quote objects
- */
-async function saveDeliveryQuotes(quotes) {
-    // Ensure data directory exists
-    const dataDir = path.dirname(DELIVERY_QUOTES_FILE);
-    await fs.mkdir(dataDir, { recursive: true });
-    await fs.writeFile(DELIVERY_QUOTES_FILE, JSON.stringify(quotes, null, 2));
-}
-
-/**
- * LOGIC CHANGE 2026-03-27: Log delivery quote request to Slack.
- * @param {Object} quoteData - The quote request data
- */
-async function logDeliveryQuoteToSlack(quoteData) {
-    if (!slackClient) {
-        console.log('[storefront] No Slack client configured, skipping delivery quote log');
-        return;
-    }
-
-    try {
-        const priceText = quoteData.quote.contactRequired
-            ? 'Contact required (20km+)'
-            : `$${quoteData.quote.price}`;
-
-        const message = `*New Delivery Quote Request*\n` +
-            `> *Business:* ${quoteData.businessName}\n` +
-            `> *Contact:* ${quoteData.contactName}\n` +
-            `> *Phone:* ${quoteData.phone}\n` +
-            `> *Email:* ${quoteData.email}\n` +
-            `> *Pickup:* ${quoteData.pickupAddress}\n` +
-            `> *Delivery:* ${quoteData.deliveryAddress}\n` +
-            `> *Distance:* ${quoteData.quote.distance.toFixed(1)} km\n` +
-            `> *Quote:* ${priceText}`;
-
-        await slackClient.chat.postMessage({
-            channel: STORE_INBOX_CHANNEL_ID,
-            text: message,
-            unfurl_links: false,
-            unfurl_media: false,
-        });
-    } catch (err) {
-        console.error('[storefront] Failed to log delivery quote to Slack:', err.message);
-    }
 }
 
 // Create Express app
@@ -431,7 +199,9 @@ app.post('/api/chat', async (req, res) => {
 
         // LOGIC CHANGE 2026-03-27: Search catalog for relevant products before building prompt
         let productMatches = [];
-        if (catalogInitialized) {
+        // LOGIC CHANGE 2026-10-05 (WORK-TODO #10): the flag lives in bots/storefront-prompt.js now,
+        // so it is read through its accessor; a re-exported `let` would be a copy taken at load.
+        if (isCatalogInitialized()) {
             productMatches = searchCatalog(sanitizedMessage, 3);
             if (productMatches.length > 0) {
                 console.log(`[storefront] Found ${productMatches.length} matching products for query`);
@@ -514,5 +284,5 @@ module.exports = {
     logDeliveryQuoteToSlack,
     DELIVERY_QUOTES_FILE,
     initializeCatalog,
-    catalogInitialized: () => catalogInitialized,
+    catalogInitialized: isCatalogInitialized,
 };
