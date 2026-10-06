@@ -148,8 +148,8 @@ grep -rniE "rate.?limit|\b429\b|quota|bandwidth" --include='*.js' . \
 
 | Site | Shape | Matches "rate limit" bare? |
 |------|-------|----------------------------|
-| `lib/llm-runner.js:29` `RATE_LIMIT_PATTERNS` | `/rate.?limit.?(exceeded\|error\|reached)/i`, `/too many requests/i`, `/quota exceeded/i`, `/usage limit reached/i`, `/\b429\b/` | **no** — deliberately tightened 2026-03-27 to stop false positives |
-| `lib/llm-runner.js:41` `BANDWIDTH_EXHAUSTION_PATTERNS` | `/rate.?limit/i`, `/usage.?limit/i`, `/bandwidth/i`, `/quota/i`, `/\b429\b/`, `/too many/i`, `/try again later/i` | yes — deliberately permissive, and gated on exit 1 **and** output shorter than `MIN_REAL_OUTPUT_LENGTH` (50) |
+| `lib/llm-errors.js:22` `RATE_LIMIT_PATTERNS` | `/rate.?limit.?(exceeded\|error\|reached)/i`, `/too many requests/i`, `/quota exceeded/i`, `/usage limit reached/i`, `/\b429\b/` | **no** — deliberately tightened 2026-03-27 to stop false positives |
+| `lib/llm-errors.js:34` `BANDWIDTH_EXHAUSTION_PATTERNS` | `/rate.?limit/i`, `/usage.?limit/i`, `/bandwidth/i`, `/quota/i`, `/\b429\b/`, `/too many/i`, `/try again later/i` | yes — deliberately permissive, and gated on exit 1 **and** output shorter than `MIN_REAL_OUTPUT_LENGTH` (50) |
 | `morning-digest.js:209-214` `categorizeFailures` | `includes('rate_limit')`, `includes('rate limit')`, `includes('bandwidth')`, `includes('429')`, `includes('too many requests')` | yes — with **no** exit-code or output-length gate |
 
 The first two disagree on purpose, in one module, with the reason written down. The
@@ -353,8 +353,8 @@ grep -rnE "function truncate|\.slice\(0, *[0-9]{3,4}\)" --include='*.js' . \
 | `lib/notify-owner.js:208` | 3500 | **head 1750 + tail 1750** with a marker |
 | `lib/notify-owner.js:257` | 3500 | head + tail |
 | `lib/notify-owner.js:203` | 200 | head + `...` |
-| `lib/llm-runner.js:118,400` | 2000 | head |
-| `lib/llm-runner.js:419,569,574,594,664,667,695` | 500 | head |
+| `lib/llm-errors.js:111`, `lib/llm-adapter-claude.js:156` | 2000 | head |
+| `lib/llm-adapter-claude.js:175`, `lib/llm-adapter-gemini.js:76,79,107`, `lib/llm-adapter-ollama.js:130,135,155` | 500 | head |
 | `bots/storefront.js:222` | 2000 | head |
 | `security-review.js:245` | 500 | head |
 
@@ -496,7 +496,7 @@ value and one owner of the label.
 | `bridge-agent.js:552,730,1726` | `resolveLlmProvider(currentAgent, currentAgentId)` | ✅ calls the canonical one — and since 2026-09-15 passes the RESOLVED executing agent at all three sites, not the module-scope bridge record (WORK-TODO #38). Was cited `:516,689,1606`; line numbers are leads |
 | `bridge-agent.js:772,1727` | `currentAgent?.llm_model` — inline, no helper | **DIVERGENT, unchanged in kind** — still read inline rather than through `resolveAgentLlm`. What changed 2026-09-15 (WORK-TODO #38) is *which record* is read: both sites now read the RESOLVED executing agent rather than the module-scope bridge record, so the task path no longer reads the wrong agent's model. Centralising the read is still open |
 | `lib/watercooler.js:522` | `agent.llm_provider \|\| 'gemini'` | **DIVERGENT, and on the default too.** It bypasses the per-agent `LLM_PROVIDER_<AGENTID>` override entirely — the one mechanism that survives auto-update's `git reset --hard` — and where the canonical chain falls back to `claude`, this falls back to `gemini`. An agent pinned to ollama in `.env` still runs the standup on gemini, and nothing reports the discrepancy |
-| `lib/llm-runner.js:998,1001-1003` | `a.llm_provider` for the ollama startup probe | **EQUIVALENT-BY-INTENT, DIVERGENT in fact.** It asks "does any agent use ollama?" to decide whether to probe. An agent switched to ollama purely by `LLM_PROVIDER_<AGENTID>` is invisible to it, so the probe is skipped and the provider is marked unavailable on a boot where an agent is in fact using it. The flag is reporting-only, so the cost is a wrong report, not wrong routing |
+| `lib/llm-adapter-ollama.js:222` | `a.llm_provider` for the ollama startup probe | **EQUIVALENT-BY-INTENT, DIVERGENT in fact.** It asks "does any agent use ollama?" to decide whether to probe. An agent switched to ollama purely by `LLM_PROVIDER_<AGENTID>` is invisible to it, so the probe is skipped and the provider is marked unavailable on a boot where an agent is in fact using it. The flag is reporting-only, so the cost is a wrong report, not wrong routing |
 
 **Why this row matters more than its severity suggests.** The per-agent env override
 exists *because* live registry edits have been destroyed twice by `git reset --hard`. A

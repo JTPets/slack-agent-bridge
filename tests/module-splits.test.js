@@ -129,6 +129,32 @@ const SPLITS = [
         ],
     },
     {
+        // runLLM is in lib/llm-dispatch.js, not the facade, so lib/llm-fallback.js can
+        // call it without a require cycle back through lib/llm-runner.js.
+        facade: 'lib/llm-runner.js',
+        parts: ['lib/llm-errors.js', 'lib/llm-defaults.js', 'lib/llm-dispatch.js', 'lib/llm-adapter-claude.js',
+            'lib/llm-adapter-gemini.js', 'lib/llm-adapter-ollama.js', 'lib/llm-fallback.js'],
+        exports: [
+            'runLLM', 'runWithFallback', 'runClaudeAdapter', 'runOpenAIAdapter', 'runOllamaAdapter',
+            'runGeminiAdapter', 'validateGeminiOnStartup', 'validateOllamaOnStartup', 'isOllamaAvailable',
+            'DEFAULT_PROVIDER', 'DEFAULT_MAX_TURNS', 'DEFAULT_TIMEOUT', 'DEFAULT_FALLBACK_PROVIDER',
+            'FALLBACK_ENABLED', 'DEFAULT_FALLBACK_CHAINS', 'DEFAULT_OLLAMA_BASE_URL', 'DEFAULT_OLLAMA_KEEP_ALIVE',
+            'DEFAULT_OLLAMA_NUM_CTX', 'DEFAULT_OLLAMA_TIMEOUT', 'resolveFallbackChain', 'providerAvailability',
+            'fallbackReasonFor', 'normalizeThink', 'describeClaudeExit', 'signalFromExitCode', 'isRateLimitError',
+            'RateLimitError', 'RATE_LIMIT_PATTERNS', 'isBandwidthExhausted', 'BandwidthExhaustedError',
+            'BANDWIDTH_EXHAUSTION_PATTERNS', 'MIN_REAL_OUTPUT_LENGTH', 'WARN_AT_FRACTION',
+        ],
+    },
+    {
+        facade: 'lib/integrations/holidays.js',
+        parts: ['lib/integrations/holidays-public.js', 'lib/integrations/pet-awareness.js', 'lib/integrations/local-date.js'],
+        exports: [
+            'getTodayHoliday', 'getTodayPetAwareness', 'getActivePetAwareness', 'getUpcomingHolidays',
+            'getUpcomingPetAwareness', 'isHoliday', 'getTodaySpecialDates', 'PET_AWARENESS_DATES',
+            'filterOntarioHolidays', 'parseDate', 'formatDate', 'clearCache', 'CACHE_TTL_MS',
+        ],
+    },
+    {
         // Nothing the router exported moved: the four report handlers and renderHelp
         // were never exported, so the export list is unchanged and the guard that
         // matters is tests/command-router.test.js enumerating handlers across both files.

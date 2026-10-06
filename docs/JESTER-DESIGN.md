@@ -40,7 +40,7 @@ of the four: **he sees much less than the architecture diagram implies.**
 Not other agents' channels. **Not even his own.**
 
 An agent's task is not a process with a Slack token. It is a string handed to an LLM:
-either a spawned `claude` CLI (`runClaudeAdapter`, `lib/llm-runner.js:362`) or an HTTPS
+either a spawned `claude` CLI (`runClaudeAdapter`, `lib/llm-adapter-claude.js:87`) or an HTTPS
 POST to Gemini/Ollama. The Slack client lives in `bridge-agent.js` and is never passed
 into a prompt.
 
@@ -280,7 +280,7 @@ the bridge invoked it.
 ### No fallback chain — the one place this departs from the bridge's LLM path
 
 It calls `runLLM`, not `runWithFallback`. The chain can land on `claude`, whose adapter
-spawns a CLI with `--dangerously-skip-permissions` in `cwd` (`lib/llm-runner.js:357`).
+spawns a CLI with `--dangerously-skip-permissions` in `cwd` (`lib/llm-adapter-claude.js:59`).
 Jester's definition **denies `file-system` and `github`**; routing him automatically onto
 a tool-capable engine to save a weekly joke is not a trade worth making. A provider
 failure is reported to `#sqtools-ops` instead — a missed roast costs nothing.

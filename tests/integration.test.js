@@ -498,10 +498,14 @@ describe('LLM fallback is actually wired in', () => {
 
     test('runWithFallback accepts the same option shape bridge-agent passes', () => {
         // Guards against the two functions drifting apart in signature.
+        // LOGIC CHANGE 2026-10-05 (WORK-TODO #10): runWithFallback moved to
+        // lib/llm-fallback.js; lib/llm-runner.js is a facade, so read the definition.
         const llmRunnerSource = fs.readFileSync(
-            path.join(__dirname, '..', 'lib', 'llm-runner.js'),
+            path.join(__dirname, '..', 'lib', 'llm-fallback.js'),
             'utf8'
         );
+        expect(require('../lib/llm-fallback').runWithFallback)
+            .toBe(require('../lib/llm-runner').runWithFallback);
         for (const option of ['provider', 'model', 'agentId', 'maxTurns', 'timeout', 'cwd']) {
             expect(llmRunnerSource).toContain(option);
         }

@@ -601,7 +601,7 @@ TESTED, NOT WIRED"). The commands act on the *running* process they are typed in
 > grep -rn "permissions\|denied" --include=*.js . | grep -v node_modules | grep -v '^./tests/'
 > # -> morning-digest.js:225  the STRING 'permission denied' in an error matcher
 > # -> lib/agent-create.js:73,74  WRITING the fields into a new definition
-> # -> lib/llm-runner.js:357, lib/weekly-critique.js:31  the --dangerously-skip-permissions flag
+> # -> lib/llm-adapter-claude.js:59, lib/weekly-critique.js:31  the --dangerously-skip-permissions flag
 > ```
 >
 > The "Denied Permissions" subsection below is the same error: a `denied` array **blocks

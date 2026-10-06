@@ -309,7 +309,7 @@ diff <(grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | grep -oE '[0-9]+[a-z]?' | s
 
 | Claim | At `71d2112` |
 |---|---|
-| `spawn E2BIG`, prompt in argv | Fixed. Prompt goes over stdin, `lib/llm-runner.js:408` (`child.stdin.end(promptText)`) |
+| `spawn E2BIG`, prompt in argv | Fixed. Prompt goes over stdin, `lib/llm-adapter-claude.js:122` (`child.stdin.end(promptText)`) |
 | `REPO:`/`BRANCH:` reach a shell string | Fixed. `execFileSync('git', args)`, `lib/clone-lifecycle.js:134`; guard `tests/no-shell-execution.test.js` |
 | 5-minute self-update ignores the task lock | Fixed and not running. Gate at `auto-update.js:643` precedes `gitResetHard()` at `:708`; `package.json` scripts are `test`, `test:smoke`, `validate` only |
 
@@ -344,6 +344,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B12** | #10 wave plan, and its Wave 1 | Done 2026-10-05: the six-wave plan in #10; `lib/agent-context.js`, `bots/storefront.js`, `lib/bridge-state.js` | the split modules, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves, except that the storefront routes read the catalog flag through an accessor. Next is Wave 2 (command-router, morning-digest) |
 | **B13** | #10 Wave 2 | Done 2026-10-05: `lib/command-router.js` (renderers out, guard reads both files), `morning-digest.js` (characterised, then `lib/digest-sections.js` and `lib/integrations/weather.js` out) | the split modules, `tests/command-router.test.js`, `tests/command-renderers.test.js`, `tests/digest-sections.test.js`, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves, except `buildDigest` takes its memory dir as an option (default unchanged). Next is Wave 3 (security-review and google-calendar de-duplication), which changes behaviour and is reviewed one file at a time |
 | **B14** | Dependabot #13/#14, then #10 Wave 3 | Done 2026-10-05: `@slack/web-api` 8, `@slack/socket-mode` 3.1, `googleapis` 178.0 with a Node 20 engines guard (Dependabot PRs closed, Node-22-only googleapis ignored); `security-review.js` (git reads to `lib/security-review-git.js`), `lib/integrations/google-calendar.js` (collapsed; reads `GOOGLE_REFRESH_TOKEN`) | `package.json`, `package-lock.json`, `.github/dependabot.yml`, `tests/dependency-upgrade.test.js`, the split modules, `tests/security-review-git.test.js`, `tests/google-calendar.test.js`, `lib/validate-exceptions.json`, `tests/smoke.test.js` | Runtime code. The calendar now accepts `GOOGLE_REFRESH_TOKEN`, so on a box with only that name set it starts fetching events. Next is Wave 4, owner-gated |
+| **B15** | #10 Wave 4, the two splits with no open question | Done 2026-10-05: `lib/llm-runner.js` (seven parts; `runLLM` to `lib/llm-dispatch.js` so the fallback chain needs no cycle), `lib/integrations/holidays.js` (three parts) | the split modules, `tests/integration.test.js`, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js`, docs line citations | Pure moves; every export is the same object through the facades. `tests/llm-runner.test.js` is not split (Wave T, after #44). The rest of Wave 4 is owner-gated |
 | **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60, #49, #75 | — | Small code once chosen; listed so nobody dispatches them undecided |
 | **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
 
@@ -382,7 +383,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #34 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Documented in `CLAUDE.md`, `README.md`, `.env.example`; guard `tests/env-documented.test.js` |
 | #35 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Dissolved: recorded in `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 (a cap belongs on what reaches a prompt) |
 | #63 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Banner on `docs/AGENTS.md` → Memory Tiers, including the one-time legacy import; the writer question is `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 |
-| #10 | P2 | OPEN, B10-B14 splitting; wave plan in the item | — | L | 57 over (41 suites / 16 modules) after B14, all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
+| #10 | P2 | OPEN, B10-B15 splitting; wave plan in the item | — | L | 55 over (41 suites / 14 modules) after B15, all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
 | #44 | P2 | decision | OD | S | Figures refreshed in B4 (41 of 71) |
 | #5 | P2 | OPEN, speculative | SEED | L | Nothing built. Changes the execution model — park |
 | #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
@@ -435,9 +436,12 @@ commits behind. Two findings: **googleapis 178.1.1 and every release from 180 re
 the Node the Dockerfile pins (the suite runs on the developer's Node, so nothing else would
 notice). And web-api 8 kept `err.data.error`, which a dozen sites read; the same suite proves
 it, and the redaction, against the real client over an injected fetch. The #21 logger is
-passed explicitly, so v8's default does not reach it. **Not done: `dotenv` 17 → 18.** It is a
-rewrite that ships no changelog, every entry point loads it first, and Dependabot did not
-propose it; it waits for a changelog or its own change.
+passed explicitly, so v8's default does not reach it. **`dotenv` 17 → 18: Dependabot opened PR #65 (18.0.5) later
+the same day, checked 2026-10-05 and recommended for merge.** Same maintainer; parse output
+identical to 17.4.2 on a fixture with quotes, `#`, multiline and `export` lines; the load
+line moves to stderr and the advert 17.4.2 printed is gone; it bundles a `dotenv run` CLI
+nothing here invokes; the full suite passes on the PR branch on Node 20 and Node 22. It rides
+the next gate.
 
 **Secretary email intake — a candidate, not filed.** Per the owner (2026-10-02), email is
 the bridge's inbound data path: SqTools and other systems send the 6 am min/max audit,
@@ -2105,7 +2109,7 @@ Square token, the httpSMS key — to a child that runs branch-influenced code:
 | Site | Child |
 |---|---|
 | `lib/dependency-install.js:175` | the scratch clone's `npm ci`/`npm install` (scripts off since 2026-10-02, so no third-party code runs *at install*) or `python3 -m pip` |
-| `lib/llm-runner.js:387` | the Claude CLI with `--dangerously-skip-permissions`, `cwd` = the clone |
+| `lib/llm-adapter-claude.js:87` | the Claude CLI with `--dangerously-skip-permissions`, `cwd` = the clone |
 | `lib/update-verifier.js:165` | the smoke suite (auto-update; not started, #17) |
 | `lib/clone-lifecycle.js:249` | `git` in the clone |
 
@@ -2176,7 +2180,7 @@ mount namespace as `/repo`, with no sandbox:
    (`bridge-agent.js:646`), `WORK_DIR` default `/tmp/bridge-agent` (`lib/config.js:41`).
 2. **The agent CLI is an ordinary child process, not a second container.**
    `spawn(claudeBin, args, { cwd, env: { ...process.env, HOME: os.homedir() } })`
-   (`lib/llm-runner.js:385`), argv `['-p','--output-format','text','--max-turns',N,'--dangerously-skip-permissions']`
+   (`lib/llm-adapter-claude.js:87`), argv `['-p','--output-format','text','--max-turns',N,'--dangerously-skip-permissions']`
    (`:369-374`), called from `runWithFallback(prompt, { cwd, ... })` (`bridge-agent.js:896-897`)
    with `cwd = taskDir` (`:648`). `cwd` is a working directory. It is not a root, not a
    namespace and not a permission.
@@ -2252,7 +2256,7 @@ no behaviour change; do it with (a)–(e) or on its own.**
 ```bash
 grep -rn ":/repo" docker-compose.example.yml
 grep -rnE "['\"\`]/repo(/|['\"\`:])" --include=*.js . | grep -v node_modules   # readers: none
-grep -n "spawn(\|spawnSync(" lib/llm-runner.js lib/dependency-install.js
+grep -n "spawn(\|spawnSync(" lib/llm-adapter-claude.js lib/dependency-install.js
 grep -rn "docker\.sock\|dockerode" --include=*.js . | grep -v node_modules       # nothing
 ```
 **On the NAS** (not reachable from a checkout; names only, never values):
@@ -2272,7 +2276,7 @@ is ever to act on the NAS, the capability is an allowlist, not a shell).
 ### 10. Split the god-files that break the repo's own 300-line rule
 **Filed 2026-09-13** (derived: `20dc049`).
 **Problem:** The repo enforces a 300-line-per-file rule (`lib/validate.js`, `MAX_LINES = 300`)
-and **57** `.js` files exceed it (2026-10-05, after B14; regenerate with the command below). Until 2026-09-15 the gate was **unconditionally red**, so a
+and **55** `.js` files exceed it (2026-10-05, after B15; regenerate with the command below). Until 2026-09-15 the gate was **unconditionally red**, so a
 new violation could not be told apart from the standing ones without diffing path lists by
 hand — that happened twice in the week of 2026-09-08. The exceptions had never been examined.
 
@@ -2363,15 +2367,17 @@ auth to `gmail-auth.js`, MIME decoding and sanitisation to `gmail-message.js`) a
 `morning-digest.js` (406 -> 120: `lib/digest-sections.js`, `lib/integrations/weather.js`; it has no exports, so it is
 pinned by `tests/digest-sections.test.js`, not by the facade check); in B14 (2026-10-05), Wave 3: `security-review.js` (422 -> 286:
 the clone and git reads to `lib/security-review-git.js`) and `lib/integrations/google-calendar.js` (367 -> 252, not split:
-three copies collapsed into one). Each split file stays as a facade re-exporting every name it had;
+three copies collapsed into one); in B15 (2026-10-05), Wave 4: `lib/llm-runner.js` (1183 -> 93: `llm-errors.js`,
+`llm-defaults.js`, `llm-dispatch.js`, `llm-adapter-claude.js`, `llm-adapter-gemini.js`, `llm-adapter-ollama.js`,
+`llm-fallback.js`) and `lib/integrations/holidays.js` (387 -> 61: `holidays-public.js`, `pet-awareness.js`,
+`local-date.js`). Each split file stays as a facade re-exporting every name it had;
 `tests/module-splits.test.js` fails if a facade drops a name or holds a copy instead of the moved function.
 
-**Source modules (16)**
+**Source modules (14)**
 
 | lines | code | file | disposition | reason |
 |------:|-----:|------|-------------|--------|
 | 2735 | 1571 | `bridge-agent.js` | split (deferred) | The monolith. Seams C (`lib/ask-commands.js`), D (rate-limit state), E (poll loop) are declared in WIRING-AND-SEAMS §6. Deferred **by this task's own terms**: not cut during a size-limit exercise. |
-| 1183 | 655 | `lib/llm-runner.js` | split (deferred) | Boundary: one module per provider adapter (claude / openai / ollama / gemini) behind the existing `runLLM` + `runWithFallback` dispatcher. Deferred because WIRING-AND-SEAMS §4 pins exactly who is on the fallback chain — a move here must not "fix" that. |
 | 995 | 538 | `auto-update.js` | split (deferred) | Boundary: git porcelain (`runGit`/`gitFetch`/`gitPull`/`gitResetHard`/`gitResetTo`/`npmInstall`) and the deferral gate (`checkTaskQueue`/`evaluateTaskDeferral`) are two separable concerns. Deferred: nothing starts this daemon (#17), so a refactor buys no safety and risks the 62 tests that inject a dependency bag into `checkForUpdates()`. |
 | 761 | 357 | `lib/task-queue.js` | justify | One state machine over one file. **Corrected 2026-10-04:** this row said "under the limit on code (296)"; it is 357 code lines now, so that half of the justification is false. What remains true: the length is the `markRunning`, `completionSeq` and delivery-verdict history in comments, and the store has one owner. A split would cut on terminal-writers vs. readers (`getRecentCompleted`, `getStatus`); deferred, not justified. |
 | 614 | 263 | `lib/task-parser.js` | split (deferred) | Boundary: task-message parsing vs. the ASK-command recognisers (`isStatusQuery` … `parseShowTaskCommand`), which belong in Seam C's `lib/ask-commands.js` alongside the handlers they gate. **Deferred deliberately** so recogniser and handler move in one change. Also under the limit on code (224). |
@@ -2383,7 +2389,6 @@ three copies collapsed into one). Each split file stays as a facade re-exporting
 | 427 | 250 | `lib/slack-client.js` | justify | **Under the limit on code** (273). It is one factory closure (`createSlackClient`) plus channel-map persistence; a cut inside the factory would split a single object's methods across files. |
 | 406 | 173 | `lib/notify-owner.js` | justify | More comment (176) than code (192). It was the **canonical destination** named by CANONICAL-HELPERS §1/§2. **2026-10-04:** #30 put the canonical post in `lib/slack-web.js` instead (it must be reachable by scripts that never call `notifyOwner.init`), and `notifyChannel` now delegates to it. |
 | 397 | 231 | `lib/email-rate-limiter.js` | justify | **Under the limit on code** (231). One sliding-window algorithm applied to three buckets; splitting per bucket triples the surface for a single algorithm. |
-| 387 | 229 | `lib/integrations/holidays.js` | split (deferred) | Boundary: the Nager.Date public-holiday client + cache vs. the hardcoded `PET_AWARENESS_DATES` calendar — two unrelated data domains. **Deferred:** both sides use `parseDate`/`formatDate`, and where a shared date helper lives has to be settled against CANONICAL-HELPERS' date rows (#32, #33) rather than decided by a size pass. |
 | 373 | 181 | `lib/update-drain.js` | justify | 62% comment over one small marker codec that mirrors `lib/task-lock.js`; the comments are the drain-one reasoning (no ceiling, heartbeat not deadline). Full reason in `lib/validate-exceptions.json`. |
 | 347 | 158 | `lib/clone-lifecycle.js` | justify | **49% comment, 158 lines of code.** It was extracted 2026-09-14 as Seam A precisely to be one concern, and its comments carry the argv-array and delivery-detection reasoning that three lost tasks paid for. Splitting it would undo the seam to satisfy a line count. |
 
@@ -2397,7 +2402,7 @@ blanket rule. One has a boundary worth naming now:
 
 | lines | file | note |
 |------:|------|------|
-| 1864 | `tests/llm-runner.test.js` | Largest suite in the repo and the one case where a split is independently justified: one suite per provider adapter plus one for the fallback chain, mirroring the `lib/llm-runner.js` boundary above. Deferred with it, so suite and module move together. |
+| 1864 | `tests/llm-runner.test.js` | Largest suite in the repo. Its module split in B15 (2026-10-05) into one module per adapter plus the chain, and the suite passed unchanged through the facade, so it no longer has to move with the module. One suite per new module is the natural cut if #44 keeps `tests/` in scope. |
 
 The remaining 40, each justified as the suite for the subject named:
 `tests/task-parser.test.js` (860), `tests/task-queue.test.js` (704), `tests/retry-logic.test.js` (685), `tests/security-followup.test.js` (643), `tests/approval-queue.test.js` (638), `tests/integration.test.js` (638), `tests/auto-update-restart.test.js` (613), `tests/task-decomposer.test.js` (610), `tests/email-categorizer.test.js` (603), `tests/slack-client.test.js` (598), `tests/notify-owner.test.js` (596), `tests/email-sanitizer.test.js` (582), `tests/memory-tiers.test.js` (579), `tests/slack-socket.test.js` (565), `tests/holidays.test.js` (564), `tests/watercooler.test.js` (549), `tests/auto-update-defer.test.js` (544), `tests/config.test.js` (539), `tests/gmail.test.js` (512), `tests/agent-registry.test.js` (504), `tests/smoke.test.js` (498), `tests/storefront.test.js` (479), `tests/bulletin-board.test.js` (453), `tests/owner-tasks.test.js` (451), `tests/bug-fixes.test.js` (448), `tests/email-rate-limiter.test.js` (445), `tests/agent-context.test.js` (439), `tests/clone-lifecycle.test.js` (429), `tests/agent-scheduler.test.js` (408), `tests/code-review-pipeline.test.js` (400), `tests/update-drain.test.js` (393), `tests/task-delivery-signal.test.js` (389), `tests/staff-tasks.test.js` (363), `tests/agent-activation.test.js` (361), `tests/multi-channel-routing.test.js` (359), `tests/dispatch-modal.test.js` (339), `tests/message-detection.test.js` (319), `tests/task-agent-identity.test.js` (308), `tests/undelivered-work.test.js` (304), `tests/dispatch-message.test.js` (301).
@@ -2450,14 +2455,27 @@ Two differences from the plan. **`security-review.js` was a move, not a de-dupli
 | `security-review.js` | 422 | Replace the private `cloneRepo`/`execCommand` with `lib/clone-lifecycle.js` and an argv-array helper (CANONICAL-HELPERS §1/§2, the #30 class). That is a size fix, not a split. | Medium. A cron script that the suite only smoke-loads. |
 | `lib/integrations/google-calendar.js` | 367 | Collapse the three range builders and six fetchers into one range-parameterised pair, keeping the nine exported names as thin wrappers. The file gets shorter; it is not split. | Low-medium. Covered by `tests/agent-context.test.js` and `tests/integration.test.js` through the mocked client only. |
 
-**Wave 4 — each waits on an owner decision or a guard redesign; do them one at a time**
+**Wave 4 — each waits on an owner decision or a guard redesign; do them one at a time (two DONE in B15, 2026-10-05)**
+
+`lib/llm-runner.js` went ahead on the owner's "continue splitting" (2026-10-05). It differs from
+the plan in two ways. **`runLLM` moved too**, to `lib/llm-dispatch.js`: `runWithFallback` calls it,
+and a fallback module that required the facade back would be a cycle. And the configuration
+became its own module, `lib/llm-defaults.js`, because every adapter reads it. Every export of
+the facade is the same object as in its part (`tests/module-splits.test.js`), the function
+sources are byte-identical to the original, and `tests/integration.test.js` now reads
+`lib/llm-fallback.js` for the `runWithFallback` wiring and asserts the facade exports that same
+function. Who is on the fallback chain (WIRING-AND-SEAMS §4) is unchanged. **The suite did not
+move with it**: `tests/llm-runner.test.js` (1864) tests the module through the facade and passes
+unchanged, so cutting it is Wave T's question, which waits on #44. `lib/integrations/holidays.js`
+differs in one way: **`parseDate`/`formatDate` did not go to `lib/time-format.js`.** They read
+and write the process-local date, and every helper there names its zone, so moving them means
+choosing a zone, which is a behaviour change. They moved unchanged to `local-date.js`, and #76
+now covers them too.
 
 | file | lines | targets (seam) | what it waits on |
 |------|------:|----------------|------------------|
-| `lib/llm-runner.js` (+ `tests/llm-runner.test.js`, 1864) | 1183 | `llm-errors.js` (rate-limit and bandwidth detection, error classes, exit-signal description, fallback-reason tags); `llm-adapter-claude.js`; `llm-adapter-ollama.js`; `llm-adapter-gemini.js` (plus the openai stub); `llm-fallback.js` (`resolveFallbackChain`, `providerAvailability`, `runWithFallback`, both startup validators). The facade keeps `runLLM` and every export. The suite splits along the same lines in the same change. | The owner's go-ahead. It has 18 consumers, the highest risk here. WIRING-AND-SEAMS §4 pins who is on the fallback chain and must not change. `tests/integration.test.js` reads this file's source for the `runWithFallback` wiring. The two real-spawn suites (prompt size, deadline) must follow `runClaudeAdapter`. |
 | `lib/task-parser.js` | 620 | The ASK recognisers (`isStatusQuery` … `parseShowTaskCommand`, `isNaturalConversationMessage`) move to `lib/ask-commands.js` with Seam C's handlers from `bridge-agent.js`. | Lifting the `bridge-agent.js` exclusion for Seam C. `tests/task-parser.test.js` reads this file's source for its anti-drift guards. |
 | `auto-update.js` | 995 | `lib/update-git.js` (`runGit` … `npmInstall`); `lib/update-deferral.js` (`checkTaskQueue`, `evaluateTaskDeferral`); `lib/update-state.js` (`loadState`, `saveState`) | #17. If the daemon is deleted rather than started, the file leaves the list with no split. |
-| `lib/integrations/holidays.js` | 387 | `holidays-public.js` (Nager client, cache, Ontario filter); `pet-awareness.js`. `parseDate`/`formatDate` go to `lib/time-format.js`. | Checking those two against CANONICAL-HELPERS' date rows (#32, #33). |
 | `lib/task-decomposer.js` | 579 | none | The owner's delete-or-wire decision. It has zero production callers. |
 | `lib/task-queue.js` | 790 | `task-queue-delivery.js` (`normalizeDelivery`, `deliveryRecorded`); the readers (`getRecentCompleted`, `getStatus`, the module-level `getQueueStatus`) go to `task-queue-view.js` as a prototype mixin. All terminal writers stay in `task-queue.js`. | A guard redesign. `tests/task-queue-delivery-invariant.test.js` and `tests/task-queue-lifecycle.test.js` walk this file's source. Splitting a class this way is the least mechanical cut on the list. |
 | `bridge-agent.js` | 2868 | Seams C, D and E (WIRING-AND-SEAMS §6) | Its own exclusion. Seam C pairs with `lib/task-parser.js` above. |
@@ -2478,7 +2496,7 @@ Two differences from the plan. **`security-review.js` was a move, not a de-dupli
 
 **Wave T — the 41 test suites, after #44.** If the rule is scoped out of `tests/`, there is
 nothing to do. Otherwise each suite splits by its top-level `describe`, one file per subject.
-`tests/llm-runner.test.js` moves with Wave 4, not here.
+`tests/llm-runner.test.js` is here too: its module split in B15 and the suite passed unchanged through the facade.
 
 **Fix:** work the source-module table top-down, cheapest first, each extraction on the named
 boundary and each keeping `node -e "require('./bridge-agent.js')"` green (the CLAUDE.md
@@ -2881,7 +2899,7 @@ sed -n '150,177p' lib/config.js
 
 `agents/jester/agent.md` declares `llm_provider: gemini` and **denies `file-system`**.
 `LLM_PROVIDER_JESTER=claude` in `.env` beats the declaration, and `runClaudeAdapter` spawns
-the CLI with `--dangerously-skip-permissions` (`lib/llm-runner.js:357`).
+the CLI with `--dangerously-skip-permissions` (`lib/llm-adapter-claude.js:59`).
 
 **Why that contradicts a security decision rather than merely surprising someone.**
 `lib/weekly-critique.js` deliberately calls `runLLM` and **not** `runWithFallback`, and
@@ -2923,7 +2941,7 @@ durability problem.
 
 Until (2), an owner who pins jester to claude gets what they asked for and nothing says it
 contradicts his declaration.
-**Citations re-checked 2026-10-04 (B4).** `resolveLlmProvider` starts at `lib/config.js:166`; the CLI flag is at `lib/llm-runner.js:380`. Regenerate: `grep -n "function resolveLlmProvider" lib/config.js; grep -n "dangerously-skip-permissions" lib/llm-runner.js`.
+**Citations re-checked 2026-10-04 (B4).** `resolveLlmProvider` starts at `lib/config.js:166`; the CLI flag is at `lib/llm-adapter-claude.js:59` (was `lib/llm-runner.js:380` before the 2026-10-05 split). Regenerate: `grep -n "function resolveLlmProvider" lib/config.js; grep -n "dangerously-skip-permissions" lib/llm-adapter-claude.js`.
 **Priority:** P2 | **Effort:** Low once (1) exists | **Status:** open — reported, not fixed, and the instance is unverified from a checkout
 
 ---
@@ -3390,7 +3408,12 @@ used by `lib/time-format.js`) and extend the timezone guard to the `Date` constr
 local-field form, with a negative control. Not done in B14 because B14 was a behaviour-preserving
 collapse.
 
-Regenerate: `grep -n "getFullYear\|getDate()" lib/integrations/google-calendar.js`
+**Same class, same footing (added 2026-10-05, B15):** `lib/integrations/local-date.js`
+`parseDate`/`formatDate` build and print the holiday code's dates from local fields, so
+"today's holiday" and the pet-awareness windows also follow the process timezone. The B15
+holidays split moved them unchanged rather than into `lib/time-format.js`, for the same reason.
+
+Regenerate: `grep -n "getFullYear\|getDate()" lib/integrations/google-calendar.js lib/integrations/local-date.js`
 
 **Priority:** P3 | **Effort:** S | **Status:** open
 
@@ -3545,7 +3568,7 @@ rule does its damage. Summary: (1) *no access to the SqTools repo* — **TRUE**,
 only by the absence of a credential, not by any allowlist, and `jtpets/SquareDashboardTool`
 is in `DEFAULT_REPOS` so the `/dispatch` form actively offers it (#57). (2) *`spawn E2BIG`,
 prompt passed as argv* — **STALE**, fixed on 2026-09-20; the prompt goes over stdin
-(`lib/llm-runner.js:408`) and no path passes a prompt in argv. (3) *`REPO:`/`BRANCH:` reach a
+(`lib/llm-adapter-claude.js:122`) and no path passes a prompt in argv. (3) *`REPO:`/`BRANCH:` reach a
 shell string* — **STALE**, fixed 2026-09-14; and the fix is to the class, not to two labels
 (`tests/no-shell-execution.test.js`). (4) *the self-update loop runs every 5 minutes and does
 not honour the task lock* — **STALE IN BOTH HALVES**; it has honoured the lock since

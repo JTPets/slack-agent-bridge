@@ -313,7 +313,7 @@ container**, in the same mount namespace as `/repo`, with no sandbox of any kind
   `WORK_DIR` defaulting to `/tmp/bridge-agent` (`lib/config.js:41`) — a path in the
   container, not a separate machine;
 - the agent CLI is an ordinary child process — `spawn(claudeBin, args, { cwd, env })`
-  (`lib/llm-runner.js:385`), argv `['-p', …, '--dangerously-skip-permissions']` (`:369-374`),
+  (`lib/llm-adapter-claude.js:87`), argv `['-p', …, '--dangerously-skip-permissions']` (`:369-374`),
   reached from `runWithFallback(prompt, { cwd, … })` (`bridge-agent.js:896-897`). `cwd` is a
   working directory, not a root;
 - the clone's **own** dependencies are installed *before* the LLM runs —
@@ -347,10 +347,10 @@ and is the owner's.
 path is readable by the process is the finding; reading a secret to demonstrate it is not.
 
 **2 — the prompt goes over stdin.** `runClaudeAdapter` builds an argv array of flags only
-(`lib/llm-runner.js:369-374`) and writes the prompt with `child.stdin.end(promptText)`
+(`lib/llm-adapter-claude.js:55-60`) and writes the prompt with `child.stdin.end(promptText)`
 (`:408`). **No path passes a prompt in argv:** the claude CLI is spawned from exactly one
 place (`grep -rn "claudeBin" --include=*.js . | grep -v node_modules | grep -v tests/` →
-`lib/llm-runner.js:351,385`), and the other two adapters are HTTP. The guard is
+`lib/llm-adapter-claude.js:87,122`), and the other two adapters are HTTP. The guard is
 `tests/llm-runner-prompt-size.test.js`, which spawns for real because a mocked
 `child_process` accepts an argv entry of any size.
 
