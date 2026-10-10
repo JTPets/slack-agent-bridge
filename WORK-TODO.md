@@ -92,6 +92,9 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+After the same day's **#60 move** those print **38** open items — **8** P1, **24** P2, **6** P3 — and
+**no duplicate ID**; #60's text now lives in `docs/CAPABILITY-AND-ISOLATION-DESIGN.md` §9.
+
 At the **2026-10-10 B16 pass** those print **39** open items — **8** P1, **24** P2, **7** P3 —
 and **no duplicate ID**. That pass closed and purged **#3, #26, #53, #55 and #66** on live
 evidence read from `#sqtools-ops` and `#jester-agent` (the commit body lists each), filed
@@ -351,7 +354,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B14** | Dependabot #13/#14, then #10 Wave 3 | Done 2026-10-05: `@slack/web-api` 8, `@slack/socket-mode` 3.1, `googleapis` 178.0 with a Node 20 engines guard (Dependabot PRs closed, Node-22-only googleapis ignored); `security-review.js` (git reads to `lib/security-review-git.js`), `lib/integrations/google-calendar.js` (collapsed; reads `GOOGLE_REFRESH_TOKEN`) | `package.json`, `package-lock.json`, `.github/dependabot.yml`, `tests/dependency-upgrade.test.js`, the split modules, `tests/security-review-git.test.js`, `tests/google-calendar.test.js`, `lib/validate-exceptions.json`, `tests/smoke.test.js` | Runtime code. The calendar now accepts `GOOGLE_REFRESH_TOKEN`, so on a box with only that name set it starts fetching events. Next is Wave 4, owner-gated |
 | **B15** | #10 Wave 4, the two splits with no open question | Done 2026-10-05: `lib/llm-runner.js` (seven parts; `runLLM` to `lib/llm-dispatch.js` so the fallback chain needs no cycle), `lib/integrations/holidays.js` (three parts) | the split modules, `tests/integration.test.js`, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js`, docs line citations | Pure moves; every export is the same object through the facades. `tests/llm-runner.test.js` is not split (Wave T, after #44). The rest of Wave 4 is owner-gated |
 | **B16** | Close what live evidence already proves; two fixes found on the way | Done 2026-10-10: #3, #26, #53, #55, #66 closed; the jester's digest reports the boot commit (`lib/boot-record.js`) instead of "nothing records it"; `proxy-addr` 2.0.7 -> 2.0.8 (GHSA-jqcg-44mw-7w3h) | `lib/boot-record.js`, `lib/critique-digest.js`, `bridge-agent.js` (one line), `tests/critique-digest.test.js`, `package-lock.json`, docs | Runtime code: the digest change and a production dependency patch |
-| **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60, #49, #75 | — | Small code once chosen; listed so nobody dispatches them undecided |
+| **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #49, #75 (#60 moved to the capability design §9 and closed 2026-10-10) | — | Small code once chosen; listed so nobody dispatches them undecided |
 | **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
 
 ### Every item
@@ -410,7 +413,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #59 | P2 | OPEN, behind #17/#73 — skipped in B6 by its own sequencing | B6 | M | No stall or wall-clock logic exists. Lands after the deploy path is settled and #73 block (1) is applied |
 | #67 | P2 | decision | OD | S stopgap | Stopgap: "fetch `origin/main` and re-read the max ID" in the executor contract |
 | #58 | P3 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | The adapter owns its deadline; timers cleared on `error`. `tests/llm-runner-deadline.test.js` |
-| #60 | P3 | deferred design rule | OD | — | Move to a design doc before it is ever purged |
+| #60 | P3 | **CLOSED 2026-10-10** (moved, purged) | OD | — | Text moved to `docs/CAPABILITY-AND-ISOLATION-DESIGN.md` §9, so the shape survives the purge |
 | #48 | P3 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Rule moved to `CLAUDE.md` → Local LLM (Ollama) provider |
 | #21 | P3 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | A logger that drops only `already_in_channel`, in `createWebClient()` |
 | #29 | P3 | decision | OD | S to drop | Gmail scope is read-only (`lib/integrations/gmail.js:96`) |
@@ -583,10 +586,9 @@ work behind an owner's name, which is the opposite of the point.
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
 - **#67** — [IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide](#67-ids-are-allocated-at-write-time-from-an-append-only-list-so-two-branches-cut-from-the-same-base-always-collide)
 
-**P3 — nice to have / uncertain ROI** (7)
+**P3 — nice to have / uncertain ROI** (6)
 
 - **#76** — [The calendar's day boundaries are process-local time](#76-the-calendars-day-boundaries-are-process-local-time)
-- **#60** — [If the bridge is ever to act on the NAS, the capability is an allowlisted command set — not a shell](#60-if-the-bridge-is-ever-to-act-on-the-nas-the-capability-is-an-allowlisted-command-set--not-a-shell)
 - **#29** — [`gmail-unsubscribe` is a declared agent permission that no code implements](#29-gmail-unsubscribe-is-a-declared-agent-permission-that-no-code-implements)
 - **#13** — [MCP server wrapper](#13-mcp-server-wrapper)
 - **#14** — [Watercooler retro → LinkedIn draft](#14-watercooler-retro--linkedin-draft)
@@ -3026,38 +3028,6 @@ Regenerate: `grep -n "getFullYear\|getDate()" lib/integrations/google-calendar.j
 **Priority:** P3 | **Effort:** S | **Status:** open
 
 ---
-
-### 60. If the bridge is ever to act on the NAS, the capability is an allowlisted command set — not a shell
-
-**Filed 2026-09-20** (this working session).
-
-**Priority:** P3 | **Effort:** n/a — **DEFERRED behind #57 and the constraints it records** | **Status:** DEFERRED, recorded so the shape is not re-litigated later
-
-**Why this is written down before it is wanted.** The NAS runs **production Postgres**, and
-the SqTools gate's deploy key and `runner.env` sit in the same directory. A general "run this
-on the NAS" capability puts both inside the blast radius of any prompt that reaches the
-bridge. The shape has to be settled before the capability is built, because the cheap version
-(hand it a shell) is the one that cannot be walked back.
-
-**The shape, if it is ever built:** a **fixed, validated list** of permitted operations —
-not command execution. Each entry names its executable and the exact shape of each argument;
-anything not on the list is refused, not escaped.
-
-**The one that matters first** is `sh gate-host.sh <branch>` with a **validated** branch
-argument — it is what an unattended overnight gate queue needs, and it is a single operation
-with a single argument, which is the easiest possible case to allowlist.
-
-**This repository already has both halves of the pattern**, so the argument-validation half
-is not new work here: `lib/git-identifiers.js` (reject, never sanitise) and every `git` call
-in `lib/clone-lifecycle.js` going through `execFileSync` with an argv array and a `--`
-separator, enumerated repo-wide by `tests/no-shell-execution.test.js`.
-
-**Deferred behind:** **#57** (no credential exists, and its constraints are unsettled) and
-**#27** (a task already has write access to the entire live deployment). Building a NAS
-capability before those are resolved would widen a blast radius that is already recorded as
-undecided.
-
-**Not decided here:** whether this is built at all.
 
 ### 29. `gmail-unsubscribe` is a declared agent permission that no code implements
 **BLOCKED — OWNER DECISION.** Drop the permission and the three rules-file keys as

@@ -433,3 +433,36 @@ only in this document. Either the two fields get a reader or the documentation g
 banner saying they are declarative — the same choice WORK-TODO **#63** poses for the memory
 tiers, for the same reason, and `docs/AGENTS.md` → "Permissions Model" is the paragraph
 that currently reads as though enforcement exists.
+
+---
+
+## 9. If the bridge is ever to act on the NAS, the capability is an allowlisted command set — not a shell
+
+**Filed 2026-09-20 as WORK-TODO #60; moved here 2026-10-10** so the shape survives the item's purge.
+
+
+**Why this is written down before it is wanted.** The NAS runs **production Postgres**, and
+the SqTools gate's deploy key and `runner.env` sit in the same directory. A general "run this
+on the NAS" capability puts both inside the blast radius of any prompt that reaches the
+bridge. The shape has to be settled before the capability is built, because the cheap version
+(hand it a shell) is the one that cannot be walked back.
+
+**The shape, if it is ever built:** a **fixed, validated list** of permitted operations —
+not command execution. Each entry names its executable and the exact shape of each argument;
+anything not on the list is refused, not escaped.
+
+**The one that matters first** is `sh gate-host.sh <branch>` with a **validated** branch
+argument — it is what an unattended overnight gate queue needs, and it is a single operation
+with a single argument, which is the easiest possible case to allowlist.
+
+**This repository already has both halves of the pattern**, so the argument-validation half
+is not new work here: `lib/git-identifiers.js` (reject, never sanitise) and every `git` call
+in `lib/clone-lifecycle.js` going through `execFileSync` with an argv array and a `--`
+separator, enumerated repo-wide by `tests/no-shell-execution.test.js`.
+
+**Deferred behind:** **#57** (no credential exists, and its constraints are unsettled) and
+**#27** (a task already has write access to the entire live deployment). Building a NAS
+capability before those are resolved would widen a blast radius that is already recorded as
+undecided.
+
+**Not decided here:** whether this is built at all.
