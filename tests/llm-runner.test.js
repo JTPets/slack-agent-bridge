@@ -221,7 +221,7 @@ describe('llm-runner module', () => {
       // 'pipe' rather than 'ignore'.
       expect(mockSpawn).toHaveBeenCalledWith(
         '/custom/claude',
-        ['-p', '--output-format', 'text', '--max-turns', '20', '--dangerously-skip-permissions'],
+        ['-p', '--output-format', 'stream-json', '--verbose', '--max-turns', '20', '--dangerously-skip-permissions'],
         expect.objectContaining({
           cwd: '/test/dir',
           stdio: ['pipe', 'pipe', 'pipe'],

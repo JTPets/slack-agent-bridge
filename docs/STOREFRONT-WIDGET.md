@@ -98,7 +98,7 @@ image.
 node bots/storefront.js
 
 # Logs, if it runs inside the jt-agent container:
-docker compose logs -f jt-agent
+docker compose logs -f bridge
 ```
 
 ## Embedding the Widget
@@ -246,7 +246,7 @@ const STOREFRONT_AGENT_CONFIG = {
 
 ### No responses from agent
 - Verify Claude CLI is installed and configured
-- Check the process's own output for errors (`docker compose logs -f jt-agent` if it runs in the container)
+- Check the process's own output for errors (`docker compose logs -f bridge` if it runs in the container)
 - Ensure `SLACK_BOT_TOKEN` is set (required for some functionality)
 
 ### Slack logging not working

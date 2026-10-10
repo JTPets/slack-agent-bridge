@@ -636,7 +636,7 @@ ephemeral fails too, ops still hears and nothing throws.
 2. **The repository field is a select sourced from `REPOS`.** `getConfiguredRepos()` in
    `lib/config.js` is now the single owner of that list; `security-review.js`, which had
    the only copy of the default, calls it too. Adding a repository is a `.env` change and
-   `docker compose up -d --force-recreate jt-agent` — not an edit to a form file. The
+   `docker compose up -d --force-recreate bridge` — not an edit to a form file. The
    field stays **optional** (a task with no repository is a legitimate dispatch), an empty
    `REPOS` falls back to a text input rather than failing the modal open (Slack rejects a
    `static_select` with zero options), and the list is capped at Slack's 100. **Validation

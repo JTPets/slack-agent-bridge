@@ -447,7 +447,7 @@ describe('drain-one: an update that must wait is recorded as PENDING', () => {
 
     test('a manual restart that already applied the merge clears the marker on the next cycle', async () => {
         // Deploys are manual today (WORK-TODO #17): a human runs
-        // `docker compose restart jt-agent` and the merge lands with this loop none
+        // `docker compose restart bridge` and the merge lands with this loop none
         // the wiser. Without this, every dispatch would be refused until the marker
         // went stale.
         const deps = makeDeps();

@@ -45,7 +45,7 @@ describe('createMainWatch', () => {
     expect(text).toMatch(/differs/);
     expect(text).toMatch(/aaaaaaa/);
     expect(text).toMatch(/bbbbbbb/);
-    expect(text).toMatch(/docker compose restart jt-agent/);
+    expect(text).toMatch(/docker compose restart bridge/);
     expect(text).not.toMatch(/behind/i);
   });
 

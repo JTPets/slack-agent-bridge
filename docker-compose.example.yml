@@ -10,8 +10,9 @@
 # directory can no longer delete it (WORK-TODO #26).
 #
 # WHAT IS AND IS NOT VERIFIED. The uncommented block below reproduces the live compose
-# file captured from inside the running container on 2026-09-14 and recorded verbatim in
-# docs/CONFIG-SURFACE-AND-REBUILD.md -> Appendix. That capture is OWNER-SUPPLIED: it is
+# file as the owner rewrote it on 2026-10-10 (work mount, exec + init, no SqTools mount;
+# validated with `docker compose config` and recreated the same day). The 2026-09-14
+# capture recorded in docs/CONFIG-SURFACE-AND-REBUILD.md -> Appendix is the older shape. That capture is OWNER-SUPPLIED: it is
 # not regenerable from a checkout. Re-read the live file before trusting this one:
 #
 #   cat /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml
@@ -78,25 +79,30 @@ services:
       PATH: /bridge/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     volumes:
       - /share/CACHEDEV1_DATA/jt-agent:/bridge
-      # SqTools — PRODUCTION, money and customer PII. The `:ro` flag stops WRITES: a
-      # bridge-side mistake or prompt injection cannot modify that tree. NEVER make it rw.
-      # It does NOT stop READS. Anything a dispatch runs in this container (the agent CLI,
-      # a branch's tests, python package build code) can read this tree, including any
-      # secrets SqTools keeps in it. Nothing in the bridge reads /repo. WORK-TODO #75;
-      # dropping the line is PROPOSED block (4) at the bottom, an owner decision.
-      - /share/CACHEDEV1_DATA/sqtools/app:/repo:ro
+      # WORK_DIR on a mount, so a --force-recreate keeps the task lock, the queue and every
+      # preserved scratch clone (WORK-TODO #25, closed 2026-10-10). There is deliberately NO
+      # SqTools mount: the read-only /repo mount was removed on the box 2026-10-10 (WORK-TODO
+      # #75). Nothing in this repository read it. Never add a SqTools path here.
+      - /share/CACHEDEV1_DATA/jt-agent/work:/tmp/bridge-agent
     # This line is the ONLY install step in the deployment, and it runs unprivileged
     # at every container start. See "WHAT TOOLCHAINS THIS IMAGE PROVIDES" at the top.
-    command: sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"
+    # `exec` makes node replace sh, and `init: true` puts docker-init in front as PID 1 to
+    # forward SIGTERM and reap a task's child processes, so a restart reaches
+    # bridge-agent.js's gracefulShutdown(). 90s covers the handler's 60s wait. WORK-TODO #73,
+    # applied and verified on the box 2026-10-10 (PID 1 /sbin/docker-init, node pid 7).
+    # A task still running after the 60s wait is still lost; the handler then exits.
+    command: sh -c "npm ci && npm install -g @anthropic-ai/claude-code && exec node bridge-agent.js"
+    init: true
+    stop_grace_period: 90s
     restart: unless-stopped
 
     # ---------------------------------------------------------------------------
     # PROPOSED HARDENING — commented out deliberately. NONE OF IT HAS BEEN TESTED
     # AGAINST THE LIVE BRIDGE. Each block is explained, with its verification and its
     # failure mode, in docs/CONFIG-SURFACE-AND-REBUILD.md -> Step 7.7. Apply one at a
-    # time, with `docker compose logs -f jt-agent` open, and confirm a real TASK: runs
+    # time, with `docker compose logs -f bridge` open, and confirm a real TASK: runs
     # end to end before applying the next. Revert = re-comment the block and
-    # `docker compose up -d --force-recreate jt-agent`.
+    # `docker compose up -d --force-recreate bridge`.
     # ---------------------------------------------------------------------------
 
     # Bound the container's log growth. The NAS also hosts the SqTools postgres volume;
@@ -129,24 +135,14 @@ services:
     #   - ALL
 
     # ---------------------------------------------------------------------------
-    # PROPOSED (B6, 2026-10-04) — three changes, each an owner decision, each
-    # independently revertable. UNTESTED against the live bridge. Apply one at a time
-    # with `docker compose logs -f jt-agent` open and run a real TASK: after each.
+    # PROPOSED (B6, 2026-10-04) — one change remains, an owner decision, revertable.
+    # UNTESTED against the live bridge. Apply it with `docker compose logs -f bridge` open
+    # and run a real TASK: afterwards.
     # ---------------------------------------------------------------------------
 
-    # (1) LET A RESTART STOP THE BRIDGE CLEANLY — WORK-TODO #73. Today PID 1 is `sh`,
-    # which does not forward SIGTERM, so `docker compose restart` never reaches
-    # bridge-agent.js's gracefulShutdown() and a running task is SIGKILLed ~10s later
-    # with its finally block (lock release, clone check) never run. `exec` makes node
-    # replace sh; `init: true` puts docker's tini in front to forward signals and reap
-    # the task's child processes; 90s covers the handler's 60s wait. What it does NOT
-    # do: a task still running after 60s is still lost (the handler then exits).
-    # Replace the `command:` line above with this one, and add the two keys:
-    # command: sh -c "npm ci && npm install -g @anthropic-ai/claude-code && exec node bridge-agent.js"
-    # init: true
-    # stop_grace_period: 90s
-    # Verify: docker compose restart jt-agent, then the log tail shows
-    # "Received SIGTERM, initiating graceful shutdown" and #sqtools-ops gets ":wave:".
+    # (1), (3) and (4) of this section were APPLIED on the box 2026-10-10 and are now in
+    # the live block above: exec + init + stop_grace_period (#73), the WORK_DIR mount (#25),
+    # and the SqTools /repo mount removed (#75).
 
     # (2) BUILD THE IMAGE INSTEAD OF INSTALLING AT EVERY START — WORK-TODO #70. Pins the
     # base and the Claude CLI (see Dockerfile), installs python3-venv once (#68), and the
@@ -154,26 +150,9 @@ services:
     # the two keys below, drop NPM_CONFIG_PREFIX and the PATH override from
     # `environment:` (the CLI is now /usr/local/bin/claude, the CLAUDE_BIN default - and a
     # stale copy in /bridge/.npm-global would otherwise shadow it), make sure .env does
-    # not set CLAUDE_BIN elsewhere, and use this command (with (1)'s exec):
+    # not set CLAUDE_BIN elsewhere, and use this command (keeping the exec):
     # build: .
     # image: jt-agent:local
     # command: sh -c "npm ci && exec node bridge-agent.js"
-    # Rebuild path: docker compose build jt-agent && docker compose up -d jt-agent
+    # Rebuild path: docker compose build bridge && docker compose up -d bridge
     # Verify: docker exec jt-agent claude --version   (prints the pinned version)
-
-    # (3) MAKE THIS FILE MATCH THE BOX ON WORK_DIR — WORK-TODO #73 shape (b), #25. On
-    # 2026-09-20 `docker inspect jt-agent` (operator-supplied) reported this bind mount,
-    # which the 2026-09-14 capture above does not have. If it is live, this file is
-    # stale and a rebuild from it would put WORK_DIR back in the container layer, where a
-    # --force-recreate deletes the task lock, the queue and every preserved clone.
-    # Check first:  docker inspect -f '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}' jt-agent
-    # Then add under `volumes:`:
-    #   - /share/CACHEDEV1_DATA/jt-agent/work:/tmp/bridge-agent
-
-    # (4) DROP THE SQTOOLS MOUNT — WORK-TODO #75 shape (a). No code in this repository
-    # reads /repo (regenerate: grep -rnE "['\"`]/repo(/|['\"`:])" --include=*.js . ),
-    # so removing the `/repo:ro` line above ends the read exposure and breaks nothing
-    # here. Only the owner knows whether anything OUTSIDE this repository relies on it.
-    # Delete the line, then: docker compose up -d --force-recreate jt-agent
-    # Verify: docker inspect -f '{{range .Mounts}}{{.Destination}}{{"\n"}}{{end}}' jt-agent
-    #   (no /repo in the list)

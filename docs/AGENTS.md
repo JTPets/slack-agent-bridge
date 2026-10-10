@@ -188,7 +188,7 @@ bulletin, `lib/command-router.js:48`, `lib/task-decomposer.js:19`,
 answers, not one.** A change to a personality, a system prompt, a watch list, a
 permission or a `target_repo` is live on the next event. A change to a channel, a
 schedule, `status`, or any bridge-agent field is inert until
-`docker compose restart jt-agent` — and merging it reaches the box only when a human
+`docker compose restart bridge` — and merging it reaches the box only when a human
 runs that (`CLAUDE.md` → "Self-update — DESIGNED AND TESTED, NOT WIRED"). Nothing
 reports the difference, so an edit that appears to do nothing and an edit that is
 waiting for a restart look identical.
@@ -553,7 +553,7 @@ bridge-agent to re-derive them through `onActivationChanged` (`reRegisterAgents(
 which rebuilds `channelsToPoll` and restarts the scheduler. When that hook is present
 the verdict says the agent is *now polled with its schedule registered*; when it is
 absent or throws, the verdict says the decision is recorded and takes effect on the
-next `docker compose restart jt-agent`. It never claims a live effect it did not
+next `docker compose restart bridge`. It never claims a live effect it did not
 have — `tests/agent-activation.test.js` asserts both wordings.
 
 One thing it cannot do: **deploy.** Merging this repository changes nothing on the
@@ -1108,7 +1108,7 @@ Agents with `production: false` can push directly to main:
 
 1. **Direct Commit**: Agent commits changes to main
 2. **Push**: Agent pushes to main
-3. **Deploy**: **manual.** The owner runs `docker compose restart jt-agent` on the NAS.
+3. **Deploy**: **manual.** The owner runs `docker compose restart bridge` on the NAS.
 
 > ⚠️ **Agents: do not assume your pushed code is running.** This step used to read
 > "Auto-Deploy: Auto-updater detects changes and restarts PM2 process". Both halves were

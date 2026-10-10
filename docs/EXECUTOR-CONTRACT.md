@@ -158,6 +158,16 @@ that maps it and update that document **in the same change**.
 - `docs/CONFIG-SURFACE-AND-REBUILD.md` — config surface and the rebuild path.
 - `README.md` — env var tables and the user-facing summary.
 - `WORK-TODO.md` — the backlog. Flat, one `###` heading per item, closed items purged.
+  **Allocating a new ID (WORK-TODO #67 stopgap, 2026-10-10):** fetch first and take the
+  next number after the highest ID on **either** `origin/main` or your branch, never your
+  branch alone, and repeat the check immediately before you push. Two branches cut from the
+  same base otherwise pick the same numbers and one of them is renumbered at merge time.
+  ```bash
+  git fetch origin main
+  { git show origin/main:WORK-TODO.md; cat WORK-TODO.md; } | grep -oE '^(### |\| #)[0-9]+' | grep -oE '[0-9]+' | sort -n | tail -1
+  ```
+  The command reads index rows as well as headings, because a closed item loses its
+  heading but keeps its index row, and IDs are never reused.
 
 **"No document owns this" is a required answer, not permission to skip.** Say it
 explicitly so the gap is visible. A trigger that points at a nonexistent document is a
@@ -232,7 +242,7 @@ stop.
   clone `main` and `git checkout -b` in the instructions.
 - **Deploys are manual, and merging deploys nothing.** Nothing starts `auto-update.js`.
   A merge to `main` reaches the running bridge only when a human runs
-  `docker compose restart jt-agent` on the NAS. **Never report a change as deployed, and
+  `docker compose restart bridge` on the NAS. **Never report a change as deployed, and
   never verify a fix against the live bridge, on the strength of having pushed it.** See
   "Self-update — DESIGNED AND TESTED, NOT WIRED" in `CLAUDE.md`.
 - **That restart kills a running task, and does not even signal the bridge first.**
@@ -246,7 +256,7 @@ stop.
   as interrupted, so it must be re-submitted by hand. **Before asking for a restart, check
   `ASK: what's queued`.** Full evidence and the three candidate fixes: WORK-TODO **#73**.
 - **An environment change needs the container recreated, not restarted.**
-  `docker compose up -d --force-recreate jt-agent` — a plain `restart` reuses the
+  `docker compose up -d --force-recreate bridge` — a plain `restart` reuses the
   existing container and its baked-in environment, so the new value never lands.
 - **`.env` is owner-managed and off-limits.** You cannot read or edit it. Adding an env
   var means: a sensible default in code, a row in `CLAUDE.md` **and** `README.md`, and
@@ -381,7 +391,7 @@ There is no Procfile, systemd unit or supervisor config. So the 5-minute cadence
 **#17**, which now also records why fixing that alone is not enough (layers 2 and 3).
 
 **What blocker 4 was protecting against is real, and arrives by another route.** A manual
-`docker compose restart jt-agent` kills a running task and never signals the bridge — see the
+`docker compose restart bridge` kills a running task and never signals the bridge — see the
 deploy bullets in §7 and WORK-TODO **#73**. Do not read "blocker 4 is stale" as "long
 dispatches are now safe"; read it as "the danger has a different name and a different item".
 

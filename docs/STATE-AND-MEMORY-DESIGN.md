@@ -407,7 +407,7 @@ production is fenced when it is installed, not after it starves something.
 
 **4. One credential into the bridge's `.env`** (`BRIDGE_DB_URL` or discrete vars —
 `ACTION REQUIRED` either way), then
-`docker compose up -d --force-recreate jt-agent`. **Not `restart`** — a restart reuses the
+`docker compose up -d --force-recreate bridge`. **Not `restart`** — a restart reuses the
 baked-in environment. Note Step 0 consequence 2: a recreation discards any preserved
 scratch clone.
 
