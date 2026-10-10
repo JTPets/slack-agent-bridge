@@ -92,6 +92,10 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+After the same day's **#8 and #44 closes** (#8 re-checked for duplicate runs; #44 decided by the
+owner: one function per file) those print **35** open items — **8** P1, **21** P2, **6** P3 — and no
+duplicate ID.
+
 After the same day's **#52 close** (the owner ran `ASK: channels` on production) those print **37** open
 items — **8** P1, **23** P2, **6** P3 — and no duplicate ID. The index list also lost five stale
 entries (#3, #26, #53, #55, #66) that the B16 purge left behind.
@@ -358,8 +362,8 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B14** | Dependabot #13/#14, then #10 Wave 3 | Done 2026-10-05: `@slack/web-api` 8, `@slack/socket-mode` 3.1, `googleapis` 178.0 with a Node 20 engines guard (Dependabot PRs closed, Node-22-only googleapis ignored); `security-review.js` (git reads to `lib/security-review-git.js`), `lib/integrations/google-calendar.js` (collapsed; reads `GOOGLE_REFRESH_TOKEN`) | `package.json`, `package-lock.json`, `.github/dependabot.yml`, `tests/dependency-upgrade.test.js`, the split modules, `tests/security-review-git.test.js`, `tests/google-calendar.test.js`, `lib/validate-exceptions.json`, `tests/smoke.test.js` | Runtime code. The calendar now accepts `GOOGLE_REFRESH_TOKEN`, so on a box with only that name set it starts fetching events. Next is Wave 4, owner-gated |
 | **B15** | #10 Wave 4, the two splits with no open question | Done 2026-10-05: `lib/llm-runner.js` (seven parts; `runLLM` to `lib/llm-dispatch.js` so the fallback chain needs no cycle), `lib/integrations/holidays.js` (three parts) | the split modules, `tests/integration.test.js`, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js`, docs line citations | Pure moves; every export is the same object through the facades. `tests/llm-runner.test.js` is not split (Wave T, after #44). The rest of Wave 4 is owner-gated |
 | **B16** | Close what live evidence already proves; two fixes found on the way | Done 2026-10-10: #3, #26, #53, #55, #66 closed; the jester's digest reports the boot commit (`lib/boot-record.js`) instead of "nothing records it"; `proxy-addr` 2.0.7 -> 2.0.8 (GHSA-jqcg-44mw-7w3h) | `lib/boot-record.js`, `lib/critique-digest.js`, `bridge-agent.js` (one line), `tests/critique-digest.test.js`, `package-lock.json`, docs | Runtime code: the digest change and a production dependency patch |
-| **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #49, #75 (#60 moved to the capability design §9 and closed 2026-10-10) | — | Small code once chosen; listed so nobody dispatches them undecided |
-| **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
+| **OD** | Owner decision first | #4b, #27, #29, #37, #51, #65, #67, #71, #47, #49, #75 (#60 moved to the capability design §9 and closed 2026-10-10) | — | Small code once chosen; listed so nobody dispatches them undecided |
+| **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #13 (kept for later), #14, #15, #16 (#8 closed 2026-10-10) | — | Owner's call; recommendations in the rows |
 
 ### Every item
 
@@ -397,11 +401,11 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #35 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Dissolved: recorded in `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 (a cap belongs on what reaches a prompt) |
 | #63 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Banner on `docs/AGENTS.md` → Memory Tiers, including the one-time legacy import; the writer question is `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 |
 | #10 | P2 | OPEN, B10-B15 splitting; wave plan in the item | — | L | 55 over (41 suites / 14 modules) after B15, all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
-| #44 | P2 | decision | OD | S | Figures refreshed in B4 (41 of 71) |
+| #44 | P2 | **CLOSED 2026-10-10** (owner decided, purged) | OD | — | The rule is one function per file, not a raw line count. A suite for one subject stays one file at any length; a suite spanning several modules splits so each set runs on its own. Applied in #10 Wave T and `lib/validate-exceptions.json` |
 | #5 | P2 | OPEN, speculative | SEED | L | Nothing built. Changes the execution model — park |
 | #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
 | #7 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `onDeadlineWarning` at 80% posts `lib/deadline-warning.js` to ops; `tests/llm-runner-deadline.test.js`, `tests/deadline-warning.test.js` |
-| #8 | P2 | **STALE** | SEED (close) | — | Dedup is by message `ts` (`lib/bridge-state.js:126`); a re-submitted task is a new message and runs. Re-read skips are already logged (`bridge-agent.js:1986`). Recommend close |
+| #8 | P2 | **CLOSED 2026-10-10** (purged) | SEED | — | Re-checked for duplicate runs: two dedup layers (done/failed reaction, `processed-tasks.json` by `ts`), a `TASK:` marked processed before it runs (`tests/task-rerun-guard.test.js`), one poll sweep at a time (`tests/poll-reentrancy.test.js`), and every re-read skip logged (`describeSkipReason`). A resubmission is a new message and runs, as intended |
 | #39 | P2 | Recording half DONE in B7; merge state OPEN | B7 | M | `lib/task-work.js` `describeWork` + `TaskQueue.recordWork` (writes `work` only, so the #74 invariant needed no change). Left: resolve merged-or-not from the remote, which D1/D2/D7 need |
 | #40 | P2 | off-box | OA | S | Nothing in the repo can settle it |
 | #37 | P2 | decision | OD | S | `lib/notify-owner.js:165-168` returns `true` after only logging; HIGH is the default priority (`:147`) |
@@ -421,7 +425,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #48 | P3 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Rule moved to `CLAUDE.md` → Local LLM (Ollama) provider |
 | #21 | P3 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | A logger that drops only `already_in_channel`, in `createWebClient()` |
 | #29 | P3 | decision | OD | S to drop | Gmail scope is read-only (`lib/integrations/gmail.js:96`) |
-| #13 | P3 | idea | SEED | L | Recommend drop: widens what a task can do while #27 is undecided |
+| #13 | P3 | **KEPT, not now** (owner 2026-10-10) | SEED | L | Wanted eventually so agents can interact with the server; not needed today. Build it after #27 |
 | #14 | P3 | idea, bigger than written | SEED | M | Retro content is not persisted anywhere to draft from. Side finding: story-bot and social-media both declare `channel_name: social-media` |
 | #15 | P3 | idea, weaker than written | SEED | S/M | `lib/task-decomposer.js` has no production caller, so the scorer it would use is dead code. Recommend drop |
 | #16 | P3 | idea | SEED | L | Recommend drop: needs runtime channel creation, which activation now refuses by design |
@@ -558,7 +562,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (23)
+**P2 — real gaps, no risk to the running process** (21)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -568,10 +572,8 @@ work behind an owner's name, which is the opposite of the point.
 - **#27** — [A task has write access to the entire live deployment, including every credential — recorded, undecided](#27-a-task-has-write-access-to-the-entire-live-deployment-including-every-credential--recorded-undecided)
 - **#75** — [`/repo:ro` stops a write and not a read — SqTools' production secrets are readable by any code a dispatch runs, against any repository](#75-reporo-stops-a-write-and-not-a-read--sqtools-production-secrets-are-readable-by-any-code-a-dispatch-runs-against-any-repository)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
-- **#44** — [The 300-line rule is one rule over two different problems — scope it, or say it covers both](#44-the-300-line-rule-is-one-rule-over-two-different-problems--scope-it-or-say-it-covers-both)
 - **#5** — [Mid-task `ask_on_slack` capability](#5-mid-task-ask_on_slack-capability)
 - **#6** — [Structured task result format](#6-structured-task-result-format)
-- **#8** — [Surface deduplication in status](#8-surface-deduplication-in-status)
 - **#39** — [The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged](#39-the-queue-cannot-tell-a-completed-task-from-a-landed-one--nothing-here-knows-whether-a-branch-merged)
 - **#40** — [Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout](#40-uncommitted-edits-in-the-live-deployment-tree--reported-not-verifiable-from-a-checkout)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
@@ -2228,7 +2230,7 @@ now covers them too.
 | `lib/task-queue.js` | 790 | `task-queue-delivery.js` (`normalizeDelivery`, `deliveryRecorded`); the readers (`getRecentCompleted`, `getStatus`, the module-level `getQueueStatus`) go to `task-queue-view.js` as a prototype mixin. All terminal writers stay in `task-queue.js`. | A guard redesign. `tests/task-queue-delivery-invariant.test.js` and `tests/task-queue-lifecycle.test.js` walk this file's source. Splitting a class this way is the least mechanical cut on the list. |
 | `bridge-agent.js` | 2868 | Seams C, D and E (WIRING-AND-SEAMS §6) | Its own exclusion. Seam C pairs with `lib/task-parser.js` above. |
 
-**Wave 5 — the files under 300 lines of code; this wave depends on #44**
+**Wave 5 — the files under 300 lines of code; judged one function per file (#44, decided 2026-10-10)**
 
 `lib/integrations/email-categorizer.js`, `lib/code-review-pipeline.js`,
 `lib/bulletin-board.js`, `lib/integrations/email-sanitizer.js`, `lib/slack-client.js`,
@@ -2242,9 +2244,21 @@ now covers them too.
   - `lib/clone-lifecycle.js`: `tests/clone-lifecycle.test.js`, `tests/undelivered-work.test.js`
     and `tests/no-shell-execution.test.js`.
 
-**Wave T — the 41 test suites, after #44.** If the rule is scoped out of `tests/`, there is
-nothing to do. Otherwise each suite splits by its top-level `describe`, one file per subject.
-`tests/llm-runner.test.js` is here too: its module split in B15 and the suite passed unchanged through the facade.
+**Wave T — test suites, decided 2026-10-10 (#44, owner).** The rule is one function per
+file. A suite that covers one subject stays one file whatever its length; its exception
+names the subject. A suite that covers several modules splits so each set can be run on
+its own. That leaves three splits:
+- `tests/llm-runner.test.js`: one suite per part of the B15 split (errors, defaults,
+  dispatch, the three adapters, fallback).
+- `tests/holidays.test.js`: one per part (public holidays, pet awareness, local date).
+- `tests/owner-tasks.test.js`: the store and the view.
+
+`tests/integration.test.js`, `tests/bug-fixes.test.js` and `tests/smoke.test.js` reach many
+modules by design, but each has one job (wiring, the regression catalogue, the load gate),
+so they stay whole.
+
+**Wave 5 uses the same test.** A source file over 300 lines splits when it does more than one
+job, not because comments push it past the count.
 
 **Fix:** work the source-module table top-down, cheapest first, each extraction on the named
 boundary and each keeping `node -e "require('./bridge-agent.js')"` green (the CLAUDE.md
@@ -2258,49 +2272,6 @@ absence as a finding rather than folding it into a green.
 **Priority:** P2 | **Effort:** High, incremental | **Status:** open
 
 ---
-
-### 44. The 300-line rule is one rule over two different problems — scope it, or say it covers both
-**BLOCKED — OWNER DECISION.** The item states it in its own words: *not to be decided by an
-executor*. Two independent decisions (scope the rule out of `tests/`; count code lines
-rather than raw lines), each small to implement once made. Nothing is blocked on it — the
-gate is declaration-driven and green.
-**Filed 2026-09-15,** from the size-gate pass that produced #10's record. **Argued here on
-both sides and deliberately left undecided — the branch that filed this did not change the
-rule.** The gate is now declaration-driven (`lib/file-size-gate.js` +
-`lib/validate-exceptions.json`), so nothing is blocked on this; what is at stake is whether
-**36 of the 65 recorded exceptions should have to exist at all**.
-
-**What the rule was written to catch.** `lib/validate.js` pairs `MAX_LINES = 300` with a
-`bridge-agent.js` load check, under the header "keeps files manageable". `CLAUDE.md` places
-the seam rule beside it ("File >300 lines → split on concern separability"), and
-`docs/WIRING-AND-SEAMS.md` §5-§6 is the worked example: `bridge-agent.js` reached 2227 lines
-with two functions accounting for 46% of it, and behaviour started being **re-derived inline**
-because no one could hold the file in one read — which is what `docs/CANONICAL-HELPERS.md`
-enumerates the cost of. So the rule is a **proxy for "this module has too many
-responsibilities"**, measured in lines because lines are cheap to count.
-
-**Figures, as commands. CORRECTED 2026-09-16 — the command below used to parse
-`npm run validate` output and returned 0 for everything; see #10 for why.**
-```bash
-node -e "const g=require('./lib/file-size-gate');const m=g.measure().filter(f=>f.lines>300);
-  console.log(m.length+' over limit | '+m.filter(f=>f.path.startsWith('tests/')).length+' test suites | '
-    +m.filter(f=>!f.path.startsWith('tests/')).length+' source modules');"
-# -> 69 over limit | 40 test suites | 29 source modules      (2026-09-16)
-```
-**40 of 69 — 58% of every violation — are test suites**, and the largest after
-`bridge-agent.js` is `tests/llm-runner.test.js` at 1837 lines. (It was 36 of 65 when this
-was filed; the ratio moved the way the argument below predicts it would, because the four
-files added since are all suites.)
-
-**Why a suite is a different problem.** A test file's length is its **assertion count**. The
-failure mode the rule exists to prevent — one module quietly acquiring five responsibilities —
-has no analogue there: `tests/llm-runner.test.js` has exactly one responsibility, which is
-`lib/llm-runner.js`, and it is long because that module has four provider adapters and a
-fallback chain with six trigger conditions. Under the rule as written, the cheapest way to
-make a suite compliant is **to delete assertions**, and the second cheapest is to scatter one
-subject across files so no reader can see what is and is not covered. A rule whose easiest
-compliance path is less testing is pointed the wrong way.
-**Figures re-run 2026-10-04 (B4), same command: 71 over the limit — 41 test suites, 30 source modules, so 41 of 71 (58%) are test suites; `tests/llm-runner.test.js` is 1864 lines.** 18 of the 30 source modules are under 300 lines of code (#10 lists them). The decision is unchanged.
 
 ### The argument for scoping the rule to source files (suites governed differently, or not at all)
 
@@ -2413,19 +2384,6 @@ already extracts test pass/fail counts (`lib/code-review-pipeline.js:348-353`) �
 that rather than re-parsing.
 **Effort:** Medium.
 **Priority:** P2 | **Effort:** Medium | **Status:** open
-
----
-
-### 8. Surface deduplication in status
-**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** ancestor heading
-"Deduplication TTL surfaced in status" in the 2026-04-05 seed `4b6ee4a`.
-**Problem:** `processed-tasks.json` dedupes silently; a re-submitted task is skipped with
-no feedback to the user. Dedup is real (`CLAUDE.md` "Task Deduplication") but there is no
-reply-on-duplicate path.
-**Fix:** when a duplicate is detected, post a brief threaded reply: "Already processed
-(ID: xxx). Reply `retry` to force." Wire `retry` through the existing dedup check.
-**Effort:** Low.
-**Priority:** P2 | **Effort:** Low | **Status:** open
 
 ---
 
@@ -3031,7 +2989,8 @@ tools so Claude Code sessions call them directly.
 **Dependency (now explicit):** only meaningful while Claude Code is the executor (see
 item 5) and mostly only worth it alongside the mid-task ask capability.
 **Effort:** High. **ROI:** unclear.
-**Priority:** P3 | **Effort:** High | **Status:** open
+**Owner, 2026-10-10:** keep it. MCP is how agents would interact with the server as needed; it is not needed today.
+**Priority:** P3 | **Effort:** High | **Status:** open, not now
 
 ---
 
