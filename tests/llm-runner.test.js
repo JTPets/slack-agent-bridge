@@ -221,7 +221,7 @@ describe('llm-runner module', () => {
       // 'pipe' rather than 'ignore'.
       expect(mockSpawn).toHaveBeenCalledWith(
         '/custom/claude',
-        ['-p', '--output-format', 'text', '--max-turns', '20', '--dangerously-skip-permissions'],
+        ['-p', '--output-format', 'stream-json', '--verbose', '--max-turns', '20', '--dangerously-skip-permissions'],
         expect.objectContaining({
           cwd: '/test/dir',
           stdio: ['pipe', 'pipe', 'pipe'],
@@ -1747,6 +1747,47 @@ describe('llm-runner module', () => {
         expect(err.message).toContain('SIGTERM');
         expect(err.message).toContain('(no stderr output)');
       }
+    });
+
+    // LOGIC CHANGE 2026-10-10: regression for the 07:00 secretary briefing, which failed
+    // as "Exit code 1 (no stderr output)" because the CLI's reason was on stdout.
+    test('a failed exit with empty stderr carries the CLI message from stdout', async () => {
+      setupMockSpawn({ exitCode: 1, stdout: 'Invalid API key · Please run /login\n', stderr: '' });
+      const { runClaudeAdapter } = require('../lib/llm-runner');
+      await expect(runClaudeAdapter('prompt')).rejects.toThrow(/Exit code 1[\s\S]*stdout \(last 2000 chars\):\nInvalid API key/);
+    });
+
+    test('a usage-limit message on stdout is a rate limit, so the fallback chain can run', async () => {
+      setupMockSpawn({ exitCode: 1, stdout: 'Claude AI usage limit reached|1791630000', stderr: '' });
+      const { runClaudeAdapter } = require('../lib/llm-runner');
+      const err = await runClaudeAdapter('prompt').catch(e => e);
+      expect(err.isRateLimit).toBe(true);
+      expect(err.message).toContain('usage limit reached');
+    });
+
+    test('long task output that mentions a rate limit is not treated as one', async () => {
+      const longOut = 'x'.repeat(600) + ' the API returned rate limit exceeded in our test';
+      setupMockSpawn({ exitCode: 1, stdout: longOut, stderr: '' });
+      const { runClaudeAdapter } = require('../lib/llm-runner');
+      const err = await runClaudeAdapter('prompt').catch(e => e);
+      expect(err.isRateLimit).toBeUndefined();
+      expect(err.message).toContain('Exit code 1');
+    });
+
+    test('a secret on stdout is redacted from the exit diagnostic', () => {
+      const { describeClaudeExit } = require('../lib/llm-runner');
+      // Assembled at runtime so no token-shaped literal is committed (push protection).
+      const fake = ['xoxb', '123456789012', '123456789012', 'abcdefghijklmnopqrstuvwx'].join('-');
+      const msg = describeClaudeExit(1, null, '', `failed with ${fake}`);
+      expect(msg).not.toContain(fake.slice(0, 17));
+      expect(msg).toContain('(no stderr output)');
+    });
+
+    test('a failed exit with no output at all says so', () => {
+      const { describeClaudeExit } = require('../lib/llm-runner');
+      const msg = describeClaudeExit(1, null, '', '');
+      expect(msg).toMatch(/\(no stderr output\)$/);
+      expect(msg).not.toContain('stdout');
     });
   });
 

@@ -176,7 +176,7 @@ also fails silently.
    step 3 and required: without it the modal opens but submitting it does nothing.
 5. **Reinstall the app** — a new slash command adds the `commands` scope, which needs a
    reinstall to take effect.
-6. Recreate the container (`docker compose up -d --force-recreate jt-agent` — a plain
+6. Recreate the container (`docker compose up -d --force-recreate bridge` — a plain
    `restart` keeps the old environment).
 
 None of the above is verifiable from this repository; the app configuration lives in
@@ -251,7 +251,7 @@ resource fencing for a local Ollama server.
 > carrying that same command, not a second deployment.
 >
 > **What this means in practice:** merging to `main` does not change the running
-> process. A human running `docker compose restart jt-agent` on the NAS is the deploy.
+> process. A human running `docker compose restart bridge` on the NAS is the deploy.
 > Commits can and do sit merged-but-unloaded for hours.
 >
 > **It would not start cleanly today either:** `validateConfig()` exits 1 when

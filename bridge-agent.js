@@ -21,7 +21,7 @@ require('dotenv').config();
  * Run:
  *   node bridge-agent.js
  * In the deployment this is the container's `command:` - there is no process manager
- * inside the `jt-agent` image. A restart is `docker compose restart jt-agent` on the
+ * inside the `jt-agent` image. A restart is `docker compose restart bridge` on the
  * NAS (`up -d --force-recreate` for an .env change). See CLAUDE.md -> Commands.
  *
  * Required env vars:
@@ -40,7 +40,7 @@ require('dotenv').config();
 // LOGIC CHANGE 2026-10-04 (WORK-TODO #30, #21): every Slack client is built by lib/slack-web.js,
 // which redacts secrets out of every chat.* post and drops the already_in_channel warning.
 const { createWebClient, postText } = require('./lib/slack-web');
-const { formatDeadlineWarning } = require('./lib/deadline-warning');
+const { formatDeadlineWarning, formatRunAlert } = require('./lib/deadline-warning');
 // LOGIC CHANGE 2026-09-14: `const { execSync } = require('child_process')` removed.
 // It was left behind when the git/clone lifecycle moved to lib/clone-lifecycle.js
 // (seam A) and had no remaining use in this file — a dead import of the one API in
@@ -938,6 +938,11 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
           // TASK_TIMEOUT_MS instead of the kill being the first sign of a long task.
           onDeadlineWarning: (info) => postToOps(formatDeadlineWarning({
             ...info, description: task.description, repo: task.repo, agentId, isRetry: retryCount > 0,
+          })),
+          // LOGIC CHANGE 2026-10-10 (WORK-TODO #59): a stalled or looping run is reported
+          // to #sqtools-ops while it happens. Report-only by default; see lib/claude-stream-watch.js.
+          onRunAlert: (info) => postToOps(formatRunAlert({
+            ...info, description: task.description, repo: task.repo, agentId,
           })),
         });
       } catch (llmErr) {
@@ -2524,7 +2529,9 @@ console.log(`  Turns:    ${DEFAULT_TURNS} per task unless TURNS: says otherwise 
 // read ONCE here and posted, so "is the running bridge on main?" has an answer that
 // comes from the running process. A merge reaches the bridge only on a manual
 // restart, and nothing reported when the two diverged. postToOps never throws.
-const BOOT_COMMIT = repoHistory.loadedCommit();
+// LOGIC CHANGE 2026-10-10: also recorded in lib/boot-record.js, so the jester's digest
+// reports this commit instead of saying nothing records it.
+const BOOT_COMMIT = require('./lib/boot-record').recordBootCommit(repoHistory.loadedCommit());
 console.log(`  Commit:   ${BOOT_COMMIT.available ? `${BOOT_COMMIT.short}${BOOT_COMMIT.dirty ? ' (tracked files modified)' : ''}` : `unknown (${BOOT_COMMIT.reason})`}`);
 postToOps(repoHistory.describeLoadedCommit(BOOT_COMMIT));
 

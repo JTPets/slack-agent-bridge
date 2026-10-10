@@ -271,7 +271,10 @@ describe('bridge-agent.js announces its boot commit', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'bridge-agent.js'), 'utf8');
 
     test('it reads the commit once at module scope and posts it', () => {
-        expect(src).toMatch(/^const BOOT_COMMIT = repoHistory\.loadedCommit\(\);$/m);
+        // LOGIC CHANGE 2026-10-10: the read is wrapped by lib/boot-record.js recordBootCommit,
+        // which stores and returns it unchanged; still one read, at module scope.
+        expect(src).toMatch(/^const BOOT_COMMIT = require\('\.\/lib\/boot-record'\)\.recordBootCommit\(repoHistory\.loadedCommit\(\)\);$/m);
+        expect(src.match(/repoHistory\.loadedCommit\(/g)).toHaveLength(1);
         expect(src).toMatch(/^postToOps\(repoHistory\.describeLoadedCommit\(BOOT_COMMIT\)\);$/m);
     });
 });

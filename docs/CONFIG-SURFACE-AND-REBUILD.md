@@ -116,8 +116,8 @@ of the image or the mounts. Therefore:
 
 | Operation | Preserved clone survives? |
 |---|---|
-| `docker compose restart jt-agent` (the documented deploy step) | **yes** — the same container is restarted, its writable layer is intact |
-| `docker compose up -d --force-recreate jt-agent` (**required for any `.env` change**) | **no** — a new container is created and the old layer is discarded |
+| `docker compose restart bridge` (the documented deploy step) | **yes** — the same container is restarted, its writable layer is intact |
+| `docker compose up -d --force-recreate bridge` (**required for any `.env` change**) | **no** — a new container is created and the old layer is discarded |
 | `docker compose down` / `up`, an image change, a host or Docker daemon restart that recreates the container, a container prune | **no** |
 
 The second row is the finding. `CLAUDE.md` and `docs/EXECUTOR-CONTRACT.md` both instruct
@@ -423,7 +423,7 @@ a **named placeholder**. "Safe to commit" = repo; "Off-box encrypted" = never in
     npm script (`test`, `test:smoke`, `validate` only), no spawn or fork, no compose
     file, Procfile or systemd unit. Combined with the compose finding above, **the
     self-update daemon does not run at all**; deploys are a manual
-    `docker compose restart jt-agent`. A host cron or a second compose service remains
+    `docker compose restart bridge`. A host cron or a second compose service remains
     the only unchecked possibility and must be ruled out **on the NAS**
     (`crontab -l`, and `grep -n "auto-update" /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml`).
     Tracked as WORK-TODO item #17; corrected across `CLAUDE.md`, `README.md`,
@@ -505,7 +505,7 @@ minimum set needed to bring the bridge back up.
 **Owner action, unverifiable from this repository:** Socket Mode must be enabled in the
 Slack app (Settings -> Socket Mode) for the token to connect at all. Nothing in a checkout
 can confirm whether it is. Adding the key to `.env` needs
-`docker compose up -d --force-recreate jt-agent` — Consequence 2 above applies: that
+`docker compose up -d --force-recreate bridge` — Consequence 2 above applies: that
 operation discards any preserved scratch clone.
 
 ---
@@ -750,9 +750,9 @@ failure mode, so the decision is a review rather than a design exercise.
 
 **They are in `docker-compose.example.yml` in this repository, commented out**, each with
 a one-line reason and a `docker inspect` verification. **None has been tested against the
-live bridge.** Apply one at a time, with `docker compose logs -f jt-agent` open, and
+live bridge.** Apply one at a time, with `docker compose logs -f bridge` open, and
 confirm a real `TASK:` runs end to end before the next. Revert = re-comment and
-`docker compose up -d --force-recreate jt-agent`.
+`docker compose up -d --force-recreate bridge`.
 
 | Shape | Closes | Honest cost |
 |---|---|---|
@@ -1268,8 +1268,8 @@ rebuild path becomes:
 
 ```
 cp docker-compose.example.yml /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml   # with block (2) applied
-docker compose build jt-agent
-docker compose up -d jt-agent
+docker compose build bridge
+docker compose up -d bridge
 docker exec jt-agent claude --version     # the pinned CLI
 ```
 

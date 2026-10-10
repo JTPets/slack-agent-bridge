@@ -92,6 +92,25 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+After the same day's **B17 closes** (#15, #25, #40, #73, #75, each settled by owner-run output from the
+NAS on 2026-10-10) those print **30** open items — **6** P1, **19** P2, **5** P3 — and no duplicate ID.
+
+After the same day's **#8 and #44 closes** (#8 re-checked for duplicate runs; #44 decided by the
+owner: one function per file) those print **35** open items — **8** P1, **21** P2, **6** P3 — and no
+duplicate ID.
+
+After the same day's **#52 close** (the owner ran `ASK: channels` on production) those print **37** open
+items — **8** P1, **23** P2, **6** P3 — and no duplicate ID. The index list also lost five stale
+entries (#3, #26, #53, #55, #66) that the B16 purge left behind.
+
+After the same day's **#60 move** those print **38** open items — **8** P1, **24** P2, **6** P3 — and
+**no duplicate ID**; #60's text now lives in `docs/CAPABILITY-AND-ISOLATION-DESIGN.md` §9.
+
+At the **2026-10-10 B16 pass** those print **39** open items — **8** P1, **24** P2, **7** P3 —
+and **no duplicate ID**. That pass closed and purged **#3, #26, #53, #55 and #66** on live
+evidence read from `#sqtools-ops` and `#jester-agent` (the commit body lists each), filed
+nothing, and moved #55's off-box map export into #42.
+
 At the **2026-10-05 B14 pass** those print **44** open items — **10** P1, **27** P2, **7** P3 —
 and **no duplicate ID**. That pass filed **#76** and closed nothing (#10 stays open).
 
@@ -258,7 +277,7 @@ reading the repository and running a test.
 Its namesake is "CONFIRMED FIRING LIVE" — a claim about what the *running container*
 registers at startup. All three of its fix parts landed on `main`; the seventh commit that
 addressed it restated the close condition rather than meeting it, because meeting it needs
-a `docker compose restart jt-agent`. Seven rounds of honest partial credit against a target
+a `docker compose restart bridge`. Seven rounds of honest partial credit against a target
 that is off-repo by construction.
 
 **16 of the 40 `Addresses` lines — 40% — name one of the twelve items now marked
@@ -336,7 +355,8 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B4** | Records: config surface and docs that state what is no longer true | #34, #20, #63, #35, #48 (all closed 2026-10-04); #4b narrowed to owner decisions (now OD); #10 table refreshed; stale-claim sweep done | `CLAUDE.md`, `README.md`, `.env.example`, `docs/AGENTS.md`, `WORK-TODO.md` | After the in-flight records dispatch, which owns the same docs this week. Verifiable by reading |
 | **B5** | Commands and routing | #46, #9 (closed 2026-10-04); #4 cheap half, #49 (Q1-3 + bot path), #52 and #66 (repo halves), #64 (refusal half) done; #39 moved to B7 | `bridge-agent.js`, `lib/command-router.js`, `lib/dispatch-command.js`, `lib/dispatch-delivery.js`, `lib/task-history.js`, `lib/channel-reconcile.js`, `lib/main-watch.js` | After B1 and B3 (shared `bridge-agent.js`) |
 | **B6** | Deployment shape — repo halves of owner-side work | Done 2026-10-04: #70 (Dockerfile), #73 (compose proposals), #42 (c), #68 (venv half). Skipped: #59 (its own text sequences it after #17/#73), #17 (deploy shape is the owner's choice) | `Dockerfile`, `.dockerignore`, `docker-compose.example.yml`, `lib/python-venv.js`, `lib/backup-watch.js`, `scripts/backup-status.sh`, `docs/CONFIG-SURFACE-AND-REBUILD.md` | Each repo half is inert until the owner applies it on the NAS |
-| **OA** | Owner action only, nothing left in the repo | #3, #26, #40, #41, #43, #53, #55, #52, #66, #70, #73 | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
+| **B17** | Same-day fixes from the backlog pass | Done 2026-10-10: the Claude CLI's stdout reason on a failed exit and usage-limit fallback (608c515); the run watch for #59, report-only; #67 stopgap in the executor contract; #25, #40, #73, #75 closed from box output | `lib/llm-errors.js`, `lib/llm-adapter-claude.js`, `lib/claude-stream-watch.js`, `lib/llm-defaults.js`, `lib/deadline-warning.js`, `bridge-agent.js` (one option), `docker-compose.example.yml`, docs | Runtime code: the adapter now reads stream-json |
+| **OA** | Owner action only, nothing left in the repo | #41, #43, #70 (#25, #40, #73 closed 2026-10-10 from box output; #3, #26, #53, #55, #66 closed 2026-10-10 on live evidence; #52 closed 2026-10-10 on the `ASK: channels` output) | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
 | **B7** | Landed vs completed | Done 2026-10-04: #39 recording half (`work` on the queue row, shown in `what's queued`). Left: merge state | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/task-work.js` | `recordWork` writes no status and no verdict, so the #74 invariant holds unchanged (its suite passes untouched) |
 | **B8** | Small repo halves left after B7 | Done 2026-10-04: #62 (closed), #75 repo half. B9 (same day): `lib/repo-history.js` reads `Closes #N. Addresses #M` on one line as two claims, not two closes | `.gitignore`, `tests/gitignore-publishable.test.js`, `docker-compose.example.yml` | No runtime code |
 | **B10** | #10 file splits, by the boundaries its table names | Done 2026-10-05: `lib/integrations/gmail.js`, `lib/watercooler.js`, `lib/memory-tiers.js`, `lib/approval-queue.js` | the split modules, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves; facades keep every caller unchanged. `bridge-agent.js` stays excluded |
@@ -345,8 +365,9 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B13** | #10 Wave 2 | Done 2026-10-05: `lib/command-router.js` (renderers out, guard reads both files), `morning-digest.js` (characterised, then `lib/digest-sections.js` and `lib/integrations/weather.js` out) | the split modules, `tests/command-router.test.js`, `tests/command-renderers.test.js`, `tests/digest-sections.test.js`, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves, except `buildDigest` takes its memory dir as an option (default unchanged). Next is Wave 3 (security-review and google-calendar de-duplication), which changes behaviour and is reviewed one file at a time |
 | **B14** | Dependabot #13/#14, then #10 Wave 3 | Done 2026-10-05: `@slack/web-api` 8, `@slack/socket-mode` 3.1, `googleapis` 178.0 with a Node 20 engines guard (Dependabot PRs closed, Node-22-only googleapis ignored); `security-review.js` (git reads to `lib/security-review-git.js`), `lib/integrations/google-calendar.js` (collapsed; reads `GOOGLE_REFRESH_TOKEN`) | `package.json`, `package-lock.json`, `.github/dependabot.yml`, `tests/dependency-upgrade.test.js`, the split modules, `tests/security-review-git.test.js`, `tests/google-calendar.test.js`, `lib/validate-exceptions.json`, `tests/smoke.test.js` | Runtime code. The calendar now accepts `GOOGLE_REFRESH_TOKEN`, so on a box with only that name set it starts fetching events. Next is Wave 4, owner-gated |
 | **B15** | #10 Wave 4, the two splits with no open question | Done 2026-10-05: `lib/llm-runner.js` (seven parts; `runLLM` to `lib/llm-dispatch.js` so the fallback chain needs no cycle), `lib/integrations/holidays.js` (three parts) | the split modules, `tests/integration.test.js`, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js`, docs line citations | Pure moves; every export is the same object through the facades. `tests/llm-runner.test.js` is not split (Wave T, after #44). The rest of Wave 4 is owner-gated |
-| **OD** | Owner decision first | #4b, #27, #29, #37, #44, #51, #65, #67, #71, #47, #60, #49, #75 | — | Small code once chosen; listed so nobody dispatches them undecided |
-| **SEED** | 2026-04 seed ideas — park or drop | #5, #6, #8, #13, #14, #15, #16 | — | Owner's call; recommendations in the rows |
+| **B16** | Close what live evidence already proves; two fixes found on the way | Done 2026-10-10: #3, #26, #53, #55, #66 closed; the jester's digest reports the boot commit (`lib/boot-record.js`) instead of "nothing records it"; `proxy-addr` 2.0.7 -> 2.0.8 (GHSA-jqcg-44mw-7w3h) | `lib/boot-record.js`, `lib/critique-digest.js`, `bridge-agent.js` (one line), `tests/critique-digest.test.js`, `package-lock.json`, docs | Runtime code: the digest change and a production dependency patch |
+| **OD** | Owner decision first | #4b, #27, #37, #51, #65, #71, #47, #49 (#75 closed 2026-10-10; #29 and #67 moved to work; #60 moved to the capability design §9 and closed 2026-10-10) | — | Small code once chosen; listed so nobody dispatches them undecided |
+| **SEED** | 2026-04 seed ideas — features to build, not drop (owner 2026-10-10) | #5, #6, #13 (later), #14, #16 (#8 closed; #15 folded into #59) | — | Owner: unbuilt features stay in the backlog to be built |
 
 ### Every item
 
@@ -355,14 +376,14 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 
 | ID | Tier | Verdict at `71d2112` | Batch | Effort | Evidence, and what is left |
 |---|---|---|---|---|---|
-| #55 | P1 | REPO DONE | OA | S | `scripts/channel-map.js` `--from-git`/`--resolve` built; owner rebuilds the map. Suggest P2: nothing for a branch |
+| #55 | P1 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | Live resolution ran at every boot since: the bridge joined all its agent channels on `546c3d6` (2026-10-05), and jester's channel resolved. Off-box export of the resolved map moved to #42 as a backup item |
 | #56 | P1 | OPEN, nothing to act on until it recurs | B2 | S | Not seen in 2 runs at triage or 3 on `e7edded`. The adjacent race was removed 2026-10-04 (`0773821` deleted the in-tree temp dir; the shared walker in `lib/source-walk.js` skips a vanished dir). The globalSetup signature is still unexplained |
 | #42 | P1 | (c) DONE in B6 (host status file + bridge age alert) | OA | S/M | `scripts/backup-status.sh` + `lib/backup-watch.js`. Owner: the host cron line and `BACKUP_STATUS_FILE`; (a) off-box pull; (b) a restore |
 | #41 | P1 | REPO DONE | OA | — | All remaining work is on the appliance |
 | #17 | P1 | Boot-commit report DONE in B1; deploy shape is a decision | OD + B6 | M | Boot post via `lib/repo-history.js` `loadedCommit()`. Remaining: choose start-the-daemon / push-triggered / manual, then B6 wires it |
-| #73 | P1 | REPO DONE (warning 2026-09-20; compose proposals in B6) | OA | S | `docker-compose.example.yml` PROPOSED blocks (1) exec/init/grace and (3) the WORK_DIR mount. Owner applies and verifies |
-| #25 | P1 | REPO DONE (alert fixed in B1) | OA | S | Alert text built by `lib/preserved-clone-alert.js`, test `tests/preserved-clone-alert.test.js`. Remaining: `WORK_DIR` on a mount in `docker-compose.example.yml` (with #73) |
-| #3 | P1 | REPO DONE | OA | — | `lib/agent-scheduler.js:133-141` refuses planned/unresolved; needs a live restart to confirm. Suggest P2 |
+| #73 | P1 | **CLOSED 2026-10-10** (purged) | OA | — | Owner applied block (1) on the box and recreated: process 1 is `/sbin/docker-init`, node runs as its own process (pid 7) with no `sh` in between, boot healthy at 546c3d6. The next deploy's log should show "Received SIGTERM" |
+| #25 | P1 | **CLOSED 2026-10-10** (purged) | OA | — | The live compose (owner-supplied 2026-10-10) mounts `/share/CACHEDEV1_DATA/jt-agent/work:/tmp/bridge-agent`, so a recreate keeps preserved clones; `docker-compose.example.yml` now matches |
+| #3 | P1 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | Observed live in `#sqtools-ops`: every boot since 2026-10-01 posts "Scheduler refused 2 job(s)" for the planned `social-media` and `marketing`, and story-bot's scheduled job runs in its joined channel (Friday 18:00 posts) |
 | #4 | P1 | Cheap half DONE in B5 (immediate poll after `/dispatch`, one sweep at a time); socket intake parked | B5 | S/M | Namesake (message intake on the socket) is parked by its own text. Suggest P3: latency, not a defect |
 | #43 | P1 | REPO DONE | OA | — | `/dispatch` built and wired (`bridge-agent.js:2588`); Slack app steps remain. Suggest P2 |
 | #70 | P2 | REPO DONE in B6 | OA | M | Tracked `Dockerfile` with pinned base and CLI, `.dockerignore`, compose block (2), rebuild doc Step 12. Build unverified here. Node 20 is EOL |
@@ -372,9 +393,9 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #31 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `lib/digest-failures.js` uses llm-runner `isRateLimitError`; no line promises a retry or re-queue. Guard `tests/digest-failures.test.js` |
 | #71 | P2 | OPEN, needs a shape | OD | S | No lock/queue/drain call in `processConversation`. Latent while nothing starts the updater |
 | #72 | P2 | REPORTING DONE in B1; agreement is a decision | OD | S | Divergences now post to ops (`lib/task-state-divergence.js`). Remaining: choose read-the-lock-in-poll or refuse-on-failed-lock |
-| #26 | P2 | REPO DONE | OA | S | `.gitignore:71` ignores `docker-compose.yml`; the NAS tree must pull it |
+| #26 | P2 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | Production booted on `546c3d6` (boot post 2026-10-05 16:17 EDT), whose `.gitignore:108` ignores `docker-compose.yml`, so `git check-ignore` matches in the deploy tree |
 | #27 | P2 | in flight (records), then decision | OD | — | Shapes recorded in `docs/CONFIG-SURFACE-AND-REBUILD.md` §7.7 |
-| #75 | P2 | REPO DONE in B8 (comment corrected; drop-the-mount written as PROPOSED block (4)) | OD | S | Left: the owner chooses (a)-(e). Nothing in the repo reads `/repo` |
+| #75 | P2 | **CLOSED 2026-10-10** (purged) | OD | — | The live compose (owner-supplied 2026-10-10) has no `/repo` mount, so the exposure does not exist on the box; `docker-compose.example.yml` now matches |
 | #62 | P2 | **CLOSED 2026-10-04** (B8, purged) | B8 | S | `data/*` with `!data/.gitkeep`; guard `tests/gitignore-publishable.test.js` |
 | #24 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `init({ bulletinFile })` and `init({ stateFile })`; the bulletin suite runs on a temp file |
 | #20 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | `TURNS_CEILING`, `conversationTurns()`, `CRITIQUE_TURNS`; the `MAX_TURNS` env var is no longer read. Guard `tests/turn-budgets.test.js` |
@@ -384,34 +405,34 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #35 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Dissolved: recorded in `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 (a cap belongs on what reaches a prompt) |
 | #63 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Banner on `docs/AGENTS.md` → Memory Tiers, including the one-time legacy import; the writer question is `docs/STATE-AND-MEMORY-DESIGN.md` §4.2 |
 | #10 | P2 | OPEN, B10-B15 splitting; wave plan in the item | — | L | 55 over (41 suites / 14 modules) after B15, all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
-| #44 | P2 | decision | OD | S | Figures refreshed in B4 (41 of 71) |
+| #44 | P2 | **CLOSED 2026-10-10** (owner decided, purged) | OD | — | The rule is one function per file, not a raw line count. A suite for one subject stays one file at any length; a suite spanning several modules splits so each set runs on its own. Applied in #10 Wave T and `lib/validate-exceptions.json` |
 | #5 | P2 | OPEN, speculative | SEED | L | Nothing built. Changes the execution model — park |
 | #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
 | #7 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `onDeadlineWarning` at 80% posts `lib/deadline-warning.js` to ops; `tests/llm-runner-deadline.test.js`, `tests/deadline-warning.test.js` |
-| #8 | P2 | **STALE** | SEED (close) | — | Dedup is by message `ts` (`lib/bridge-state.js:126`); a re-submitted task is a new message and runs. Re-read skips are already logged (`bridge-agent.js:1986`). Recommend close |
+| #8 | P2 | **CLOSED 2026-10-10** (purged) | SEED | — | Re-checked for duplicate runs: two dedup layers (done/failed reaction, `processed-tasks.json` by `ts`), a `TASK:` marked processed before it runs (`tests/task-rerun-guard.test.js`), one poll sweep at a time (`tests/poll-reentrancy.test.js`), and every re-read skip logged (`describeSkipReason`). A resubmission is a new message and runs, as intended |
 | #39 | P2 | Recording half DONE in B7; merge state OPEN | B7 | M | `lib/task-work.js` `describeWork` + `TaskQueue.recordWork` (writes `work` only, so the #74 invariant needed no change). Left: resolve merged-or-not from the remote, which D1/D2/D7 need |
-| #40 | P2 | off-box | OA | S | Nothing in the repo can settle it |
+| #40 | P2 | **CLOSED 2026-10-10** (purged) | OA | — | Owner ran `git status --short --untracked-files=no` in `/bridge` on 2026-10-10: no output, so no tracked file is modified |
 | #37 | P2 | decision | OD | S | `lib/notify-owner.js:165-168` returns `true` after only logging; HIGH is the default priority (`:147`) |
 | #64 | P2 | Refusal half DONE in B5; gate not lifted | — | M | A bare verb in an agent channel is refused with a pointer to `#claude-bridge`. Running verbs there waits on the capability model (#65, CAPABILITY-AND-ISOLATION-DESIGN) |
 | #47 | P2 | requirement for an unbuilt verb | OD | — | Suggest P3 |
 | #65 | P2 | OPEN, needs design | OD | M | `lib/config.js:168-170` lets the env var win over a definition that denies file-system |
-| #66 | P2 | REPO DONE (poll) in B5 | OA | S | `lib/main-watch.js` posts once per new `main` sha that differs from the boot commit. Owner: deploy and see what the first check says |
+| #66 | P2 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | Observed live: `lib/main-watch.js` posted "`main` differs from the running bridge" once per new `main` sha (2026-10-05 08:25 and 17:17, 2026-10-06 08:17 EDT) |
 | #49 | P2 | Q1-3 answered and bot path closed in B5 | OD | S | Remaining: the owner decides whether, and on which channels, to turn it on (cost depends on workspace volume). Suggest P3 while off |
 | #51 | P2 | decision | OD | — | Also: `CLAUDE.md` "Agent Activation" still says to edit the deleted `agents/agents.json` (B4) |
-| #52 | P2 | REPO DONE in B5 | OA | S | `ASK: channels` built. Owner: deploy, run it, act on the output |
-| #53 | P2 | REPO DONE | OA | S | `#jester-agent` still has to be created by the owner |
+| #52 | P2 | **CLOSED 2026-10-10** (purged) | OA | — | Owner ran `ASK: channels` on production 2026-10-10: 8 owned channels, 0 agent channels the bot is missing, 1 unowned (`#bot-memory`, put to the owner as a decision), 2 planned agents unresolved (storefront, marketing) |
+| #53 | P2 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | `#jester-agent` was created 2026-09-15 and the critique has posted there every Friday since (latest 2026-10-09 18:00 EDT) |
 | #57 | P2 | Design record; stale constraint corrected in its body (B4) | OD | S | Constraint 1 says "the bridge pushes nothing". At HEAD `cloneRepo` points `origin` at SSH and sets `core.sshCommand` to the bridge's own deploy key (`lib/clone-lifecycle.js:173-190`), so the executor pushes with the bridge's key |
-| #59 | P2 | OPEN, behind #17/#73 — skipped in B6 by its own sequencing | B6 | M | No stall or wall-clock logic exists. Lands after the deploy path is settled and #73 block (1) is applied |
-| #67 | P2 | decision | OD | S stopgap | Stopgap: "fetch `origin/main` and re-read the max ID" in the executor contract |
+| #59 | P2 | Report phase BUILT 2026-10-10; enforcement waits on data | B17 | M | `lib/claude-stream-watch.js` reports stalls and loops to `#sqtools-ops` and logs `[run-stats]` per run; nothing is stopped (owner: monitor first). Left: set thresholds from real runs, then `enforce` and remove turns (#15 folded in) |
+| #67 | P2 | Stopgap DONE 2026-10-10 | — | S | `docs/EXECUTOR-CONTRACT.md` now says to allocate from the max ID on `origin/main` and the branch, rechecked before push. Left: a pre-push check that fails on a collision |
 | #58 | P3 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | The adapter owns its deadline; timers cleared on `error`. `tests/llm-runner-deadline.test.js` |
-| #60 | P3 | deferred design rule | OD | — | Move to a design doc before it is ever purged |
+| #60 | P3 | **CLOSED 2026-10-10** (moved, purged) | OD | — | Text moved to `docs/CAPABILITY-AND-ISOLATION-DESIGN.md` §9, so the shape survives the purge |
 | #48 | P3 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Rule moved to `CLAUDE.md` → Local LLM (Ollama) provider |
 | #21 | P3 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | A logger that drops only `already_in_channel`, in `createWebClient()` |
-| #29 | P3 | decision | OD | S to drop | Gmail scope is read-only (`lib/integrations/gmail.js:96`) |
-| #13 | P3 | idea | SEED | L | Recommend drop: widens what a task can do while #27 is undecided |
+| #29 | P3 | Feature, shape proposed 2026-10-10 | — | M | Owner wants it. Read-only scope already sees `List-Unsubscribe`; proposed: header-declared one-click links on rule-marked newsletters only, listed in `#email-monitor-agent`, sent only after the owner approves |
+| #13 | P3 | **KEPT, not now** (owner 2026-10-10) | SEED | L | Wanted eventually so agents can interact with the server; not needed today. Build it after #27 |
 | #14 | P3 | idea, bigger than written | SEED | M | Retro content is not persisted anywhere to draft from. Side finding: story-bot and social-media both declare `channel_name: social-media` |
-| #15 | P3 | idea, weaker than written | SEED | S/M | `lib/task-decomposer.js` has no production caller, so the scorer it would use is dead code. Recommend drop |
-| #16 | P3 | idea | SEED | L | Recommend drop: needs runtime channel creation, which activation now refuses by design |
+| #15 | P3 | **CLOSED 2026-10-10** (folded into #59, purged) | SEED | — | Owner: turns should go away, replaced by an auto-scaling limiter. That is #59 |
+| #16 | P3 | Feature, awaiting threads-or-channels | SEED | M/L | Owner asked for details 2026-10-10. Options put: one thread per task in the agent channel (recommended), or a channel per task (needs a narrow exception to never creating channels) |
 
 ### Stale claims found — corrected in B4 (2026-10-04)
 
@@ -534,142 +555,46 @@ work behind an owner's name, which is the opposite of the point.
 
 *Regenerated from the headings. Do not append to it by hand; re-run the command above.*
 
-**P1 — protects or unblocks the live deployment** (10)
+**P1 — protects or unblocks the live deployment** (6)
 
-- **#55** — [The channel mapping had no reproduction path, and a deploy proved it](#55-the-channel-mapping-had-no-reproduction-path-and-a-deploy-proved-it)
 - **#56** — [`npm test` fails intermittently inside jest's globalSetup — twice, unreproduced](#56-npm-test-fails-intermittently-inside-jests-globalsetup--twice-unreproduced)
 - **#42** — [Every backup this system has lives on the box it backs up, and their liveness is checked by nothing](#42-every-backup-this-system-has-lives-on-the-box-it-backs-up-and-their-liveness-is-checked-by-nothing)
 - **#41** — [The NAS is the single point of failure for every stack and every credential, and its exposure has never been established](#41-the-nas-is-the-single-point-of-failure-for-every-stack-and-every-credential-and-its-exposure-has-never-been-established)
 - **#17** — [Nothing starts `auto-update.js` — merged code does not reach the running process](#17-nothing-starts-auto-updatejs--merged-code-does-not-reach-the-running-process)
-- **#73** — [The deploy step in use kills a running task without ever signalling the bridge — every guard in the update protocol is bypassed by the one command that actually deploys](#73-the-deploy-step-in-use-kills-a-running-task-without-ever-signalling-the-bridge--every-guard-in-the-update-protocol-is-bypassed-by-the-one-command-that-actually-deploys)
-- **#25** — [The preserved scratch clone does not survive a container recreation — silent data loss inside the feature that prevents silent data loss](#25-the-preserved-scratch-clone-does-not-survive-a-container-recreation--silent-data-loss-inside-the-feature-that-prevents-silent-data-loss)
-- **#3** — [The scheduler never checks `planned` status — CONFIRMED FIRING LIVE 2026-09-14](#3-the-scheduler-never-checks-planned-status--confirmed-firing-live-2026-09-14)
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (27)
+**P2 — real gaps, no risk to the running process** (19)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#71** — [`ASK:` is invisible to every update gate — a conversation can be restarted mid-answer](#71-ask-is-invisible-to-every-update-gate--a-conversation-can-be-restarted-mid-answer)
 - **#72** — [Two answers to "is a task running?", and nothing makes them agree](#72-two-answers-to-is-a-task-running-and-nothing-makes-them-agree)
-- **#26** — [`docker-compose.yml` is untracked **and** unignored in the live working tree — `git clean -fd` deletes the deployment definition](#26-docker-composeyml-is-untracked-and-unignored-in-the-live-working-tree--git-clean--fd-deletes-the-deployment-definition)
 - **#27** — [A task has write access to the entire live deployment, including every credential — recorded, undecided](#27-a-task-has-write-access-to-the-entire-live-deployment-including-every-credential--recorded-undecided)
-- **#75** — [`/repo:ro` stops a write and not a read — SqTools' production secrets are readable by any code a dispatch runs, against any repository](#75-reporo-stops-a-write-and-not-a-read--sqtools-production-secrets-are-readable-by-any-code-a-dispatch-runs-against-any-repository)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
-- **#44** — [The 300-line rule is one rule over two different problems — scope it, or say it covers both](#44-the-300-line-rule-is-one-rule-over-two-different-problems--scope-it-or-say-it-covers-both)
 - **#5** — [Mid-task `ask_on_slack` capability](#5-mid-task-ask_on_slack-capability)
 - **#6** — [Structured task result format](#6-structured-task-result-format)
-- **#8** — [Surface deduplication in status](#8-surface-deduplication-in-status)
 - **#39** — [The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged](#39-the-queue-cannot-tell-a-completed-task-from-a-landed-one--nothing-here-knows-whether-a-branch-merged)
-- **#40** — [Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout](#40-uncommitted-edits-in-the-live-deployment-tree--reported-not-verifiable-from-a-checkout)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
 - **#64** — [A verb typed in an agent's channel is answered by a model as conversation — the same text behaves differently depending on where it is typed](#64-a-verb-typed-in-an-agents-channel-is-answered-by-a-model-as-conversation--the-same-text-behaves-differently-depending-on-where-it-is-typed)
 - **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
 - **#65** — [A per-agent provider override outranks a definition, so an agent's declared denial can be undone from `.env`](#65-a-per-agent-provider-override-outranks-a-definition-so-an-agents-declared-denial-can-be-undone-from-env)
-- **#66** — [Nothing watches the repository — no agent knows when `main` moves, so a merge and a deploy are unrelated events with nothing observing either](#66-nothing-watches-the-repository--no-agent-knows-when-main-moves-so-a-merge-and-a-deploy-are-unrelated-events-with-nothing-observing-either)
 - **#49** — [`NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does](#49-natural_conversation_mode-is-off-and-nothing-establishes-what-turning-it-on-does)
 - **#51** — [A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it](#51-a-command-that-writes-a-tracked-file-is-destroyed-by-the-next-pull-and-every-configuration-writing-command-shares-it)
-- **#52** — [The workspace's channels and the repository's agents have never been reconciled in either direction](#52-the-workspaces-channels-and-the-repositorys-agents-have-never-been-reconciled-in-either-direction)
-- **#53** — [`jester` is an active commentary agent with a weekly schedule, no channel, and no defined material](#53-jester-is-an-active-commentary-agent-with-a-weekly-schedule-no-channel-and-no-defined-material)
 - **#57** — [Before the bridge is given a private-repo credential — the constraints, not the plan](#57-before-the-bridge-is-given-a-private-repo-credential--the-constraints-not-the-plan)
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
 - **#67** — [IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide](#67-ids-are-allocated-at-write-time-from-an-append-only-list-so-two-branches-cut-from-the-same-base-always-collide)
 
-**P3 — nice to have / uncertain ROI** (7)
+**P3 — nice to have / uncertain ROI** (5)
 
 - **#76** — [The calendar's day boundaries are process-local time](#76-the-calendars-day-boundaries-are-process-local-time)
-- **#60** — [If the bridge is ever to act on the NAS, the capability is an allowlisted command set — not a shell](#60-if-the-bridge-is-ever-to-act-on-the-nas-the-capability-is-an-allowlisted-command-set--not-a-shell)
 - **#29** — [`gmail-unsubscribe` is a declared agent permission that no code implements](#29-gmail-unsubscribe-is-a-declared-agent-permission-that-no-code-implements)
 - **#13** — [MCP server wrapper](#13-mcp-server-wrapper)
 - **#14** — [Watercooler retro → LinkedIn draft](#14-watercooler-retro--linkedin-draft)
-- **#15** — [Task complexity auto-scaling TURNS](#15-task-complexity-auto-scaling-turns)
 - **#16** — [Channel-per-task archive mode](#16-channel-per-task-archive-mode)
 
 ## P1 — Protects or unblocks the live deployment
-
-### 55. The channel mapping had no reproduction path, and a deploy proved it
-**BLOCKED — OWNER ACTION (off-repo).** The mechanism, the reconstruction command and the
-guard all landed. Both remainders are the owner's: a real `docker compose restart jt-agent`
-to exercise the live resolution path for the first time, and a decision about where
-`node scripts/channel-map.js` output is kept off-box. Remainder for a branch: none.
-**Filed 2026-09-15,** from the incident on the evening of 2026-09-15. **P1 because it
-already happened**: a deploy left five active agents with no resolved channel and stopped
-two scheduled agents, and the recovery was a human reading identifiers out of terminal
-scrollback. Nothing in the repository recorded which channel an agent runs in.
-
-**The mechanism, established from the repository rather than from the report.** Three
-facts compose into it:
-
-1. `agents/shared/channel-map.json` is gitignored and is the ONLY thing that maps a
-   declared `channel_name` to a Slack id (`lib/agent-registry.js` `applyWorkspaceState`).
-2. The only writer it had ever had was `ensureChannel()` (`lib/slack-client.js`), reached
-   from `ASK: create channel` — so its keys are the channel names a human actually
-   created: `claude-bridge`, `code-review`, `secretary-inbox`, `sqtools-alerts`,
-   `email-monitor-agent`, `social-media`.
-3. The 2026-09-15 markdown migration declared names by the convention `<id>-agent`
-   (`scripts/migrate-agent-definitions.js` `channelNameFor`), so seven of eleven
-   definitions asked for keys that had never existed in that file.
-
-So the map resolved exactly the two declared names that happened to be real
-(`claude-bridge`, `email-monitor-agent`) and nothing else — two of the seven distinct
-names the eight active agents declare. The two scheduled agents that stopped, `secretary`
-(`0 7 * * *`) and `security` (`0 1 * * *`), are two of the five that did not resolve.
-
-**The migration's seeding step is the part that did not survive, and it could not have.**
-Its header is right that seeding was the condition for safety — "First boot after the
-migration is a cache hit for every existing agent" — and it does seed, from the legacy
-file's ids, keyed by the new name. But its output is `agents/shared/channel-map.json`,
-which is **gitignored**, and a dispatched task runs in a **scratch clone**
-(`docs/EXECUTOR-CONTRACT.md` §7). The seed was written into a temp directory and
-discarded with it. A step whose only output is an ignored file cannot travel with the
-commit that needs it, by construction. Six name→id mappings would have been seeded
-(`bridge`, `code-bridge`+`code-sqtools` sharing one, `secretary`, `security`,
-`email-monitor`, `story-bot`); on the box, zero were.
-
-**And the script can no longer run at all.** It reads `agents/agents.json`, which the
-same commit deleted:
-
-```bash
-git log --diff-filter=D --format='%H %s' -1 -- agents/agents.json
-node -e "require('./scripts/migrate-agent-definitions').migrate({dryRun:true})"  # ENOENT
-```
-
-**What was done about it (2026-09-15).** The declared names were corrected to the
-workspace's real ones from the tracked evidence in `agents/activation-checklists.json`
-(`docs/AGENTS.md` → "Declared channel name vs. the workspace's real one"), the bridge now
-resolves an unresolved active agent's name against Slack at startup and reports what it
-could not resolve, and `scripts/channel-map.js` reconstructs the whole map — from Slack,
-or from the deleted `agents/agents.json` in git history — so the fresh-install path is a
-command rather than archaeology.
-
-**What is NOT closed, and is why this stays open:**
-- **The live resolution path has never run against a real Slack workspace.** Every test of
-  it uses a stub. The first real exercise is the next `docker compose restart jt-agent`,
-  and this repository cannot verify a deployment (`CLAUDE.md` → "Self-update — DESIGNED
-  AND TESTED, NOT WIRED").
-- **The reconstruction from history is one-shot.** It recovers the ids that were in
-  `agents/agents.json` when it was deleted. An id that changes after that date — a channel
-  recreated, a workspace migrated — is recoverable only by resolving the name again.
-- **`jester` still declares a channel that does not exist** and no real name exists to
-  substitute; see #53.
-- **Nothing exports the resolved map off-box.** If both the NAS and Slack are unavailable
-  the mapping is gone. `node scripts/channel-map.js` prints it; where that output
-  is kept is an owner decision that has not been made (same class as #42).
-
-**Regenerate the whole picture:**
-```bash
-node scripts/channel-map.js               # declared name -> resolved id, per agent
-node scripts/agent-surface.js             # and what each agent therefore gets
-```
-**Priority:** P1 | **Effort:** Medium (done); Low to close the remainder
-**Risk:** Low — resolution never creates a channel and refuses rather than guessing
-**Status:** open — mechanism fixed and reproducible (`lib/channel-map-rebuild.js`,
-`scripts/channel-map.js`, guard `tests/channel-map-rebuild.test.js`); live verification
-against a real Slack workspace and off-box export of the resolved map both outstanding
-
----
 
 ### 56. `npm test` fails intermittently inside jest's globalSetup — twice, unreproduced
 **Filed 2026-09-16, second occurrence the same day.**
@@ -839,6 +764,12 @@ firmware-wiped crontab (the silent stoppage in half 2) gets reported. Guard
 host cron line and set `BACKUP_STATUS_FILE` (commands in the B6 reply); (a) the pulled
 off-box copy; (b) a restore actually performed.
 **Status:** open — (c) REPO DONE; (a), (b) and the cron line are on the box.
+
+**Added 2026-10-10 from #55 (closed).** `agents/shared/channel-map.json` and
+`agents/shared/agent-activation.json` are workspace state that lives only on the box. They
+are small and hold no secret, so they belong in whatever off-box copy (a) produces.
+`node scripts/channel-map.js --resolve` rebuilds the map from Slack if they are lost, so
+this is a convenience, not a recovery path.
 ---
 
 ### 41. The NAS is the single point of failure for every stack and every credential, and its exposure has never been established
@@ -1036,393 +967,6 @@ run outside tests, and whose startup config is currently wrong.
 
 ---
 
-### 73. The deploy step in use kills a running task without ever signalling the bridge — every guard in the update protocol is bypassed by the one command that actually deploys
-**Filed 2026-09-20,** by the pass that re-verified the four standing "known blocker" claims.
-**This item exists because a 2026-09-20 pass considered it and decided NOT to file it** — its
-note reads *"What can still kill a task mid-flight is a manual `docker compose restart`, which
-respects none of the protocol. Filing a second item would have split #17."* That judgement is
-reversed here on new evidence: the failure is worse than "respects none of the protocol". The
-bridge is not asked to stand down and refuse; **it is never told anything at all.**
-
-**Priority:** P1 | **Effort:** Low to document the hazard; the fix is off-repo | **Status:**
-OPEN — repo-side evidence complete, remedy is a deployment change
-
-**Why it is not just #17 restated.** #17 is *"merged code does not reach the running
-process"*. This is the reverse direction: *the thing that does make it reach the running
-process destroys work on the way*. #17's remainder is an owner decision about a deploy
-mechanism; this is a property of the mechanism already in daily use. They share a cause
-(layer 3 of #17 — PID 1 is `sh`) and have different remedies.
-
-**The finding, in three steps, all regenerable from a checkout except where stated.**
-
-1. **`bridge-agent.js` has a graceful shutdown and it is good.** `gracefulShutdown()`
-   (`bridge-agent.js:2684-2685` registers it for `SIGTERM`/`SIGINT`) stops the scheduler,
-   closes the socket, posts `:wave: Bridge agent shutting down gracefully` to `#sqtools-ops`,
-   and **waits up to 60 s for the running task** (`SHUTDOWN_TIMEOUT`, `:2664`) before
-   `process.exit(0)`.
-2. **It never runs under `docker compose restart`.** The signal goes to PID 1, and PID 1 is
-   the `command:`'s `sh`, not `node` (#17, layer 3). `dash` does not forward signals to the
-   child it is waiting on. Measured — the child installs a `SIGTERM` handler and never sees
-   one:
-
-   ```bash
-   # child.js: process.on('SIGTERM', ...console.log('CHILD: received SIGTERM')...)
-   /bin/sh -c "true && node child.js" & SHPID=$!
-   sleep 1; kill -TERM $SHPID; sleep 2
-   ps -eo pid,ppid,args | grep '[c]hild.js'
-   #   757     1 node .../child.js        <- alive, REPARENTED to init
-   # child stdout: "CHILD: up" then "CHILD: still alive after 6s".
-   # "CHILD: received SIGTERM" is never printed.
-   ```
-
-   The compose file sets no `init:`, no `stop_signal:`, no `stop_grace_period:` and no
-   `entrypoint:` (`grep -nE "init:|stop_signal:|stop_grace_period:|entrypoint:"
-   docker-compose.example.yml` prints nothing), so there is nothing to forward the signal and
-   Docker's default ~10 s grace applies before `SIGKILL` reaches everything in the container.
-3. **So the task is `SIGKILL`ed, and `processTask`'s `finally` does not run.** The
-   consequences are each already filed and are listed here only because nothing connects them
-   to the command that triggers them: the task lock is not released (`lib/task-lock.js`
-   `release()` is in that `finally`, `bridge-agent.js:1335`); the scratch clone is never
-   classified by `detectUndeliveredWork` so unpushed commits are neither preserved-with-alert
-   nor cleaned; the heartbeat's terminal reaction is never added, which is exactly the state
-   `alreadyProcessed()` does not match — which until 2026-10-02 meant the message was
-   re-read and re-run next poll (**#23**, closed: the message is now marked processed before
-   the task runs, so it is not re-run); the queue entry stays `running` until the next startup's `recoverInterrupted()`,
-   which posts the interrupted verdict to `#sqtools-ops` (`bridge-agent.js` startup block; #22,
-   closed and purged 2026-10-02 — it was met by `8516b7d`).
-
-**Every guard built for this is bypassed, and the bypass is silent.** The task lock, the
-deferral gate, drain-one's refusal and the `delivery` verdict are all consulted by
-`auto-update.js` — and `auto-update.js` is started by nothing (#17). `docker compose restart`
-reads none of them. It is not that the protocol decides to proceed; the protocol is not
-invoked. The observable to the operator is a task that stops answering.
-
-**`--force-recreate` is worse — and as of 2026-09-20 the durability half of that claim is
-CONTESTED by the live deployment. Read the correction before the table.**
-
-> **CORRECTION 2026-09-20 (operator-supplied, off-box).** This item's durability table was
-> derived from the compose file *as this repository records it*: two mounts, neither
-> covering `/tmp` (`docker-compose.example.yml:75-80`; the same two in the verbatim capture
-> at `docs/CONFIG-SURFACE-AND-REBUILD.md` → Appendix, taken **2026-09-14**). On
-> **2026-09-20** the operator ran `docker inspect jt-agent` and reports `/tmp/bridge-agent`
-> as a **bind mount from `/share/CACHEDEV1_DATA/jt-agent/work`**. If that holds, every
-> "discarded" cell in the table below is **wrong**: the lock, the queue, the marker and
-> the preserved clones all survive a `--force-recreate`.
->
-> **This is not an `.env` override.** A `WORK_DIR=` line in `.env` would move the path;
-> it cannot turn `/tmp/bridge-agent` into a bind mount. Only a `volumes:` entry does that.
-> So the live compose has gained a **third volume** since the 2026-09-14 capture, and
-> **`docker-compose.example.yml` — the off-box rebuild artifact — is stale**: rebuilding
-> from it today would silently reinstate the container-layer behaviour. That is a finding
-> of its own and belongs to #26's class (the compose file belongs to no repository).
->
-> **Nothing in this repository can settle it**, and the two sources disagree, so neither is
-> assumed. Re-establish on the NAS and update both this item and the example file together:
-> ```bash
-> grep -n "volumes:" -A 6 /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml
-> docker inspect -f '{{range .Mounts}}{{.Source}} -> {{.Destination}} (rw={{.RW}}){{"\n"}}{{end}}' jt-agent
-> grep -n "^WORK_DIR=" /share/CACHEDEV1_DATA/jt-agent/.env   # names only — never print the file
-> ```
->
-> **What it changes about this item's argument, precisely.** The SIGTERM half is
-> **untouched**: `docker compose restart` still never signals `node`, the task is still
-> `SIGKILL`ed, `processTask`'s `finally` still does not run, and the lock, the heartbeat's
-> terminal reaction and the queue's `running` entry are all still left as the kill found
-> them. That is the whole of steps 1–3 above and it is the reason this item is P1.
-> What weakens is the *recreate* half, and only for the state files: if `WORK_DIR` is a
-> bind mount, `task-queue.json` survives the recreate, so `recoverInterrupted()` **does**
-> find the killed task and **does** record it as interrupted at the next startup — the
-> "never even recorded as interrupted" sentence below is then false, and what remains is
-> the interrupted verdict, which since `8516b7d` is posted to ops (#22, purged 2026-10-02),
-> rather than a second, worse loss. The
-> pending-update marker surviving is likewise benign either way. **Shape (b) below — bind
-> mount `WORK_DIR` — may therefore already be done on the box and undocumented**; it is
-> not marked done here, because a shape is not done until the artifact that rebuilds the
-> deployment carries it.
-
-The table as derived from this repository's copy of the compose file. `WORK_DIR` defaults to
-`/tmp/bridge-agent` (`.env.example:78`, `lib/config.js:41`), which is neither of the two
-mounts *that file declares*, so it is the container's writable layer. A `restart` keeps it;
-a `--force-recreate` — which **every `.env` change requires** — discards it:
-
-| File | Where | `restart` | `up -d --force-recreate` |
-|---|---|---|---|
-| `$WORK_DIR/.task-running` | container layer | survives | **discarded** |
-| `$WORK_DIR/task-queue.json` | container layer | survives | **discarded** |
-| `$WORK_DIR/.update-pending` | container layer | survives | **discarded** |
-| scratch clones (`$WORK_DIR/task-*`) | container layer | survive | **discarded** (#25) |
-| `agents/shared/processed-tasks.json` | `/bridge` bind mount | survives | survives |
-| `.bridge-agent-state.json` | `/bridge` bind mount | survives | survives |
-
-Regenerate the classification: `grep -n "^WORK_DIR=" .env.example` and
-`docs/CONFIG-SURFACE-AND-REBUILD.md` → §8.1 rows 11, 12 and 26. **Every row above is
-subject to the 2026-09-20 correction box.** As originally derived: **a recreate silently
-drops a pending update marker.** In isolation that is benign — the
-updater re-marks on its next cycle, and `auto-update.js` even has the recovery path for it
-(`clearUpdatePending({ reason: 'local head is already the remote head' })`,
-`auto-update.js:587`). What is *not* benign is the same event dropping `task-queue.json`:
-`recoverInterrupted()` then finds nothing, so a task the recreate just killed is never even
-recorded as interrupted. The row that says so is row 11 of that table.
-
-**Unverified, and it decides how bad this is:** whether `WORK_DIR` is durable on the live
-box. Two candidate mechanisms, and they are different: an `.env` override pointing it under
-`/bridge`, or — what the 2026-09-20 `docker inspect` actually reports — a **third `volumes:`
-entry** bind-mounting `/tmp/bridge-agent`. Nothing in this repository can answer either. The
-commands are in the correction box above.
-
-**Shapes, none chosen — and the first two are off-repo, which is why this is filed rather
-than fixed.**
-
-| Shape | What changes | What it costs |
-|---|---|---|
-| (a) Make `node` PID 1 | `command: sh -c "npm ci && … && exec node bridge-agent.js"` — one `exec`. SIGTERM then reaches `gracefulShutdown()` and a running task gets its 60 s. | The compose file is untracked and off-repo (#26), so this repository cannot make it true. Also raises the grace period question: Docker's default is 10 s and the handler wants 60, so `stop_grace_period: 90s` goes with it or the handler is killed mid-wait. |
-| (b) Bind-mount `WORK_DIR` | The lock, the queue, the marker and preserved clones survive a recreate. | Same off-repo constraint; interacts with #25 and with the read-only-`/bridge` shape in #27. **May already be applied on the box** (2026-09-20 `docker inspect`, correction box above) — in which case the remaining work is not the mount but getting it into `docker-compose.example.yml`, where a rebuild would find it. |
-| (c) Announce the hazard where the operator reads it | A line in `docs/EXECUTOR-CONTRACT.md` §7 and `CLAUDE.md`'s deploy block saying a restart kills a running task **uncleanly** and naming `ASK: what's queued` as the pre-flight check. | Reachable from a branch. Landed with this item. It does not fix anything; it stops the hazard being invisible. |
-
-**Do not read (c) as the fix.** It is the honest half this repository can do.
-
-**Related:** #17 (shares layer 3, opposite direction), #25 (the clone half), #23 (closed 2026-10-02; what
-an uncleanly killed task costs; #22, its sibling, was met by `8516b7d` and purged 2026-10-02), #72 (the two answers to "is a task running?"), #26 (why (a)
-and (b) are off-repo), #71 (`ASK:` is outside every gate anyway).
-
-
-**B6, 2026-10-04 — shapes (a) and (b) are written into the off-box rebuild artifact, not
-applied.** `docker-compose.example.yml` PROPOSED block (1) carries `exec node bridge-agent.js`,
-`init: true` and `stop_grace_period: 90s` with its verification (the log shows "Received
-SIGTERM" and ops gets ":wave:"); block (3) carries the `WORK_DIR` bind mount the box reported
-on 2026-09-20, with the `docker inspect` to run before adding it. Neither can be tested from
-here. **Remaining (owner):** apply (1), restart once with a task running, and confirm the
-handler ran; check and apply (3). A task still running after the handler's 60 s is still lost.
-**Status:** REPO DONE — owner action.
----
-
-### 25. The preserved scratch clone does not survive a container recreation — silent data loss inside the feature that prevents silent data loss
-**Filed 2026-09-14,** from the deployment-topology capture. Full write-up with the
-topology it depends on: [`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md)
-→ Step 0, consequence 2.
-
-**BLOCKED — OWNER ACTION (off-repo), as of 2026-10-02.** The repo-side half (fix half 2
-below) is **done**: the alert is built by `lib/preserved-clone-alert.js`, posted from
-`processTask`'s cleanup block in `bridge-agent.js`, and now says the path is inside the
-`jt-agent` container, gives `docker exec -it jt-agent sh` and the `cd` to reach it, and says
-`docker compose up -d --force-recreate` deletes the clone unless `WORK_DIR` is on a mount.
-Regression test: `tests/preserved-clone-alert.test.js`. What remains is fix half 1 — put
-`WORK_DIR` on a mount and make `docker-compose.example.yml` carry it, settling the
-disagreement below — which is a deployment change. The operator's 2026-10-01 `docker
-inspect` again reported `/share/CACHEDEV1_DATA/jt-agent/work -> /tmp/bridge-agent (rw=true)`,
-so the live box likely has it already and the tracked copy does not; the close is the
-tracked copy carrying the mount, owned by #73's compose change.
-
-**Repo-side half re-verified 2026-09-16 and it was NOT done then** (kept for the record). The alert at
-`bridge-agent.js:1127-1133` posts `Location: <path>` and "The clone was NOT deleted so the
-work can be recovered and pushed manually" — it still says nothing about the clone being in
-container-local storage, nothing about a container recreation destroying it, and nothing
-about the `docker exec -it jt-agent sh` needed to reach the path it prints. So fix half 2,
-which this item calls Low effort and which a branch can land today, is untouched. This is
-why the item is **not** marked owner-blocked: it has real engineering work left.
-
-**What the feature promises.** `detectUndeliveredWork(dir)` (`lib/clone-lifecycle.js:237`,
-called from `bridge-agent.js:1123`; filed as `:237-330` and `:964-981`) refuses to delete a scratch clone that holds
-uncommitted changes, or local commits `git ls-remote origin` does not show on the remote,
-or whose delivery state cannot be read. It keeps the clone and posts its path to
-`#sqtools-ops` so the work can be recovered and pushed by hand. It exists because three
-tasks' work was destroyed by unconditional cleanup on 2026-09-13. `docs/EXECUTOR-CONTRACT.md`
-§7 tells every executor it is there.
-
-**What the deployment does to it.** Clones live under `WORK_DIR`, default
-`/tmp/bridge-agent` (`lib/config.js:41`, used at `bridge-agent.js:503-508`). That path is
-neither bind mount — the compose mounts only `…/jt-agent → /bridge` and
-`…/sqtools/app → /repo:ro` — so it is in the container's own writable layer:
-
-| Operation | Preserved clone survives? |
-|---|---|
-| `docker compose restart jt-agent` (the documented deploy step) | yes — same container, same layer |
-| `docker compose up -d --force-recreate jt-agent` (**required for any `.env` change**) | **no** |
-| `down`/`up`, an image change, a container prune, a daemon restart that recreates it | **no** |
-
-Row 2 is the defect: `CLAUDE.md` and `docs/EXECUTOR-CONTRACT.md` both *instruct*
-`--force-recreate` for an environment change, so the documented operational procedure
-destroys preserved work, with no warning, days after the alert that named it.
-
-**Second mechanism, live today regardless of restarts.** The alert posts a
-container-internal path. `/tmp` is not mounted, so `/tmp/bridge-agent/task-…` does not
-exist on the NAS host: an owner reading the alert cannot `cd` there. Recovery needs
-`docker exec -it jt-agent sh` first, and the alert does not say so.
-
-**Regenerate:**
-```bash
-# repo side — the default and its consumers
-grep -rn "WORK_DIR" lib/config.js bridge-agent.js lib/task-lock.js lib/task-queue.js auto-update.js
-grep -n "detectUndeliveredWork" -A 20 bridge-agent.js     # the alert text and the path it posts
-# NAS side — the mounts, and whether .env overrides the default
-grep -n "volumes" -A 3 /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml
-grep -n "^WORK_DIR=" /share/CACHEDEV1_DATA/jt-agent/.env   # names only — never print the file
-```
-
-**Unverified — and 2026-09-20 supplies evidence pointing the other way, so read this
-before the table above.** The durability half rests on `/tmp/bridge-agent` being neither
-mount, which is what *this repository's* copy of the compose file says
-(`docker-compose.example.yml:75-80`, reproducing the 2026-09-14 capture). An operator
-`docker inspect jt-agent` on **2026-09-20** reports `/tmp/bridge-agent` as a **bind mount**
-from `/share/CACHEDEV1_DATA/jt-agent/work`. If that holds, **the durability half of this
-item is closed on the live box** — a preserved clone survives a recreate — and what is
-left is (i) the path-in-the-alert half, which stands either way, and (ii) the fact that
-the rebuild artifact does not carry the mount, so a rebuild from
-`docker-compose.example.yml` would reintroduce the loss.
-
-It is **not** closed here, deliberately: the two sources disagree, the surviving one is
-off-box and point-in-time, and a shape is not done until the artifact that rebuilds the
-deployment carries it. The full statement of the disagreement, with the commands that
-settle it, is in **#73**'s correction box (2026-09-20). Original note kept for the record:
-if the live `.env` instead points `WORK_DIR` somewhere under `/bridge`, that grep's output
-is equally good evidence — but note an `.env` value cannot produce the bind mount
-`docker inspect` reports, so the two mechanisms are distinguishable and only one has
-evidence.
-
-**Fix — two halves, only one of which this repo can land.**
-1. *Off-repo (the real fix, and not ours):* put `WORK_DIR` on a mount. Either add a volume
-   for it or set `WORK_DIR` to a path under `/bridge` in the live `.env`. Note the second
-   also drops the preserved clone into the live git working tree, so it wants a gitignored
-   subdirectory, not the repo root. Deployment change; the compose file belongs to no
-   repository today (item #4b, Step 6).
-2. *Repo side (available now):* say the true thing in the alert — that the clone lives in
-   container-local storage, that it is lost on a container recreation, and the
-   `docker exec` needed to reach it. A regression test on the alert text is the close.
-   Do **not** "fix" this by making cleanup delete the clone anyway.
-
-**Citations re-checked 2026-10-04 (B4).** The undelivered check is called at `bridge-agent.js:1323`; the alert text is `lib/preserved-clone-alert.js` (B1); `WORK_DIR` defaults at `lib/config.js:42`. Regenerate: `grep -n "detectUndeliveredWork(" bridge-agent.js`. Line numbers in `bridge-agent.js` move with every change, so the grep is the citation.
-**Priority:** P1 — it is the silent-data-loss class, which is the top of this file's
-ranking axis, and the loss is of work a human was told had been saved for them.
-**Effort:** Low for half 2; Low for half 1 but it is the owner's to make.
-**Risk:** Low — half 2 is message text plus a test.
-
-**Status:** open (re-verified 2026-09-14)
-
----
-
-### 3. The scheduler never checks `planned` status — CONFIRMED FIRING LIVE 2026-09-14
-**BLOCKED — OWNER ACTION (off-repo).** Every fix part landed on `main`; the close condition
-is this item's own namesake, a claim about what the *running container* registers at startup.
-No branch can settle it. Remainder: one `docker compose restart jt-agent` on the NAS, then
-compare the startup output against the close condition restated below.
-**Filed 2026-09-13** (derived: `git log -S'### 3. ' --reverse -- WORK-TODO.md` -> `20dc049`, the backlog re-derivation).
-**Problem:** `startScheduler` iterates `loadAgents()` (all agents) and registers a cron
-job for any agent that has *both* a `schedule` and a `channel`
-(`lib/agent-scheduler.js:216`, `:227`). It never consults `status: "planned"`.
-`getActiveAgents()` (which *does* filter `status !== 'planned'`, `lib/agent-registry.js:79`)
-is not used here — but it **is** used by `buildChannelsToPoll()` in `bridge-agent.js`, and
-that split is the whole defect.
-
-The CONTEXT said "four agents are planned and their schedules never register." Half right.
-Regenerate the registry table:
-```
-node -e "const a=require('./agents/agents.json');(Array.isArray(a)?a:a.agents).forEach(g=>console.log([g.id,g.status||'active',g.channel||'null',g.schedule||'-'].join(' | ')))"
-```
-→ 11 agents; four planned (`storefront`, `social-media`, `marketing`, `story-bot`). Their
-schedules mostly don't run for incidental reasons, not by design:
-- `storefront` — no `schedule`, nothing to register.
-- `social-media`, `marketing` — have a `schedule` but `channel: null`, so the
-  `!agent.channel` guard skips them.
-- **`story-bot` — `status: "planned"`, `schedule: "0 18 * * 5"`, task `draft-weekly-posts`,
-  and a real `channel` (`C0AP8CHCV1U`).** Its template exists
-  (`lib/agent-scheduler.js:56`). Its job registers and fires.
-
-**Confirmed live 2026-09-14 (owner, against the running container) — and it is worse than
-"the channel is unused":**
-- Startup reports `Scheduled story-bot:draft-weekly-posts` with cron `0 18 * * 5`.
-- Startup also reports `Joined 5/5 agent channels` — five, against eleven agents.
-- On task completion: `[bulletin-watcher] Failed to notify story-bot: An API error occurred: not_in_channel`.
-
-**The mechanism, verified in this checkout.** The two paths disagree by construction:
-
-| Path | Source | story-bot? |
-|------|--------|-----------|
-| `startScheduler` (`lib/agent-scheduler.js:216`) | `loadAgents()` — **all** agents | **scheduled** |
-| `buildChannelsToPoll` (`bridge-agent.js`) | `getActiveAgents()` — excludes `planned` | **not joined** |
-
-So the scheduler arms a weekly job to post into a channel the join path deliberately
-excluded. Every Friday at 18:00 story-bot runs, produces drafts, and posts them nowhere.
-The failure is one log line in a container nobody tails: the job succeeding and the job's
-output reaching a human are different events, and only the first is observed.
-
-**The mirror-image instance, same root cause: `jester`.** `status: active`,
-`schedule: "0 18 * * 5"`, `channel: null`. The `!agent.channel` guard skips it, so an
-*active* agent's weekly schedule silently never arms — no error, no log, no channel. Both
-directions of the same missing invariant: **nothing asserts that the scheduled set and the
-joined set are the same set.**
-
-**Blocks the channel-consolidation work.** The routing table cannot be written until the
-current mapping is enumerated, and the mapping is currently split between
-`agents/agents.json` and environment variables with no file describing either — the live
-`.env` carries six `*_CHANNEL_ID` keys that no code in this repo reads (see item 4b and
-`docs/CONFIG-SURFACE-AND-REBUILD.md`).
-
-**Fix (three parts, all small):**
-1. Gate scheduling on active status — call `getActiveAgents()` in `startScheduler`, or add
-   `if (agent.status === 'planned') continue;` alongside the existing skips.
-2. **Make the disagreement loud, not silent.** At startup, log (and post to
-   `#sqtools-ops`) any agent that is scheduled-but-unjoined or has a schedule it cannot
-   run for lack of a channel. `jester` would have surfaced years of silence this way.
-3. Regression tests in `tests/agent-scheduler.test.js` (it already mocks `node-cron`):
-   a planned agent with schedule+channel registers **zero** jobs; an active agent with a
-   schedule and `channel: null` is **reported**, not silently skipped. The second test is
-   the anti-drift enumerator for this class — it fails when the two sets diverge again.
-**Effort:** Low.
-**Risk:** Low — part 1 narrows what registers and cannot start anything new; parts 2-3 are
-reporting and tests.
-
-**Re-verified 2026-09-14 (this revision), and partly narrowed.** `startScheduler` still
-reads `loadAgents()` and still never consults `status`
-(`grep -n "status === 'planned'\|getActiveAgents" lib/agent-scheduler.js` -> no hits).
-What *did* change: the same pass that wired the deterministic inbox check added a
-registration-time refusal for a task name that resolves to neither a handler nor a
-template, and an enumerating guard for it
-(`tests/agent-scheduler.test.js` -> `resolves every task name scheduled in agents.json`).
-That is fix part 3's *shape* applied to a different invariant — it proves the pattern
-works here and is the model for the scheduled-set-vs-joined-set assertion this item still
-needs. Parts 1 and 2 are untouched.
-**ADVANCED 2026-09-15 — all three fix parts landed; left open pending re-verification
-against the running container.** `startScheduler` now checks `status` and refuses a
-planned agent's job (`grep -n "status === 'planned'" lib/agent-scheduler.js` -> a hit).
-Fix part 1 went further than this item proposed: joining, polling and scheduling no
-longer have three rules to keep in agreement — they all derive from `activeChannels()`
-in `lib/agent-surface.js`, and `buildChannelsToPoll()` in bridge-agent.js delegates to
-it rather than restating it, so the two sets *cannot* diverge rather than being checked
-for divergence. Fix part 2 landed: a planned agent's schedule and an active agent whose
-declared channel has not resolved both go into the scheduler's `refusals`, which posts
-to `#sqtools-ops` at startup, and unresolved channels get their own post naming each
-agent. `jester` is now reported on every boot. Fix part 3 landed in
-`tests/agent-surface.test.js`, including the flip of the test that asserted the defect
-("joinableChannels includes a planned agent's existing channel — the story-bot case").
-
-Left **open** deliberately: this item's namesake is a claim about the *running*
-container ("CONFIRMED FIRING LIVE"), and a scratch clone cannot verify what registers on
-the box. Deploys here are manual, so nothing has reached the NAS.
-
-**CLOSE CONDITION CHANGED 2026-09-15 — read this before checking the box.** It used to
-read "close it after a restart whose startup output shows the refusals and **no**
-`Scheduled story-bot:draft-weekly-posts`". That is now **inverted for story-bot**, and
-following the old wording would report a success as a failure. story-bot has since been
-activated on purpose (`default_status: active` in `agents/story-bot/agent.md`), so its
-job registering is now CORRECT — what was wrong was registering while the poll loop did
-not read its channel, and joining, polling and scheduling now derive from one rule. The
-startup output that closes this item is:
-
-- `Scheduled story-bot:draft-weekly-posts` **present**, AND story-bot's channel in the
-  joined/polled set — the three consequences arriving together, which is the invariant
-  this item is about;
-- refusals posted to `#sqtools-ops` for `jester` (active, `#jester-agent` never
-  resolved) and for `social-media` / `marketing` (declared schedules, not activated);
-- **no** agent that is scheduled but unjoined — the count is 0, and
-  `tests/agent-surface.test.js` already fails if it is not.
-
-Regenerate the expected table before comparing: `node scripts/agent-surface.js`.
-
-**Citations re-checked 2026-10-04 (B4).** The refusal of a `planned` agent is at `lib/agent-scheduler.js:133` inside `startScheduler` (`:103`); `getActiveAgents()` filters at `lib/agent-registry.js:173`. Regenerate: `grep -n "function startScheduler\|status === 'planned'" lib/agent-scheduler.js`. The claim stands.
-**Priority:** P1 | **Effort:** Low | **Status:** open — fix landed on a branch, not verified live; close condition restated above
-
----
-
 ### 4. Replace HTTP polling with Slack Socket Mode (event triggers)
 **Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** its ancestor heading
 "Replace HTTP polling with Slack Socket Mode" is in the 2026-04-05 seed `4b6ee4a`, so the
@@ -1465,7 +1009,7 @@ the expensive one is not chosen by default:
 
 | Option | Change | Cost |
 |---|---|---|
-| **Lower the interval** | One env var. `POLL_INTERVAL_MS=10000` → 10s worst case. Needs `docker compose up -d --force-recreate jt-agent`, not `restart`. | Steady Slack API pressure across every polled channel, all day, for a latency win only on the minority of ticks that have a message. Nothing in code changes, so nothing can regress. |
+| **Lower the interval** | One env var. `POLL_INTERVAL_MS=10000` → 10s worst case. Needs `docker compose up -d --force-recreate bridge`, not `restart`. | Steady Slack API pressure across every polled channel, all day, for a latency win only on the minority of ticks that have a message. Nothing in code changes, so nothing can regress. |
 | **Poll immediately after a command posts** | Call `poll()` once, right after `handleViewSubmission`'s `chat.postMessage` resolves. Small and additive. | Preserves every property the poll loop owns — one intake path, dedup by message `ts` in `lib/bridge-state.js`, the allowlist gate, `describeSkipReason` logging — because it triggers the *existing* path rather than adding one. Needs re-entrancy care: `poll()` must not run twice concurrently, and a failed immediate poll must be a no-op, not an error the operator sees. |
 | **Move message intake to the socket** | This item. | Changes how *every* message arrives, including the task that would repair it. Largest blast radius of the three. |
 
@@ -1490,7 +1034,7 @@ P3** — what is left is latency, not a defect; owner's call.
 2026-09-15 and its four suites are green. Remainder is entirely Slack app configuration,
 which lives in no repository: Socket Mode on, an app-level token with `connections:write`
 in `.env` as `SLACK_APP_TOKEN`, the `/dispatch` command registered, Interactivity on, the
-app reinstalled, then `docker compose up -d --force-recreate jt-agent`. Remainder for a
+app reinstalled, then `docker compose up -d --force-recreate bridge`. Remainder for a
 branch: none.
 **Filed 2026-09-14** (derived: `git log -S'A flattened dispatch loses its fields' --reverse -- WORK-TODO.md` -> `3dacba8`).
 Note this is the P1 `### 43.`; the P2 item that briefly shared the number was filed `d5b0c13`
@@ -1521,7 +1065,7 @@ intake path, one dedup owner, up to `POLL_INTERVAL_MS` of latency) versus callin
 `processTask` directly (faster, second intake path).
 **Blocked on an owner action the repo cannot take:** Socket Mode enabled in the Slack app,
 an app-level token with `connections:write`, and `SLACK_APP_TOKEN` in `.env` (which needs
-`docker compose up -d --force-recreate jt-agent`, not `restart`). Until then the connection
+`docker compose up -d --force-recreate bridge`, not `restart`). Until then the connection
 reports itself unconfigured on every boot and nothing else happens.
 **Risk:** Low to the running bridge — the poll loop is not touched either way.
 
@@ -1851,7 +1395,7 @@ PROPOSED block (2), with the PATH/`NPM_CONFIG_PREFIX` change that must go with i
 **Unverified:** the build was not run (no container daemon where it was written), and the
 base tag was not checked against the registry. **New finding: Node 20 is end of life
 (April 2026)**; the pin is its last release, and moving to 22 is a separate decision.
-**Remaining (owner):** apply block (2) on the NAS, `docker compose build jt-agent`, restart,
+**Remaining (owner):** apply block (2) on the NAS, `docker compose build bridge`, restart,
 confirm `docker exec jt-agent claude --version` prints the pin.
 **Status:** REPO DONE — owner action.
 
@@ -1976,65 +1520,6 @@ the updater.
 
 ---
 
-### 26. `docker-compose.yml` is untracked **and** unignored in the live working tree — `git clean -fd` deletes the deployment definition
-**BLOCKED — OWNER ACTION (off-repo).** The repo-side half is verified done at HEAD
-(`git check-ignore -v docker-compose.yml` -> `.gitignore:71`, exit 0;
-`git check-ignore -v docker-compose.example.yml` -> no match, exit 1). The namesake is the
-state of the **live working tree**. Remainder: one `git pull` on the NAS — and #40 first.
-**Filed 2026-09-14,** from the deployment-topology capture
-([`docs/CONFIG-SURFACE-AND-REBUILD.md`](docs/CONFIG-SURFACE-AND-REBUILD.md) → Step 0,
-consequence 1).
-
-**Problem.** `/bridge` is a bind mount of the NAS deploy directory and that directory *is*
-the git checkout the bridge runs, so `docker-compose.yml` sits inside a git working tree.
-It is not tracked and — unlike `.env`, `.deploy_key*` and the state files — it is not in
-`.gitignore` either. Verified from this checkout:
-```bash
-git ls-files | grep -i compose          # -> nothing (untracked)
-git check-ignore -v docker-compose.yml  # -> no match, exit 1 (not ignored)
-```
-So `git status` in the deploy directory reports it as untracked clutter every time, and
-`git clean -fd` — the ordinary command for clearing untracked clutter — deletes the only
-copy on the box of the file that defines the deployment. `git reset --hard HEAD`, which
-`auto-update.js:170`/`:191` runs, does *not* touch untracked files, and nothing in this
-repo runs `git clean` (`grep -rn "git clean" --include=*.js . | grep -v node_modules` →
-nothing). The exposure is a human at a prompt, not an automated path.
-
-**Recoverability today, and where it is written down.** The file is reproduced verbatim in
-the Appendix of `docs/CONFIG-SURFACE-AND-REBUILD.md`, and its fields are restated as step 3
-of that document's Step 5 rebuild path. That copy is in this repository, on GitHub — the
-only copy not on the NAS. Losing the file is therefore recoverable, which is why this is
-P2 and not P1.
-
-**Fix — repo-side half LANDED 2026-09-15** (NAS hardening pass, Step 7.9). Both halves the
-item proposed were taken, authorised by that dispatch rather than unilaterally:
-- `docker-compose.yml` is in `.gitignore`. `git clean -fd` skips ignored files without
-  `-x`, so it is out of reach, and it stops appearing as untracked noise in `git status`
-  on the box. Verify: `git check-ignore -v docker-compose.yml` → matches, exit 0.
-- `docker-compose.example.yml` is committed — the stronger version Step 5 item 3 proposed,
-  making the rebuild path a file rather than prose in an appendix. It reproduces the
-  2026-09-14 capture and carries the proposed container hardening as commented blocks
-  (#27). Verify: `git check-ignore -v docker-compose.example.yml` → no match, exit 1.
-
-**Why this stays OPEN.** The item's namesake is the state of the **live working tree**,
-and that is not what a repository change fixes. `.gitignore` reaches the deploy tree only
-when someone pulls on the NAS, and nothing starts `auto-update.js` (#17) — so merging this
-deploys nothing. Until that pull, `docker-compose.yml` is still untracked *and* unignored
-there.
-
-**Close it with this, run on the NAS:**
-```bash
-cd /share/CACHEDEV1_DATA/jt-agent && git pull && git check-ignore -v docker-compose.yml
-```
-A match (exit 0) closes the item. Note the sequencing against #40: a `git pull` in that
-tree is the operation that surfaces any uncommitted local edits — answer #40 first.
-
-**Priority:** P2 | **Effort:** Low (one pull on the box) | **Risk:** None to the running process.
-
-**Status:** open — repo-side fix landed 2026-09-15; remainder is one pull on the NAS
-
----
-
 ### 27. A task has write access to the entire live deployment, including every credential — recorded, undecided
 **BLOCKED — OWNER DECISION.** The shapes are written out against the captured compose
 (`docs/CONFIG-SURFACE-AND-REBUILD.md` Step 7.7) and the cheap ones are commented into
@@ -2125,151 +1610,6 @@ little while the same process can read `/bridge/.env` from disk.
 push path; none of it should be attempted without a way to verify the bridge still runs.
 
 **Status:** open (re-verified 2026-09-14; narrowing shapes written out 2026-09-15)
-
----
-
-### 75. `/repo:ro` stops a write and not a read — SqTools' production secrets are readable by any code a dispatch runs, against any repository
-**Filed 2026-09-20,** by the pass that was asked what the `/repo` mount actually exposes.
-**This item exists because two prior passes checked the other direction.** The
-2026-09-14 topology capture established that `:ro` prevents a *write* and wrote it up as
-"the one real containment boundary" (`docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 0
-consequence 3, and #27). The 2026-09-20 blocker re-verification checked the *clone* path —
-`isValidRepo` is shape-only, `cloneRepo` uses anonymous HTTPS, a private repo fails closed —
-and concluded the SqTools boundary holds. **Neither looked at the mount in the read
-direction.** `:ro` is an integrity boundary. It is not a confidentiality boundary, and
-nothing else is supplying one.
-
-**Priority:** P2 | **Effort:** Low to record and decide; the remedy is off-repo |
-**Status:** OPEN — repo-side evidence complete, remedy is a deployment decision
-
-**On the priority, stated rather than assumed.** This file's ranking axis is *blast radius
-on the live single-container deployment* — can it brick or silently degrade the running
-bridge. By that axis this is P2, the same tier as its sibling **#27**, because it degrades
-nothing here. **By any axis that counts another system's production credentials it is
-higher than P2.** The tier is kept consistent with the file's declared axis and the
-disagreement is recorded rather than resolved by re-tiering one item; if the axis should
-account for cross-stack exposure, that is a change to the axis, not to this row.
-
-**The three boundaries, because the standing one-sentence claim covers all three.**
-
-| What the bridge can do to SqTools | Verdict | What enforces it |
-|---|---|---|
-| **Clone** `jtpets/SquareDashboardTool` | **Cannot** | **INCIDENTAL** — no credential exists on the clone path (`lib/clone-lifecycle.js:136`, anonymous HTTPS; the deploy key is configured only afterwards, for pushing). Not an allowlist: `isValidRepo` checks shape, never membership. |
-| **Write** the SqTools production tree | **Cannot** | **ENFORCED** — the `:ro` mount flag, in the kernel. Never remove it. |
-| **Read** the SqTools production tree | **CAN** | **Nothing.** |
-
-**What is mounted (owner-supplied, off-box; this repository's copy agrees on the line).**
-`/share/CACHEDEV1_DATA/sqtools/app:/repo:ro` — `docker-compose.example.yml:80`, reproducing
-the live file as captured 2026-09-14, and confirmed from inside the container in
-`docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 1 row 3. The operator re-confirmed it on
-2026-09-20 with `docker inspect jt-agent` (`rw=false`). That path is SqTools' **production
-working tree**, not a checkout of its repository. This repository already names what such a
-tree contains without having read it: Step 6 lists "its own `.env`" among the things at
-`/repo` that must not be touched, and Step 5 item 5 records that the *bridge's* deploy key
-lives beside its tree at `/bridge/.deploy_key`.
-
-**Nothing under `/repo` was read to file this, and nothing should be.** That the path is
-readable by the process is the finding. Reading a secret to demonstrate it would be the
-defect this item describes, performed deliberately.
-
-**Why it is reachable by code the operator does not control — the execute-location
-question, answered from the code.** Dispatched work runs **inside `jt-agent`**, in the same
-mount namespace as `/repo`, with no sandbox:
-
-1. **The scratch clone is a path in this container.** `taskDir = path.join(WORK_DIR, 'task-<ts>')`
-   (`bridge-agent.js:646`), `WORK_DIR` default `/tmp/bridge-agent` (`lib/config.js:41`).
-2. **The agent CLI is an ordinary child process, not a second container.**
-   `spawn(claudeBin, args, { cwd, env: { ...process.env, HOME: os.homedir() } })`
-   (`lib/llm-adapter-claude.js:87`), argv `['-p','--output-format','text','--max-turns',N,'--dangerously-skip-permissions']`
-   (`:369-374`), called from `runWithFallback(prompt, { cwd, ... })` (`bridge-agent.js:896-897`)
-   with `cwd = taskDir` (`:648`). `cwd` is a working directory. It is not a root, not a
-   namespace and not a permission.
-3. **A branch's install scripts ran before anything was reviewed or tested — node closed
-   2026-10-02, python not.** `installDependencies(taskDir)` (`bridge-agent.js:660`) →
-   `spawnSync` with an argv array (`lib/dependency-install.js:168`). For a node repo that
-   was plain `npm ci` — arbitrary `postinstall` code from the cloned branch's dependency
-   tree, executed in this container **before the LLM's first turn and before a single
-   test**. It is now `npm ci --ignore-scripts` / `npm install --ignore-scripts` (operator
-   decision 2026-10-01; guard `tests/dependency-install-scripts.test.js`). **Residual,
-   stated so this is not read as closed:** a python clone runs `python3 -m pip install`,
-   which has no equivalent switch and executes package build code (`setup.py`, PEP 517
-   backends); it refuses today only because the image has no pip (#68 — off-box,
-   operator-supplied 2026-09-20; at HEAD the code still emits that command and still
-   recognises `No module named pip` as `INSTALLER_ABSENT`). And the executor still runs the
-   branch's own tests, with npm's `pretest`/`posttest`, in this container with the same
-   reach — so this removes install-time execution, not code execution.
-4. **There is no other container to run in, and no route to one.**
-   `grep -rn "docker\.sock\|dockerode" --include=*.js . | grep -v node_modules` → nothing;
-   `docs/COMMAND-SURFACE.md` §5 already establishes that a process inside `jt-agent` cannot
-   reach the host's container runtime.
-
-**So the exposure is not scoped to bridge dispatches.** Any repository of valid shape that
-can be cloned — and `isValidRepo` admits any public one — brings code that runs here. The
-`ALLOWED_USER_IDS` allowlist and the approval queue decide *who may start* a task; neither
-constrains what a started task's dependency tree does at install time.
-
-**What this is NOT.** No code in this repository reads `/repo`:
-
-```bash
-grep -rnE "['\"\`]/repo(/|['\"\`:])" --include=*.js --include=*.json --include=*.yml . \
-  | grep -v node_modules
-# -> only tests/update-verifier.test.js and tests/git-identifiers.test.js, both using
-#    '/repo' as a dummy string, never as a filesystem path
-```
-
-Two documents already record the same fact independently:
-`docs/CAPABILITY-AND-ISOLATION-DESIGN.md:306` ("`/repo` is read-only and nothing reads it;
-there is no SqTools client") and `docs/JESTER-DESIGN.md:174`. **So the mount serves no
-feature this repository can name.** What it was added for is not establishable from here —
-it predates every commit that mentions it, all of which are documentation passes *observing*
-it (`git log --oneline -S "sqtools/app"` → `9d951f3`, `04af5c3`, `bbf9a7d`, `9017b24`,
-`fb51d5a`, all docs). **A mount serving a removed or never-built feature is a different
-finding from one serving a live one, and this is the first: nothing reads it.** That makes
-"drop the mount" a cheaper candidate than it would otherwise be — but only the owner knows
-whether something *outside* this repository uses it.
-
-**Shapes, none chosen — all off-repo, which is why this is filed and not fixed.**
-
-| Shape | What changes | What it costs |
-|---|---|---|
-| (a) Drop the mount | The exposure ends. Nothing in this repository breaks — nothing reads it. | Only the owner can say whether anything off-repo depends on `/repo`. One compose line and a recreate. |
-| (b) Narrow the mount | Mount a subdirectory that excludes `.env` / `.deploy_key`, or the SqTools *repository* rather than its live deploy tree. | Needs to know what a future reader would want; a subdirectory that grows a secret later re-opens this silently. |
-| (c) Move SqTools' secrets out of its working tree | Fixes the class for every reader of that tree, not just this container. | A SqTools-side change; this repository cannot make it and has no access to that repo (#57). |
-| (d) Isolate task execution | The `/bridge` and `/repo` exposures close together — a second uid or a child container for the executor. | The same shape #27 leaves open, and the largest. |
-| (e) Accept it explicitly | Recorded as a decision rather than an oversight. | A valid outcome, as with #27 — and strictly better than the current state, which is that two write-ups asserted a boundary that covers half of what it was read to cover. |
-
-**Corrected in this branch** (`docs/EXECUTOR-CONTRACT.md` §7 and §7.1 row 1,
-`docs/CONFIG-SURFACE-AND-REBUILD.md` Step 10, and the asymmetry paragraph in #27). **B8, 2026-10-04 — the repo-side half below is done.** The compose comment now says `:ro`
-stops writes and not reads, and names this item; shape (a) is written as PROPOSED block
-(4) in `docker-compose.example.yml`, inert until the owner applies it. What remains is the
-owner's choice among (a)-(e).
-
-**Not
-corrected, and it is the remaining repo-side half:** `docker-compose.example.yml:77-79`
-carries the same incomplete claim in a comment beside the mount line — *"the one real
-containment boundary … a bridge-side mistake or prompt injection cannot damage that
-system"* — which is accurate about damage and reads as a claim about reach. The dispatch
-that produced this item forbade compose edits, so it was left alone. **One comment edit,
-no behaviour change; do it with (a)–(e) or on its own.**
-
-**Regenerate** (repo side, from any checkout):
-```bash
-grep -rn ":/repo" docker-compose.example.yml
-grep -rnE "['\"\`]/repo(/|['\"\`:])" --include=*.js . | grep -v node_modules   # readers: none
-grep -n "spawn(\|spawnSync(" lib/llm-adapter-claude.js lib/dependency-install.js
-grep -rn "docker\.sock\|dockerode" --include=*.js . | grep -v node_modules       # nothing
-```
-**On the NAS** (not reachable from a checkout; names only, never values):
-```bash
-docker inspect -f '{{range .Mounts}}{{.Source}} -> {{.Destination}} (rw={{.RW}}){{"\n"}}{{end}}' jt-agent
-docker exec -u 1000:100 jt-agent sh -c 'ls -la /repo | head'   # listing only; do not read files
-```
-
-**Related:** #27 (the same container, the write direction, `/bridge`), #57 (the bridge has
-no credential for the SqTools repository — the *git* half of the standing claim, and still
-true), #41 (the NAS holds every stack and every credential), #4b / Step 6 (the compose file
-belongs to no repository, which is why every shape above is off-repo), #60 (if the bridge
-is ever to act on the NAS, the capability is an allowlist, not a shell).
 
 ---
 
@@ -2480,7 +1820,7 @@ now covers them too.
 | `lib/task-queue.js` | 790 | `task-queue-delivery.js` (`normalizeDelivery`, `deliveryRecorded`); the readers (`getRecentCompleted`, `getStatus`, the module-level `getQueueStatus`) go to `task-queue-view.js` as a prototype mixin. All terminal writers stay in `task-queue.js`. | A guard redesign. `tests/task-queue-delivery-invariant.test.js` and `tests/task-queue-lifecycle.test.js` walk this file's source. Splitting a class this way is the least mechanical cut on the list. |
 | `bridge-agent.js` | 2868 | Seams C, D and E (WIRING-AND-SEAMS §6) | Its own exclusion. Seam C pairs with `lib/task-parser.js` above. |
 
-**Wave 5 — the files under 300 lines of code; this wave depends on #44**
+**Wave 5 — the files under 300 lines of code; judged one function per file (#44, decided 2026-10-10)**
 
 `lib/integrations/email-categorizer.js`, `lib/code-review-pipeline.js`,
 `lib/bulletin-board.js`, `lib/integrations/email-sanitizer.js`, `lib/slack-client.js`,
@@ -2494,9 +1834,21 @@ now covers them too.
   - `lib/clone-lifecycle.js`: `tests/clone-lifecycle.test.js`, `tests/undelivered-work.test.js`
     and `tests/no-shell-execution.test.js`.
 
-**Wave T — the 41 test suites, after #44.** If the rule is scoped out of `tests/`, there is
-nothing to do. Otherwise each suite splits by its top-level `describe`, one file per subject.
-`tests/llm-runner.test.js` is here too: its module split in B15 and the suite passed unchanged through the facade.
+**Wave T — test suites, decided 2026-10-10 (#44, owner).** The rule is one function per
+file. A suite that covers one subject stays one file whatever its length; its exception
+names the subject. A suite that covers several modules splits so each set can be run on
+its own. That leaves three splits:
+- `tests/llm-runner.test.js`: one suite per part of the B15 split (errors, defaults,
+  dispatch, the three adapters, fallback).
+- `tests/holidays.test.js`: one per part (public holidays, pet awareness, local date).
+- `tests/owner-tasks.test.js`: the store and the view.
+
+`tests/integration.test.js`, `tests/bug-fixes.test.js` and `tests/smoke.test.js` reach many
+modules by design, but each has one job (wiring, the regression catalogue, the load gate),
+so they stay whole.
+
+**Wave 5 uses the same test.** A source file over 300 lines splits when it does more than one
+job, not because comments push it past the count.
 
 **Fix:** work the source-module table top-down, cheapest first, each extraction on the named
 boundary and each keeping `node -e "require('./bridge-agent.js')"` green (the CLAUDE.md
@@ -2510,49 +1862,6 @@ absence as a finding rather than folding it into a green.
 **Priority:** P2 | **Effort:** High, incremental | **Status:** open
 
 ---
-
-### 44. The 300-line rule is one rule over two different problems — scope it, or say it covers both
-**BLOCKED — OWNER DECISION.** The item states it in its own words: *not to be decided by an
-executor*. Two independent decisions (scope the rule out of `tests/`; count code lines
-rather than raw lines), each small to implement once made. Nothing is blocked on it — the
-gate is declaration-driven and green.
-**Filed 2026-09-15,** from the size-gate pass that produced #10's record. **Argued here on
-both sides and deliberately left undecided — the branch that filed this did not change the
-rule.** The gate is now declaration-driven (`lib/file-size-gate.js` +
-`lib/validate-exceptions.json`), so nothing is blocked on this; what is at stake is whether
-**36 of the 65 recorded exceptions should have to exist at all**.
-
-**What the rule was written to catch.** `lib/validate.js` pairs `MAX_LINES = 300` with a
-`bridge-agent.js` load check, under the header "keeps files manageable". `CLAUDE.md` places
-the seam rule beside it ("File >300 lines → split on concern separability"), and
-`docs/WIRING-AND-SEAMS.md` §5-§6 is the worked example: `bridge-agent.js` reached 2227 lines
-with two functions accounting for 46% of it, and behaviour started being **re-derived inline**
-because no one could hold the file in one read — which is what `docs/CANONICAL-HELPERS.md`
-enumerates the cost of. So the rule is a **proxy for "this module has too many
-responsibilities"**, measured in lines because lines are cheap to count.
-
-**Figures, as commands. CORRECTED 2026-09-16 — the command below used to parse
-`npm run validate` output and returned 0 for everything; see #10 for why.**
-```bash
-node -e "const g=require('./lib/file-size-gate');const m=g.measure().filter(f=>f.lines>300);
-  console.log(m.length+' over limit | '+m.filter(f=>f.path.startsWith('tests/')).length+' test suites | '
-    +m.filter(f=>!f.path.startsWith('tests/')).length+' source modules');"
-# -> 69 over limit | 40 test suites | 29 source modules      (2026-09-16)
-```
-**40 of 69 — 58% of every violation — are test suites**, and the largest after
-`bridge-agent.js` is `tests/llm-runner.test.js` at 1837 lines. (It was 36 of 65 when this
-was filed; the ratio moved the way the argument below predicts it would, because the four
-files added since are all suites.)
-
-**Why a suite is a different problem.** A test file's length is its **assertion count**. The
-failure mode the rule exists to prevent — one module quietly acquiring five responsibilities —
-has no analogue there: `tests/llm-runner.test.js` has exactly one responsibility, which is
-`lib/llm-runner.js`, and it is long because that module has four provider adapters and a
-fallback chain with six trigger conditions. Under the rule as written, the cheapest way to
-make a suite compliant is **to delete assertions**, and the second cheapest is to scatter one
-subject across files so no reader can see what is and is not covered. A rule whose easiest
-compliance path is less testing is pointed the wrong way.
-**Figures re-run 2026-10-04 (B4), same command: 71 over the limit — 41 test suites, 30 source modules, so 41 of 71 (58%) are test suites; `tests/llm-runner.test.js` is 1864 lines.** 18 of the 30 source modules are under 300 lines of code (#10 lists them). The decision is unchanged.
 
 ### The argument for scoping the rule to source files (suites governed differently, or not at all)
 
@@ -2668,19 +1977,6 @@ that rather than re-parsing.
 
 ---
 
-### 8. Surface deduplication in status
-**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** ancestor heading
-"Deduplication TTL surfaced in status" in the 2026-04-05 seed `4b6ee4a`.
-**Problem:** `processed-tasks.json` dedupes silently; a re-submitted task is skipped with
-no feedback to the user. Dedup is real (`CLAUDE.md` "Task Deduplication") but there is no
-reply-on-duplicate path.
-**Fix:** when a duplicate is detected, post a brief threaded reply: "Already processed
-(ID: xxx). Reply `retry` to force." Wire `retry` through the existing dedup check.
-**Effort:** Low.
-**Priority:** P2 | **Effort:** Low | **Status:** open
-
----
-
 ### 39. The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged
 **Filed 2026-09-14,** from the autonomous-loop design
 ([`docs/AUTONOMOUS-LOOP-DESIGN.md`](docs/AUTONOMOUS-LOOP-DESIGN.md) section 4, part five).
@@ -2734,47 +2030,6 @@ remote, not the scratch clone — `detectUndeliveredWork`'s own comment explains
 (`--single-branch` clones have no `origin/feature/*` ref, so a local-only check reads a
 pushed branch as unpushed).
 **Priority:** P2 | **Effort:** Medium | **Status:** open
-
----
-
-### 40. Uncommitted edits in the live deployment tree — reported, NOT verifiable from a checkout
-**BLOCKED — OWNER ACTION (off-repo).** Nothing here is engineering. Remainder: one
-`git status --porcelain` in `/share/CACHEDEV1_DATA/jt-agent`, then a decision per modified
-file. This repository cannot see that tree at all.
-**Filed 2026-09-14.** **Owner-supplied claim; this repository cannot confirm it.** Filed
-with that label rather than as a repo fact, because `/bridge` is off-repo.
-
-**The claim:** the live deployment tree carries uncommitted working-tree edits, which
-therefore exist in exactly one place.
-
-**What IS verifiable from here, and makes the claim credible rather than idle:**
-- `/bridge` is a bind mount of the NAS deploy directory and **that directory is the git
-  checkout the container runs** — there is no copy step between "the repo" and "the
-  deployment" (`docs/CONFIG-SURFACE-AND-REBUILD.md` -> Step 0, consequence 1).
-- Tasks run through a shell as the directory's owner (`uid 1000:100`) with
-  `--dangerously-skip-permissions`, so anything in that tree is writable from a task
-  (same document, consequence 3). Nothing prevents an edit landing there.
-- `auto-update.js` runs `git reset --hard HEAD` before each pull
-  (`grep -n "reset', '--hard" auto-update.js` -> `:170`, `:191`). **That discards exactly
-  this class of edit.** It is inert today only because nothing starts that daemon (#17) —
-  so answering #17 by starting the daemon would destroy these edits on the first cycle.
-- The adjacent, already-filed instance is #26: `docker-compose.yml` is untracked **and**
-  unignored in that same tree.
-
-**Regenerate on the NAS** (the only place this is answerable):
-```bash
-cd /share/CACHEDEV1_DATA/jt-agent && git status --porcelain && git stash list
-git diff --stat            # what the edits actually are
-git log --oneline -1       # and what commit the tree is on
-```
-`git status --porcelain` printing nothing but `?? docker-compose.yml` closes this item as
-"only #26 applies". Any ` M ` line is the finding, and each such file needs deciding:
-commit it, or record why it is deliberately local.
-
-**Sequencing that matters:** this must be answered **before** #17 is resolved by starting
-`auto-update.js`, not after.
-**Citations re-checked 2026-10-04 (B4).** Since B1 the boot post in `#sqtools-ops` warns when tracked files in the deploy tree differ from the loaded commit (`lib/repo-history.js` `describeLoadedCommit`), so the claim is now answerable from Slack. **Operator-observed during the 2026-10-04 deploy of `f9613c0`:** `agents/activation-checklists.json` is modified in `/bridge`, which is the expected dirty warning. Remainder unchanged: a decision per modified file.
-**Priority:** P2 | **Effort:** Low (one command on the box, then a decision per file) | **Status:** open — blocked on an owner check
 
 ---
 
@@ -2946,72 +2201,6 @@ contradicts his declaration.
 
 ---
 
-### 66. Nothing watches the repository — no agent knows when `main` moves, so a merge and a deploy are unrelated events with nothing observing either
-**Filed 2026-09-16,** from the persistence-design pass. **Reported, not fixed.**
-
-**Verified at HEAD.** Nothing in a live path asks a remote anything about this repository:
-
-```bash
-# every rev-parse / ls-remote / remote read in production code
-grep -rnE "rev-parse|ls-remote|origin/main|git fetch|webhook" --include=*.js . \
-  | grep -v node_modules | grep -v '^./tests/'
-```
-- `auto-update.js:116,125` compares local `HEAD` against `origin/main` — **and nothing
-  starts `auto-update.js`** (WORK-TODO **#17**), so that comparison never runs.
-- `lib/clone-lifecycle.js` uses `ls-remote` to ask whether a *task's* branch was pushed.
-  That is delivery detection for one clone, not repository watching.
-- `lib/repo-history.js` reads the **local** checkout's history (`commitsSince`,
-  `claimsFrom`, `revisionsSince`) and **never fetches**, so it cannot see a commit the box
-  has not pulled.
-- There is no GitHub webhook receiver anywhere. `lib/integrations/httpsms.js` has a
-  `registerWebhook` and it is for SMS and has no caller at all.
-
-So a merge to `main` is observed by nothing, and the deploy that would follow it is a human
-typing `docker compose restart jt-agent`. The two are unrelated events and no one is told
-when they diverge — the observed **11-hour gap** was found by a person noticing.
-
-**What it would take for a merge to become an event in the shared record**
-([`docs/STATE-AND-MEMORY-DESIGN.md`](docs/STATE-AND-MEMORY-DESIGN.md) §2.1). Three pieces,
-in increasing order of what they cost:
-
-| # | Piece | Cost |
-|---|---|---|
-| 1 | **A source of merges.** Either a poll (`git ls-remote origin main` on an interval, plus a fetch to read the commits between) or a **GitHub webhook**. The poll needs no inbound path and no credential beyond the deploy key, and is the right first version. A webhook needs an inbound route to the NAS and a secret to hold, which moves the deploy decision off-box and is what `CLAUDE.md`'s "push-triggered restart" option already prices | Poll: low. Webhook: an inbound path, which `docs/CONFIG-SURFACE-AND-REBUILD.md` §7.2 spends a page arguing against opening |
-| 2 | **An event kind and a writer.** `repo.merged` rows carrying sha, author, subject, and the `Closes`/`Addresses` claims `lib/repo-history.js` `claimsFrom` already parses. The parser exists; what is missing is a fetch in front of it and a store behind it | Low, once the store exists |
-| 3 | **A reader that does something.** Without one this is a log nobody opens. The obvious consumers already exist: the critique digest's signal 4 (*"merged vs running"*, which today renders the absence as a line) and a summary's computed spine | Low |
-
-**And the signal actually worth having is not "main moved".** It is **`main` compared
-against the deployed commit** — which nothing records, because nothing can answer which
-commit the running process is on. That is **WORK-TODO #17**'s second open question, already
-filed, and it is a prerequisite rather than a consequence: piece 1 alone produces
-*"main moved"*, which is true every time anyone merges and says nothing about whether it
-matters. Paired with a deployed-commit report it produces *"main has been ahead of the
-running process for N hours"*, which is the sentence the 11-hour gap needed.
-
-**Relationship to the items already open:** #17 owns "nothing can say what is running" and
-"nothing deploys a merge". This item is the third, distinct gap — **nothing observes that
-`main` moved at all** — and it is the cheapest of the three, because a poll needs no
-inbound path, no new credential and no deployment change.
-**Citations re-checked 2026-10-04 (B4).** The `origin/main` comparison is at `auto-update.js:129-133` (`runGit(['rev-parse', 'origin/main'])`). Regenerate: `grep -n "origin/main" auto-update.js`.
-**Priority:** P2 | **Effort:** Low for the poll; the useful version is gated on #17
-**Status:** open — reported, not fixed
-
-
-**B5, 2026-10-04 — the poll is built: `lib/main-watch.js`.** A minute after boot and every
-`MAIN_WATCH_INTERVAL_MS` (default 30 min, `0` = off) it runs `git ls-remote -- origin
-refs/heads/main` in the deploy checkout (async, argv, no shell) and compares the result with
-the commit the bridge booted on (#17's boot report). When they differ it posts to
-`#sqtools-ops` **once per new `main` sha**, saying "differs" and naming the restart; it never
-says "behind", because `ls-remote` gives no history. An unreadable remote is posted once per
-process. Report-only: it pulls and restarts nothing. Guard `tests/main-watch.test.js`, which
-runs `ls-remote` against a real temp origin. **Unverified on the box:** whether `git` in the
-`jt-agent` container can reach `origin` from `/bridge` (a remote it cannot read is the one
-"Cannot watch `main`" post). Pieces 2 and 3 of the table (a durable `repo.merged` record and
-a reader) wait on the state store. **Remaining (owner):** deploy, and confirm which of the
-three things the first check posts — nothing, a difference, or "Cannot watch".
-**Status:** REPO DONE for the poll — owner observation.
----
-
 ### 49. `NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does
 **Filed 2026-09-15,** from the command-router pass. **This is a question to answer, not a
 defect to fix.**
@@ -3100,126 +2289,6 @@ mechanisms; a fix that adds a fourth is not one.
 **Priority:** P2 | **Effort:** Low for (b) per command; High for (a)
 **Risk:** (a) is the only one that can push to `main` and should not be attempted before #17
 **Status:** open — class recorded with its instances; no shape chosen
-
----
-
-### 52. The workspace's channels and the repository's agents have never been reconciled in either direction
-**Filed 2026-09-15,** from the channel-name correction. **Two sets, never compared.**
-
-**Direction one — agents with no channel.** Regenerate:
-```bash
-node scripts/channel-map.js   # any row printing "unresolved"
-```
-Today: `jester` (active, scheduled, declares a name nothing created), `marketing` and
-`storefront` (planned, declaring names their checklists record as created, so probably
-resolvable — never tried).
-
-**Direction two — channels with no agent, which nothing in this repository can even
-enumerate.** The repository names channels that no agent record references:
-`#sqtools-ops` (`OPS_CHANNEL_ID`), `#store-tasks` (`STORE_TASKS_CHANNEL_ID`),
-`#store-inbox` (`STORE_INBOX_CHANNEL_ID`), `#bot-memory` (`MEMORY_CHANNEL_ID`, in a
-completed checklist entry and read by nothing). Beyond those, `docs/CONFIG-SURFACE-AND-REBUILD.md`
-Step 2 records that the live `.env` carries **six** `*_CHANNEL_ID` keys no code in this
-repository reads — so there are channels the deployment knows about that the repository
-cannot name at all. And a channel that exists in Slack but appears in neither place is
-invisible to every command here.
-
-**Why it is worth reconciling.** The bot joins a channel on every boot and output
-accumulates in channels nobody reads; a channel with no agent is where an agent's work
-goes to die, and an agent with no channel is work that never starts. Both failures have
-already happened (#3, #55). Neither is reported by anything.
-
-**The missing half is one Slack call this repository deliberately does not make.**
-`conversations.list` is already used by `findChannelByName()`; a read-only "every channel
-the bot is in, against every channel an agent declares" report needs no new scope. It is
-not built here because it is a live-workspace enumeration and the repository can only
-verify its own half — but it is the only thing that closes this.
-**Priority:** P2 | **Effort:** Low (a read-only report; `channels:read` is already held)
-**Risk:** Low — read-only, creates nothing
-**Status:** open — one direction is computable from the repo today, the other needs the report
-
-
-**B5, 2026-10-04 — the report exists: `ASK: channels`** (`lib/channel-reconcile.js`, guard
-`tests/channel-reconcile.test.js`). It lists every public channel the bot is in with its
-owner (an agent or a `*_CHANNEL_ID`) or "owned by nothing", every agent channel the bot is
-not in, and every agent whose channel name never resolved. Private channels need
-`groups:read`, not held, and the report says so. **Remaining (owner):** deploy, run
-`ASK: channels` in `#claude-bridge`, and act on what it prints (leave or own each unowned
-channel). Nothing more for a branch.
-**Status:** REPO DONE — owner action.
----
-
-### 53. `jester` is an active commentary agent with a weekly schedule, no channel, and no defined material
-**BLOCKED — OWNER ACTION (off-repo).** Gaps 2 and 3 closed 2026-09-16; gap 1 is a Slack
-channel, and nothing in this repository creates one. Remainder: `ASK: create channel
-#jester-agent`, then `ASK: activate jester`. Remainder for a branch: none.
-**Filed 2026-09-15.** Three separate gaps that look like one:
-
-1. **No channel, and no real name to give it.** Its checklist says "Responds via ASK in
-   any channel, no dedicated channel needed", yet its definition declares
-   `channel_name: jester-agent`, which nothing ever created. The 2026-09-15 name
-   correction fixed seven declarations from tracked evidence and could not fix this one,
-   because there is no real name to substitute. It is the only **active** agent that
-   cannot be addressed at all.
-2. **A schedule that is refused every boot.** `0 18 * * 5` → `weekly-critique`, refused by
-   `lib/agent-scheduler.js` for a stated reason since 2026-09-15 (it used to be a silent
-   skip — #3). So the refusal is visible; the decision behind it is not made.
-3. **Its input is undecided, and that is the real question.** `weekly-critique` is a
-   template with no defined material. Pointed at a diff it produces remarks about naming.
-   The material worth reading is the **gap between what was claimed and what happened** —
-   and a large part of that is already computable with no model at all:
-
-   - items in this file carrying a **Filed** date and still `Status: open` — how long each
-     has been open, and which were deferred on scope grounds and then bit (the apparatus rule, top of this file);
-   - `Closes <ID>` vs `Addresses <ID>` in commit bodies — work claimed complete against
-     work claimed partial (`git log --grep='^Addresses #' --oneline`);
-   - a definition-of-done list in a commit body against the suites that actually ran.
-
-   A deterministic report over those three is material a model can then be given, rather
-   than a model being asked to find material. Note the ordering: decide the input before
-   deciding the channel, because a weekly post with nothing to say is worse than silence
-   and would be the thing the agent exists to mock.
-
-**Three ways out, none chosen:** create `#jester-agent` (owner action, one channel that
-then accumulates a weekly post); drop the schedule and keep jester as an ASK-only
-personality, which is what its checklist says it is; or build the deterministic report
-first and decide afterwards.
-
-**2026-09-16 — the third way was taken, and gaps 2 and 3 are closed.**
-[`docs/JESTER-DESIGN.md`](docs/JESTER-DESIGN.md) is the design of record.
-
-- **Gap 3 (the input) — CLOSED.** `weekly-critique` moved from `TASK_TEMPLATES` to
-  `DETERMINISTIC_TASKS`. `lib/critique-digest.js` computes the report this item asked
-  for, over exactly the three signals named above plus three more: backlog ages joined
-  to how many times `WORK-TODO.md` was revised while an item stayed open; `Closes` vs
-  `Addresses` with **items addressed repeatedly and still open**; task outcomes,
-  durations and attempts with the queue's 24-hour retention printed beside them; what
-  merged and the fact that nothing can say what is *running* (#17); orphaned agent
-  output reused from `lib/agent-surface.js`; and bulletins, capped at five, as the only
-  conversational input.
-- **Gap 2 (the refused schedule) — CLOSED as far as this repository can close it.** The
-  job registers the moment the channel resolves: with one supplied,
-  `describeSchedule(jester)` returns `{ registered: true, kind: 'deterministic' }`.
-- **Gap 1 (the channel) — OPEN, and it is an owner action.** `#jester-agent` has never
-  resolved in any evidence this repository holds
-  (`node scripts/channel-map.js --from-git` lists it as unrecoverable). **The ASK-only
-  alternative is rejected**: the digest is the thing worth reading and it needs
-  somewhere to accumulate. `ASK: create channel #jester-agent`, then
-  `ASK: activate jester`.
-
-Also landed, because the item asked for the report and a report nobody can trigger is
-half a capability: `ASK: critique` runs the same operation on demand, registered in
-`lib/command-router.js` and reaching the same `getDeterministicTask` call the cron tick
-makes — one route, two triggers. And the thing #53 warned about is enforced rather than
-hoped for: a week with nothing in it produces a short honest post and **calls no model
-at all** (`tests/weekly-critique.test.js`), because a model handed an empty digest and a
-contrarian persona writes a complaint.
-
-**Priority:** P2 | **Effort:** remaining effort is one owner action
-**Risk:** Low
-**Status:** open — **blocked on `ASK: create channel #jester-agent`, and on nothing
-else.** The material, the critique, the on-demand trigger and the no-gating guard are
-all landed and green.
 
 ---
 
@@ -3419,38 +2488,6 @@ Regenerate: `grep -n "getFullYear\|getDate()" lib/integrations/google-calendar.j
 
 ---
 
-### 60. If the bridge is ever to act on the NAS, the capability is an allowlisted command set — not a shell
-
-**Filed 2026-09-20** (this working session).
-
-**Priority:** P3 | **Effort:** n/a — **DEFERRED behind #57 and the constraints it records** | **Status:** DEFERRED, recorded so the shape is not re-litigated later
-
-**Why this is written down before it is wanted.** The NAS runs **production Postgres**, and
-the SqTools gate's deploy key and `runner.env` sit in the same directory. A general "run this
-on the NAS" capability puts both inside the blast radius of any prompt that reaches the
-bridge. The shape has to be settled before the capability is built, because the cheap version
-(hand it a shell) is the one that cannot be walked back.
-
-**The shape, if it is ever built:** a **fixed, validated list** of permitted operations —
-not command execution. Each entry names its executable and the exact shape of each argument;
-anything not on the list is refused, not escaped.
-
-**The one that matters first** is `sh gate-host.sh <branch>` with a **validated** branch
-argument — it is what an unattended overnight gate queue needs, and it is a single operation
-with a single argument, which is the easiest possible case to allowlist.
-
-**This repository already has both halves of the pattern**, so the argument-validation half
-is not new work here: `lib/git-identifiers.js` (reject, never sanitise) and every `git` call
-in `lib/clone-lifecycle.js` going through `execFileSync` with an argv array and a `--`
-separator, enumerated repo-wide by `tests/no-shell-execution.test.js`.
-
-**Deferred behind:** **#57** (no credential exists, and its constraints are unsettled) and
-**#27** (a task already has write access to the entire live deployment). Building a NAS
-capability before those are resolved would widen a blast radius that is already recorded as
-undecided.
-
-**Not decided here:** whether this is built at all.
-
 ### 29. `gmail-unsubscribe` is a declared agent permission that no code implements
 **BLOCKED — OWNER DECISION.** Drop the permission and the three rules-file keys as
 aspirational, or implement it — which means a write scope, a consent flow and an
@@ -3501,7 +2538,8 @@ tools so Claude Code sessions call them directly.
 **Dependency (now explicit):** only meaningful while Claude Code is the executor (see
 item 5) and mostly only worth it alongside the mid-task ask capability.
 **Effort:** High. **ROI:** unclear.
-**Priority:** P3 | **Effort:** High | **Status:** open
+**Owner, 2026-10-10:** keep it. MCP is how agents would interact with the server as needed; it is not needed today.
+**Priority:** P3 | **Effort:** High | **Status:** open, not now
 
 ---
 
@@ -3526,22 +2564,6 @@ or `draft-weekly-posts` reads the stream itself. Note also that `milestone` reac
 watcher at all while story-bot was the only agent watching it and was not activated;
 that is no longer true, so this path is live and untested.
 **Priority:** P3 | **Effort:** Low-Medium | **Status:** open — story-bot activated, the aggregation is the remaining work
-
----
-
-### 15. Task complexity auto-scaling TURNS
-**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** ancestor heading in the
-2026-04-05 seed `4b6ee4a`.
-**Problem:** `TURNS` is manual (`lib/task-parser.js:13` `DEFAULT_TURNS = 50`, floor 5,
-cap 100). `analyzeComplexity()` exists (`lib/task-decomposer.js`) but its score does not
-feed TURNS.
-**Fix:** when `TURNS` is not explicitly set, derive a baseline from
-`analyzeComplexity()` (e.g. 1-2 → 20, 3-5 → 50, 6+ → 80).
-**Dependency (now explicit):** turns are a Claude-CLI concept; single-shot adapters
-(Gemini/Ollama) ignore `maxTurns` (`lib/llm-runner.js` adapter contracts), so this only
-affects Claude-executed tasks.
-**Effort:** Low.
-**Priority:** P3 | **Effort:** Low | **Status:** open
 
 ---
 
@@ -3575,7 +2597,7 @@ not honour the task lock* — **STALE IN BOTH HALVES**; it has honoured the lock
 2026-09-14 and it does not run at all (#17).*
 
 *Two items filed by that pass, and one earlier judgement reversed.* **#73** *records that the
-deploy step actually in use — `docker compose restart jt-agent` — kills a running task
+deploy step actually in use — `docker compose restart bridge` — kills a running task
 without ever delivering SIGTERM to it, because PID 1 is the compose `command:`'s `sh` and
 nothing forwards signals, so `gracefulShutdown()`'s 60-second wait never runs. The
 2026-09-20 bridge-findings pass considered this and deliberately did not file it ("filing a

@@ -239,6 +239,9 @@ const POLL_INTERVAL = 5000;
 | `SLACK_APP_TOKEN` | Slack **app-level** token (`xapp-`) for the additive Socket Mode connection. **Never log this.** Absent or blank = Socket Mode off, which is a reported condition and **not** a startup failure; the poll loop is unaffected either way. A `xoxb-` bot token here is refused on shape. | - |
 | `SOCKET_MODE_DOWN_ALERT_MS` | How long the Socket Mode connection may be down before it is reported to `#sqtools-ops`, re-posted once per interval until it recovers | `300000` (5 min) |
 | `TASK_TIMEOUT_MS` | Hard kill timeout in ms. A running task is announced in `#sqtools-ops` at 80% of it (`lib/deadline-warning.js`, WORK-TODO #7); the kill itself is unchanged | `600000` |
+| `TASK_STALL_MS` | Run watch (`lib/claude-stream-watch.js`, WORK-TODO #59): a running Claude task with no output for this long is reported to `#sqtools-ops`. `0` turns the rule off | `600000` (10 min) |
+| `TASK_LOOP_REPEAT` | Run watch: the same tool call (same tool, same input) this many times in a row is reported as a possible loop. `0` turns the rule off | `5` |
+| `TASK_LIMITER_MODE` | `report` posts a run-watch alert and lets the run continue; `enforce` also stops it. Report-only until real runs (the `[run-stats]` log line) show where the thresholds belong; the turn cap stays the brake until then | `report` |
 | `TASK_LOCK_STALE_MS` | Age at which a task lock is treated as orphaned and released. Must exceed the longest a task can legitimately run. | `2 × TASK_TIMEOUT_MS + 600000` (30 min at defaults) |
 | `INSTALL_TIMEOUT_MS` | Hard timeout for installing a scratch clone's own dependencies (`lib/dependency-install.js`). Separate from `TASK_TIMEOUT_MS` so a hung install cannot eat the LLM turn allowance; a timeout is a HARNESS failure with its own message. Raise it if a slow network causes false harness failures. | `300000` (5 min) |
 | `UPDATE_DEFER_ALERT_MS` | How long one self-update may be deferred before every cycle escalates to `#sqtools-ops` | `3600000` (60 min) |
@@ -248,7 +251,7 @@ const POLL_INTERVAL = 5000;
 | `BACKUP_MAX_AGE_HOURS` | A backup, or the status file itself (the host job stopped), older than this is posted to `#sqtools-ops`; repeated daily while it persists, and once on recovery | `26` |
 | `DEPLOY_KEY_PATH` | SSH deploy key a scratch clone pushes with (`lib/clone-lifecycle.js` `cloneRepo`). No file at the path, or a path containing a `'`, leaves the clone **READ-ONLY**: the task runs and its push fails, and the undelivered clone is preserved and reported. The default is the container path | `/bridge/.deploy_key` |
 | `CRITIQUE_TIMEOUT_MS` | Timeout for the jester's one-shot weekly critique call (`lib/weekly-critique.js`) | `120000` |
-| `REPOS` | Comma-separated repos. Read by `getConfiguredRepos()` in `lib/config.js` — the single owner of the list — for the nightly security review AND for the `/dispatch` form's repository select. Adding a repository is this variable plus `docker compose up -d --force-recreate jt-agent`; it is not a code change. **The default stopped naming `jtpets/SquareDashboardTool` on 2026-10-02**: the bridge cannot clone it (WORK-TODO #57), so listing it only made the audit and the form offer something that fails | `jtpets/slack-agent-bridge` |
+| `REPOS` | Comma-separated repos. Read by `getConfiguredRepos()` in `lib/config.js` — the single owner of the list — for the nightly security review AND for the `/dispatch` form's repository select. Adding a repository is this variable plus `docker compose up -d --force-recreate bridge`; it is not a code change. **The default stopped naming `jtpets/SquareDashboardTool` on 2026-10-02**: the bridge cannot clone it (WORK-TODO #57), so listing it only made the audit and the form offer something that fails | `jtpets/slack-agent-bridge` |
 | `CLAUDE_RATE_LIMIT_PAUSE` | Initial pause duration (ms) when rate limit/bandwidth exhausted | `1800000` |
 | `STORE_TASKS_CHANNEL_ID` | #store-tasks channel ID for staff task management | - |
 | `NATURAL_CONVERSATION_MODE` | Enable natural language processing for messages without TASK:/ASK: prefixes. Applies in EVERY polled channel; only an allowlisted person's message qualifies — a bot's post (this bot's included) never does, since 2026-10-04 (WORK-TODO #49) | `false` |
@@ -420,7 +423,7 @@ Tune `MemoryMax` to the model actually pulled — it must be below `(total RAM -
 > **How the bridge actually deploys today: a human restarts the container.**
 > `auto-update.js` is never started, so nothing in this section describes running
 > behaviour. Merging to `main` changes nothing about the running process until
-> someone runs `docker compose restart jt-agent` (or `up -d --force-recreate` for an
+> someone runs `docker compose restart bridge` (or `up -d --force-recreate` for an
 > `.env` change) on the NAS.
 >
 > **Evidence (repo-side, regenerable from any checkout):**
@@ -586,29 +589,29 @@ node bridge-agent.js         # Direct execution
 
 # Production: the `jt-agent` container (node:20) on the QNAP NAS.
 # The compose file lives at the repo's path on the NAS and is untracked.
-docker compose up -d jt-agent
-docker compose restart jt-agent
-docker compose logs -f jt-agent
+docker compose up -d bridge
+docker compose restart bridge
+docker compose logs -f bridge
 
 # PM2 does not exist on this host and no longer appears anywhere in the code.
 #
 # DEPLOYING A MERGE IS A MANUAL STEP. Nothing starts auto-update.js, so merging to
-# main does not reach the running process. `docker compose restart jt-agent` is what
+# main does not reach the running process. `docker compose restart bridge` is what
 # deploys. An .env change needs `up -d --force-recreate`, not `restart` — restart
 # reuses the existing container and its baked-in environment.
 # See "Self-update — DESIGNED AND TESTED, NOT WIRED" above.
 #
-# THAT RESTART KILLS A RUNNING TASK, UNCLEANLY. bridge-agent.js has a SIGTERM handler
-# that waits up to 60s for the current task (gracefulShutdown, :2684) and it NEVER RUNS:
-# PID 1 is the compose command's `sh`, not node, and sh does not forward signals to the
-# child it is waiting on, so the task is SIGKILLed when Docker's grace period expires.
-# The lock is not released, nothing is posted at the time, and the scratch clone is not
-# checked for unpushed commits. The task is NOT re-run: its message is marked processed
-# before it runs (WORK-TODO #23, 2026-10-02), and the next startup posts it to
-# #sqtools-ops as interrupted, to be re-submitted by hand. Check
-# `ASK: what's queued` before restarting. WORK-TODO #73.
-# A `--force-recreate` additionally DISCARDS $WORK_DIR (/tmp/bridge-agent by default):
-# the task lock, task-queue.json, .update-pending and every preserved scratch clone.
+# A RESTART WAITS UP TO 60s FOR A RUNNING TASK, THEN KILLS IT (since 2026-10-10,
+# WORK-TODO #73). The live compose runs `exec node` behind `init: true` with
+# `stop_grace_period: 90s`, so SIGTERM reaches bridge-agent.js's gracefulShutdown(),
+# which waits up to 60s for the current task. A task still running after that is
+# lost: it is NOT re-run (its message is marked processed before it runs, WORK-TODO
+# #23), and the next startup posts it to #sqtools-ops as interrupted, to be
+# re-submitted by hand. Check `ASK: what's queued` before restarting.
+# $WORK_DIR is bind-mounted from /share/CACHEDEV1_DATA/jt-agent/work (WORK-TODO #25),
+# so a `--force-recreate` keeps the task lock, task-queue.json, .update-pending and
+# every preserved scratch clone. The compose SERVICE is `bridge` (the container is
+# `jt-agent`): `docker compose up -d --force-recreate bridge`.
 
 # Cron jobs. <repo> is the repo path as the cron host sees it; on the NAS the
 # host path is /share/CACHEDEV1_DATA/jt-agent, and the in-container path differs.
@@ -809,10 +812,12 @@ slack-agent-bridge/
 │   ├── email-check.js    # Deterministic scheduled inbox check: runInboxCheck fetches via lib/integrations/gmail.js (fetchRecentEmails), filters with lib/integrations/email-categorizer.js against agents/email-monitor/memory/rules.json, posts to the email-monitor channel only when lib/email-check-report.js says to, and escalates every failure through notify-owner. Read-only: Gmail list/get only. An empty inbox and a failed check are different statuses, reported differently
 │   ├── email-check-report.js # Whether a SUCCESSFUL inbox check posts, and what it says (decidePost, formatOkMessage). A scheduled check is QUIET unless something is flagged, the fetch was partial or rate-limited, there was a >90-minute gap since the previous check that day, or it is the first check of the Toronto day (the heartbeat that makes a stopped job visible). An on-demand `check-inbox` always posts. Split from lib/email-check.js 2026-10-02 after the owner called the half-hourly "Inbox check OK" posts spam
 │   ├── email-rate-limiter.js # Rate limiting for email-to-Slack pipeline: sliding window, cooldown, flood protection
+│   ├── boot-record.js    # The commit this process booted on, recorded once by bridge-agent.js (from lib/repo-history.js loadedCommit) so later readers in the same process, such as the jester's digest, report it instead of re-reading the working tree
 │   ├── llm-metrics.js    # LLM provider verdict counter: recordVerdict, getStats (fallback visibility)
 │   ├── time-format.js    # THE day-key and display-time helpers, each taking its zone explicitly: dayKey(date, timeZone) (no default zone, so a UTC day cannot be had by forgetting to choose; the store passes STORE_TIME_ZONE, lib/llm-metrics.js passes 'UTC') and formatTimestamp(date, { precision }) for every bulletin rendering. WORK-TODO #33 and #32
 │   ├── digest-sections.js # The morning digest's text: buildDigest({ memoryDir }) assembles holidays, weather, calendar, staff tasks, email, the task summary, failures, active tasks and the action count, each optional section skipped (logged) when its source throws. Split from morning-digest.js 2026-10-05 (WORK-TODO #10)
 │   ├── digest-failures.js # The morning digest's grouping and wording for yesterday's failed tasks: categorizeFailures (rate limit decided by lib/llm-runner.js isRateLimitError, not a third pattern set) and formatFailureSections. Every failure is action needed — nothing retries or re-queues a failed task, and the digest no longer says otherwise (WORK-TODO #31)
+│   ├── claude-stream-watch.js # WORK-TODO #59: reads the Claude CLI's stream-json events as they arrive, reports a stall (no output for TASK_STALL_MS) or a loop (the same tool call TASK_LOOP_REPEAT times in a row) through the adapter's onRunAlert, and returns per-run stats (longest quiet gap, longest repeat, turns, cost) for the [run-stats] log line. Plain-text output passes through unchanged. Never kills anything itself; TASK_LIMITER_MODE decides, report by default
 │   ├── deadline-warning.js # The #sqtools-ops text posted when a running task reaches 80% of TASK_TIMEOUT_MS (lib/llm-runner.js onDeadlineWarning, WORK-TODO #7). Pure: builds a string, posts nothing
 │   └── integrations/
 │       ├── google-calendar.js  # Google Calendar API integration for fetching events (today, tomorrow, yesterday). Since 2026-10-05 one dayRange, one per-calendar fetcher and one merge behind the twelve exported names (WORK-TODO #10), and the OAuth token read through lib/config.js getGoogleRefreshToken, so GOOGLE_REFRESH_TOKEN works here too. The day range is still process-local time (WORK-TODO #76)
@@ -886,6 +891,7 @@ slack-agent-bridge/
 │   ├── llm-runner-prompt-size.test.js # THE regression guard for the 2026-09-20 `spawn E2BIG` dispatch failure. It is the one suite here that spawns for REAL (against a stub binary written to a temp dir), because E2BIG is raised by execve and a mocked child_process will happily accept an argv entry of any size — which is exactly why no other suite caught it. Asserts the platform limit is where it is claimed to be, that a prompt at and well past MAX_ARG_STRLEN now runs with every byte delivered, that a realistic prompt carrying this repo's own CLAUDE.md runs, and that the prompt is no longer in argv at all
 │   ├── llm-runner-exit-stdout.test.js # Regression test for the 2026-10-10 morning briefing reported as only "Exit code 1 (no stderr output)": the Claude CLI prints its own failure on STDOUT with stderr empty, and the adapter now carries the stdout tail in the error. Real spawn against a stub binary
 │   ├── llm-runner-deadline.test.js # The claude adapter's own deadline, against real stub binaries: a failed spawn at the DEFAULT timeout lets the process exit (it held the event loop 600 s before, WORK-TODO #58), the deadline still SIGTERMs into the interrupted path, and onDeadlineWarning fires once before the kill and never for a task that finishes first (#7)
+│   ├── claude-stream-watch.test.js # Tests for lib/claude-stream-watch.js (result and turn-limit extraction, plain-text passthrough, stall and loop alerts once each, stats) and the adapter wiring: report mode alerts and lets the run finish, enforce mode stops it, and a real stub binary emitting a looping stream is reported
 │   ├── deadline-warning.test.js # The 80% warning's text, and that processTask's runWithFallback call passes onDeadlineWarning posting it to ops (read from bridge-agent.js's source). Carries a negative control
 │   ├── memory-tiers.test.js     # Tests for lib/memory-tiers.js (TTL, auto-promote, cleanup)
 │   ├── message-detection.test.js # Tests for isTaskMessage/isConversationMessage
@@ -995,7 +1001,7 @@ slack-agent-bridge/
 │   ├── STATE-AND-MEMORY-DESIGN.md # A DESIGN, nothing built: the declared/learned split (a tracked file may be a SEED or a DEFAULT, never the live value of anything a person changes on the box), the rule that decides which stores go in a database and which stay files (with two deliberate counter-examples), the four constraints addressed, the schema as what-is-stored-and-why, the provisioning list — and the memory model: one append-only shared record, summaries as VIEWS that name their window and their sources, a computed spine under a written layer, promotion computed rather than judged, standing rules with origin and supersession history, and a read-only `memory` verb that is buildable before any of it
 │   ├── CAPABILITY-AND-ISOLATION-DESIGN.md # A PROPOSAL over a REPORT. The report: `permissions` and `denied` are read by NO production code and validated against no vocabulary, so the capability layer is documentation that looks like configuration; the mail integration cannot scope a fetch by label at all (q is hardcoded 'in:inbox', users.labels.list is called nowhere); and lib/redact-secrets.js constrains credentials, never customer data. The proposal: three layers (remit / capability / rules, only the third editable from Slack), an INVERTED capability that names an emission SHAPE over a closed enumerated vocabulary, and the rule-cannot-widen-capability property held by a grammar in which the widening sentence is not expressible. Names the exfiltration exploit and the design rule it produces — no agent holds both a mail credential and a production data path — and flags the privacy consequence without deciding it
 │   ├── KNOWLEDGE-BASE-PROPOSAL.md # A PROPOSAL, nothing built: a business wiki staff and agents both read, one file per subject with the answer at the top and the reasoning below. Argues for a SEPARATE PRIVATE repo (this one is going open source and a wiki carries vendor terms, margins and staff matters), names the reader (storefront, planned, declares #store-inbox) and the trigger, and carries the constraint that decides it: cloneRepo clones over ANONYMOUS HTTPS and only configures the deploy key afterwards for pushing, so a private repo cannot be read today. Says plainly that vendor costs are a SqTools query, not a document
-│   └── JESTER-DESIGN.md      # THE design of record for the jester agent: what he can actually see (established from code — no Slack history, a depth-1 clone with no repo history, a 24-hour task queue), the computed digest he is given instead of a transcript, and WHY he gates nothing. Answers WORK-TODO #53's third gap; the first (no `#jester-agent` channel) is an owner action this repository may not take
+│   └── JESTER-DESIGN.md      # THE design of record for the jester agent: what he can actually see (established from code — no Slack history, a depth-1 clone with no repo history, a 24-hour task queue), the computed digest he is given instead of a transcript, and WHY he gates nothing. Answered WORK-TODO #53's third gap; the first, the `#jester-agent` channel, the owner created 2026-09-15
 ├── package.json          # Dependencies and npm scripts
 ├── CLAUDE.md             # Project rules and documentation (this file)
 ├── README.md             # Project overview
@@ -1349,7 +1355,7 @@ this is verifiable from a checkout — the app configuration is not in this repo
 5. **Reinstall the app to the workspace.** Creating a slash command adds the `commands`
    OAuth scope, which does not take effect until reinstall.
 6. **Recreate the container** for the `.env` change:
-   `docker compose up -d --force-recreate jt-agent` — a plain `restart` reuses the old
+   `docker compose up -d --force-recreate bridge` — a plain `restart` reuses the old
    environment. And merging deploys nothing on its own: see "Self-update — DESIGNED AND
    TESTED, NOT WIRED".
 
@@ -1878,10 +1884,9 @@ ASK: critique
   `tests/weekly-critique-gating.test.js`, not by this paragraph.
 - A week with nothing in it produces a short post saying so, and **calls no model at
   all** — see `docs/JESTER-DESIGN.md` §4.
-- **ACTION REQUIRED (owner):** `#jester-agent` does not exist and has never resolved, so
-  the command refuses with that reason and the cron job is refused at every boot. Create
-  it with `ASK: create channel #jester-agent`; nothing in this repository creates a Slack
-  channel. See `docs/JESTER-DESIGN.md` §7.
+- `#jester-agent` exists (created by the owner 2026-09-15) and the critique has posted
+  there every Friday since. Nothing in this repository creates a Slack channel; see
+  `docs/JESTER-DESIGN.md` §7.
 
 ### Agent Definition and Activation
 Define an agent, then turn it on in this workspace. **Nothing here creates a Slack

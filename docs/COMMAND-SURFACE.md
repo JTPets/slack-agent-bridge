@@ -51,7 +51,7 @@ because a stale requirement that gets "fixed" again is how a working thing break
 | Lead | Actual |
 |---|---|
 | "its turn budget defaults below the standing convention" | **Refuted.** `DISPATCH_DEFAULT_TURNS` is **defined as** the parser ceiling, not written as a number (`lib/dispatch-message.js:77`). The standing convention is `TURNS: 100` on every bridge dispatch and the ceiling is 100 (`lib/task-parser.js` `TURNS_CEILING`, named `MAX_TURNS` until 2026-10-04), so the form already defaults to the convention. The parser's own `DEFAULT_TURNS` is still 50 (`:81`) and is still correct for a hand-typed message with no `TURNS:` line — the two are different quantities, which was WORK-TODO **#20** (closed 2026-10-04) |
-| "its repository field should be a selection sourced from configuration rather than free text" | **Refuted.** It is a `static_select` whose options come from `getConfiguredRepos()` (`lib/dispatch-modal.js:24,69`), which reads `REPOS` and is the single owner of that list. Adding a repository is a `.env` change plus `docker compose up -d --force-recreate jt-agent`, not an edit to a form file |
+| "its repository field should be a selection sourced from configuration rather than free text" | **Refuted.** It is a `static_select` whose options come from `getConfiguredRepos()` (`lib/dispatch-modal.js:24,69`), which reads `REPOS` and is the single owner of that list. Adding a repository is a `.env` change plus `docker compose up -d --force-recreate bridge`, not an edit to a form file |
 
 ```bash
 grep -n "DISPATCH_DEFAULT_TURNS = " lib/dispatch-message.js   # :77  = TURNS_CEILING

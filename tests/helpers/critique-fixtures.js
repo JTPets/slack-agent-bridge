@@ -42,7 +42,7 @@ function digestFixture(overrides = {}) {
         tasks: { available: true, reason: null, retentionHours: 24, rows: 0, counts: { completed: 0, failed: 0, interrupted: 0 }, failures: [], reattempted: [], slow: [], medianMinutes: null, outlierRule: 'x' },
         bulletins: { available: true, reason: null, items: [] },
         orphans: { available: true, reason: null, items: [] },
-        deploy: { runningCommit: null, reason: 'nothing records which commit the running process loaded — WORK-TODO #17.' },
+        deploy: { runningCommit: null, reason: 'this process recorded no boot commit (it was not started by bridge-agent.js).' },
         thin: false,
         ...overrides,
     };
