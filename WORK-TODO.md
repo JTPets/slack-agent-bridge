@@ -92,6 +92,10 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+After the same day's **#52 close** (the owner ran `ASK: channels` on production) those print **37** open
+items — **8** P1, **23** P2, **6** P3 — and no duplicate ID. The index list also lost five stale
+entries (#3, #26, #53, #55, #66) that the B16 purge left behind.
+
 After the same day's **#60 move** those print **38** open items — **8** P1, **24** P2, **6** P3 — and
 **no duplicate ID**; #60's text now lives in `docs/CAPABILITY-AND-ISOLATION-DESIGN.md` §9.
 
@@ -344,7 +348,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B4** | Records: config surface and docs that state what is no longer true | #34, #20, #63, #35, #48 (all closed 2026-10-04); #4b narrowed to owner decisions (now OD); #10 table refreshed; stale-claim sweep done | `CLAUDE.md`, `README.md`, `.env.example`, `docs/AGENTS.md`, `WORK-TODO.md` | After the in-flight records dispatch, which owns the same docs this week. Verifiable by reading |
 | **B5** | Commands and routing | #46, #9 (closed 2026-10-04); #4 cheap half, #49 (Q1-3 + bot path), #52 and #66 (repo halves), #64 (refusal half) done; #39 moved to B7 | `bridge-agent.js`, `lib/command-router.js`, `lib/dispatch-command.js`, `lib/dispatch-delivery.js`, `lib/task-history.js`, `lib/channel-reconcile.js`, `lib/main-watch.js` | After B1 and B3 (shared `bridge-agent.js`) |
 | **B6** | Deployment shape — repo halves of owner-side work | Done 2026-10-04: #70 (Dockerfile), #73 (compose proposals), #42 (c), #68 (venv half). Skipped: #59 (its own text sequences it after #17/#73), #17 (deploy shape is the owner's choice) | `Dockerfile`, `.dockerignore`, `docker-compose.example.yml`, `lib/python-venv.js`, `lib/backup-watch.js`, `scripts/backup-status.sh`, `docs/CONFIG-SURFACE-AND-REBUILD.md` | Each repo half is inert until the owner applies it on the NAS |
-| **OA** | Owner action only, nothing left in the repo | #40, #41, #43, #52, #70, #73 (#3, #26, #53, #55, #66 closed 2026-10-10 on live evidence) | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
+| **OA** | Owner action only, nothing left in the repo | #40, #41, #43, #70, #73 (#3, #26, #53, #55, #66 closed 2026-10-10 on live evidence; #52 closed 2026-10-10 on the `ASK: channels` output) | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
 | **B7** | Landed vs completed | Done 2026-10-04: #39 recording half (`work` on the queue row, shown in `what's queued`). Left: merge state | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/task-work.js` | `recordWork` writes no status and no verdict, so the #74 invariant holds unchanged (its suite passes untouched) |
 | **B8** | Small repo halves left after B7 | Done 2026-10-04: #62 (closed), #75 repo half. B9 (same day): `lib/repo-history.js` reads `Closes #N. Addresses #M` on one line as two claims, not two closes | `.gitignore`, `tests/gitignore-publishable.test.js`, `docker-compose.example.yml` | No runtime code |
 | **B10** | #10 file splits, by the boundaries its table names | Done 2026-10-05: `lib/integrations/gmail.js`, `lib/watercooler.js`, `lib/memory-tiers.js`, `lib/approval-queue.js` | the split modules, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves; facades keep every caller unchanged. `bridge-agent.js` stays excluded |
@@ -407,7 +411,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #66 | P2 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | Observed live: `lib/main-watch.js` posted "`main` differs from the running bridge" once per new `main` sha (2026-10-05 08:25 and 17:17, 2026-10-06 08:17 EDT) |
 | #49 | P2 | Q1-3 answered and bot path closed in B5 | OD | S | Remaining: the owner decides whether, and on which channels, to turn it on (cost depends on workspace volume). Suggest P3 while off |
 | #51 | P2 | decision | OD | — | Also: `CLAUDE.md` "Agent Activation" still says to edit the deleted `agents/agents.json` (B4) |
-| #52 | P2 | REPO DONE in B5 | OA | S | `ASK: channels` built. Owner: deploy, run it, act on the output |
+| #52 | P2 | **CLOSED 2026-10-10** (purged) | OA | — | Owner ran `ASK: channels` on production 2026-10-10: 8 owned channels, 0 agent channels the bot is missing, 1 unowned (`#bot-memory`, put to the owner as a decision), 2 planned agents unresolved (storefront, marketing) |
 | #53 | P2 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | `#jester-agent` was created 2026-09-15 and the critique has posted there every Friday since (latest 2026-10-09 18:00 EDT) |
 | #57 | P2 | Design record; stale constraint corrected in its body (B4) | OD | S | Constraint 1 says "the bridge pushes nothing". At HEAD `cloneRepo` points `origin` at SSH and sets `core.sshCommand` to the bridge's own deploy key (`lib/clone-lifecycle.js:173-190`), so the executor pushes with the bridge's key |
 | #59 | P2 | OPEN, behind #17/#73 — skipped in B6 by its own sequencing | B6 | M | No stall or wall-clock logic exists. Lands after the deploy path is settled and #73 block (1) is applied |
@@ -543,27 +547,24 @@ work behind an owner's name, which is the opposite of the point.
 
 *Regenerated from the headings. Do not append to it by hand; re-run the command above.*
 
-**P1 — protects or unblocks the live deployment** (10)
+**P1 — protects or unblocks the live deployment** (8)
 
-- **#55** — [The channel mapping had no reproduction path, and a deploy proved it](#55-the-channel-mapping-had-no-reproduction-path-and-a-deploy-proved-it)
 - **#56** — [`npm test` fails intermittently inside jest's globalSetup — twice, unreproduced](#56-npm-test-fails-intermittently-inside-jests-globalsetup--twice-unreproduced)
 - **#42** — [Every backup this system has lives on the box it backs up, and their liveness is checked by nothing](#42-every-backup-this-system-has-lives-on-the-box-it-backs-up-and-their-liveness-is-checked-by-nothing)
 - **#41** — [The NAS is the single point of failure for every stack and every credential, and its exposure has never been established](#41-the-nas-is-the-single-point-of-failure-for-every-stack-and-every-credential-and-its-exposure-has-never-been-established)
 - **#17** — [Nothing starts `auto-update.js` — merged code does not reach the running process](#17-nothing-starts-auto-updatejs--merged-code-does-not-reach-the-running-process)
 - **#73** — [The deploy step in use kills a running task without ever signalling the bridge — every guard in the update protocol is bypassed by the one command that actually deploys](#73-the-deploy-step-in-use-kills-a-running-task-without-ever-signalling-the-bridge--every-guard-in-the-update-protocol-is-bypassed-by-the-one-command-that-actually-deploys)
 - **#25** — [The preserved scratch clone does not survive a container recreation — silent data loss inside the feature that prevents silent data loss](#25-the-preserved-scratch-clone-does-not-survive-a-container-recreation--silent-data-loss-inside-the-feature-that-prevents-silent-data-loss)
-- **#3** — [The scheduler never checks `planned` status — CONFIRMED FIRING LIVE 2026-09-14](#3-the-scheduler-never-checks-planned-status--confirmed-firing-live-2026-09-14)
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (27)
+**P2 — real gaps, no risk to the running process** (23)
 
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#71** — [`ASK:` is invisible to every update gate — a conversation can be restarted mid-answer](#71-ask-is-invisible-to-every-update-gate--a-conversation-can-be-restarted-mid-answer)
 - **#72** — [Two answers to "is a task running?", and nothing makes them agree](#72-two-answers-to-is-a-task-running-and-nothing-makes-them-agree)
-- **#26** — [`docker-compose.yml` is untracked **and** unignored in the live working tree — `git clean -fd` deletes the deployment definition](#26-docker-composeyml-is-untracked-and-unignored-in-the-live-working-tree--git-clean--fd-deletes-the-deployment-definition)
 - **#27** — [A task has write access to the entire live deployment, including every credential — recorded, undecided](#27-a-task-has-write-access-to-the-entire-live-deployment-including-every-credential--recorded-undecided)
 - **#75** — [`/repo:ro` stops a write and not a read — SqTools' production secrets are readable by any code a dispatch runs, against any repository](#75-reporo-stops-a-write-and-not-a-read--sqtools-production-secrets-are-readable-by-any-code-a-dispatch-runs-against-any-repository)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
@@ -577,11 +578,8 @@ work behind an owner's name, which is the opposite of the point.
 - **#64** — [A verb typed in an agent's channel is answered by a model as conversation — the same text behaves differently depending on where it is typed](#64-a-verb-typed-in-an-agents-channel-is-answered-by-a-model-as-conversation--the-same-text-behaves-differently-depending-on-where-it-is-typed)
 - **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
 - **#65** — [A per-agent provider override outranks a definition, so an agent's declared denial can be undone from `.env`](#65-a-per-agent-provider-override-outranks-a-definition-so-an-agents-declared-denial-can-be-undone-from-env)
-- **#66** — [Nothing watches the repository — no agent knows when `main` moves, so a merge and a deploy are unrelated events with nothing observing either](#66-nothing-watches-the-repository--no-agent-knows-when-main-moves-so-a-merge-and-a-deploy-are-unrelated-events-with-nothing-observing-either)
 - **#49** — [`NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does](#49-natural_conversation_mode-is-off-and-nothing-establishes-what-turning-it-on-does)
 - **#51** — [A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it](#51-a-command-that-writes-a-tracked-file-is-destroyed-by-the-next-pull-and-every-configuration-writing-command-shares-it)
-- **#52** — [The workspace's channels and the repository's agents have never been reconciled in either direction](#52-the-workspaces-channels-and-the-repositorys-agents-have-never-been-reconciled-in-either-direction)
-- **#53** — [`jester` is an active commentary agent with a weekly schedule, no channel, and no defined material](#53-jester-is-an-active-commentary-agent-with-a-weekly-schedule-no-channel-and-no-defined-material)
 - **#57** — [Before the bridge is given a private-repo credential — the constraints, not the plan](#57-before-the-bridge-is-given-a-private-repo-credential--the-constraints-not-the-plan)
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
 - **#67** — [IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide](#67-ids-are-allocated-at-write-time-from-an-append-only-list-so-two-branches-cut-from-the-same-base-always-collide)
@@ -2785,52 +2783,6 @@ mechanisms; a fix that adds a fourth is not one.
 **Risk:** (a) is the only one that can push to `main` and should not be attempted before #17
 **Status:** open — class recorded with its instances; no shape chosen
 
----
-
-### 52. The workspace's channels and the repository's agents have never been reconciled in either direction
-**Filed 2026-09-15,** from the channel-name correction. **Two sets, never compared.**
-
-**Direction one — agents with no channel.** Regenerate:
-```bash
-node scripts/channel-map.js   # any row printing "unresolved"
-```
-Today: `jester` (active, scheduled, declares a name nothing created), `marketing` and
-`storefront` (planned, declaring names their checklists record as created, so probably
-resolvable — never tried).
-
-**Direction two — channels with no agent, which nothing in this repository can even
-enumerate.** The repository names channels that no agent record references:
-`#sqtools-ops` (`OPS_CHANNEL_ID`), `#store-tasks` (`STORE_TASKS_CHANNEL_ID`),
-`#store-inbox` (`STORE_INBOX_CHANNEL_ID`), `#bot-memory` (`MEMORY_CHANNEL_ID`, in a
-completed checklist entry and read by nothing). Beyond those, `docs/CONFIG-SURFACE-AND-REBUILD.md`
-Step 2 records that the live `.env` carries **six** `*_CHANNEL_ID` keys no code in this
-repository reads — so there are channels the deployment knows about that the repository
-cannot name at all. And a channel that exists in Slack but appears in neither place is
-invisible to every command here.
-
-**Why it is worth reconciling.** The bot joins a channel on every boot and output
-accumulates in channels nobody reads; a channel with no agent is where an agent's work
-goes to die, and an agent with no channel is work that never starts. Both failures have
-already happened (#3, #55). Neither is reported by anything.
-
-**The missing half is one Slack call this repository deliberately does not make.**
-`conversations.list` is already used by `findChannelByName()`; a read-only "every channel
-the bot is in, against every channel an agent declares" report needs no new scope. It is
-not built here because it is a live-workspace enumeration and the repository can only
-verify its own half — but it is the only thing that closes this.
-**Priority:** P2 | **Effort:** Low (a read-only report; `channels:read` is already held)
-**Risk:** Low — read-only, creates nothing
-**Status:** open — one direction is computable from the repo today, the other needs the report
-
-
-**B5, 2026-10-04 — the report exists: `ASK: channels`** (`lib/channel-reconcile.js`, guard
-`tests/channel-reconcile.test.js`). It lists every public channel the bot is in with its
-owner (an agent or a `*_CHANNEL_ID`) or "owned by nothing", every agent channel the bot is
-not in, and every agent whose channel name never resolved. Private channels need
-`groups:read`, not held, and the report says so. **Remaining (owner):** deploy, run
-`ASK: channels` in `#claude-bridge`, and act on what it prints (leave or own each unowned
-channel). Nothing more for a branch.
-**Status:** REPO DONE — owner action.
 ---
 
 ### 57. Before the bridge is given a private-repo credential — the constraints, not the plan
