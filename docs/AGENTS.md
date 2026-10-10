@@ -995,7 +995,7 @@ bot joins on every boot and a place output can accumulate unread. `jester` is th
 with a concrete defect behind it; the other three are gated on the `planned` decision
 in WORK-TODO #3 and should follow it, not precede it.
 
-> **`#jester-agent` — ACTION REQUIRED (owner), 2026-09-16.** `ASK: create channel
+> **Done: the owner created `#jester-agent` on 2026-09-15 and the critique posts there weekly (observed 2026-10-10).** The note below is the record. **`#jester-agent` — ACTION REQUIRED (owner), 2026-09-16.** `ASK: create channel
 > #jester-agent`. It needs `channels:manage`, and nothing in this repository creates a
 > Slack channel. Note the ordering WORK-TODO #53 argued for and this followed: **the
 > input was decided before the channel**, because a weekly post with nothing to say is

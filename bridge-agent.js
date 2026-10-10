@@ -2524,7 +2524,9 @@ console.log(`  Turns:    ${DEFAULT_TURNS} per task unless TURNS: says otherwise 
 // read ONCE here and posted, so "is the running bridge on main?" has an answer that
 // comes from the running process. A merge reaches the bridge only on a manual
 // restart, and nothing reported when the two diverged. postToOps never throws.
-const BOOT_COMMIT = repoHistory.loadedCommit();
+// LOGIC CHANGE 2026-10-10: also recorded in lib/boot-record.js, so the jester's digest
+// reports this commit instead of saying nothing records it.
+const BOOT_COMMIT = require('./lib/boot-record').recordBootCommit(repoHistory.loadedCommit());
 console.log(`  Commit:   ${BOOT_COMMIT.available ? `${BOOT_COMMIT.short}${BOOT_COMMIT.dirty ? ' (tracked files modified)' : ''}` : `unknown (${BOOT_COMMIT.reason})`}`);
 postToOps(repoHistory.describeLoadedCommit(BOOT_COMMIT));
 

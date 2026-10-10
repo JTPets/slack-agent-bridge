@@ -105,9 +105,42 @@ describe('buildDigest assembles every signal', () => {
         expect(d.orphans.items).toEqual([{ id: 'jester', problem: 'no channel' }]);
     });
 
-    test('the running commit is reported as UNKNOWN with the reason, never omitted', () => {
+    test('with no boot record the running commit is UNKNOWN with the reason, never omitted', () => {
         expect(d.deploy.runningCommit).toBeNull();
-        expect(d.deploy.reason).toMatch(/#17/);
+        expect(d.deploy.reason).toMatch(/recorded no boot commit/);
+    });
+});
+
+// LOGIC CHANGE 2026-10-10: the digest reads the commit bridge-agent.js recorded at boot.
+// Before, it said "nothing records it" every week, after the boot report already existed.
+describe('the running commit comes from the boot record', () => {
+    const boot = { available: true, reason: null, sha: 'f'.repeat(40), short: 'abc1234', subject: 's', dirty: true };
+
+    test('an injected boot commit is reported and rendered, with the dirty tree named', () => {
+        const d = digest.buildDigest({ now: NOW, deps: { ...healthyDeps(), bootCommit: boot } });
+        expect(d.deploy.runningCommit).toBe('abc1234');
+        const text = digest.formatDigestForPrompt(d);
+        expect(text).toMatch(/Running commit: abc1234 \(read at boot, with tracked files modified/);
+        expect(text).not.toMatch(/Running commit: UNKNOWN/);
+    });
+
+    test('a failed boot read stays UNKNOWN and carries its reason', () => {
+        const failed = { available: false, reason: 'dubious ownership', sha: null, short: null, subject: null, dirty: null };
+        const d = digest.buildDigest({ now: NOW, deps: { ...healthyDeps(), bootCommit: failed } });
+        expect(d.deploy.runningCommit).toBeNull();
+        expect(digest.formatDigestForPrompt(d)).toMatch(/Running commit: UNKNOWN\. the boot read of the checkout failed: dubious ownership/);
+    });
+
+    test('without injection it reads lib/boot-record.js, which bridge-agent.js writes at startup', () => {
+        const record = require('../lib/boot-record');
+        record.recordBootCommit(boot);
+        try {
+            expect(digest.buildDigest({ now: NOW, deps: healthyDeps() }).deploy.runningCommit).toBe('abc1234');
+        } finally {
+            record.recordBootCommit(null);
+        }
+        const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'bridge-agent.js'), 'utf8');
+        expect(src).toMatch(/const BOOT_COMMIT = require\('\.\/lib\/boot-record'\)\.recordBootCommit\(repoHistory\.loadedCommit\(\)\)/);
     });
 });
 
@@ -214,7 +247,7 @@ describe('formatDigestForPrompt', () => {
         expect(text).toMatch(/AT MOST the last day/);
     });
 
-    test('it says the running commit is unknown', () => {
+    test('it says the running commit is unknown when no boot commit was recorded', () => {
         expect(text).toMatch(/Running commit: UNKNOWN/);
     });
 

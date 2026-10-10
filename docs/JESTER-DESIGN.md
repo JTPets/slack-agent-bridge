@@ -169,7 +169,7 @@ rules file filters, the model is not asked to do the reaching.
 | Scheduled output that reaches nobody | **Yes.** `findOrphans(buildSurface())`, `lib/agent-surface.js` — already computed and already printed by `scripts/agent-surface.js`. |
 | Bulletins | **Yes**, newest 10, 7-day retention (§1.2). |
 | Which commit the running process is on | **No, and nothing can answer it** — WORK-TODO **#17**. Not a permission gap; the capability does not exist. |
-| Whether a merged change reached the deployment | **No** — the same gap. The digest reports the *absence* as a finding rather than omitting the row. |
+| Whether a merged change reached the deployment | **The running commit, yes** since 2026-10-10: the commit bridge-agent.js read at boot (WORK-TODO #17), through `lib/boot-record.js`. Whether `main` is newer is posted to `#sqtools-ops` by `lib/main-watch.js`, not computed in the digest. Before 2026-10-10 the digest said "nothing records it" every week, after the boot report already existed. |
 | Slack message history, any channel | **No.** Needs a new read path plus history scopes (§1.1). |
 | SqTools (`/repo`) state | **No.** Mounted read-only into the container; nothing in this repo reads it. |
 
@@ -457,6 +457,11 @@ unresolved would be a refusal about the wrong thing.
 ---
 
 ## 7. The one thing this repository cannot do
+
+**Done, observed 2026-10-10.** The owner created `#jester-agent` on 2026-09-15 (Slack shows it
+created that day, with the bot joined), and the critique has posted there every Friday since:
+2026-09-15 (on demand), 2026-09-18, 09-25, 10-02 and 10-09. The rest of this section is the
+record of why it was the one step this repository could not take.
 
 **`#jester-agent` does not exist and has never resolved.** Reconstructing this
 workspace's channel map from git history reports it explicitly:

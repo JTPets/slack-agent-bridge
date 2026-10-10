@@ -101,7 +101,7 @@ describe('remoteMainSha against real git', () => {
 
 test('bridge-agent.js wires it after the boot commit, with an off switch', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'bridge-agent.js'), 'utf8');
-  const boot = src.indexOf('const BOOT_COMMIT = repoHistory.loadedCommit();');
+  const boot = src.indexOf('const BOOT_COMMIT = ');
   const wired = src.indexOf('createMainWatch({');
   expect(boot).toBeGreaterThan(0);
   expect(wired).toBeGreaterThan(boot);
