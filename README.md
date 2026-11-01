@@ -58,7 +58,7 @@ A Slack bot that executes coding tasks via Claude Code CLI—post a task, get a 
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 22+ (the `jt-agent` image runs Node 26 since 2026-11-01)
 - [Claude Code CLI](https://github.com/anthropics/claude-code) installed and authenticated
 - Slack workspace with a bot token (Bot User OAuth Token starting with `xoxb-`)
 - GitHub account with SSH keys configured

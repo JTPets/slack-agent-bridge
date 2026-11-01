@@ -21,6 +21,13 @@
  *    here and fail only in production. The engines guard reads the Node version from the
  *    repository's own image definitions (Dockerfile, docker-compose.example.yml), not
  *    from a number typed into this file.
+ *
+ * LOGIC CHANGE 2026-11-01: the image moved to Node 26 and every direct dependency to its
+ * newest release (googleapis 189, dotenv 18, express 5.3, undici 8 under socket-mode).
+ * Nothing in this suite changed for it: the guard reads the new Node from the image
+ * definitions. On the Node 20 tree undici 8 failed it (Dependabot PR #73), which is the
+ * guard working. A Dockerfile-only base bump also fails the agreement test below until
+ * the compose image moves with it, so the two cannot drift apart.
  */
 
 const fs = require('fs');
@@ -122,40 +129,15 @@ describe('every production dependency runs on the Node the image ships', () => {
         expect(offenders(lock.packages)).toEqual([]);
     });
 
-    test('negative control: a Node-22-only package WOULD be caught', () => {
-        const fake = { ...lock.packages, 'node_modules/googleapis-future': { version: '999.0.0', engines: { node: '>=22.0.0' } } };
-        expect(offenders(fake)).toEqual(['googleapis-future@999.0.0 needs node >=22.0.0']);
+    test('negative control: a package needing a newer Node than the image WOULD be caught', () => {
+        // One major past the image, computed, so the control keeps biting after an image bump.
+        const beyond = `>=${semver.major(pinned) + 1}.0.0`;
+        const fake = { ...lock.packages, 'node_modules/googleapis-future': { version: '999.0.0', engines: { node: beyond } } };
+        expect(offenders(fake)).toEqual([`googleapis-future@999.0.0 needs node ${beyond}`]);
     });
 
     test('negative control: a dev-only package is not held to it', () => {
         const fake = { ...lock.packages, 'node_modules/dev-tool': { version: '1.0.0', dev: true, engines: { node: '>=22' } } };
         expect(offenders(fake)).toEqual([]);
-    });
-});
-
-// LOGIC CHANGE 2026-11-01: undici is a peer of @slack/socket-mode (the Socket Mode
-// WebSocket). 7.29.1 carried eight advisories fixed in 7.30.1, and 8.x needs Node 22,
-// so package.json `overrides` holds it on a patched 7.x. Without the override npm
-// resolves the peer to 8 (Dependabot PR #73), which the engines guard above rejects.
-describe('undici stays on a patched release the image can run', () => {
-    const lock = require('../package-lock.json');
-    const pkg = require('../package.json');
-    const resolved = lock.packages['node_modules/undici'] && lock.packages['node_modules/undici'].version;
-
-    test('the lockfile resolves undici at or above 7.30.1 and below 8', () => {
-        expect(semver.valid(resolved)).toBeTruthy();
-        expect(semver.gte(resolved, '7.30.1')).toBe(true);
-        expect(semver.major(resolved)).toBe(7);
-    });
-
-    test('package.json carries the override that keeps it there', () => {
-        const range = pkg.overrides && pkg.overrides.undici;
-        expect(semver.validRange(range)).toBeTruthy();
-        expect(semver.minVersion(range).version).toBe('7.30.1');
-        expect(semver.intersects(range, '>=8.0.0')).toBe(false);
-    });
-
-    test('negative control: the pre-fix version is rejected', () => {
-        expect(semver.gte('7.29.1', '7.30.1')).toBe(false);
     });
 });

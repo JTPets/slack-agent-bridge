@@ -29,7 +29,7 @@
 # deployment fact, so it is stated here rather than discovered by a dispatch failing:
 #
 #   node    package.json (+ package-lock.json -> `npm ci`)  -> SUPPORTED. node and npm
-#           ARE the image; `image: node:20` below is the whole toolchain.
+#           ARE the image; `image: node:26` below is the whole toolchain.
 #   python  requirements.txt / pyproject.toml / setup.py    -> NOT SUPPORTED. `python3`
 #           is present in node:20, `pip` is NOT. Operator-supplied, on the NAS,
 #           2026-09-20:
@@ -66,7 +66,9 @@
 
 services:
   bridge:
-    image: node:20
+    # LOGIC CHANGE 2026-11-01: node:20 (end of life April 2026) -> node:26, the newest
+    # LTS. The dependency tree needs Node >=22 (undici 8, googleapis 189, the Claude CLI).
+    image: node:26
     container_name: jt-agent
     user: "1000:100"
     working_dir: /bridge
@@ -146,7 +148,7 @@ services:
 
     # (2) BUILD THE IMAGE INSTEAD OF INSTALLING AT EVERY START — WORK-TODO #70. Pins the
     # base and the Claude CLI (see Dockerfile), installs python3-venv once (#68), and the
-    # start command shrinks to the repo's own `npm ci`. Replace `image: node:20` with
+    # start command shrinks to the repo's own `npm ci`. Replace `image: node:26` with
     # the two keys below, drop NPM_CONFIG_PREFIX and the PATH override from
     # `environment:` (the CLI is now /usr/local/bin/claude, the CLAUDE_BIN default - and a
     # stale copy in /bridge/.npm-global would otherwise shadow it), make sure .env does
