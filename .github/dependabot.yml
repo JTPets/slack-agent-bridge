@@ -15,6 +15,15 @@ updates:
     # `image: node:20`). A PR for one would pass CI on a newer Node and break the box.
     # Remove this ignore when the image moves to Node 22; tests/dependency-upgrade.test.js
     # fails on a Node-22-only production package either way.
+    # LOGIC CHANGE 2026-11-01: undici 8 declares engines.node >=22.19.0 (PR #73 moved
+    # 7.29.1 -> 8.12.3 and tests/dependency-upgrade.test.js failed on it). It is a peer
+    # of @slack/socket-mode (its WebSocket), which accepts ^7 || ^8. 7.29.1 carried eight
+    # advisories (TLS validation bypass among them) fixed in 7.30.1, which still runs on
+    # Node 20, so package.json `overrides` holds undici at ^7.30.1: without it npm and
+    # `npm audit fix` both resolve the peer to 8. Remove this ignore and the override
+    # together when the image moves to Node 22.
     ignore:
       - dependency-name: "googleapis"
         versions: [">=178.1.0"]
+      - dependency-name: "undici"
+        versions: [">=8.0.0"]
