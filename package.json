@@ -26,5 +26,8 @@
   "jest": {
     "globalSetup": "<rootDir>/tests/helpers/live-state-setup.js",
     "globalTeardown": "<rootDir>/tests/helpers/live-state-teardown.js"
+  },
+  "overrides": {
+    "undici": "^7.30.1"
   }
 }
