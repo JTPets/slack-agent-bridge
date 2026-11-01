@@ -229,6 +229,8 @@ const { installDependencies } = require('./lib/dependency-install');
 const { startSocketMode } = require('./lib/slack-socket');
 const { createMainWatch, remoteMainSha } = require('./lib/main-watch');
 const { createBackupWatch } = require('./lib/backup-watch');
+const { createClaudeAuthWatch, probeClaudeAuth } = require('./lib/claude-auth-watch');
+const { DEFAULT_CLAUDE_BIN } = require('./lib/llm-defaults');
 const { handleSlashCommand, handleViewSubmission } = require('./lib/dispatch-command');
 
 // ---- Config ----
@@ -2567,6 +2569,23 @@ if (BACKUP_STATUS_FILE) {
   setInterval(runBackupWatch, 3600000).unref();
 } else {
   console.log('  Backups:  NOT watched (BACKUP_STATUS_FILE unset; see scripts/backup-status.sh)');
+}
+// LOGIC CHANGE 2026-11-01 (WORK-TODO #77): check that the Claude CLI can actually run a
+// call - 45s after boot, then every CLAUDE_AUTH_CHECK_INTERVAL_MS (daily; 0 turns it off).
+// A logged-out CLI used to be found only when the 7am briefing failed. Report-only and
+// never awaited here, so it cannot delay boot or the poll loop.
+const CLAUDE_AUTH_CHECK_INTERVAL_MS = parseInt(process.env.CLAUDE_AUTH_CHECK_INTERVAL_MS || '86400000', 10);
+if (CLAUDE_AUTH_CHECK_INTERVAL_MS > 0) {
+  const claudeAuthWatch = createClaudeAuthWatch({
+    probe: () => probeClaudeAuth({ claudeBin: DEFAULT_CLAUDE_BIN, cwd: WORK_DIR }),
+    notify: postToOps,
+  });
+  const runClaudeAuthWatch = () => claudeAuthWatch.tick().catch(err => console.error('[claude-auth] tick threw:', err.message));
+  setTimeout(runClaudeAuthWatch, 45000).unref();
+  setInterval(runClaudeAuthWatch, CLAUDE_AUTH_CHECK_INTERVAL_MS).unref();
+  console.log(`  ClaudeOK: CLI health check 45s after boot, then every ${Math.round(CLAUDE_AUTH_CHECK_INTERVAL_MS / 3600000)}h`);
+} else {
+  console.log('  ClaudeOK: CLI health check OFF (CLAUDE_AUTH_CHECK_INTERVAL_MS=0)');
 }
 console.log(`  Allowed:  ${ALLOWED_USER_IDS.join(', ')}`);
 console.log(`  Channels: ${channelsToPoll.length} (${channelsToPoll.map(c => c.agentId).join(', ')})`);
