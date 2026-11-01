@@ -92,6 +92,9 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-01** filing **#77** (and building its repository half) those print **31** open items —
+**7** P1, **19** P2, **5** P3 — and no duplicate ID.
+
 After the same day's **B17 closes** (#15, #25, #40, #73, #75, each settled by owner-run output from the
 NAS on 2026-10-10) those print **30** open items — **6** P1, **19** P2, **5** P3 — and no duplicate ID.
 
@@ -555,7 +558,7 @@ work behind an owner's name, which is the opposite of the point.
 
 *Regenerated from the headings. Do not append to it by hand; re-run the command above.*
 
-**P1 — protects or unblocks the live deployment** (6)
+**P1 — protects or unblocks the live deployment** (7)
 
 - **#56** — [`npm test` fails intermittently inside jest's globalSetup — twice, unreproduced](#56-npm-test-fails-intermittently-inside-jests-globalsetup--twice-unreproduced)
 - **#42** — [Every backup this system has lives on the box it backs up, and their liveness is checked by nothing](#42-every-backup-this-system-has-lives-on-the-box-it-backs-up-and-their-liveness-is-checked-by-nothing)
@@ -563,6 +566,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#17** — [Nothing starts `auto-update.js` — merged code does not reach the running process](#17-nothing-starts-auto-updatejs--merged-code-does-not-reach-the-running-process)
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
+- **#77** — [A logged-out Claude CLI was found by a failed briefing, not by the bridge](#77-a-logged-out-claude-cli-was-found-by-a-failed-briefing-not-by-the-bridge)
 
 **P2 — real gaps, no risk to the running process** (19)
 
@@ -1081,6 +1085,39 @@ only the owner action below.
 **Regenerate:** `ls lib/dispatch-*.js && npx jest tests/dispatch-message.test.js tests/dispatch-modal.test.js tests/dispatch-command.test.js tests/dispatch-failure-paths.test.js`
 
 **Priority:** P1 | **Effort:** Medium | **Status:** open ONLY on the owner action — connection landed 2026-09-14, command built 2026-09-15; Socket Mode, the app-level token, the `/dispatch` registration and Interactivity are still owner-side (CLAUDE.md, "ACTION REQUIRED on the Slack app")
+
+---
+
+### 77. A logged-out Claude CLI was found by a failed briefing, not by the bridge
+**Filed 2026-11-01,** from the owner's NAS output that day.
+
+On 2026-11-01 the secretary's 7am briefing failed with `Exit code 1 (no stderr output)` in
+2.7 s. Run by hand in the container, the CLI (2.1.197) printed `Not logged in · Please run
+/login` and exited 1: its interactive `/login` credential under `HOME`
+(`/bridge/.claude-home`) had stopped working. Every Claude task fails in that state, and
+nothing said so: the bridge checked Gemini at boot (`validateGeminiOnStartup`) and never
+checked Claude. The stdout half (the reason in the error) landed in `81f586c`; this is the
+detection half.
+
+**Owner-side, done 2026-11-01:** re-logged in, then moved to a long-lived `claude
+setup-token` credential in `.env` as `CLAUDE_CODE_OAUTH_TOKEN`, proven to work on its own by
+the same one-turn call run with `HOME` pointed at an empty folder (`ok`, `exit=0`).
+
+**Repository half, built in this item's commit:** `lib/claude-auth-watch.js` makes one
+one-turn Claude call 45 s after boot and every `CLAUDE_AUTH_CHECK_INTERVAL_MS` (daily), and
+posts to `#sqtools-ops` on every failing check (a credential failure is named as such, with
+the fix) and once on recovery. Report-only. Guard: `tests/claude-auth-watch.test.js`, which
+runs the probe against real stub binaries, including the exact 2026-11-01 output.
+
+**Closes on live evidence, after deploy:** the boot log shows `ClaudeOK:` and
+`[claude-auth] Claude CLI check PASSED` about 45 s later. A failing-path observation on the
+box is not required: the failing path is the stub test of the observed output.
+
+**The token expires** about a year after 2026-11-01. This check is what reports it.
+
+Regenerate: `docker logs --since 3m jt-agent 2>&1 | grep -E "ClaudeOK|claude-auth"`
+
+**Priority:** P1 | **Effort:** S | **Status:** built, awaiting deploy evidence
 
 ---
 
