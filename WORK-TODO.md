@@ -92,6 +92,9 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-02** filing **#78** (and building its intake half) those print **32** open items —
+**7** P1, **20** P2, **5** P3 — and no duplicate ID.
+
 On **2026-11-01** filing **#77** (and building its repository half) those print **31** open items —
 **7** P1, **19** P2, **5** P3 — and no duplicate ID.
 
@@ -467,7 +470,7 @@ line moves to stderr and the advert 17.4.2 printed is gone; it bundles a `dotenv
 nothing here invokes; the full suite passes on the PR branch on Node 20 and Node 22. It rides
 the next gate.
 
-**Secretary email intake — a candidate, not filed.** Per the owner (2026-10-02), email is
+**Secretary email intake — filed 2026-11-02 as #78, intake built.** Kept as the record of the owner's requirements. Per the owner (2026-10-02), email is
 the bridge's inbound data path: SqTools and other systems send the 6 am min/max audit,
 error logs and orders to the inbox. **Decided by the owner 2026-10-02:** the bridge builds
 the secretary intake tooling, and SqTools gets email changes as needed.
@@ -568,8 +571,9 @@ work behind an owner's name, which is the opposite of the point.
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 - **#77** — [A logged-out Claude CLI was found by a failed briefing, not by the bridge](#77-a-logged-out-claude-cli-was-found-by-a-failed-briefing-not-by-the-bridge)
 
-**P2 — real gaps, no risk to the running process** (19)
+**P2 — real gaps, no risk to the running process** (20)
 
+- **#78** — [SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one](#78-sqtools-alerts-reach-the-secretary-but-the-owner-cannot-acknowledge-silence-or-be-nagged-about-one)
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
@@ -1122,6 +1126,53 @@ Regenerate: `docker logs --since 3m jt-agent 2>&1 | grep -E "ClaudeOK|claude-aut
 ---
 
 ## P2 — Real gaps, no risk to the running process
+
+### 78. SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one
+**Filed 2026-11-02,** by the change that built the intake (owner request 2026-11-02; the
+requirements are the owner's of 2026-10-02, recorded under "Secretary email intake" in the
+triage section above).
+
+**Built in this item's commit (Addresses #78):** `lib/sqtools-alerts.js` recognises SqTools
+mail (sender in `SQTOOLS_ALERT_SENDERS` and a `[SqTools]` subject) and classifies it from a
+catalogue copied from SqTools' own subject templates (JTPets/SquareDashboardTool `0eef658`,
+`utils/email-notifier.js` and its `sendAlert(` call sites). `lib/sqtools-alert-intake.js`,
+run by `lib/email-check.js` on every successful fetch, takes those emails out of the generic
+rules, records each once by Gmail id in `agents/secretary/memory/sqtools-alerts.json`, posts
+new ones to the secretary's channel with what to do next, and reports a SqTools heartbeat
+older than 26 h. The secretary's briefing context now carries the last day of alerts and
+when the inbox was last read.
+
+**What the generic rules were doing, observed in `#email-monitor-agent` 2026-10-13 to
+2026-11-02:** every "Min Stock Auto-Adjustment" was flagged `urgent/high`, and every "Expiry
+Discount Report" and "Job OK: …" was flagged `vendor_deal/high`, because the keywords
+`urgent`, `discount` and `promo` occur in them. A routine report was the morning's only
+"urgent" item.
+
+**Remaining, in this order:**
+
+1. **The three acknowledgements**, as buttons on the alert post: *silence* (this alert,
+   for good), *nag* (re-post until acted on, on a schedule), *close for the day* (store-day
+   key: `lib/time-format.js` `dayKey(date, STORE_TIME_ZONE)`). Every `action`/`review`
+   record already carries `ack: null` for this. Buttons need Slack Interactivity, the same
+   owner-side app step as #43; an `ASK: ack <id> silence|nag|close` verb in the command table
+   does not, and could come first.
+2. **"Orders not sent" does not exist as a SqTools email.** No `sendAlert(` call site in
+   SqTools at `0eef658` is about unsent purchase orders, so there is nothing for the
+   secretary to read. It is a SqTools change (a new MERCHANT alert), for SqTools' BACKLOG; not yet filed there.
+   When it exists it arrives as `unrecognised` (surfaced for review, never dropped) until
+   it is added to the catalogue. Cycle-count variance does exist: a "Cycle Count Report"
+   with "Discrepancies Found" above 0 is classified `action`.
+3. **Staff visibility**, later, waits on the capability design (#64, #65).
+
+**Unverified:** that the stripped body of a real Cycle Count Report carries the
+`Discrepancies Found: N` text the classifier reads (the test body is synthetic, built from
+SqTools' template). An unreadable body stays at `review`, never at "no discrepancies".
+
+Regenerate the observed misfiling: search `#email-monitor-agent` for `[SqTools]`.
+
+**Priority:** P2 | **Effort:** M | **Status:** intake built; acknowledgement not started
+
+---
 
 ### 70. This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start
 **Filed 2026-09-20,** by the pass that recorded #68's probe evidence. **It ranks above #68
