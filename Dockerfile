@@ -1,5 +1,5 @@
 # Dockerfile — the jt-agent image, built rather than pulled. PROPOSED (WORK-TODO #70, B6,
-# 2026-10-04): the live deployment still runs `image: node:20` until the owner switches
+# 2026-10-04): the live deployment runs the floating `image: node:26` tag until the owner switches
 # the compose file to `build:` (docker-compose.example.yml, the PROPOSED BUILD block).
 #
 # WHY A BUILD STEP. Until this file, the only install step was the compose `command:`,
@@ -17,23 +17,23 @@
 #
 # PINS, and what moves them. Change a pin here, rebuild, restart; the boot post names the
 # commit, and `claude --version` in the container names the CLI.
-#   node:20.20.2-bookworm  Node 20's last release (2026-03-24, nodejs.org/dist/index.json).
-#                          Node 20 reached END OF LIFE in April 2026 - it receives no
-#                          security fixes. Moving to 22 is a separate, owner-approved
-#                          change. bookworm = Debian 12, matching the 2026-09-20 probe of
-#                          the live image. Tag not checked against Docker Hub from here
-#                          (the registry was unreachable); `docker compose build` says so
-#                          if it is wrong.
-#   claude-code 2.1.289    `npm view @anthropic-ai/claude-code version` on 2026-10-04.
+#   node:26.13.0-bookworm  LOGIC CHANGE 2026-11-01: the newest LTS release (Node 26
+#                          "Lithium", 2026-10-28, nodejs.org/dist/index.json). Was
+#                          node:20.20.2, end of life since April 2026. The owner's rule
+#                          (2026-11-01): every piece of software is kept at its newest
+#                          version. Tag confirmed on Docker Hub 2026-11-01. bookworm =
+#                          Debian 12, matching the 2026-09-20 probe of the live image.
+#   claude-code 2.1.316    `npm view @anthropic-ai/claude-code version` on 2026-11-01. It
+#                          declares engines.node >=22, so Node 20 could no longer run it.
 #   python3-venv           Debian bookworm's package (security updates only). Supplies
 #                          ensurepip, so lib/python-venv.js can create a per-clone venv
 #                          with pip in it (#68). It makes python INSTALLABLE; python stays
 #                          NOT SUPPORTED in CLAUDE.md's toolchain table until a python repo
 #                          has been dispatched to end to end and its pins are named.
 
-FROM node:20.20.2-bookworm
+FROM node:26.13.0-bookworm
 
-ARG CLAUDE_CODE_VERSION=2.1.289
+ARG CLAUDE_CODE_VERSION=2.1.316
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3-venv \

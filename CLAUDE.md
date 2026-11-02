@@ -11,7 +11,7 @@
 
 Node.js Slack polling agent that monitors Slack channels for task messages and executes them via Claude Code CLI. No database, no frontend, no multi-tenant.
 
-**Deployment (as of 2026-09-13):** runs as the `jt-agent` container (`node:20`) on a QNAP NAS. The Raspberry Pi that previously hosted it is dead. The live `docker-compose.yml` lives beside the repo on the NAS — inside the git working tree the bridge runs — and stays untracked because it carries host paths. **As of 2026-09-15 it is also gitignored**, so `git clean -fd` in the deploy directory can no longer delete the only on-box copy of the deployment definition, and `docker-compose.example.yml` in this repository is the off-box copy (see `docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 7.9). Line endings are pinned to LF by `.gitattributes` — a Windows clone copied to Linux once made the entire tree uncommittable.
+**Deployment (as of 2026-09-13):** runs as the `jt-agent` container (`node:20` until 2026-11-01, `node:26` after) on a QNAP NAS. The Raspberry Pi that previously hosted it is dead. The live `docker-compose.yml` lives beside the repo on the NAS — inside the git working tree the bridge runs — and stays untracked because it carries host paths. **As of 2026-09-15 it is also gitignored**, so `git clean -fd` in the deploy directory can no longer delete the only on-box copy of the deployment definition, and `docker-compose.example.yml` in this repository is the off-box copy (see `docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 7.9). Line endings are pinned to LF by `.gitattributes` — a Windows clone copied to Linux once made the entire tree uncommittable.
 
 **`package-lock.json` is committed (as of 2026-09-13).** It was gitignored, which meant every container start resolved semver ranges afresh: the deployed dependency tree was whatever npm picked that minute, and `.github/dependabot.yml`'s weekly npm PRs could only ever bump direct ranges in `package.json` — transitive dependencies, where most published advisories actually live, were unpinnable and invisible.
 
@@ -28,7 +28,7 @@ Node.js Slack polling agent that monitors Slack channels for task messages and e
 
 ## Tech Stack
 
-- **Runtime**: Node.js 18+
+- **Runtime**: Node.js 26 (the newest LTS; `image: node:26` in `docker-compose.example.yml`, `node:26.13.0-bookworm` in the Dockerfile, since 2026-11-01). The production tree needs Node >=22 (undici 8, googleapis 189, the Claude CLI), and `tests/dependency-upgrade.test.js` fails on any production package the image's Node cannot run. **Every dependency and the base image are kept at their newest release** (owner rule, 2026-11-01); Dependabot watches npm and the Dockerfile
 - **Slack SDK**: @slack/web-api ^8.2.0 (fetch transport since 2026-10-05; errors still carry `err.data.error`, proven by `tests/dependency-upgrade.test.js`)
 - **Process supervisor**: the container runtime (`restart: unless-stopped`). There is no PM2 and no process manager inside the `jt-agent` image.
 - **Timezone**: `America/Toronto`, named **explicitly at every site** — the code does
@@ -589,7 +589,7 @@ should be observable while it happens.
 npm start                    # Run the agent
 node bridge-agent.js         # Direct execution
 
-# Production: the `jt-agent` container (node:20) on the QNAP NAS.
+# Production: the `jt-agent` container (node:26 since 2026-11-01; was node:20) on the QNAP NAS.
 # The compose file lives at the repo's path on the NAS and is untracked.
 docker compose up -d bridge
 docker compose restart bridge
@@ -1011,7 +1011,7 @@ slack-agent-bridge/
 ├── README.md             # Project overview
 ├── COMMANDMENTS.md       # Non-negotiable rules, prepended to every task prompt
 ├── WORK-TODO.md          # The backlog: flat, one ### heading per OPEN item, stable numeric IDs never reused, closed items purged (git history + the `Closes <ID>` commit body are the record), index regenerated from the headings. Counts are commands, not figures: `grep -cE '^### [0-9]+[a-z]?\. ' WORK-TODO.md`
-├── Dockerfile            # PROPOSED jt-agent image (WORK-TODO #70), not yet used by the live compose: node:20.20.2-bookworm and @anthropic-ai/claude-code pinned by version, python3-venv installed once (#68). Copies nothing in — the code is the bind-mounted checkout and the credentials stay in the env_file. Adoption is the PROPOSED block (2) in docker-compose.example.yml. Node 20 is end of life since April 2026
+├── Dockerfile            # PROPOSED jt-agent image (WORK-TODO #70), not yet used by the live compose: node:26.13.0-bookworm and @anthropic-ai/claude-code pinned by version, python3-venv installed once (#68). Copies nothing in — the code is the bind-mounted checkout and the credentials stay in the env_file. Adoption is the PROPOSED block (2) in docker-compose.example.yml. Node 20 is end of life since April 2026
 ├── .dockerignore         # Excludes the whole build context, because the Dockerfile copies nothing — so .env and .deploy_key are never sent to a build
 ├── docker-compose.example.yml # The deployment definition, off-box. Reproduces the live compose captured 2026-09-14 (untracked and now gitignored on the NAS) and carries the proposed container hardening as commented blocks — see docs/CONFIG-SURFACE-AND-REBUILD.md Step 7.7. No secret belongs in it; credentials live only in the off-repo env_file
 ├── .gitattributes        # Line-ending normalization (* text=auto eol=lf) - stops CRLF corruption
@@ -1174,7 +1174,7 @@ That is the same class as a Postgres-major mismatch.
 
 | Ecosystem | Manifest (`detectEcosystem`) | Installer | Status in the `jt-agent` image |
 |-----------|------------------------------|-----------|--------------------------------|
-| **node** | `package.json`; a `package-lock.json` or `npm-shrinkwrap.json` selects `npm ci` over `npm install` | `npm` | **SUPPORTED.** node and npm *are* the image (`image: node:20`) |
+| **node** | `package.json`; a `package-lock.json` or `npm-shrinkwrap.json` selects `npm ci` over `npm install` | `npm` | **SUPPORTED.** node and npm *are* the image (`image: node:26`) |
 | **python** | `requirements.txt`, `pyproject.toml`, `setup.py` | `python3 -m venv .venv`, then the venv's `python -m pip` | **NOT SUPPORTED.** `python3` is present, `pip` is not, so every python dispatch refuses with `INSTALLER_ABSENT`. WORK-TODO **#68** |
 | **`none`** *(anything else)* | no recognised manifest | nothing is run | **NOT DETECTED.** Nothing is installed and the task proceeds — the research/audit and no-dependency case, not a refusal |
 

@@ -190,8 +190,10 @@ describe('installDependencies classification (deterministic, injected runner)', 
 });
 
 // The three outcomes, produced for real. These run a real npm ci and, for two of them, a
-// real node --test suite (no dependencies, so it is offline and fast). node 20's test
-// runner emits TAP when stdout is not a TTY, which lib/test-verdict.js parses.
+// real node --test suite (no dependencies, so it is offline and fast). Node 20/22's test
+// runner emits TAP when stdout is not a TTY and Node 26's emits the spec reporter's
+// "ℹ pass N" summary; lib/test-verdict.js parses both (these tests went red on Node 26
+// until it did, 2026-11-01).
 describe('the three outcomes, produced against a real installer and runner', () => {
     const repos = tempRepos();
     afterEach(() => repos.cleanup());
@@ -259,3 +261,17 @@ describe('the three outcomes, produced against a real installer and runner', () 
     });
 });
 
+
+// The node --test summary in both shapes, without needing a particular Node to run it.
+// The real-runner tests above only exercise whichever shape the local Node prints.
+describe('node --test summaries from both reporters are counted', () => {
+    const { parseAssertions } = require('../lib/test-verdict');
+
+    test('TAP (Node <=22, non-TTY)', () => {
+        expect(parseAssertions('# pass 7\n# fail 2\n# skipped 1\n')).toMatchObject({ runner: 'node:test', passed: 7, failed: 2, total: 10 });
+    });
+
+    test('spec reporter (Node 26, non-TTY)', () => {
+        expect(parseAssertions('ℹ tests 10\nℹ pass 7\nℹ fail 2\nℹ skipped 1\n')).toMatchObject({ runner: 'node:test', passed: 7, failed: 2, total: 10 });
+    });
+});
