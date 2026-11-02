@@ -43,5 +43,7 @@ RUN apt-get update \
 # CLAUDE_BIN default (lib/config.js). The compose PATH override that put
 # /bridge/.npm-global/bin first must be dropped when this image is adopted, or a stale
 # CLI left in the bind mount shadows this one.
-RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+# --allow-scripts (2026-11-02): npm 11 only runs install scripts it is told to; the CLI's
+# postinstall links the platform's native binary into place.
+RUN npm install -g --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
  && claude --version

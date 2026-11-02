@@ -93,7 +93,10 @@ services:
     # bridge-agent.js's gracefulShutdown(). 90s covers the handler's 60s wait. WORK-TODO #73,
     # applied and verified on the box 2026-10-10 (PID 1 /sbin/docker-init, node pid 7).
     # A task still running after the 60s wait is still lost; the handler then exits.
-    command: sh -c "npm ci && npm install -g @anthropic-ai/claude-code && exec node bridge-agent.js"
+    # LOGIC CHANGE 2026-11-02: --allow-scripts names the one package whose install script
+    # may run. npm 11 (Node 26) warns on every unlisted install script and is moving to
+    # blocking them; the CLI's postinstall links the native binary into bin/claude.
+    command: sh -c "npm ci && npm install -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code && exec node bridge-agent.js"
     init: true
     stop_grace_period: 90s
     restart: unless-stopped
