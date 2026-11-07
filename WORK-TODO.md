@@ -92,6 +92,9 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-07** filing **#79** (the Gemini 402 reported as a rate limit) those print **32** open items —
+**6** P1, **21** P2, **5** P3 — and no duplicate ID.
+
 On **2026-11-07** closing **#77** (the owner-pasted boot log of the 2026-11-02 deploy of `c7aacfa` shows
 `ClaudeOK:` in the banner and `[claude-auth] Claude CLI check PASSED`, the item's own close condition) those
 print **31** open items — **6** P1, **20** P2, **5** P3 — and no duplicate ID.
@@ -574,8 +577,9 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (20)
+**P2 — real gaps, no risk to the running process** (21)
 
+- **#79** — [A provider's billing failure is reported as a rate limit, and most non-2xx answers are not labelled at all](#79-a-providers-billing-failure-is-reported-as-a-rate-limit-and-most-non-2xx-answers-are-not-labelled-at-all)
 - **#78** — [SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one](#78-sqtools-alerts-reach-the-secretary-but-the-owner-cannot-acknowledge-silence-or-be-nagged-about-one)
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -1104,6 +1108,42 @@ found no message posted by the form, so there is no evidence the command has eve
 ---
 
 ## P2 — Real gaps, no risk to the running process
+
+### 79. A provider's billing failure is reported as a rate limit, and most non-2xx answers are not labelled at all
+**Filed 2026-11-07,** from the 2026-11-07 boot log (owner-pasted): the Gemini startup check
+printed `*** GEMINI STARTUP CHECK FAILED ***: Gemini rate limit: ...` for an HTTP **402**
+whose body said **"Your prepayment credits are depleted"** with status
+**`RESOURCE_EXHAUSTED`**. The prepaid credits had run out; "rate limit" tells the operator to
+wait, and waiting cannot fix it.
+
+**The site.** `lib/llm-adapter-gemini.js` tests
+`response.status === 429 || errorText.includes('RESOURCE_EXHAUSTED') || errorText.includes('quota')`
+before it looks at the status, so any body carrying `RESOURCE_EXHAUSTED` is a
+`RateLimitError` whatever the code. Regenerate:
+`grep -n "RESOURCE_EXHAUSTED" lib/llm-adapter-gemini.js`.
+
+**The class (every HTTP status the adapters mislabel or leave unlabelled), read at `235e2ac`:**
+
+| Adapter | Answer | Labelled as | Should be |
+|---------|--------|-------------|-----------|
+| Gemini | 402, or a billing body under any status | `rate_limit` (`RateLimitError`) | its own reason, `billing` |
+| Gemini | 401 / 403 / `API_KEY_INVALID` | untagged plain `Error` | `auth` |
+| Gemini | 5xx and every other non-2xx | untagged, so **not a fallback trigger**, although CLAUDE.md's trigger table says "Non-2xx response -> `http_error`" | `http_error` |
+| Gemini | fetch `TypeError` / no candidates / empty text | untagged | `connection_refused` / `malformed_output` / `empty_output` |
+| Ollama | 402 / 401 / 403 | `http_error` | `billing` / `auth` |
+| Claude CLI | "Credit balance is too low" on a failed exit | untagged | `billing` |
+| Morning digest | a billing error | no group; nothing to say waiting will not help | its own group |
+
+**Fix:** one classifier for a hosted API's non-2xx answer, billing checked first, used by
+both HTTP adapters; billing as its own error class with no `isRateLimit` flag and its own
+`fallback_reason`; a message that names the fix. Regression test from the boot-log text.
+
+**Low urgency:** every agent runs on Claude since 2026-11-07 (PR #83), so Gemini serves no
+live call today; the owner keeps the feature.
+
+**Priority:** P2 | **Effort:** S | **Status:** open
+
+---
 
 ### 78. SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one
 **Filed 2026-11-02,** by the change that built the intake (owner request 2026-11-02; the
