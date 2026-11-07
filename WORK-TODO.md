@@ -2633,7 +2633,17 @@ draft would be written from a truncated notification. Either the watcher carries
 or `draft-weekly-posts` reads the stream itself. Note also that `milestone` reached no
 watcher at all while story-bot was the only agent watching it and was not activated;
 that is no longer true, so this path is live and untested.
-**Priority:** P3 | **Effort:** Low-Medium | **Status:** open — story-bot activated, the aggregation is the remaining work
+**2026-11-07 — the aggregation is BUILT (Addresses #14).** The shape taken of the two above:
+the retro's milestone bulletin now carries `highlights`, what each agent said (600 characters
+each, `lib/watercooler.js` `HIGHLIGHT_CHARS`), and story-bot's data context
+(`lib/agent-context-voices.js` `buildStoryBotContext`, injected on the TASK: path) renders the
+latest retro's highlights as "THIS WEEK'S RETRO". The watcher's 150-character summary is
+unchanged and not relied on. Guard: `tests/retro-highlights.test.js` (real watercooler and
+bulletin board on a temp file). **Left, and why not Closes:** a real Friday, the 17:00 retro
+followed by the 18:00 `draft-weekly-posts` in story-bot's channel, with the draft drawing on the
+retro. Observable in Slack after deploy; close on that.
+
+**Priority:** P3 | **Effort:** Low-Medium | **Status:** aggregation built 2026-11-07; close on the first Friday draft that uses it
 
 ---
 
