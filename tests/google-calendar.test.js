@@ -1,5 +1,7 @@
 'use strict';
 
+const path = require('path');
+
 /**
  * tests/google-calendar.test.js
  *
@@ -57,23 +59,62 @@ afterEach(() => {
     while (quiet.length) quiet.pop().mockRestore();
 });
 
-/** Local midnight `offset` days from today, as the module computes it. */
-function midnight(offset) {
-    const n = new Date();
-    return new Date(n.getFullYear(), n.getMonth(), n.getDate() + offset);
-}
+// LOGIC CHANGE 2026-11-07 (WORK-TODO #76): the windows are Toronto days, not process-local
+// days. This block used to rebuild the expectation from local fields, which pinned the
+// defect: it passed in any process zone because it made the same mistake as the module.
+const { execFileSync } = require('child_process');
+const { dayKey } = require('../lib/time-format');
+const torontoClock = (iso) => new Date(iso).toLocaleString('en-CA', {
+    timeZone: 'America/Toronto', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+});
 
 describe('the three day windows', () => {
     test.each([
         ['getYesterdayRange', -1],
         ['getTodayRange', 0],
         ['getTomorrowRange', 1],
-    ])('%s spans local midnight to the next local midnight', (name, offset) => {
+    ])('%s spans Toronto midnight to the next Toronto midnight', (name, offset) => {
         const { start, end } = cal[name]();
-        expect(start).toBe(midnight(offset).toISOString());
-        const next = midnight(offset);
-        next.setDate(next.getDate() + 1);
-        expect(end).toBe(next.toISOString());
+        expect(torontoClock(start)).toMatch(/, 00:00$/);
+        expect(torontoClock(end)).toMatch(/, 00:00$/);
+        const today = dayKey(new Date(), 'America/Toronto');
+        const shifted = dayKey(new Date(Date.parse(start) + 12 * 3600 * 1000), 'America/Toronto');
+        const dayMs = 24 * 3600 * 1000;
+        expect(Math.round((Date.parse(shifted) - Date.parse(today)) / dayMs)).toBe(offset);
+        expect([23, 24, 25]).toContain((Date.parse(end) - Date.parse(start)) / 3600000);
+    });
+
+    test.each([
+        // 22:30 Toronto on Nov 6 is 03:30 UTC on Nov 7: "today" is still Nov 6 in Toronto.
+        ['2026-11-07T03:30:00Z', 0, '2026-11-06T05:00:00.000Z', '2026-11-07T05:00:00.000Z'],
+        // The fall-back day (2026-11-01) is 25 hours long.
+        ['2026-11-01T15:00:00Z', 0, '2026-11-01T04:00:00.000Z', '2026-11-02T05:00:00.000Z'],
+        // The spring-forward day (2026-03-08) is 23 hours long.
+        ['2026-03-08T15:00:00Z', 0, '2026-03-08T05:00:00.000Z', '2026-03-09T04:00:00.000Z'],
+        ['2026-11-07T15:00:00Z', 1, '2026-11-08T05:00:00.000Z', '2026-11-09T05:00:00.000Z'],
+        ['2026-01-01T15:00:00Z', -1, '2025-12-31T05:00:00.000Z', '2026-01-01T05:00:00.000Z'],
+    ])('dayRange at %s offset %i', (now, offset, start, end) => {
+        expect(cal.dayRange(offset, new Date(now))).toEqual({ start, end });
+    });
+
+    test('the window does not depend on the process timezone (real child processes)', () => {
+        const script = "const c=require('./lib/integrations/google-calendar');" +
+            "process.stdout.write(JSON.stringify(c.dayRange(0,new Date('2026-11-07T03:30:00Z'))))";
+        const run = (tz) => execFileSync(process.execPath, ['-e', script], {
+            cwd: path.join(__dirname, '..'), env: { ...process.env, TZ: tz }, encoding: 'utf8',
+        });
+        const expected = JSON.stringify({ start: '2026-11-06T05:00:00.000Z', end: '2026-11-07T05:00:00.000Z' });
+        for (const tz of ['UTC', 'Asia/Tokyo', 'America/Los_Angeles', 'America/New_York']) {
+            expect([tz, run(tz)]).toEqual([tz, expected]);
+        }
+    });
+
+    test('negative control: the pre-#76 local-field window moves with TZ', () => {
+        const preFix = "const now=new Date('2026-11-07T03:30:00Z');" +
+            'const s=new Date(now.getFullYear(),now.getMonth(),now.getDate());process.stdout.write(s.toISOString())';
+        const run = (tz) => execFileSync(process.execPath, ['-e', preFix], { env: { ...process.env, TZ: tz }, encoding: 'utf8' });
+        expect(run('UTC')).not.toBe(run('America/Toronto'));
     });
 });
 
@@ -173,9 +214,11 @@ describe('listCalendars and getCalendarIds', () => {
     });
 });
 
+// LOGIC CHANGE 2026-11-07 (WORK-TODO #76): dayRange is exported so its fixed-instant
+// and DST cases can be tested; nothing else was added.
 test('the export surface is unchanged by the collapse', () => {
     expect(Object.keys(cal).sort()).toEqual([
-        'getAllTodayEvents', 'getAllTomorrowEvents', 'getAllYesterdayEvents', 'getCalendarIds',
+        'dayRange', 'getAllTodayEvents', 'getAllTomorrowEvents', 'getAllYesterdayEvents', 'getCalendarIds',
         'getTodayEvents', 'getTodayRange', 'getTomorrowEvents', 'getTomorrowRange',
         'getYesterdayEvents', 'getYesterdayRange', 'listCalendars', 'transformEvent',
     ]);

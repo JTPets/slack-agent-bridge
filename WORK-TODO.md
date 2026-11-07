@@ -92,6 +92,9 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-07** closing **#76** (calendar and holiday days in Toronto time) those print **30** open
+items — **6** P1, **20** P2, **4** P3 — and no duplicate ID.
+
 On **2026-11-07** closing **#79** (fixed in the same batch that filed it; the commit body lists the
 checks) those print **31** open items — **6** P1, **20** P2, **5** P3 — and no duplicate ID.
 
@@ -603,9 +606,8 @@ work behind an owner's name, which is the opposite of the point.
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
 - **#67** — [IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide](#67-ids-are-allocated-at-write-time-from-an-append-only-list-so-two-branches-cut-from-the-same-base-always-collide)
 
-**P3 — nice to have / uncertain ROI** (5)
+**P3 — nice to have / uncertain ROI** (4)
 
-- **#76** — [The calendar's day boundaries are process-local time](#76-the-calendars-day-boundaries-are-process-local-time)
 - **#29** — [`gmail-unsubscribe` is a declared agent permission that no code implements](#29-gmail-unsubscribe-is-a-declared-agent-permission-that-no-code-implements)
 - **#13** — [MCP server wrapper](#13-mcp-server-wrapper)
 - **#14** — [Watercooler retro → LinkedIn draft](#14-watercooler-retro--linkedin-draft)
@@ -2544,36 +2546,6 @@ branch. Worth recording so it is not mistaken for a solution.
 change at this rate of collision.
 
 ## P3 — Nice to have / uncertain ROI
-
-### 76. The calendar's day boundaries are process-local time
-**Filed 2026-10-05,** by the B14 collapse of `lib/integrations/google-calendar.js`.
-
-`dayRange(offset)` builds "today" as local midnight to the next local midnight with
-`new Date(y, m, d + offset)`, so the window depends on the process timezone. CLAUDE.md
-→ Tech Stack says the code names `America/Toronto` at every site and depends on no
-process timezone, and `tests/timezone-explicit.test.js` does not catch this one: it looks
-for `toLocale*String`, `Intl.DateTimeFormat` and `cron.schedule`, not for the `Date`
-constructor's local fields.
-
-**Harmless today.** The `jt-agent` container sets `TZ: America/New_York`, which shares
-Toronto's offset and DST rule (CLAUDE.md → Tech Stack). It becomes wrong if the container
-ever runs in UTC: "today's events" would run from 20:00 or 19:00 Toronto time the day before.
-
-**Fix:** compute the Toronto midnight explicitly (the store's zone is `STORE_TIME_ZONE`,
-used by `lib/time-format.js`) and extend the timezone guard to the `Date` constructor's
-local-field form, with a negative control. Not done in B14 because B14 was a behaviour-preserving
-collapse.
-
-**Same class, same footing (added 2026-10-05, B15):** `lib/integrations/local-date.js`
-`parseDate`/`formatDate` build and print the holiday code's dates from local fields, so
-"today's holiday" and the pet-awareness windows also follow the process timezone. The B15
-holidays split moved them unchanged rather than into `lib/time-format.js`, for the same reason.
-
-Regenerate: `grep -n "getFullYear\|getDate()" lib/integrations/google-calendar.js lib/integrations/local-date.js`
-
-**Priority:** P3 | **Effort:** S | **Status:** open
-
----
 
 ### 29. `gmail-unsubscribe` is a declared agent permission that no code implements
 **BLOCKED — OWNER DECISION.** Drop the permission and the three rules-file keys as

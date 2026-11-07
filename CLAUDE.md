@@ -47,8 +47,11 @@ Node.js Slack polling agent that monitors Slack channels for task messages and e
   zones share an offset and a DST rule, and — the part that actually matters — nothing
   reads `TZ`, so the container value reaches no behaviour. **What keeps that true is a
   test, not this paragraph:** `tests/timezone-explicit.test.js` enumerates every source
-  file from disk and fails when a new date-format or cron site omits its zone, or when
-  anything starts reading `process.env.TZ`.
+  file from disk and fails when a new date-format or cron site omits its zone, when
+  anything starts reading `process.env.TZ`, or (since 2026-11-07, WORK-TODO #76) when
+  production code reads or writes a Date's LOCAL fields (`getDate()`, `setDate()`,
+  `new Date(y, m, d)`, ...). Calendar arithmetic in a named zone is
+  `lib/time-format.js` `zonedParts`/`addDays`/`zonedMidnight`.
 
 ---
 
@@ -837,13 +840,13 @@ slack-agent-bridge/
 │   ├── email-rate-limiter.js # Rate limiting for email-to-Slack pipeline: sliding window, cooldown, flood protection
 │   ├── boot-record.js    # The commit this process booted on, recorded once by bridge-agent.js (from lib/repo-history.js loadedCommit) so later readers in the same process, such as the jester's digest, report it instead of re-reading the working tree
 │   ├── llm-metrics.js    # LLM provider verdict counter: recordVerdict, getStats (fallback visibility)
-│   ├── time-format.js    # THE day-key and display-time helpers, each taking its zone explicitly: dayKey(date, timeZone) (no default zone, so a UTC day cannot be had by forgetting to choose; the store passes STORE_TIME_ZONE, lib/llm-metrics.js passes 'UTC') and formatTimestamp(date, { precision }) for every bulletin rendering. WORK-TODO #33 and #32
+│   ├── time-format.js    # THE day-key and display-time helpers, each taking its zone explicitly: dayKey(date, timeZone) (no default zone, so a UTC day cannot be had by forgetting to choose; the store passes STORE_TIME_ZONE, lib/llm-metrics.js passes 'UTC') and formatTimestamp(date, { precision }) for every bulletin rendering. WORK-TODO #33 and #32. Since 2026-11-07 (#76) also zonedParts(date, zone), addDays(key, n) and zonedMidnight(key, zone): the calendar arithmetic that replaced every local-field Date read
 │   ├── digest-sections.js # The morning digest's text: buildDigest({ memoryDir }) assembles holidays, weather, calendar, staff tasks, email, the task summary, failures, active tasks and the action count, each optional section skipped (logged) when its source throws. Split from morning-digest.js 2026-10-05 (WORK-TODO #10)
 │   ├── digest-failures.js # The morning digest's grouping and wording for yesterday's failed tasks: categorizeFailures (rate limit decided by lib/llm-runner.js isRateLimitError, not a third pattern set) and formatFailureSections. Every failure is action needed — nothing retries or re-queues a failed task, and the digest no longer says otherwise (WORK-TODO #31)
 │   ├── claude-stream-watch.js # WORK-TODO #59: reads the Claude CLI's stream-json events as they arrive, reports a stall (no output for TASK_STALL_MS) or a loop (the same tool call TASK_LOOP_REPEAT times in a row) through the adapter's onRunAlert, and returns per-run stats (longest quiet gap, longest repeat, turns, cost) for the [run-stats] log line. Plain-text output passes through unchanged. Never kills anything itself; TASK_LIMITER_MODE decides, report by default
 │   ├── deadline-warning.js # The #sqtools-ops text posted when a running task reaches 80% of TASK_TIMEOUT_MS (lib/llm-runner.js onDeadlineWarning, WORK-TODO #7). Pure: builds a string, posts nothing
 │   └── integrations/
-│       ├── google-calendar.js  # Google Calendar API integration for fetching events (today, tomorrow, yesterday). Since 2026-10-05 one dayRange, one per-calendar fetcher and one merge behind the twelve exported names (WORK-TODO #10), and the OAuth token read through lib/config.js getGoogleRefreshToken, so GOOGLE_REFRESH_TOKEN works here too. The day range is still process-local time (WORK-TODO #76)
+│       ├── google-calendar.js  # Google Calendar API integration for fetching events (today, tomorrow, yesterday). Since 2026-10-05 one dayRange, one per-calendar fetcher and one merge behind the twelve exported names (WORK-TODO #10), and the OAuth token read through lib/config.js getGoogleRefreshToken, so GOOGLE_REFRESH_TOKEN works here too. The day range is Toronto midnight to Toronto midnight since 2026-11-07 (WORK-TODO #76, closed); `dayRange(offset, now)` is exported for its tests
 │       ├── gmail.js            # Gmail API integration: getRecentEmails, getEmailById, getEmailHeaders (read-only). Facade since 2026-10-05 (WORK-TODO #10): re-exports gmail-auth.js and gmail-message.js
 │       ├── gmail-auth.js       # Building the read-only Gmail client from the environment (service account or OAuth trio), reporting WHY when it cannot: createGmailClient, getGmailClient, hasCredentials
 │       ├── gmail-message.js    # A Gmail API message to the plain email object: MIME body extraction, HTML stripping, header lookup, prompt-injection sanitisation of body and snippet. Pure
@@ -854,7 +857,7 @@ slack-agent-bridge/
 │       ├── holidays.js         # Canadian public holidays (Nager.Date API) and pet awareness dates. Facade since 2026-10-05 (WORK-TODO #10) over the three modules below; keeps getTodaySpecialDates
 │       ├── holidays-public.js  # The Nager.Date client, its in-process cache and the Ontario filter: getTodayHoliday, getUpcomingHolidays, isHoliday, clearCache
 │       ├── pet-awareness.js    # The static pet-awareness date list and its lookups (today, active, upcoming)
-│       ├── local-date.js       # parseDate/formatDate for the holiday code. Process-local time, like the calendar day range (WORK-TODO #76)
+│       ├── local-date.js       # parseDate/formatDate/storeDayStart for the holiday code, read in the store's zone since 2026-11-07 (WORK-TODO #76); a bare `YYYY-MM-DD` string is that calendar day
 │       ├── weather.js          # Today's Hamilton forecast from Open-Meteo (no key): fetchWeather resolves null on any failure, never rejects; decodeWeatherCode. Moved out of morning-digest.js 2026-10-05 (WORK-TODO #10)
 │       └── httpsms.js          # httpSMS API wrapper: sendSMS, getMessages, registerWebhook (free SMS via Android)
 ├── memory/
@@ -959,7 +962,8 @@ slack-agent-bridge/
 │   ├── architecture-tree.test.js # THE enumerating guard for THIS tree: every .js file under lib/, lib/integrations/, bots/, scripts/, memory/, tests/ and every top-level entry point must appear in the Architecture block below, and every basename in the block must exist on disk
 │   ├── source-walk.test.js     # Tests for lib/source-walk.js and THE regression test for the 2026-09-20 red run: lib/file-size-gate.js measure() survives a directory, or a file, removed mid-walk by another jest worker (both cases fail against the old loop). Also that a missing root throws, and a disk walk asserting no file in tests/ or lib/ re-derives its own walker or comment scanner outside tests/helpers/source-scan.js (WORK-TODO #36). Carries its own negative control
 │   ├── file-size-gate.test.js # THE enumerating guard for the 300-line rule: green only when every over-limit file carries a recorded justification, red when a new one appears undeclared, and red when a declared entry has rotted. Carries its own negative controls, because both live assertions are "expect this list to be empty"
-│   ├── timezone-explicit.test.js # THE enumerating guard for the "no dependence on the process timezone" class: every non-test .js file must name timeZone/timezone at each toLocale*String, Intl.DateTimeFormat and cron.schedule call, and nothing may read process.env.TZ
+│   ├── timezone-explicit.test.js # THE enumerating guard for the "no dependence on the process timezone" class: every non-test .js file must name timeZone/timezone at each toLocale*String, Intl.DateTimeFormat and cron.schedule call, nothing may read process.env.TZ, and (since #76) no Date local-field read/write or multi-argument `new Date(y, m, d)` in production code, with negative controls
+│   ├── zoned-calendar.test.js   # WORK-TODO #76: the zoned helpers in lib/time-format.js (both DST phases, both transition days, a 365-day round trip) and the store-day readers — local-date, pet-awareness, the standup weekday, the staff-task clock — run in REAL child processes under five TZ values, which must all give one answer. Negative control: the old local-field read differs between zones
 │   ├── time-format.test.js      # Tests for lib/time-format.js at the boundary hour in both DST phases, and THE enumerating guards for #33 (no `toISOString().split('T')`/`.slice(0, 10)` day key in production) and #32 (no inline bulletin-timestamp rendering), each with negative controls. Also the staff-task regression: state written at 21:30 Toronto is still today's at 21:30 Toronto
 │   ├── dependency-upgrade.test.js # The 2026-10-05 dependency move: the REAL @slack/web-api 8 client over an injected fetch still rejects with `err.data.error` (read at a dozen sites) and still redacts on the wire (an unguarded client as the negative control), and every production package in the lockfile admits the Node version the Dockerfile pins and the compose image's major (googleapis 180+ need Node 22), with negative controls
 │   ├── digest-sections.test.js  # CHARACTERISATION of the morning digest text (an empty day and a full day, pinned line by line; run against the pre-split code before the 2026-10-05 split), that a throwing section is skipped, the helpers that moved with it, and lib/integrations/weather.js via a mocked https.get
