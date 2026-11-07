@@ -17,7 +17,7 @@ denied:
 priority: 2
 max_turns: 30
 memory_dir: agents/marketing/memory
-llm_provider: gemini
+llm_provider: claude
 integrations:
   - google-business-api
   - google-content-api

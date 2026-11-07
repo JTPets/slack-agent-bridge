@@ -14,7 +14,7 @@ denied:
 priority: 2
 max_turns: 15
 memory_dir: agents/storefront/memory
-llm_provider: gemini
+llm_provider: claude
 schedule: null
 watches: null
 ---

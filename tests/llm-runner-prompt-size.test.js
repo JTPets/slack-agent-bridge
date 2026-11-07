@@ -129,7 +129,9 @@ describe('runClaudeAdapter delivers a prompt larger than MAX_ARG_STRLEN', () => 
     const result = await runClaudeAdapter('SENTINEL-PROMPT-TEXT', { claudeBin: argvStub, cwd: tmpDir });
     expect(result.output).not.toContain('SENTINEL-PROMPT-TEXT');
     expect(JSON.parse(result.output)).toEqual([
-      '-p', '--output-format', 'stream-json', '--verbose', '--max-turns', '50', '--dangerously-skip-permissions',
+      // LOGIC CHANGE 2026-11-07: no agent named, so no tools (lib/agent-tools.js).
+      '-p', '--output-format', 'stream-json', '--verbose', '--max-turns', '50',
+      '--restricted', '--strict-mcp-config', '--tools', '',
     ]);
   });
 });

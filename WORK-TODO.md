@@ -2285,7 +2285,16 @@ durability problem.
 Until (2), an owner who pins jester to claude gets what they asked for and nothing says it
 contradicts his declaration.
 **Citations re-checked 2026-10-04 (B4).** `resolveLlmProvider` starts at `lib/config.js:166`; the CLI flag is at `lib/llm-adapter-claude.js:59` (was `lib/llm-runner.js:380` before the 2026-10-05 split). Regenerate: `grep -n "function resolveLlmProvider" lib/config.js; grep -n "dangerously-skip-permissions" lib/llm-adapter-claude.js`.
-**Priority:** P2 | **Effort:** Low once (1) exists | **Status:** open — reported, not fixed, and the instance is unverified from a checkout
+**Update 2026-11-07 — the harm is closed a different way; the item stays open.** Every
+definition now declares `llm_provider: claude` (owner: "move all to claude", then "per agent
+permission is needed"), and the claude adapter enforces each agent's `permissions`/`denied`
+(`lib/agent-tools.js`, guard `tests/agent-tools.test.js`): jester's `denied: file-system`
+gives his run `--restricted --tools ""`, **whatever provider resolved and wherever it came
+from**. So an override no longer hands him a tool-capable engine. Close condition (2) as
+written (refuse the *provider*) is no longer the right shape and (1) is not built, so this
+is `Addresses`, not `Closes`; the remaining question is only whether a `.env` provider
+override should be able to outrank a definition at all.
+**Priority:** P2 | **Effort:** Low once (1) exists | **Status:** open — the tool-capability harm is closed by per-agent tool enforcement (2026-11-07); the provider-precedence half remains
 
 ---
 

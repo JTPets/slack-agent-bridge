@@ -221,7 +221,11 @@ describe('llm-runner module', () => {
       // 'pipe' rather than 'ignore'.
       expect(mockSpawn).toHaveBeenCalledWith(
         '/custom/claude',
-        ['-p', '--output-format', 'stream-json', '--verbose', '--max-turns', '20', '--dangerously-skip-permissions'],
+        // LOGIC CHANGE 2026-11-07: this previously required --dangerously-skip-permissions
+        // for a call that names no agent, i.e. every tool for an unidentified caller. That
+        // was the defect: default-deny now, so such a call is restricted to no tools.
+        ['-p', '--output-format', 'stream-json', '--verbose', '--max-turns', '20',
+          '--restricted', '--strict-mcp-config', '--tools', ''],
         expect.objectContaining({
           cwd: '/test/dir',
           stdio: ['pipe', 'pipe', 'pipe'],

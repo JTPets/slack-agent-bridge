@@ -14,7 +14,7 @@ denied:
 priority: 2
 max_turns: 20
 memory_dir: agents/email-monitor/memory
-llm_provider: gemini
+llm_provider: claude
 schedule:
   cron: "*/30 9-21 * * *"
   task: check-inbox

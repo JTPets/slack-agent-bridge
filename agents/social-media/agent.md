@@ -16,7 +16,7 @@ denied:
 priority: 2
 max_turns: 30
 memory_dir: agents/social-media/memory
-llm_provider: gemini
+llm_provider: claude
 integrations:
   - meta-business-suite
   - instagram-graph-api

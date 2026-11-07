@@ -15,7 +15,7 @@ denied:
 priority: 2
 max_turns: 20
 memory_dir: agents/secretary/memory
-llm_provider: gemini
+llm_provider: claude
 schedule:
   cron: "0 7 * * *"
   task: morning-briefing

@@ -279,7 +279,14 @@ describe('a TASK: executes as the agent it was addressed to (WORK-TODO #38)', ()
             expect(currentAgentId).toBe('story-bot');
             expect(currentAgent.system_prompt).toBe(storyBot.system_prompt);
             expect(currentAgent.system_prompt).not.toBe(getAgent('bridge').system_prompt);
-            expect(currentAgent.llm_provider).toBe('gemini');
+            // LOGIC CHANGE 2026-11-07: every agent is on claude now, so the provider no
+            // longer tells story-bot from the bridge; the tool permissions do, and they
+            // are the identity that matters on claude (lib/agent-tools.js).
+            expect(currentAgent.llm_provider).toBe(storyBot.llm_provider);
+            const { resolveClaudeTools } = require('../lib/agent-tools');
+            expect(resolveClaudeTools(currentAgent)).toEqual(
+                expect.objectContaining({ full: false, tools: [] }));
+            expect(resolveClaudeTools(getAgent('bridge')).full).toBe(true);
         });
 
         it('a scheduled agent posts into a channel whose poll entry is that agent', () => {

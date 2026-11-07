@@ -215,6 +215,10 @@ app.post('/api/chat', async (req, res) => {
         console.log(`[storefront] Processing message for session ${sessionId.substring(0, 8)}`);
         const { output } = await runLLM(prompt, {
             maxTurns: STOREFRONT_AGENT_CONFIG.maxTurns,
+            // LOGIC CHANGE 2026-11-07: run as the storefront agent. A customer types this
+            // prompt, so on Claude it must get no tools; its definition grants none
+            // (lib/agent-tools.js). Before this a Claude run here had a shell.
+            agentId: 'storefront',
             timeout: 60000, // 1 minute timeout for chat
         });
 
