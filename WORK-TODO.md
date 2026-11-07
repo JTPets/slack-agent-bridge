@@ -1150,13 +1150,24 @@ Discount Report" and "Job OK: …" was flagged `vendor_deal/high`, because the k
    with "Discrepancies Found" above 0 is classified `action`.
 3. **Staff visibility**, later, waits on the capability design (#64, #65).
 
+**2026-11-07 — item 1's verb half is BUILT (Addresses #78).** `ASK: ack` in `#claude-bridge`
+lists the alerts waiting on the owner; `ASK: ack <id> silence|nag|close` records the decision
+on the alert's `ack` field (`lib/sqtools-alert-ack.js`). `nag` re-posts the alert on inbox
+checks at most every `SQTOOLS_ALERT_NAG_MS` (default 2 h) until silenced or closed; `close`
+stops it for the Toronto day and a nagged alert resumes the next day. **Reading taken where the
+requirement was silent, for the owner to confirm or change:** an alert nobody acknowledged is
+posted once and never reminded (only `nag` reminds). The alert post now shows each alert's
+short id and the verb. Guard: `tests/sqtools-alert-ack.test.js`. **Left in item 1:** the
+buttons on the post (Slack Interactivity, owner-side, as #43), which would call the same
+`applyAck`. **Unverified until deployed:** a real alert acknowledged from Slack.
+
 **Unverified:** that the stripped body of a real Cycle Count Report carries the
 `Discrepancies Found: N` text the classifier reads (the test body is synthetic, built from
 SqTools' template). An unreadable body stays at `review`, never at "no discrepancies".
 
 Regenerate the observed misfiling: search `#email-monitor-agent` for `[SqTools]`.
 
-**Priority:** P2 | **Effort:** M | **Status:** intake built; acknowledgement not started
+**Priority:** P2 | **Effort:** M | **Status:** intake built; acknowledgement verb built 2026-11-07, buttons not started
 
 ---
 

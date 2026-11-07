@@ -270,6 +270,7 @@ const POLL_INTERVAL = 5000;
 | `EMAIL_RATE_LIMIT_SLACK_PER_WINDOW` | Max Slack messages to post per rate limit window | `20` |
 | `EMAIL_CHECK_MAX_LOOKBACK_MS` | Ceiling on how far back a scheduled inbox check looks when no successful check is recorded | `86400000` (24 h) |
 | `EMAIL_CHECK_MAX_RESULTS` | Max messages fetched per scheduled inbox check | `50` |
+| `SQTOOLS_ALERT_NAG_MS` | Minimum gap between two reminders of a SqTools alert the owner asked to be nagged about (`ASK: ack <id> nag`, `lib/sqtools-alert-ack.js`). Reminders ride on the inbox check, so they also wait for the next one | `7200000` (2 h) |
 | `SQTOOLS_ALERT_SENDERS` | Comma-separated From addresses whose `[SqTools] …` emails are SqTools alerts: taken out of the generic email rules and posted to the secretary's channel by `lib/sqtools-alert-intake.js` | `jtpets@jtpets.ca` |
 | `EMAIL_RATE_LIMIT_WINDOW_MS` | Rate limit sliding window size in ms | `300000` (5 min) |
 | `EMAIL_RATE_LIMIT_COOLDOWN_MS` | Cooldown period after hitting rate limit | `60000` (1 min) |
@@ -835,7 +836,8 @@ slack-agent-bridge/
 │   ├── watercooler-prompt.js # The prompt one agent gets for its turn: persona, theme, the context rendered as text, earlier speakers. Pure
 │   ├── email-check.js    # Deterministic scheduled inbox check: runInboxCheck fetches via lib/integrations/gmail.js (fetchRecentEmails), filters with lib/integrations/email-categorizer.js against agents/email-monitor/memory/rules.json, posts to the email-monitor channel only when lib/email-check-report.js says to, and escalates every failure through notify-owner. Read-only: Gmail list/get only. An empty inbox and a failed check are different statuses, reported differently
 │   ├── sqtools-alerts.js # WHICH emails are SqTools alerts (sender in SQTOOLS_ALERT_SENDERS AND a `[SqTools]` subject) and WHAT each is: a catalogue copied from SqTools' own subject templates (JTPets/SquareDashboardTool 0eef658), each with a severity (action / review / info / ok), a plain-language title and what to do next. A cycle count's severity comes from its "Discrepancies Found" line. An unknown subject is `unrecognised` and surfaced for review, never dropped. Pure
-│   ├── sqtools-alert-intake.js # The secretary's SqTools alert intake, run by lib/email-check.js on every successful fetch: SqTools emails bypass the generic rules, are recorded once by Gmail id in agents/secretary/memory/sqtools-alerts.json (gitignored), and new ones are posted to the secretary's channel (the email-monitor channel, saying why, when hers is not resolved). A failed post records nothing, so the next check retries it. Reports a SqTools daily heartbeat older than 26 h once per Toronto day. Each record carries `ack: null` for the acknowledgement buttons (WORK-TODO #78)
+│   ├── sqtools-alert-intake.js # The secretary's SqTools alert intake, run by lib/email-check.js on every successful fetch: SqTools emails bypass the generic rules, are recorded once by Gmail id in agents/secretary/memory/sqtools-alerts.json (gitignored), and new ones are posted to the secretary's channel (the email-monitor channel, saying why, when hers is not resolved). A failed post records nothing, so the next check retries it. Reports a SqTools daily heartbeat older than 26 h once per Toronto day. Each record carries `ack` (null until acknowledged); nagged alerts are re-posted here on each check through lib/sqtools-alert-ack.js, and the state is re-read after the post so an acknowledgement written meanwhile survives
+│   ├── sqtools-alert-ack.js # WORK-TODO #78, the verb half: `ASK: ack` lists the SqTools alerts waiting on the owner; `ack <id> silence|nag|close` records silence (never again), nag (re-posted every SQTOOLS_ALERT_NAG_MS until silenced or closed) or close for the Toronto day. An id is an unambiguous Gmail-id prefix; anything else is refused and nothing is written. An unacknowledged alert is never reminded. State through lib/sqtools-alert-intake.js readState/writeState
 │   ├── email-check-report.js # Whether a SUCCESSFUL inbox check posts, and what it says (decidePost, formatOkMessage). A scheduled check is QUIET unless something is flagged, the fetch was partial or rate-limited, there was a >90-minute gap since the previous check that day, or it is the first check of the Toronto day (the heartbeat that makes a stopped job visible). An on-demand `check-inbox` always posts. Split from lib/email-check.js 2026-10-02 after the owner called the half-hourly "Inbox check OK" posts spam
 │   ├── email-rate-limiter.js # Rate limiting for email-to-Slack pipeline: sliding window, cooldown, flood protection
 │   ├── boot-record.js    # The commit this process booted on, recorded once by bridge-agent.js (from lib/repo-history.js loadedCommit) so later readers in the same process, such as the jester's digest, report it instead of re-reading the working tree
@@ -974,6 +976,7 @@ slack-agent-bridge/
 │   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)
 │   ├── email-categorizer.test.js # Tests for lib/integrations/email-categorizer.js (categorization, rules)
 │   ├── sqtools-alerts.test.js   # Tests for lib/sqtools-alerts.js: the observed SqTools subjects that the generic rules misfiled, every action kind, an unknown subject surfaced not dropped, cycle-count severity from the body (unknown is not zero), and the catalogue's own shape
+│   ├── sqtools-alert-ack.test.js # Tests for lib/sqtools-alert-ack.js against real state files: the post carries each alert's short id and the verb, list/silence/nag/close, every refusal writes nothing, a nag re-posts at most once per interval, close stops the day and nagging resumes the next Toronto day, a failed reminder is retried, an ack written while a post is in flight survives (fails without the re-read), and `ack <id> <action>` in an agent channel is refused rather than answered by a model
 │   ├── sqtools-alert-intake.test.js # Tests for lib/sqtools-alert-intake.js against temp state files: posted once to the secretary with the next step, a failed post records nothing and is retried, the fallback channel says why, liveness mail posts nothing, the heartbeat-quiet report, the wiring (SqTools mail never reaches the generic categorizer; a failed intake escalates) and the secretary's briefing lines
 │   ├── email-check.test.js      # Tests for lib/email-check.js: THE guard that an empty inbox and a failed check are distinguishable, that a failure escalates to a human, and that the module names no Gmail mutation API
 │   ├── email-check-quiet.test.js # THE guard that a routine scheduled inbox check posts nothing, and that silence never hides a broken or stopped check: a failure still escalates, the first check of each Toronto day posts a heartbeat (retried if its post failed), and an in-day gap is reported
@@ -1867,6 +1870,17 @@ error, interrupted, or stopped at max turns. Read from `memory/history.json`, wh
 every finished task, unlike `what's queued`, whose queue keeps 24 hours. Spelled `history`
 and not `task history`, because a verb is the first word and `task` would capture
 `ASK: task status`. `lib/task-history.js`, WORK-TODO #9.
+
+### SqTools alerts — acknowledge
+```
+ASK: ack                     # the SqTools alerts waiting on you, with short ids
+ASK: ack <id> silence        # this alert, for good
+ASK: ack <id> nag            # re-post it on inbox checks (every SQTOOLS_ALERT_NAG_MS) until silenced or closed
+ASK: ack <id> close          # done for today; a nagged alert resumes tomorrow
+```
+Typed in `#claude-bridge`; the alert post in the secretary's channel shows each id. An
+alert nobody acknowledged is posted once and never reminded. Buttons on the post are the
+rest of WORK-TODO #78 and need Slack Interactivity. `lib/sqtools-alert-ack.js`.
 
 ### Channels vs Agents
 ```
