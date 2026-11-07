@@ -133,7 +133,7 @@ const SPLITS = [
         // call it without a require cycle back through lib/llm-runner.js.
         facade: 'lib/llm-runner.js',
         parts: ['lib/llm-errors.js', 'lib/llm-defaults.js', 'lib/llm-dispatch.js', 'lib/llm-adapter-claude.js',
-            'lib/llm-adapter-gemini.js', 'lib/llm-adapter-ollama.js', 'lib/llm-fallback.js'],
+            'lib/llm-adapter-gemini.js', 'lib/llm-adapter-ollama.js', 'lib/llm-fallback.js', 'lib/llm-http-failure.js'],
         exports: [
             'runLLM', 'runWithFallback', 'runClaudeAdapter', 'runOpenAIAdapter', 'runOllamaAdapter',
             'runGeminiAdapter', 'validateGeminiOnStartup', 'validateOllamaOnStartup', 'isOllamaAvailable',

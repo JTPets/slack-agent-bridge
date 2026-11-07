@@ -138,7 +138,13 @@ grouping moved to `lib/digest-failures.js` and calls llm-runner's exported
 `isRateLimitError` (it had been exported all along; the "module-private" claim below was
 wrong when written). The digest no longer says failed tasks "will auto-retry" or were
 "Auto-requeued", and counts every failure as action needed. Guard:
-`tests/digest-failures.test.js`. As filed:
+`tests/digest-failures.test.js`.
+
+**Added 2026-11-07 (WORK-TODO #79): "is this a billing failure?" and "what does this HTTP
+answer mean?"** have one definition each, `lib/llm-http-failure.js` `isBillingError` and
+`classifyHttpFailure`, used by both HTTP adapters, the Claude adapter and
+`lib/digest-failures.js`. Billing is checked before rate limit everywhere both could match.
+Guard: `tests/llm-http-failure.test.js`. As filed:
 
 
 ```bash

@@ -92,6 +92,15 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-07** closing **#76** (calendar and holiday days in Toronto time) those print **30** open
+items — **6** P1, **20** P2, **4** P3 — and no duplicate ID.
+
+On **2026-11-07** closing **#79** (fixed in the same batch that filed it; the commit body lists the
+checks) those print **31** open items — **6** P1, **20** P2, **5** P3 — and no duplicate ID.
+
+On **2026-11-07** filing **#79** (the Gemini 402 reported as a rate limit) those print **32** open items —
+**6** P1, **21** P2, **5** P3 — and no duplicate ID.
+
 On **2026-11-07** closing **#77** (the owner-pasted boot log of the 2026-11-02 deploy of `c7aacfa` shows
 `ClaudeOK:` in the banner and `[claude-auth] Claude CLI check PASSED`, the item's own close condition) those
 print **31** open items — **6** P1, **20** P2, **5** P3 — and no duplicate ID.
@@ -366,6 +375,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B5** | Commands and routing | #46, #9 (closed 2026-10-04); #4 cheap half, #49 (Q1-3 + bot path), #52 and #66 (repo halves), #64 (refusal half) done; #39 moved to B7 | `bridge-agent.js`, `lib/command-router.js`, `lib/dispatch-command.js`, `lib/dispatch-delivery.js`, `lib/task-history.js`, `lib/channel-reconcile.js`, `lib/main-watch.js` | After B1 and B3 (shared `bridge-agent.js`) |
 | **B6** | Deployment shape — repo halves of owner-side work | Done 2026-10-04: #70 (Dockerfile), #73 (compose proposals), #42 (c), #68 (venv half). Skipped: #59 (its own text sequences it after #17/#73), #17 (deploy shape is the owner's choice) | `Dockerfile`, `.dockerignore`, `docker-compose.example.yml`, `lib/python-venv.js`, `lib/backup-watch.js`, `scripts/backup-status.sh`, `docs/CONFIG-SURFACE-AND-REBUILD.md` | Each repo half is inert until the owner applies it on the NAS |
 | **B17** | Same-day fixes from the backlog pass | Done 2026-10-10: the Claude CLI's stdout reason on a failed exit and usage-limit fallback (608c515); the run watch for #59, report-only; #67 stopgap in the executor contract; #25, #40, #73, #75 closed from box output | `lib/llm-errors.js`, `lib/llm-adapter-claude.js`, `lib/claude-stream-watch.js`, `lib/llm-defaults.js`, `lib/deadline-warning.js`, `bridge-agent.js` (one option), `docker-compose.example.yml`, docs | Runtime code: the adapter now reads stream-json |
+| **B18** | Gemini error label, and code-only items riding along | Done 2026-11-07: #79 (filed and closed), #76 (closed), #78 `ack` verb, #14 retro highlights to story-bot, #10 Wave T `tests/llm-runner.test.js` split | `lib/llm-*.js`, `lib/time-format.js`, `lib/integrations/`, `lib/sqtools-alert-*.js`, `lib/command-router.js`, `lib/watercooler.js`, `lib/agent-context-voices.js`, `tests/` | Disjoint file sets; one commit per item, each with its own checks |
 | **OA** | Owner action only, nothing left in the repo | #41, #43, #70 (#25, #40, #73 closed 2026-10-10 from box output; #3, #26, #53, #55, #66 closed 2026-10-10 on live evidence; #52 closed 2026-10-10 on the `ASK: channels` output) | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
 | **B7** | Landed vs completed | Done 2026-10-04: #39 recording half (`work` on the queue row, shown in `what's queued`). Left: merge state | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/task-work.js` | `recordWork` writes no status and no verdict, so the #74 invariant holds unchanged (its suite passes untouched) |
 | **B8** | Small repo halves left after B7 | Done 2026-10-04: #62 (closed), #75 repo half. B9 (same day): `lib/repo-history.js` reads `Closes #N. Addresses #M` on one line as two claims, not two closes | `.gitignore`, `tests/gitignore-publishable.test.js`, `docker-compose.example.yml` | No runtime code |
@@ -406,6 +416,8 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #26 | P2 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | Production booted on `546c3d6` (boot post 2026-10-05 16:17 EDT), whose `.gitignore:108` ignores `docker-compose.yml`, so `git check-ignore` matches in the deploy tree |
 | #27 | P2 | in flight (records), then decision | OD | — | Shapes recorded in `docs/CONFIG-SURFACE-AND-REBUILD.md` §7.7 |
 | #75 | P2 | **CLOSED 2026-10-10** (purged) | OD | — | The live compose (owner-supplied 2026-10-10) has no `/repo` mount, so the exposure does not exist on the box; `docker-compose.example.yml` now matches |
+| #79 | P2 | **CLOSED 2026-11-07** (B18, filed and fixed, purged) | B18 | S | A Gemini 402 "prepayment credits are depleted" was reported as a rate limit; `lib/llm-http-failure.js` classifies billing first and every Gemini failure is tagged. Guard `tests/llm-http-failure.test.js` |
+| #76 | P3 | **CLOSED 2026-11-07** (B18, purged) | B18 | S | Calendar, holiday, standup and staff-clock days in Toronto time (`lib/time-format.js` zoned helpers); `tests/timezone-explicit.test.js` now fails on a local-field Date read |
 | #62 | P2 | **CLOSED 2026-10-04** (B8, purged) | B8 | S | `data/*` with `!data/.gitkeep`; guard `tests/gitignore-publishable.test.js` |
 | #24 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `init({ bulletinFile })` and `init({ stateFile })`; the bulletin suite runs on a temp file |
 | #20 | P2 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | `TURNS_CEILING`, `conversationTurns()`, `CRITIQUE_TURNS`; the `MAX_TURNS` env var is no longer read. Guard `tests/turn-budgets.test.js` |
@@ -597,9 +609,8 @@ work behind an owner's name, which is the opposite of the point.
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
 - **#67** — [IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide](#67-ids-are-allocated-at-write-time-from-an-append-only-list-so-two-branches-cut-from-the-same-base-always-collide)
 
-**P3 — nice to have / uncertain ROI** (5)
+**P3 — nice to have / uncertain ROI** (4)
 
-- **#76** — [The calendar's day boundaries are process-local time](#76-the-calendars-day-boundaries-are-process-local-time)
 - **#29** — [`gmail-unsubscribe` is a declared agent permission that no code implements](#29-gmail-unsubscribe-is-a-declared-agent-permission-that-no-code-implements)
 - **#13** — [MCP server wrapper](#13-mcp-server-wrapper)
 - **#14** — [Watercooler retro → LinkedIn draft](#14-watercooler-retro--linkedin-draft)
@@ -1142,13 +1153,24 @@ Discount Report" and "Job OK: …" was flagged `vendor_deal/high`, because the k
    with "Discrepancies Found" above 0 is classified `action`.
 3. **Staff visibility**, later, waits on the capability design (#64, #65).
 
+**2026-11-07 — item 1's verb half is BUILT (Addresses #78).** `ASK: ack` in `#claude-bridge`
+lists the alerts waiting on the owner; `ASK: ack <id> silence|nag|close` records the decision
+on the alert's `ack` field (`lib/sqtools-alert-ack.js`). `nag` re-posts the alert on inbox
+checks at most every `SQTOOLS_ALERT_NAG_MS` (default 2 h) until silenced or closed; `close`
+stops it for the Toronto day and a nagged alert resumes the next day. **Reading taken where the
+requirement was silent, for the owner to confirm or change:** an alert nobody acknowledged is
+posted once and never reminded (only `nag` reminds). The alert post now shows each alert's
+short id and the verb. Guard: `tests/sqtools-alert-ack.test.js`. **Left in item 1:** the
+buttons on the post (Slack Interactivity, owner-side, as #43), which would call the same
+`applyAck`. **Unverified until deployed:** a real alert acknowledged from Slack.
+
 **Unverified:** that the stripped body of a real Cycle Count Report carries the
 `Discrepancies Found: N` text the classifier reads (the test body is synthetic, built from
 SqTools' template). An unreadable body stays at `review`, never at "no discrepancies".
 
 Regenerate the observed misfiling: search `#email-monitor-agent` for `[SqTools]`.
 
-**Priority:** P2 | **Effort:** M | **Status:** intake built; acknowledgement not started
+**Priority:** P2 | **Effort:** M | **Status:** intake built; acknowledgement verb built 2026-11-07, buttons not started
 
 ---
 
@@ -1911,7 +1933,10 @@ file. A suite that covers one subject stays one file whatever its length; its ex
 names the subject. A suite that covers several modules splits so each set can be run on
 its own. That leaves three splits:
 - `tests/llm-runner.test.js`: one suite per part of the B15 split (errors, defaults,
-  dispatch, the three adapters, fallback).
+  dispatch, the three adapters, fallback). **DONE 2026-11-07:** seven suites, the shared
+  setup in `tests/helpers/llm-runner-harness.js`; the 124 test titles are identical before
+  and after (compared from `jest --json`), and four of the seven are declared one-subject
+  exceptions in `lib/validate-exceptions.json`.
 - `tests/holidays.test.js`: one per part (public holidays, pet awareness, local date).
 - `tests/owner-tasks.test.js`: the store and the view.
 
@@ -2539,36 +2564,6 @@ change at this rate of collision.
 
 ## P3 — Nice to have / uncertain ROI
 
-### 76. The calendar's day boundaries are process-local time
-**Filed 2026-10-05,** by the B14 collapse of `lib/integrations/google-calendar.js`.
-
-`dayRange(offset)` builds "today" as local midnight to the next local midnight with
-`new Date(y, m, d + offset)`, so the window depends on the process timezone. CLAUDE.md
-→ Tech Stack says the code names `America/Toronto` at every site and depends on no
-process timezone, and `tests/timezone-explicit.test.js` does not catch this one: it looks
-for `toLocale*String`, `Intl.DateTimeFormat` and `cron.schedule`, not for the `Date`
-constructor's local fields.
-
-**Harmless today.** The `jt-agent` container sets `TZ: America/New_York`, which shares
-Toronto's offset and DST rule (CLAUDE.md → Tech Stack). It becomes wrong if the container
-ever runs in UTC: "today's events" would run from 20:00 or 19:00 Toronto time the day before.
-
-**Fix:** compute the Toronto midnight explicitly (the store's zone is `STORE_TIME_ZONE`,
-used by `lib/time-format.js`) and extend the timezone guard to the `Date` constructor's
-local-field form, with a negative control. Not done in B14 because B14 was a behaviour-preserving
-collapse.
-
-**Same class, same footing (added 2026-10-05, B15):** `lib/integrations/local-date.js`
-`parseDate`/`formatDate` build and print the holiday code's dates from local fields, so
-"today's holiday" and the pet-awareness windows also follow the process timezone. The B15
-holidays split moved them unchanged rather than into `lib/time-format.js`, for the same reason.
-
-Regenerate: `grep -n "getFullYear\|getDate()" lib/integrations/google-calendar.js lib/integrations/local-date.js`
-
-**Priority:** P3 | **Effort:** S | **Status:** open
-
----
-
 ### 29. `gmail-unsubscribe` is a declared agent permission that no code implements
 **BLOCKED — OWNER DECISION.** Drop the permission and the three rules-file keys as
 aspirational, or implement it — which means a write scope, a consent flow and an
@@ -2644,7 +2639,17 @@ draft would be written from a truncated notification. Either the watcher carries
 or `draft-weekly-posts` reads the stream itself. Note also that `milestone` reached no
 watcher at all while story-bot was the only agent watching it and was not activated;
 that is no longer true, so this path is live and untested.
-**Priority:** P3 | **Effort:** Low-Medium | **Status:** open — story-bot activated, the aggregation is the remaining work
+**2026-11-07 — the aggregation is BUILT (Addresses #14).** The shape taken of the two above:
+the retro's milestone bulletin now carries `highlights`, what each agent said (600 characters
+each, `lib/watercooler.js` `HIGHLIGHT_CHARS`), and story-bot's data context
+(`lib/agent-context-voices.js` `buildStoryBotContext`, injected on the TASK: path) renders the
+latest retro's highlights as "THIS WEEK'S RETRO". The watcher's 150-character summary is
+unchanged and not relied on. Guard: `tests/retro-highlights.test.js` (real watercooler and
+bulletin board on a temp file). **Left, and why not Closes:** a real Friday, the 17:00 retro
+followed by the 18:00 `draft-weekly-posts` in story-bot's channel, with the draft drawing on the
+retro. Observable in Slack after deploy; close on that.
+
+**Priority:** P3 | **Effort:** Low-Medium | **Status:** aggregation built 2026-11-07; close on the first Friday draft that uses it
 
 ---
 

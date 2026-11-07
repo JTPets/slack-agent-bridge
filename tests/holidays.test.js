@@ -8,6 +8,11 @@
 
 const holidays = require('../lib/integrations/holidays');
 
+// LOGIC CHANGE 2026-11-07 (WORK-TODO #76): noon on a Toronto calendar day (month 0-based,
+// as Date's). These tests used new Date(y, m, d), a LOCAL midnight, which in a UTC test
+// process is the previous evening in Toronto; they encoded the process-zone dependence.
+const storeDay = (y, m0, d) => new Date(Date.UTC(y, m0, d, 16));
+
 // Mock https module
 jest.mock('https', () => ({
     get: jest.fn(),
@@ -24,26 +29,26 @@ describe('holidays module', () => {
 
     describe('parseDate', () => {
         test('parses Date object', () => {
-            const date = new Date(2026, 3, 11); // April 11, 2026
+            const date = storeDay(2026, 3, 11); // April 11, 2026
             const result = holidays.parseDate(date);
             expect(result).toEqual({ year: 2026, month: 4, day: 11 });
         });
 
         test('parses date string', () => {
             // Use explicit Date object to avoid timezone issues with date string parsing
-            const result = holidays.parseDate(new Date(2026, 3, 11)); // April 11, 2026
+            const result = holidays.parseDate(storeDay(2026, 3, 11)); // April 11, 2026
             expect(result).toEqual({ year: 2026, month: 4, day: 11 });
         });
     });
 
     describe('formatDate', () => {
         test('formats date as YYYY-MM-DD', () => {
-            const date = new Date(2026, 3, 11); // April 11, 2026
+            const date = storeDay(2026, 3, 11); // April 11, 2026
             expect(holidays.formatDate(date)).toBe('2026-04-11');
         });
 
         test('pads single-digit months and days', () => {
-            const date = new Date(2026, 0, 5); // January 5, 2026
+            const date = storeDay(2026, 0, 5); // January 5, 2026
             expect(holidays.formatDate(date)).toBe('2026-01-05');
         });
     });
@@ -147,7 +152,7 @@ describe('holidays module', () => {
 
     describe('getTodayPetAwareness', () => {
         test('returns National Pet Day on April 11', () => {
-            const april11 = new Date(2026, 3, 11);
+            const april11 = storeDay(2026, 3, 11);
             const result = holidays.getTodayPetAwareness(april11);
             expect(result).not.toBeNull();
             expect(result.name).toBe('National Pet Day');
@@ -156,13 +161,13 @@ describe('holidays module', () => {
         });
 
         test('returns null on non-pet-awareness day', () => {
-            const july15 = new Date(2026, 6, 15);
+            const july15 = storeDay(2026, 6, 15);
             const result = holidays.getTodayPetAwareness(july15);
             expect(result).toBeNull();
         });
 
         test('returns monthly awareness on first of month', () => {
-            const feb1 = new Date(2026, 1, 1);
+            const feb1 = storeDay(2026, 1, 1);
             const result = holidays.getTodayPetAwareness(feb1);
             expect(result).not.toBeNull();
             expect(result.type).toBe('pet_awareness_month');
@@ -171,7 +176,7 @@ describe('holidays module', () => {
 
     describe('getActivePetAwareness', () => {
         test('returns all active monthly observances', () => {
-            const feb15 = new Date(2026, 1, 15);
+            const feb15 = storeDay(2026, 1, 15);
             const result = holidays.getActivePetAwareness(feb15);
 
             // February has two monthly observances
@@ -184,7 +189,7 @@ describe('holidays module', () => {
         });
 
         test('includes specific date when applicable', () => {
-            const april11 = new Date(2026, 3, 11);
+            const april11 = storeDay(2026, 3, 11);
             const result = holidays.getActivePetAwareness(april11);
 
             const petDay = result.find(r => r.name === 'National Pet Day');
@@ -193,7 +198,7 @@ describe('holidays module', () => {
         });
 
         test('returns empty array for month with no observances', () => {
-            const july15 = new Date(2026, 6, 15);
+            const july15 = storeDay(2026, 6, 15);
             const result = holidays.getActivePetAwareness(july15);
             expect(result).toEqual([]);
         });
@@ -201,7 +206,7 @@ describe('holidays module', () => {
 
     describe('getUpcomingPetAwareness', () => {
         test('returns upcoming pet awareness dates', () => {
-            const march1 = new Date(2026, 2, 1);
+            const march1 = storeDay(2026, 2, 1);
             const result = holidays.getUpcomingPetAwareness(60, march1);
 
             // National Pet Day (April 11) should be within 60 days of March 1
@@ -211,7 +216,7 @@ describe('holidays module', () => {
         });
 
         test('results are sorted by daysAway', () => {
-            const jan1 = new Date(2026, 0, 1);
+            const jan1 = storeDay(2026, 0, 1);
             const result = holidays.getUpcomingPetAwareness(365, jan1);
 
             for (let i = 1; i < result.length; i++) {
@@ -220,7 +225,7 @@ describe('holidays module', () => {
         });
 
         test('only includes specific dates, not monthly observances', () => {
-            const jan1 = new Date(2026, 0, 1);
+            const jan1 = storeDay(2026, 0, 1);
             const result = holidays.getUpcomingPetAwareness(365, jan1);
 
             for (const item of result) {
@@ -254,7 +259,7 @@ describe('holidays module', () => {
                 { date: '2026-12-25', name: 'Christmas Day', localName: 'Christmas Day', counties: null },
             ]);
 
-            const christmas = new Date(2026, 11, 25);
+            const christmas = storeDay(2026, 11, 25);
             const result = await holidays.getTodayHoliday(christmas);
 
             expect(result).not.toBeNull();
@@ -267,7 +272,7 @@ describe('holidays module', () => {
                 { date: '2026-12-25', name: 'Christmas Day', localName: 'Christmas Day', counties: null },
             ]);
 
-            const randomDay = new Date(2026, 5, 15);
+            const randomDay = storeDay(2026, 5, 15);
             const result = await holidays.getTodayHoliday(randomDay);
 
             expect(result).toBeNull();
@@ -278,7 +283,7 @@ describe('holidays module', () => {
                 { date: '2026-08-03', name: 'BC Day', localName: 'BC Day', counties: ['CA-BC'] },
             ]);
 
-            const bcDay = new Date(2026, 7, 3);
+            const bcDay = storeDay(2026, 7, 3);
             const result = await holidays.getTodayHoliday(bcDay);
 
             expect(result).toBeNull();
@@ -295,7 +300,7 @@ describe('holidays module', () => {
                 };
             });
 
-            const date = new Date(2026, 5, 15);
+            const date = storeDay(2026, 5, 15);
             const result = await holidays.getTodayHoliday(date);
 
             expect(result).toBeNull();
@@ -304,7 +309,7 @@ describe('holidays module', () => {
         test('handles non-200 status code', async () => {
             mockApiResponse(500, {});
 
-            const date = new Date(2026, 5, 15);
+            const date = storeDay(2026, 5, 15);
             const result = await holidays.getTodayHoliday(date);
 
             expect(result).toBeNull();
@@ -315,8 +320,8 @@ describe('holidays module', () => {
                 { date: '2026-07-01', name: 'Canada Day', localName: 'Canada Day', counties: null },
             ]);
 
-            const date1 = new Date(2026, 6, 1);
-            const date2 = new Date(2026, 6, 2);
+            const date1 = storeDay(2026, 6, 1);
+            const date2 = storeDay(2026, 6, 2);
 
             await holidays.getTodayHoliday(date1);
             await holidays.getTodayHoliday(date2);
@@ -347,7 +352,7 @@ describe('holidays module', () => {
                 return { on: jest.fn() };
             });
 
-            const result = await holidays.isHoliday(new Date(2026, 6, 1));
+            const result = await holidays.isHoliday(storeDay(2026, 6, 1));
             expect(result).toBe(true);
         });
 
@@ -371,7 +376,7 @@ describe('holidays module', () => {
                 return { on: jest.fn() };
             });
 
-            const result = await holidays.isHoliday(new Date(2026, 6, 15));
+            const result = await holidays.isHoliday(storeDay(2026, 6, 15));
             expect(result).toBe(false);
         });
 
@@ -396,7 +401,7 @@ describe('holidays module', () => {
             });
 
             // Use explicit Date object to avoid timezone issues
-            const result = await holidays.isHoliday(new Date(2026, 11, 25));
+            const result = await holidays.isHoliday(storeDay(2026, 11, 25));
             expect(result).toBe(true);
         });
     });
@@ -420,7 +425,7 @@ describe('holidays module', () => {
                 return { on: jest.fn() };
             });
 
-            const april11 = new Date(2026, 3, 11);
+            const april11 = storeDay(2026, 3, 11);
             const result = await holidays.getTodaySpecialDates(april11);
 
             expect(result).toHaveProperty('holiday');
@@ -459,7 +464,7 @@ describe('holidays module', () => {
                 return { on: jest.fn() };
             });
 
-            const june25 = new Date(2026, 5, 25);
+            const june25 = storeDay(2026, 5, 25);
             const result = await holidays.getUpcomingHolidays(10, june25);
 
             expect(result.length).toBe(1);
@@ -489,7 +494,7 @@ describe('holidays module', () => {
                 return { on: jest.fn() };
             });
 
-            const jan1 = new Date(2026, 0, 1);
+            const jan1 = storeDay(2026, 0, 1);
             const result = await holidays.getUpcomingHolidays(365, jan1);
 
             for (let i = 1; i < result.length; i++) {
@@ -520,7 +525,7 @@ describe('holidays module', () => {
                 return { on: jest.fn() };
             });
 
-            const date = new Date(2026, 6, 1);
+            const date = storeDay(2026, 6, 1);
 
             // First call - populates cache
             await holidays.getTodayHoliday(date);

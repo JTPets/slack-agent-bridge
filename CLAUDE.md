@@ -47,8 +47,11 @@ Node.js Slack polling agent that monitors Slack channels for task messages and e
   zones share an offset and a DST rule, and — the part that actually matters — nothing
   reads `TZ`, so the container value reaches no behaviour. **What keeps that true is a
   test, not this paragraph:** `tests/timezone-explicit.test.js` enumerates every source
-  file from disk and fails when a new date-format or cron site omits its zone, or when
-  anything starts reading `process.env.TZ`.
+  file from disk and fails when a new date-format or cron site omits its zone, when
+  anything starts reading `process.env.TZ`, or (since 2026-11-07, WORK-TODO #76) when
+  production code reads or writes a Date's LOCAL fields (`getDate()`, `setDate()`,
+  `new Date(y, m, d)`, ...). Calendar arithmetic in a named zone is
+  `lib/time-format.js` `zonedParts`/`addDays`/`zonedMidnight`.
 
 ---
 
@@ -267,6 +270,7 @@ const POLL_INTERVAL = 5000;
 | `EMAIL_RATE_LIMIT_SLACK_PER_WINDOW` | Max Slack messages to post per rate limit window | `20` |
 | `EMAIL_CHECK_MAX_LOOKBACK_MS` | Ceiling on how far back a scheduled inbox check looks when no successful check is recorded | `86400000` (24 h) |
 | `EMAIL_CHECK_MAX_RESULTS` | Max messages fetched per scheduled inbox check | `50` |
+| `SQTOOLS_ALERT_NAG_MS` | Minimum gap between two reminders of a SqTools alert the owner asked to be nagged about (`ASK: ack <id> nag`, `lib/sqtools-alert-ack.js`). Reminders ride on the inbox check, so they also wait for the next one | `7200000` (2 h) |
 | `SQTOOLS_ALERT_SENDERS` | Comma-separated From addresses whose `[SqTools] …` emails are SqTools alerts: taken out of the generic email rules and posted to the secretary's channel by `lib/sqtools-alert-intake.js` | `jtpets@jtpets.ca` |
 | `EMAIL_RATE_LIMIT_WINDOW_MS` | Rate limit sliding window size in ms | `300000` (5 min) |
 | `EMAIL_RATE_LIMIT_COOLDOWN_MS` | Cooldown period after hitting rate limit | `60000` (1 min) |
@@ -301,9 +305,22 @@ default 10, capped at 20 (`conversationTurns()`). All of these live in
 | Request exceeded the timeout | `timeout` |
 | Server refused the connection / unreachable | `connection_refused` |
 | Non-2xx response | `http_error` |
-| HTTP 429 or a rate-limit message | `rate_limit` |
+| HTTP 429 or a rate-limit / quota message | `rate_limit` |
+| HTTP 402, or a billing / prepaid-credit message under any status | `billing` |
+| HTTP 401 / 403, or an invalid-key message | `auth` |
 | 200 with empty output | `empty_output` |
 | 200 with unparseable or wrong-shaped output | `malformed_output` |
+
+**A billing failure is never a rate limit (WORK-TODO #79, 2026-11-07).** Both HTTP
+adapters classify a non-2xx answer through one function,
+`lib/llm-http-failure.js` `classifyHttpFailure`, which checks billing first: Gemini answers
+a depleted prepaid account with HTTP 402 **and** status `RESOURCE_EXHAUSTED`, and the old
+adapter read the second and reported "Gemini rate limit". A billing failure is a
+`BillingError` with no `isRateLimit` flag, its message says waiting will not fix it, the
+Claude CLI's "Credit balance is too low" is labelled the same way, and the morning digest
+groups it separately. Until 2026-11-07 the Gemini adapter tagged none of its other
+failures, so a Gemini 5xx was not a fallback trigger despite the table above. Guard:
+`tests/llm-http-failure.test.js`.
 
 An **unknown provider name is a configuration defect, not a fallback trigger** — it throws so the typo is visible rather than being masked by another engine.
 
@@ -749,7 +766,8 @@ slack-agent-bridge/
 │   ├── heartbeat.js      # Per-task progress reactions on the source Slack message: createHeartbeat().start() adds :eyes: then cycles HEARTBEAT_EMOJIS every 30s; .stop(success) clears them and adds the terminal :white_check_mark:/:x: (null = none, the rate-limit case). Every Slack call is try/caught — a heartbeat failure can never fail a task
 │   ├── git-identifiers.js # Boundary validation for Slack-controlled REPO:/BRANCH: values (isValidRepo, isValidBranch, assertValid*); *_PUNCTUATION + describeCharset() generate the rejection messages from the same character lists the patterns use
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, gemini, ollama), fallback chain, startup validation. Facade since 2026-10-05 (WORK-TODO #10): every name it exported, each the same object as in the seven modules below
-│   ├── llm-errors.js     # Rate-limit and bandwidth detection (isRateLimitError, the pattern lists), exit diagnostics (describeClaudeExit, signalFromExitCode), RateLimitError/BandwidthExhaustedError, and the fallback-reason tags
+│   ├── llm-errors.js     # Rate-limit and bandwidth detection (isRateLimitError, the pattern lists), exit diagnostics (describeClaudeExit, signalFromExitCode), RateLimitError/BandwidthExhaustedError, and the fallback-reason tags. Re-exports lib/llm-http-failure.js
+│   ├── llm-http-failure.js # WORK-TODO #79: THE classifier for a hosted model API's non-2xx answer (classifyHttpFailure: billing first, then rate_limit, auth, http_error), describeHttpFailure (a message naming the fix), isBillingError and BillingError (no isRateLimit flag). Used by the Gemini and Ollama adapters; the Claude adapter uses isBillingError. Pure
 │   ├── llm-defaults.js   # The LLM configuration read from the environment (provider, binary, turns, timeout, fallback chains, Ollama settings) and normalizeThink
 │   ├── llm-dispatch.js   # runLLM: one provider, one call, one recorded verdict. Its own module so lib/llm-fallback.js can call it without a require cycle through the facade
 │   ├── llm-adapter-claude.js # The Claude CLI adapter: prompt on stdin (MAX_ARG_STRLEN), the deadline kill and the 80% warning (WARN_AT_FRACTION)
@@ -812,24 +830,25 @@ slack-agent-bridge/
 │   ├── update-verifier.js # Pre-restart gate for auto-update: node --check on entry points, restart plan (guard c)
 │   ├── validate.js       # Pre-commit validation (`npm run validate`): checks bridge-agent.js loads in a subprocess, then runs the declaration-driven file-size gate (lib/file-size-gate.js) and the close reconciliation (lib/close-reconcile.js, which fails on a shallow clone). It needs a populated .env for the first check — without one it reports the missing vars and fails, which is a local-environment condition, not a code defect
 │   ├── weekly-critique.js # The jester's weekly post: deterministic task `weekly-critique`. Builds the digest (lib/critique-digest.js), resolves the critic from the SAME declaration the cron registrar reads (so the verb and the schedule cannot name different agents), and posts one critique in his channel on his provider. A THIN week calls no model at all — a model handed an empty digest and a contrarian persona produces a complaint, so the only reliable honest "nothing to report" is not to ask. Calls runLLM and NOT runWithFallback, deliberately: the chain can land on claude, whose adapter spawns a CLI with --dangerously-skip-permissions, and jester's definition denies file-system. It writes NO state of any kind and its verdict gates nothing — enforced by tests/weekly-critique.test.js, not asserted
-│   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow. Facade since 2026-10-05 (WORK-TODO #10): re-exports the three modules below under the names it always had
+│   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow. Its milestone bulletin carries each agent's message as `highlights` (since 2026-11-07, #14), which story-bot's data context reads. Facade since 2026-10-05 (WORK-TODO #10): re-exports the three modules below under the names it always had
 │   ├── watercooler-catalogue.js # WHAT a standup is: the kickoff/retro types and schedules, per-agent prompts, speaking order (jester last), participants, and the standup command recognisers. Pure
 │   ├── watercooler-context.js # WHAT a standup is told: last-standup timestamp (its one state file, with the init() override), bulletins since, recent completions, an agent backlog
 │   ├── watercooler-prompt.js # The prompt one agent gets for its turn: persona, theme, the context rendered as text, earlier speakers. Pure
 │   ├── email-check.js    # Deterministic scheduled inbox check: runInboxCheck fetches via lib/integrations/gmail.js (fetchRecentEmails), filters with lib/integrations/email-categorizer.js against agents/email-monitor/memory/rules.json, posts to the email-monitor channel only when lib/email-check-report.js says to, and escalates every failure through notify-owner. Read-only: Gmail list/get only. An empty inbox and a failed check are different statuses, reported differently
 │   ├── sqtools-alerts.js # WHICH emails are SqTools alerts (sender in SQTOOLS_ALERT_SENDERS AND a `[SqTools]` subject) and WHAT each is: a catalogue copied from SqTools' own subject templates (JTPets/SquareDashboardTool 0eef658), each with a severity (action / review / info / ok), a plain-language title and what to do next. A cycle count's severity comes from its "Discrepancies Found" line. An unknown subject is `unrecognised` and surfaced for review, never dropped. Pure
-│   ├── sqtools-alert-intake.js # The secretary's SqTools alert intake, run by lib/email-check.js on every successful fetch: SqTools emails bypass the generic rules, are recorded once by Gmail id in agents/secretary/memory/sqtools-alerts.json (gitignored), and new ones are posted to the secretary's channel (the email-monitor channel, saying why, when hers is not resolved). A failed post records nothing, so the next check retries it. Reports a SqTools daily heartbeat older than 26 h once per Toronto day. Each record carries `ack: null` for the acknowledgement buttons (WORK-TODO #78)
+│   ├── sqtools-alert-intake.js # The secretary's SqTools alert intake, run by lib/email-check.js on every successful fetch: SqTools emails bypass the generic rules, are recorded once by Gmail id in agents/secretary/memory/sqtools-alerts.json (gitignored), and new ones are posted to the secretary's channel (the email-monitor channel, saying why, when hers is not resolved). A failed post records nothing, so the next check retries it. Reports a SqTools daily heartbeat older than 26 h once per Toronto day. Each record carries `ack` (null until acknowledged); nagged alerts are re-posted here on each check through lib/sqtools-alert-ack.js, and the state is re-read after the post so an acknowledgement written meanwhile survives
+│   ├── sqtools-alert-ack.js # WORK-TODO #78, the verb half: `ASK: ack` lists the SqTools alerts waiting on the owner; `ack <id> silence|nag|close` records silence (never again), nag (re-posted every SQTOOLS_ALERT_NAG_MS until silenced or closed) or close for the Toronto day. An id is an unambiguous Gmail-id prefix; anything else is refused and nothing is written. An unacknowledged alert is never reminded. State through lib/sqtools-alert-intake.js readState/writeState
 │   ├── email-check-report.js # Whether a SUCCESSFUL inbox check posts, and what it says (decidePost, formatOkMessage). A scheduled check is QUIET unless something is flagged, the fetch was partial or rate-limited, there was a >90-minute gap since the previous check that day, or it is the first check of the Toronto day (the heartbeat that makes a stopped job visible). An on-demand `check-inbox` always posts. Split from lib/email-check.js 2026-10-02 after the owner called the half-hourly "Inbox check OK" posts spam
 │   ├── email-rate-limiter.js # Rate limiting for email-to-Slack pipeline: sliding window, cooldown, flood protection
 │   ├── boot-record.js    # The commit this process booted on, recorded once by bridge-agent.js (from lib/repo-history.js loadedCommit) so later readers in the same process, such as the jester's digest, report it instead of re-reading the working tree
 │   ├── llm-metrics.js    # LLM provider verdict counter: recordVerdict, getStats (fallback visibility)
-│   ├── time-format.js    # THE day-key and display-time helpers, each taking its zone explicitly: dayKey(date, timeZone) (no default zone, so a UTC day cannot be had by forgetting to choose; the store passes STORE_TIME_ZONE, lib/llm-metrics.js passes 'UTC') and formatTimestamp(date, { precision }) for every bulletin rendering. WORK-TODO #33 and #32
+│   ├── time-format.js    # THE day-key and display-time helpers, each taking its zone explicitly: dayKey(date, timeZone) (no default zone, so a UTC day cannot be had by forgetting to choose; the store passes STORE_TIME_ZONE, lib/llm-metrics.js passes 'UTC') and formatTimestamp(date, { precision }) for every bulletin rendering. WORK-TODO #33 and #32. Since 2026-11-07 (#76) also zonedParts(date, zone), addDays(key, n) and zonedMidnight(key, zone): the calendar arithmetic that replaced every local-field Date read
 │   ├── digest-sections.js # The morning digest's text: buildDigest({ memoryDir }) assembles holidays, weather, calendar, staff tasks, email, the task summary, failures, active tasks and the action count, each optional section skipped (logged) when its source throws. Split from morning-digest.js 2026-10-05 (WORK-TODO #10)
 │   ├── digest-failures.js # The morning digest's grouping and wording for yesterday's failed tasks: categorizeFailures (rate limit decided by lib/llm-runner.js isRateLimitError, not a third pattern set) and formatFailureSections. Every failure is action needed — nothing retries or re-queues a failed task, and the digest no longer says otherwise (WORK-TODO #31)
 │   ├── claude-stream-watch.js # WORK-TODO #59: reads the Claude CLI's stream-json events as they arrive, reports a stall (no output for TASK_STALL_MS) or a loop (the same tool call TASK_LOOP_REPEAT times in a row) through the adapter's onRunAlert, and returns per-run stats (longest quiet gap, longest repeat, turns, cost) for the [run-stats] log line. Plain-text output passes through unchanged. Never kills anything itself; TASK_LIMITER_MODE decides, report by default
 │   ├── deadline-warning.js # The #sqtools-ops text posted when a running task reaches 80% of TASK_TIMEOUT_MS (lib/llm-runner.js onDeadlineWarning, WORK-TODO #7). Pure: builds a string, posts nothing
 │   └── integrations/
-│       ├── google-calendar.js  # Google Calendar API integration for fetching events (today, tomorrow, yesterday). Since 2026-10-05 one dayRange, one per-calendar fetcher and one merge behind the twelve exported names (WORK-TODO #10), and the OAuth token read through lib/config.js getGoogleRefreshToken, so GOOGLE_REFRESH_TOKEN works here too. The day range is still process-local time (WORK-TODO #76)
+│       ├── google-calendar.js  # Google Calendar API integration for fetching events (today, tomorrow, yesterday). Since 2026-10-05 one dayRange, one per-calendar fetcher and one merge behind the twelve exported names (WORK-TODO #10), and the OAuth token read through lib/config.js getGoogleRefreshToken, so GOOGLE_REFRESH_TOKEN works here too. The day range is Toronto midnight to Toronto midnight since 2026-11-07 (WORK-TODO #76, closed); `dayRange(offset, now)` is exported for its tests
 │       ├── gmail.js            # Gmail API integration: getRecentEmails, getEmailById, getEmailHeaders (read-only). Facade since 2026-10-05 (WORK-TODO #10): re-exports gmail-auth.js and gmail-message.js
 │       ├── gmail-auth.js       # Building the read-only Gmail client from the environment (service account or OAuth trio), reporting WHY when it cannot: createGmailClient, getGmailClient, hasCredentials
 │       ├── gmail-message.js    # A Gmail API message to the plain email object: MIME body extraction, HTML stripping, header lookup, prompt-injection sanitisation of body and snippet. Pure
@@ -840,7 +859,7 @@ slack-agent-bridge/
 │       ├── holidays.js         # Canadian public holidays (Nager.Date API) and pet awareness dates. Facade since 2026-10-05 (WORK-TODO #10) over the three modules below; keeps getTodaySpecialDates
 │       ├── holidays-public.js  # The Nager.Date client, its in-process cache and the Ontario filter: getTodayHoliday, getUpcomingHolidays, isHoliday, clearCache
 │       ├── pet-awareness.js    # The static pet-awareness date list and its lookups (today, active, upcoming)
-│       ├── local-date.js       # parseDate/formatDate for the holiday code. Process-local time, like the calendar day range (WORK-TODO #76)
+│       ├── local-date.js       # parseDate/formatDate/storeDayStart for the holiday code, read in the store's zone since 2026-11-07 (WORK-TODO #76); a bare `YYYY-MM-DD` string is that calendar day
 │       ├── weather.js          # Today's Hamilton forecast from Open-Meteo (no key): fetchWeather resolves null on any failure, never rejects; decodeWeatherCode. Moved out of morning-digest.js 2026-10-05 (WORK-TODO #10)
 │       └── httpsms.js          # httpSMS API wrapper: sendSMS, getMessages, registerWebhook (free SMS via Android)
 ├── memory/
@@ -870,6 +889,7 @@ slack-agent-bridge/
 │   ├── fixtures/
 │   │   └── channel-map.json     # THE tracked channel-name -> id map the suites resolve against. Its ids are deliberately fake (C0FIX*) — a real workspace id never has to appear in a tracked test to make one pass. Exists because agents/shared/channel-map.json is gitignored, so 30 assertions were red in every fresh clone (WORK-TODO #50)
 │   ├── helpers/
+│   │   ├── llm-runner-harness.js # useLlmRunnerHarness(): the shared setup of the llm-* suites (fresh registry and env per test, a temp LLM_METRICS_FILE, a mocked spawn and its three helpers), moved out of tests/llm-runner.test.js by the 2026-11-07 split
 │   │   ├── workspace-fixture.js # useFixtureWorkspace(): copies tests/fixtures/channel-map.json into a temp dir and points lib/bridge-state.js at the copy for the life of a suite. A suite gets a workspace instead of whichever workspace the checkout is sitting in, and a suite that RESOLVES a channel writes the copy, never the live map
 │   │   ├── source-scan.js       # What the enumerating guards share: listSourceFiles() (every non-test .js, via lib/source-walk.js) and stripComments(src, { blankStrings }) — one character scanner with the deliberate difference kept as an option (blank string contents for a call-site ban; leave them for a check whose target IS a string literal). Extracted 2026-10-04 from the no-shell, timezone and test-gate guards (WORK-TODO #36). tests/architecture-tree.test.js now walks tests/ recursively, so this directory is enumerated
 │   │   ├── critique-fixtures.js # Shared doubles for the weekly-critique suites (the jester and bridge records, a digest shaped like buildDigest()'s return value, and Slack/LLM/notifier doubles that record what they were called with), so the behaviour suite and the gating guard cannot drift into two different ideas of what the jester looks like
@@ -897,8 +917,15 @@ slack-agent-bridge/
 │   ├── config.test.js           # Tests for lib/config.js
 │   ├── env-documented.test.js   # THE enumerating guard for undocumented configuration (WORK-TODO #34, #4b): every process.env read in production code, enumerated from disk with comments stripped, must have a NAME= line in .env.example and a row in this file. States its blind spot: modules reading an injected env object are not seen. Carries its own negative controls
 │   ├── turn-budgets.test.js     # WORK-TODO #20: the task and conversation turn budgets under their own names (TURNS_CEILING, conversationTurns), and a source read pinning bridge-agent.js to them rather than literals. Carries its own negative controls
-│   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
+│   ├── llm-dispatch.test.js     # Tests for lib/llm-dispatch.js (runLLM, verdict recording). This and the six below were tests/llm-runner.test.js until 2026-11-07 (WORK-TODO #10 Wave T: one suite per module); every test still requires the facade
+│   ├── llm-defaults.test.js     # Tests for lib/llm-defaults.js (the exported configuration constants)
+│   ├── llm-errors.test.js       # Tests for lib/llm-errors.js (isRateLimitError, the error classes, describeClaudeExit/signalFromExitCode, the disabled bandwidth check)
+│   ├── llm-adapter-claude.test.js # Tests for lib/llm-adapter-claude.js over a mocked spawn (arguments, stdin, exits, rate-limit and the disabled bandwidth detection)
+│   ├── llm-adapter-gemini.test.js # Tests for lib/llm-adapter-gemini.js (requests, responses, failures, the startup check) and the OpenAI placeholder
+│   ├── llm-adapter-ollama.test.js # Tests for lib/llm-adapter-ollama.js (options, failure tags, the startup check)
+│   ├── llm-fallback.test.js     # Tests for lib/llm-fallback.js (runWithFallback, the chain, the ollama -> gemini -> claude path)
 │   ├── llm-runner-prompt-size.test.js # THE regression guard for the 2026-09-20 `spawn E2BIG` dispatch failure. It is the one suite here that spawns for REAL (against a stub binary written to a temp dir), because E2BIG is raised by execve and a mocked child_process will happily accept an argv entry of any size — which is exactly why no other suite caught it. Asserts the platform limit is where it is claimed to be, that a prompt at and well past MAX_ARG_STRLEN now runs with every byte delivered, that a realistic prompt carrying this repo's own CLAUDE.md runs, and that the prompt is no longer in argv at all
+│   ├── llm-http-failure.test.js # THE regression guard for WORK-TODO #79: the 2026-11-07 boot-log 402 ("Your prepayment credits are depleted", RESOURCE_EXHAUSTED) is a BillingError tagged billing, not a RateLimitError, with the pre-fix condition as the negative control; the classifier table; every Gemini failure tagged (5xx http_error, auth, network, empty); the Ollama adapter on the same classifier; the Claude CLI's credit message via a real stub binary; and the digest's billing group
 │   ├── llm-runner-exit-stdout.test.js # Regression test for the 2026-10-10 morning briefing reported as only "Exit code 1 (no stderr output)": the Claude CLI prints its own failure on STDOUT with stderr empty, and the adapter now carries the stdout tail in the error. Real spawn against a stub binary
 │   ├── llm-runner-deadline.test.js # The claude adapter's own deadline, against real stub binaries: a failed spawn at the DEFAULT timeout lets the process exit (it held the event loop 600 s before, WORK-TODO #58), the deadline still SIGTERMs into the interrupted path, and onDeadlineWarning fires once before the kill and never for a task that finishes first (#7)
 │   ├── claude-stream-watch.test.js # Tests for lib/claude-stream-watch.js (result and turn-limit extraction, plain-text passthrough, stall and loop alerts once each, stats) and the adapter wiring: report mode alerts and lets the run finish, enforce mode stops it, and a real stub binary emitting a looping stream is reported
@@ -944,7 +971,8 @@ slack-agent-bridge/
 │   ├── architecture-tree.test.js # THE enumerating guard for THIS tree: every .js file under lib/, lib/integrations/, bots/, scripts/, memory/, tests/ and every top-level entry point must appear in the Architecture block below, and every basename in the block must exist on disk
 │   ├── source-walk.test.js     # Tests for lib/source-walk.js and THE regression test for the 2026-09-20 red run: lib/file-size-gate.js measure() survives a directory, or a file, removed mid-walk by another jest worker (both cases fail against the old loop). Also that a missing root throws, and a disk walk asserting no file in tests/ or lib/ re-derives its own walker or comment scanner outside tests/helpers/source-scan.js (WORK-TODO #36). Carries its own negative control
 │   ├── file-size-gate.test.js # THE enumerating guard for the 300-line rule: green only when every over-limit file carries a recorded justification, red when a new one appears undeclared, and red when a declared entry has rotted. Carries its own negative controls, because both live assertions are "expect this list to be empty"
-│   ├── timezone-explicit.test.js # THE enumerating guard for the "no dependence on the process timezone" class: every non-test .js file must name timeZone/timezone at each toLocale*String, Intl.DateTimeFormat and cron.schedule call, and nothing may read process.env.TZ
+│   ├── timezone-explicit.test.js # THE enumerating guard for the "no dependence on the process timezone" class: every non-test .js file must name timeZone/timezone at each toLocale*String, Intl.DateTimeFormat and cron.schedule call, nothing may read process.env.TZ, and (since #76) no Date local-field read/write or multi-argument `new Date(y, m, d)` in production code, with negative controls
+│   ├── zoned-calendar.test.js   # WORK-TODO #76: the zoned helpers in lib/time-format.js (both DST phases, both transition days, a 365-day round trip) and the store-day readers — local-date, pet-awareness, the standup weekday, the staff-task clock — run in REAL child processes under five TZ values, which must all give one answer. Negative control: the old local-field read differs between zones
 │   ├── time-format.test.js      # Tests for lib/time-format.js at the boundary hour in both DST phases, and THE enumerating guards for #33 (no `toISOString().split('T')`/`.slice(0, 10)` day key in production) and #32 (no inline bulletin-timestamp rendering), each with negative controls. Also the staff-task regression: state written at 21:30 Toronto is still today's at 21:30 Toronto
 │   ├── dependency-upgrade.test.js # The 2026-10-05 dependency move: the REAL @slack/web-api 8 client over an injected fetch still rejects with `err.data.error` (read at a dozen sites) and still redacts on the wire (an unguarded client as the negative control), and every production package in the lockfile admits the Node version the Dockerfile pins and the compose image's major (googleapis 180+ need Node 22), with negative controls
 │   ├── digest-sections.test.js  # CHARACTERISATION of the morning digest text (an empty day and a full day, pinned line by line; run against the pre-split code before the 2026-10-05 split), that a throwing section is skipped, the helpers that moved with it, and lib/integrations/weather.js via a mocked https.get
@@ -955,6 +983,7 @@ slack-agent-bridge/
 │   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)
 │   ├── email-categorizer.test.js # Tests for lib/integrations/email-categorizer.js (categorization, rules)
 │   ├── sqtools-alerts.test.js   # Tests for lib/sqtools-alerts.js: the observed SqTools subjects that the generic rules misfiled, every action kind, an unknown subject surfaced not dropped, cycle-count severity from the body (unknown is not zero), and the catalogue's own shape
+│   ├── sqtools-alert-ack.test.js # Tests for lib/sqtools-alert-ack.js against real state files: the post carries each alert's short id and the verb, list/silence/nag/close, every refusal writes nothing, a nag re-posts at most once per interval, close stops the day and nagging resumes the next Toronto day, a failed reminder is retried, an ack written while a post is in flight survives (fails without the re-read), and `ack <id> <action>` in an agent channel is refused rather than answered by a model
 │   ├── sqtools-alert-intake.test.js # Tests for lib/sqtools-alert-intake.js against temp state files: posted once to the secretary with the next step, a failed post records nothing and is retried, the fallback channel says why, liveness mail posts nothing, the heartbeat-quiet report, the wiring (SqTools mail never reaches the generic categorizer; a failed intake escalates) and the secretary's briefing lines
 │   ├── email-check.test.js      # Tests for lib/email-check.js: THE guard that an empty inbox and a failed check are distinguishable, that a failure escalates to a human, and that the module names no Gmail mutation API
 │   ├── email-check-quiet.test.js # THE guard that a routine scheduled inbox check posts nothing, and that silence never hides a broken or stopped check: a failure still escalates, the first check of each Toronto day posts a heartbeat (retried if its post failed), and an in-day gap is reported
@@ -969,6 +998,7 @@ slack-agent-bridge/
 │   ├── bulletin-watcher.test.js # Tests for lib/bulletin-watcher.js (watcher matching, ASK fan-out, per-agent rate limiting)
 │   ├── weekly-critique.test.js  # BEHAVIOUR tests for lib/weekly-critique.js: that it resolves to the JESTER rather than the caller's agent (the post lands in his channel even when the bridge invoked it, on his provider, billed to his metrics id), that the call is one shot with no fallback and an empty temp cwd removed in a finally, that a thin week calls no model at all, and that every failure is reported with nothing posted
 │   ├── weekly-critique-gating.test.js # THE guard that the jester cannot gate anything, split from the behaviour suite so it is citable on its own: a source walk asserting the module names no state-mutating API (its only fs calls are mkdtemp and its own rm), a disk walk asserting exactly ONE production file calls runWeeklyCritique, a second asserting the task name is declared in exactly the catalogue and the command table, and an assertion that both consumers use the verdict only to choose what text to say. Carries its own negative controls
+│   ├── retro-highlights.test.js # WORK-TODO #14: the retro's milestone bulletin records what each agent said (capped), and story-bot's context renders the latest retro's highlights; a milestone without them (the old shape) and a kickoff add no retro section. Real watercooler and bulletin board on a temp file
 │   ├── watercooler.test.js      # Tests for lib/watercooler.js (standup orchestration, agent flow)
 │   ├── task-queue.test.js       # Tests for lib/task-queue.js (queue persistence, auto-update coordination)
 │   ├── task-queue-lifecycle.test.js # THE guard that the LIVE task path drives the queue state machine: extracts the lifecycle from bridge-agent.js's source and replays it against a real queue (a module-only test cannot see an unreachable path)
@@ -1848,6 +1878,17 @@ error, interrupted, or stopped at max turns. Read from `memory/history.json`, wh
 every finished task, unlike `what's queued`, whose queue keeps 24 hours. Spelled `history`
 and not `task history`, because a verb is the first word and `task` would capture
 `ASK: task status`. `lib/task-history.js`, WORK-TODO #9.
+
+### SqTools alerts — acknowledge
+```
+ASK: ack                     # the SqTools alerts waiting on you, with short ids
+ASK: ack <id> silence        # this alert, for good
+ASK: ack <id> nag            # re-post it on inbox checks (every SQTOOLS_ALERT_NAG_MS) until silenced or closed
+ASK: ack <id> close          # done for today; a nagged alert resumes tomorrow
+```
+Typed in `#claude-bridge`; the alert post in the secretary's channel shows each id. An
+alert nobody acknowledged is posted once and never reminded. Buttons on the post are the
+rest of WORK-TODO #78 and need Slack Interactivity. `lib/sqtools-alert-ack.js`.
 
 ### Channels vs Agents
 ```

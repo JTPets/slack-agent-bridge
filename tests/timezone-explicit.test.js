@@ -23,6 +23,12 @@
  *   2. Every `Date.prototype.toLocale*String` / `Intl.DateTimeFormat` call passes an
  *      explicit `timeZone:` in its options.
  *   3. Every `cron.schedule(...)` call passes an explicit `timezone:`.
+ *   4. (LOGIC CHANGE 2026-11-07, WORK-TODO #76) No Date LOCAL-field read or write
+ *      (`getFullYear`/`getMonth`/`getDate`/`getDay`/`getHours`/..., their setters,
+ *      `getTimezoneOffset`) and no multi-argument `new Date(y, m, d)`, which builds a
+ *      LOCAL instant. Checks 2 and 3 could not see this form: the calendar's day range
+ *      was built from it and followed the process timezone. The `getUTC*` forms and
+ *      `Date.UTC(...)` are zone-explicit and allowed; use lib/time-format.js.
  *
  * Deliberately NOT asserted: *which* zone each site names. `lib/llm-metrics.js`
  * buckets by UTC on purpose (a stable key across a DST transition), and a future
@@ -93,6 +99,41 @@ function callsWithArgs(src, calleeRe) {
     return found;
 }
 
+// LOGIC CHANGE 2026-11-07 (WORK-TODO #76): the local-field form of the class.
+const LOCAL_FIELD_RE = /\.(?:get|set)(?:FullYear|Month|Date|Day|Hours|Minutes|Seconds|Milliseconds)\s*\(|\.getTimezoneOffset\s*\(/g;
+
+/** Top-level commas in a balanced `( ... )` argument text: > 0 means 2+ arguments. */
+function topLevelCommas(argText) {
+    let depth = 0;
+    let quote = null;
+    let commas = 0;
+    for (let i = 0; i < argText.length; i += 1) {
+        const ch = argText[i];
+        if (quote) {
+            if (ch === '\\') { i += 1; continue; }
+            if (ch === quote) quote = null;
+            continue;
+        }
+        if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue; }
+        if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+        else if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
+        else if (ch === ',' && depth === 1) commas += 1;
+    }
+    return commas;
+}
+
+/** Every local-field site in a comment-stripped source, as line numbers. */
+function localFieldSites(src) {
+    const lines = [];
+    const re = new RegExp(LOCAL_FIELD_RE.source, 'g');
+    let m;
+    while ((m = re.exec(src)) !== null) lines.push(src.slice(0, m.index).split('\n').length);
+    for (const call of callsWithArgs(src, /\bnew\s+Date\s*\(/)) {
+        if (topLevelCommas(call.text) > 0) lines.push(call.line);
+    }
+    return lines.sort((a, b) => a - b);
+}
+
 const SOURCE_FILES = listSourceFiles(REPO_ROOT);
 
 describe('no source file depends on the process timezone', () => {
@@ -151,7 +192,39 @@ describe('no source file depends on the process timezone', () => {
     });
 });
 
+describe('no source file reads a Date in local fields (WORK-TODO #76)', () => {
+    test('no getFullYear/getDate/setDate/... and no new Date(y, m, d) in production code', () => {
+        const offenders = [];
+        for (const file of SOURCE_FILES) {
+            const src = stripComments(fs.readFileSync(file, 'utf8'));
+            for (const line of localFieldSites(src)) offenders.push(`${path.relative(REPO_ROOT, file)}:${line}`);
+        }
+        expect(offenders).toEqual([]);
+    });
+});
+
 describe('the guard itself detects what it claims to', () => {
+    test('#76 negative control: the pre-fix calendar day range is caught, twice over', () => {
+        const preFix = [
+            'const now = new Date();',
+            'const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);',
+            'end.setDate(end.getDate() + 1);',
+        ].join('\n');
+        const sites = localFieldSites(stripComments(preFix));
+        expect(sites.length).toBeGreaterThanOrEqual(5);
+        expect(sites).toContain(2);
+        expect(sites).toContain(3);
+    });
+
+    test('#76: the zone-explicit forms are allowed', () => {
+        const ok = [
+            'const t = new Date(Date.UTC(y, m - 1, d));',
+            'const y = t.getUTCFullYear(); const d = t.getUTCDate();',
+            'const n = new Date(); const c = new Date(n.getTime() + 1000); const s = new Date("2026-01-01");',
+        ].join('\n');
+        expect(localFieldSites(stripComments(ok))).toEqual([]);
+    });
+
     // Negative controls. Without these the three checks above could be passing
     // because they match nothing at all — the failure mode that let an earlier
     // guard in this repo silently scan blanked-out source and go green on every
