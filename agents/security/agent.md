@@ -12,7 +12,7 @@ denied:
 priority: 3
 max_turns: 30
 memory_dir: agents/security/memory
-llm_provider: gemini
+llm_provider: claude
 schedule:
   cron: "0 1 * * *"
   task: nightly-audit

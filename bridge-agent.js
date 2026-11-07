@@ -936,6 +936,9 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
           // LOGIC CHANGE 2026-09-15: the executing agent's model, not the bridge's.
           model: currentAgent?.llm_model,
           agentId,
+          // LOGIC CHANGE 2026-11-07: the agent whose declared permissions decide the
+          // Claude tools this run gets (lib/agent-tools.js).
+          agentRecord: currentAgent,
           // LOGIC CHANGE 2026-10-04 (WORK-TODO #7): say so in #sqtools-ops at 80% of
           // TASK_TIMEOUT_MS instead of the kill being the first sign of a long task.
           onDeadlineWarning: (info) => postToOps(formatDeadlineWarning({
@@ -2019,6 +2022,8 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
       provider: resolveLlmProvider(currentAgent, agentId),
       model: currentAgent?.llm_model,
       agentId,
+      // LOGIC CHANGE 2026-11-07: per-agent Claude tool permissions (lib/agent-tools.js).
+      agentRecord: currentAgent,
     });
     const { output } = result;
 

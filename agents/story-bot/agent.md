@@ -14,7 +14,7 @@ denied:
 priority: 2
 max_turns: 20
 memory_dir: agents/story-bot/memory
-llm_provider: gemini
+llm_provider: claude
 integrations:
   - linkedin-api
 schedule:

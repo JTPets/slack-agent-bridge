@@ -14,7 +14,7 @@ denied:
 priority: 5
 max_turns: 10
 memory_dir: agents/jester/memory
-llm_provider: gemini
+llm_provider: claude
 schedule:
   cron: "0 18 * * 5"
   task: weekly-critique

@@ -290,6 +290,12 @@ a **fresh empty temp directory** as `cwd`, removed in a `finally`. Both asserted
 
 ### The no-fallback decision has a hole, and it is an environment variable — REPORTED 2026-09-16
 
+> **Addendum 2026-11-07.** Jester now declares `llm_provider: claude`, and the claude
+> adapter enforces his `denied: file-system`: his run is `--restricted --tools ""` (no tools
+> at all) whichever provider resolved (`lib/agent-tools.js`). The hole below no longer
+> reaches a tool-capable engine; the provider-precedence question it raises stays with
+> WORK-TODO #65.
+
 **Not fixed here, and it must not be fixed by deleting the override.** Recorded as
 WORK-TODO **#65**.
 

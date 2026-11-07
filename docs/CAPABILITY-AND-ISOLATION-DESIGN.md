@@ -51,6 +51,15 @@ So the capability layer today is **documentation that looks like configuration**
 worse than no capability layer, because a reviewer reading `denied: file-system` on the
 jester reasonably concludes something is stopping it.
 
+> **Addendum 2026-11-07 — one consumer now exists.** `lib/agent-tools.js` reads both fields
+> to decide which Claude CLI tools a run gets, over a closed vocabulary that grants by
+> default nothing: only `claude-code` (full set), `github-read`/`file-system-read` (read
+> tools) and `file-system` (adds edits) grant anything, and `denied` removes. It is enforced
+> inside `lib/llm-adapter-claude.js`, so every caller is covered (`tests/agent-tools.test.js`).
+> What it does **not** do: validate the integration names (`gmail-read`, `twilio-sms`, ...),
+> which still gate nothing because the bridge's own code performs those integrations, and a
+> misspelt name is still accepted in silence. It just grants nothing.
+
 ### 2.2 The declarations, enumerated
 
 Regenerate:

@@ -146,6 +146,9 @@ Review these changes for security issues.`;
         const { output } = await runLLM(prompt, {
             cwd: tempDir,
             maxTurns: 10,
+            // LOGIC CHANGE 2026-11-07: run as the security agent, so a Claude run gets
+            // only the read tools its github-read permission grants (lib/agent-tools.js).
+            agentId: 'security',
         });
 
         return {
