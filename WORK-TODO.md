@@ -1164,13 +1164,25 @@ short id and the verb. Guard: `tests/sqtools-alert-ack.test.js`. **Left in item 
 buttons on the post (Slack Interactivity, owner-side, as #43), which would call the same
 `applyAck`. **Unverified until deployed:** a real alert acknowledged from Slack.
 
+**2026-11-07 — item 1's button half is BUILT (Addresses #78).** Each alert post carries a
+row of Silence / Nag me / Close today buttons per alert that needs the owner
+(`lib/sqtools-alert-buttons.js`), routed from the Socket Mode `interactive` seam by
+`bridge-agent.js`, allowlist-gated, and recorded through the verb's own `handleAck`, so the two
+cannot differ. The pressed row is replaced on the post by the outcome. **The owner settled the
+open reading (2026-11-07):** an acknowledged alert is never re-sent, and acknowledgement is per
+occurrence: a new email, or the next backup failure, alerts again even if an identical earlier
+one was acknowledged. The key is the Gmail message id (`seen` and each record's `ack`); nothing
+is keyed by subject or kind. Guard: `tests/sqtools-alert-buttons.test.js`. **Item 1 closes on
+a real press:** buttons need Socket Mode and Interactivity on the Slack app (owner-side, the
+same steps as `/dispatch`, #43), and no press has been observed. Items 2 and 3 remain.
+
 **Unverified:** that the stripped body of a real Cycle Count Report carries the
 `Discrepancies Found: N` text the classifier reads (the test body is synthetic, built from
 SqTools' template). An unreadable body stays at `review`, never at "no discrepancies".
 
 Regenerate the observed misfiling: search `#email-monitor-agent` for `[SqTools]`.
 
-**Priority:** P2 | **Effort:** M | **Status:** intake built; acknowledgement verb built 2026-11-07, buttons not started
+**Priority:** P2 | **Effort:** M | **Status:** intake built; acknowledgement verb and buttons built 2026-11-07, a real button press not yet observed
 
 ---
 

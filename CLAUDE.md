@@ -838,6 +838,7 @@ slack-agent-bridge/
 │   ├── sqtools-alerts.js # WHICH emails are SqTools alerts (sender in SQTOOLS_ALERT_SENDERS AND a `[SqTools]` subject) and WHAT each is: a catalogue copied from SqTools' own subject templates (JTPets/SquareDashboardTool 0eef658), each with a severity (action / review / info / ok), a plain-language title and what to do next. A cycle count's severity comes from its "Discrepancies Found" line. An unknown subject is `unrecognised` and surfaced for review, never dropped. Pure
 │   ├── sqtools-alert-intake.js # The secretary's SqTools alert intake, run by lib/email-check.js on every successful fetch: SqTools emails bypass the generic rules, are recorded once by Gmail id in agents/secretary/memory/sqtools-alerts.json (gitignored), and new ones are posted to the secretary's channel (the email-monitor channel, saying why, when hers is not resolved). A failed post records nothing, so the next check retries it. Reports a SqTools daily heartbeat older than 26 h once per Toronto day. Each record carries `ack` (null until acknowledged); nagged alerts are re-posted here on each check through lib/sqtools-alert-ack.js, and the state is re-read after the post so an acknowledgement written meanwhile survives
 │   ├── sqtools-alert-ack.js # WORK-TODO #78, the verb half: `ASK: ack` lists the SqTools alerts waiting on the owner; `ack <id> silence|nag|close` records silence (never again), nag (re-posted every SQTOOLS_ALERT_NAG_MS until silenced or closed) or close for the Toronto day. An id is an unambiguous Gmail-id prefix; anything else is refused and nothing is written. An unacknowledged alert is never reminded. State through lib/sqtools-alert-intake.js readState/writeState
+│   ├── sqtools-alert-buttons.js # WORK-TODO #78, the button half: Silence / Nag me / Close today on each SqTools alert post, one row per alert that needs the owner, valued by that alert's FULL Gmail id (acknowledgement is per occurrence: a new email with the same subject is a new alert). A press (block_actions over the Socket Mode `interactive` seam, routed by bridge-agent.js) is allowlist-gated, acked first, recorded through lib/sqtools-alert-ack.js handleAck, and the pressed row on the post is replaced by the outcome. Never rejects
 │   ├── email-check-report.js # Whether a SUCCESSFUL inbox check posts, and what it says (decidePost, formatOkMessage). A scheduled check is QUIET unless something is flagged, the fetch was partial or rate-limited, there was a >90-minute gap since the previous check that day, or it is the first check of the Toronto day (the heartbeat that makes a stopped job visible). An on-demand `check-inbox` always posts. Split from lib/email-check.js 2026-10-02 after the owner called the half-hourly "Inbox check OK" posts spam
 │   ├── email-rate-limiter.js # Rate limiting for email-to-Slack pipeline: sliding window, cooldown, flood protection
 │   ├── boot-record.js    # The commit this process booted on, recorded once by bridge-agent.js (from lib/repo-history.js loadedCommit) so later readers in the same process, such as the jester's digest, report it instead of re-reading the working tree
@@ -983,6 +984,7 @@ slack-agent-bridge/
 │   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)
 │   ├── email-categorizer.test.js # Tests for lib/integrations/email-categorizer.js (categorization, rules)
 │   ├── sqtools-alerts.test.js   # Tests for lib/sqtools-alerts.js: the observed SqTools subjects that the generic rules misfiled, every action kind, an unknown subject surfaced not dropped, cycle-count severity from the body (unknown is not zero), and the catalogue's own shape
+│   ├── sqtools-alert-buttons.test.js # Tests for lib/sqtools-alert-buttons.js against real state files: a button row per alert needing the owner, valued by its full id; each press records what the typed verb records and updates the post; THE per-occurrence property (a silenced alert is never re-sent, a new email with the same subject is posted with its own buttons); refusals write nothing; Slack block limits; and the bridge-agent.js routing
 │   ├── sqtools-alert-ack.test.js # Tests for lib/sqtools-alert-ack.js against real state files: the post carries each alert's short id and the verb, list/silence/nag/close, every refusal writes nothing, a nag re-posts at most once per interval, close stops the day and nagging resumes the next Toronto day, a failed reminder is retried, an ack written while a post is in flight survives (fails without the re-read), and `ack <id> <action>` in an agent channel is refused rather than answered by a model
 │   ├── sqtools-alert-intake.test.js # Tests for lib/sqtools-alert-intake.js against temp state files: posted once to the secretary with the next step, a failed post records nothing and is retried, the fallback channel says why, liveness mail posts nothing, the heartbeat-quiet report, the wiring (SqTools mail never reaches the generic categorizer; a failed intake escalates) and the secretary's briefing lines
 │   ├── email-check.test.js      # Tests for lib/email-check.js: THE guard that an empty inbox and a failed check are distinguishable, that a failure escalates to a human, and that the module names no Gmail mutation API
@@ -1887,8 +1889,14 @@ ASK: ack <id> nag            # re-post it on inbox checks (every SQTOOLS_ALERT_N
 ASK: ack <id> close          # done for today; a nagged alert resumes tomorrow
 ```
 Typed in `#claude-bridge`; the alert post in the secretary's channel shows each id. An
-alert nobody acknowledged is posted once and never reminded. Buttons on the post are the
-rest of WORK-TODO #78 and need Slack Interactivity. `lib/sqtools-alert-ack.js`.
+alert nobody acknowledged is posted once and never reminded. **The post also carries
+Silence / Nag me / Close today buttons** for each alert that needs the owner
+(`lib/sqtools-alert-buttons.js`, 2026-11-07); a press records exactly what the verb records
+and replaces that alert's buttons with the outcome. Buttons need Socket Mode
+(`SLACK_APP_TOKEN`) and Interactivity on the Slack app, the same steps as `/dispatch`;
+without them a press does nothing and the verb still works. **Acknowledgement is per
+occurrence**, keyed by Gmail id: a new email with the same subject (the next backup
+failure) is a new alert and is posted. `lib/sqtools-alert-ack.js`.
 
 ### Channels vs Agents
 ```
