@@ -1930,7 +1930,10 @@ file. A suite that covers one subject stays one file whatever its length; its ex
 names the subject. A suite that covers several modules splits so each set can be run on
 its own. That leaves three splits:
 - `tests/llm-runner.test.js`: one suite per part of the B15 split (errors, defaults,
-  dispatch, the three adapters, fallback).
+  dispatch, the three adapters, fallback). **DONE 2026-11-07:** seven suites, the shared
+  setup in `tests/helpers/llm-runner-harness.js`; the 124 test titles are identical before
+  and after (compared from `jest --json`), and four of the seven are declared one-subject
+  exceptions in `lib/validate-exceptions.json`.
 - `tests/holidays.test.js`: one per part (public holidays, pet awareness, local date).
 - `tests/owner-tasks.test.js`: the store and the view.
 
