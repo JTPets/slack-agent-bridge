@@ -301,9 +301,22 @@ default 10, capped at 20 (`conversationTurns()`). All of these live in
 | Request exceeded the timeout | `timeout` |
 | Server refused the connection / unreachable | `connection_refused` |
 | Non-2xx response | `http_error` |
-| HTTP 429 or a rate-limit message | `rate_limit` |
+| HTTP 429 or a rate-limit / quota message | `rate_limit` |
+| HTTP 402, or a billing / prepaid-credit message under any status | `billing` |
+| HTTP 401 / 403, or an invalid-key message | `auth` |
 | 200 with empty output | `empty_output` |
 | 200 with unparseable or wrong-shaped output | `malformed_output` |
+
+**A billing failure is never a rate limit (WORK-TODO #79, 2026-11-07).** Both HTTP
+adapters classify a non-2xx answer through one function,
+`lib/llm-http-failure.js` `classifyHttpFailure`, which checks billing first: Gemini answers
+a depleted prepaid account with HTTP 402 **and** status `RESOURCE_EXHAUSTED`, and the old
+adapter read the second and reported "Gemini rate limit". A billing failure is a
+`BillingError` with no `isRateLimit` flag, its message says waiting will not fix it, the
+Claude CLI's "Credit balance is too low" is labelled the same way, and the morning digest
+groups it separately. Until 2026-11-07 the Gemini adapter tagged none of its other
+failures, so a Gemini 5xx was not a fallback trigger despite the table above. Guard:
+`tests/llm-http-failure.test.js`.
 
 An **unknown provider name is a configuration defect, not a fallback trigger** — it throws so the typo is visible rather than being masked by another engine.
 
@@ -749,7 +762,8 @@ slack-agent-bridge/
 │   ├── heartbeat.js      # Per-task progress reactions on the source Slack message: createHeartbeat().start() adds :eyes: then cycles HEARTBEAT_EMOJIS every 30s; .stop(success) clears them and adds the terminal :white_check_mark:/:x: (null = none, the rate-limit case). Every Slack call is try/caught — a heartbeat failure can never fail a task
 │   ├── git-identifiers.js # Boundary validation for Slack-controlled REPO:/BRANCH: values (isValidRepo, isValidBranch, assertValid*); *_PUNCTUATION + describeCharset() generate the rejection messages from the same character lists the patterns use
 │   ├── llm-runner.js     # LLM execution abstraction with provider adapters (claude, gemini, ollama), fallback chain, startup validation. Facade since 2026-10-05 (WORK-TODO #10): every name it exported, each the same object as in the seven modules below
-│   ├── llm-errors.js     # Rate-limit and bandwidth detection (isRateLimitError, the pattern lists), exit diagnostics (describeClaudeExit, signalFromExitCode), RateLimitError/BandwidthExhaustedError, and the fallback-reason tags
+│   ├── llm-errors.js     # Rate-limit and bandwidth detection (isRateLimitError, the pattern lists), exit diagnostics (describeClaudeExit, signalFromExitCode), RateLimitError/BandwidthExhaustedError, and the fallback-reason tags. Re-exports lib/llm-http-failure.js
+│   ├── llm-http-failure.js # WORK-TODO #79: THE classifier for a hosted model API's non-2xx answer (classifyHttpFailure: billing first, then rate_limit, auth, http_error), describeHttpFailure (a message naming the fix), isBillingError and BillingError (no isRateLimit flag). Used by the Gemini and Ollama adapters; the Claude adapter uses isBillingError. Pure
 │   ├── llm-defaults.js   # The LLM configuration read from the environment (provider, binary, turns, timeout, fallback chains, Ollama settings) and normalizeThink
 │   ├── llm-dispatch.js   # runLLM: one provider, one call, one recorded verdict. Its own module so lib/llm-fallback.js can call it without a require cycle through the facade
 │   ├── llm-adapter-claude.js # The Claude CLI adapter: prompt on stdin (MAX_ARG_STRLEN), the deadline kill and the 80% warning (WARN_AT_FRACTION)
@@ -899,6 +913,7 @@ slack-agent-bridge/
 │   ├── turn-budgets.test.js     # WORK-TODO #20: the task and conversation turn budgets under their own names (TURNS_CEILING, conversationTurns), and a source read pinning bridge-agent.js to them rather than literals. Carries its own negative controls
 │   ├── llm-runner.test.js       # Tests for lib/llm-runner.js
 │   ├── llm-runner-prompt-size.test.js # THE regression guard for the 2026-09-20 `spawn E2BIG` dispatch failure. It is the one suite here that spawns for REAL (against a stub binary written to a temp dir), because E2BIG is raised by execve and a mocked child_process will happily accept an argv entry of any size — which is exactly why no other suite caught it. Asserts the platform limit is where it is claimed to be, that a prompt at and well past MAX_ARG_STRLEN now runs with every byte delivered, that a realistic prompt carrying this repo's own CLAUDE.md runs, and that the prompt is no longer in argv at all
+│   ├── llm-http-failure.test.js # THE regression guard for WORK-TODO #79: the 2026-11-07 boot-log 402 ("Your prepayment credits are depleted", RESOURCE_EXHAUSTED) is a BillingError tagged billing, not a RateLimitError, with the pre-fix condition as the negative control; the classifier table; every Gemini failure tagged (5xx http_error, auth, network, empty); the Ollama adapter on the same classifier; the Claude CLI's credit message via a real stub binary; and the digest's billing group
 │   ├── llm-runner-exit-stdout.test.js # Regression test for the 2026-10-10 morning briefing reported as only "Exit code 1 (no stderr output)": the Claude CLI prints its own failure on STDOUT with stderr empty, and the adapter now carries the stdout tail in the error. Real spawn against a stub binary
 │   ├── llm-runner-deadline.test.js # The claude adapter's own deadline, against real stub binaries: a failed spawn at the DEFAULT timeout lets the process exit (it held the event loop 600 s before, WORK-TODO #58), the deadline still SIGTERMs into the interrupted path, and onDeadlineWarning fires once before the kill and never for a task that finishes first (#7)
 │   ├── claude-stream-watch.test.js # Tests for lib/claude-stream-watch.js (result and turn-limit extraction, plain-text passthrough, stall and loop alerts once each, stats) and the adapter wiring: report mode alerts and lets the run finish, enforce mode stops it, and a real stub binary emitting a looping stream is reported
