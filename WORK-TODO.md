@@ -92,6 +92,12 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-08** closing **#39** (B20: merge state on `what's queued`) those print **28** open items —
+**6** P1, **18** P2, **4** P3 — and no duplicate ID.
+
+On **2026-11-08** closing **#67** (B19: the pre-push id check) those print **29** open items —
+**6** P1, **19** P2, **4** P3 — and no duplicate ID.
+
 On **2026-11-07** closing **#76** (calendar and holiday days in Toronto time) those print **30** open
 items — **6** P1, **20** P2, **4** P3 — and no duplicate ID.
 
@@ -376,6 +382,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B6** | Deployment shape — repo halves of owner-side work | Done 2026-10-04: #70 (Dockerfile), #73 (compose proposals), #42 (c), #68 (venv half). Skipped: #59 (its own text sequences it after #17/#73), #17 (deploy shape is the owner's choice) | `Dockerfile`, `.dockerignore`, `docker-compose.example.yml`, `lib/python-venv.js`, `lib/backup-watch.js`, `scripts/backup-status.sh`, `docs/CONFIG-SURFACE-AND-REBUILD.md` | Each repo half is inert until the owner applies it on the NAS |
 | **B17** | Same-day fixes from the backlog pass | Done 2026-10-10: the Claude CLI's stdout reason on a failed exit and usage-limit fallback (608c515); the run watch for #59, report-only; #67 stopgap in the executor contract; #25, #40, #73, #75 closed from box output | `lib/llm-errors.js`, `lib/llm-adapter-claude.js`, `lib/claude-stream-watch.js`, `lib/llm-defaults.js`, `lib/deadline-warning.js`, `bridge-agent.js` (one option), `docker-compose.example.yml`, docs | Runtime code: the adapter now reads stream-json |
 | **B18** | Gemini error label, and code-only items riding along | Done 2026-11-07: #79 (filed and closed), #76 (closed), #78 `ack` verb, #14 retro highlights to story-bot, #10 Wave T `tests/llm-runner.test.js` split | `lib/llm-*.js`, `lib/time-format.js`, `lib/integrations/`, `lib/sqtools-alert-*.js`, `lib/command-router.js`, `lib/watercooler.js`, `lib/agent-context-voices.js`, `tests/` | Disjoint file sets; one commit per item, each with its own checks |
+| **B19-B22** | Four no-input batches, one commit each | Done 2026-11-08: #67 pre-push id check (closed, B19); #39 merge state on `what's queued` (closed, B20); #4 message events wake the poll (B21, Slack app step left); #10 Wave T finished: the holidays and owner-tasks suites split (B22) | `lib/backlog-id-check.js`, `scripts/backlog-id-check.js`, `lib/merge-state.js`, `lib/poll-wake.js`, `lib/slack-socket.js`, `bridge-agent.js` (status reply, socket seam), `tests/` | Disjoint files apart from `bridge-agent.js` (two separate regions) and `WORK-TODO.md` |
 | **OA** | Owner action only, nothing left in the repo | #41, #43, #70 (#25, #40, #73 closed 2026-10-10 from box output; #3, #26, #53, #55, #66 closed 2026-10-10 on live evidence; #52 closed 2026-10-10 on the `ASK: channels` output) | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
 | **B7** | Landed vs completed | Done 2026-10-04: #39 recording half (`work` on the queue row, shown in `what's queued`). Left: merge state | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/task-work.js` | `recordWork` writes no status and no verdict, so the #74 invariant holds unchanged (its suite passes untouched) |
 | **B8** | Small repo halves left after B7 | Done 2026-10-04: #62 (closed), #75 repo half. B9 (same day): `lib/repo-history.js` reads `Closes #N. Addresses #M` on one line as two claims, not two closes | `.gitignore`, `tests/gitignore-publishable.test.js`, `docker-compose.example.yml` | No runtime code |
@@ -432,7 +439,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
 | #7 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `onDeadlineWarning` at 80% posts `lib/deadline-warning.js` to ops; `tests/llm-runner-deadline.test.js`, `tests/deadline-warning.test.js` |
 | #8 | P2 | **CLOSED 2026-10-10** (purged) | SEED | — | Re-checked for duplicate runs: two dedup layers (done/failed reaction, `processed-tasks.json` by `ts`), a `TASK:` marked processed before it runs (`tests/task-rerun-guard.test.js`), one poll sweep at a time (`tests/poll-reentrancy.test.js`), and every re-read skip logged (`describeSkipReason`). A resubmission is a new message and runs, as intended |
-| #39 | P2 | Recording half DONE in B7; merge state OPEN | B7 | M | `lib/task-work.js` `describeWork` + `TaskQueue.recordWork` (writes `work` only, so the #74 invariant needed no change). Left: resolve merged-or-not from the remote, which D1/D2/D7 need |
+| #39 | P2 | **CLOSED 2026-11-08** (B20, purged) | B20 | M | Recording half B7 (`lib/task-work.js`); merge half `lib/merge-state.js`: each status query fetches the target repo's `main` into a bare cache under `$WORK_DIR/merge-check/` and asks `merge-base --is-ancestor` of each recent row's head. `what's queued` says merged / not on main yet / unknown. Guard `tests/merge-state.test.js` (real bare origin). A squash merge reads as not on main; nothing polls it yet (the loop, `docs/AUTONOMOUS-LOOP-DESIGN.md` part five) |
 | #40 | P2 | **CLOSED 2026-10-10** (purged) | OA | — | Owner ran `git status --short --untracked-files=no` in `/bridge` on 2026-10-10: no output, so no tracked file is modified |
 | #37 | P2 | decision | OD | S | `lib/notify-owner.js:165-168` returns `true` after only logging; HIGH is the default priority (`:147`) |
 | #64 | P2 | Refusal half DONE in B5; gate not lifted | — | M | A bare verb in an agent channel is refused with a pointer to `#claude-bridge`. Running verbs there waits on the capability model (#65, CAPABILITY-AND-ISOLATION-DESIGN) |
@@ -445,7 +452,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #53 | P2 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | `#jester-agent` was created 2026-09-15 and the critique has posted there every Friday since (latest 2026-10-09 18:00 EDT) |
 | #57 | P2 | Design record; stale constraint corrected in its body (B4) | OD | S | Constraint 1 says "the bridge pushes nothing". At HEAD `cloneRepo` points `origin` at SSH and sets `core.sshCommand` to the bridge's own deploy key (`lib/clone-lifecycle.js:173-190`), so the executor pushes with the bridge's key |
 | #59 | P2 | Report phase BUILT 2026-10-10; enforcement waits on data | B17 | M | `lib/claude-stream-watch.js` reports stalls and loops to `#sqtools-ops` and logs `[run-stats]` per run; nothing is stopped (owner: monitor first). Left: set thresholds from real runs, then `enforce` and remove turns (#15 folded in) |
-| #67 | P2 | Stopgap DONE 2026-10-10 | — | S | `docs/EXECUTOR-CONTRACT.md` now says to allocate from the max ID on `origin/main` and the branch, rechecked before push. Left: a pre-push check that fails on a collision |
+| #67 | P2 | **CLOSED 2026-11-08** (B19, purged) | B19 | S | `node scripts/backlog-id-check.js` (`lib/backlog-id-check.js`) fetches `origin main` before a push and exits 1 when a number the branch files is already on `main` under another title, or was used there and purged; the executor contract requires it. Guard `tests/backlog-id-check.test.js`. Not taken: either scheme change (allocate-at-merge, collision-proof keys); the window left is a push followed by `main` moving before the merge |
 | #58 | P3 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | The adapter owns its deadline; timers cleared on `error`. `tests/llm-runner-deadline.test.js` |
 | #60 | P3 | **CLOSED 2026-10-10** (moved, purged) | OD | — | Text moved to `docs/CAPABILITY-AND-ISOLATION-DESIGN.md` §9, so the shape survives the purge |
 | #48 | P3 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Rule moved to `CLAUDE.md` → Local LLM (Ollama) provider |
@@ -586,7 +593,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (20)
+**P2 — real gaps, no risk to the running process** (18)
 
 - **#78** — [SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one](#78-sqtools-alerts-reach-the-secretary-but-the-owner-cannot-acknowledge-silence-or-be-nagged-about-one)
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
@@ -598,7 +605,6 @@ work behind an owner's name, which is the opposite of the point.
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
 - **#5** — [Mid-task `ask_on_slack` capability](#5-mid-task-ask_on_slack-capability)
 - **#6** — [Structured task result format](#6-structured-task-result-format)
-- **#39** — [The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged](#39-the-queue-cannot-tell-a-completed-task-from-a-landed-one--nothing-here-knows-whether-a-branch-merged)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
 - **#64** — [A verb typed in an agent's channel is answered by a model as conversation — the same text behaves differently depending on where it is typed](#64-a-verb-typed-in-an-agents-channel-is-answered-by-a-model-as-conversation--the-same-text-behaves-differently-depending-on-where-it-is-typed)
 - **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
@@ -607,7 +613,6 @@ work behind an owner's name, which is the opposite of the point.
 - **#51** — [A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it](#51-a-command-that-writes-a-tracked-file-is-destroyed-by-the-next-pull-and-every-configuration-writing-command-shares-it)
 - **#57** — [Before the bridge is given a private-repo credential — the constraints, not the plan](#57-before-the-bridge-is-given-a-private-repo-credential--the-constraints-not-the-plan)
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
-- **#67** — [IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide](#67-ids-are-allocated-at-write-time-from-an-append-only-list-so-two-branches-cut-from-the-same-base-always-collide)
 
 **P3 — nice to have / uncertain ROI** (4)
 
@@ -1049,6 +1054,20 @@ way: an interval tick during a long `ASK:` answer used to start a second concurr
 `TASK:` still waits for the next tick. What remains is this item's namesake, moving message
 intake to the socket, which stays parked for the reason above. **Triage suggestion stands:
 P3** — what is left is latency, not a defect; owner's call.
+
+**B21, 2026-11-08 — event triggers built, as a wake-up rather than a second intake.** The
+socket now subscribes to `message`; the handler acks and passes on the channel id only
+(`lib/poll-wake.js` `messageSignalHandler`), and `createPollWake` starts one coalesced
+`pollNow` ~1.5 s later for a channel in the poll set. So a typed `TASK:`/`ASK:` starts
+within seconds while `poll()` stays the one reader, with its dedup, allowlist and skip
+logging, and the parked risk above (the task that repairs intake arriving through the new
+path) does not arise: a dead socket costs the old 30 s, nothing more. Guards
+`tests/poll-wake.test.js`, and `tests/slack-socket.test.js`, whose "no message event" guard
+was **widened to admit `message`** with a replacement check that the handler reads nothing
+but `event.channel`. **Remaining (owner):** Slack app -> Event Subscriptions on, bot event
+`message.channels`, save/reinstall; deploy; then a typed `TASK:` whose "Task found" log line
+comes within a few seconds of its message closes this. Polling is not removed: it is the
+fallback that makes the event path safe to have.
 ---
 
 ### 43. A flattened dispatch loses its fields — the connection for the fix exists, the command does not
@@ -1950,7 +1969,13 @@ its own. That leaves three splits:
   and after (compared from `jest --json`), and four of the seven are declared one-subject
   exceptions in `lib/validate-exceptions.json`.
 - `tests/holidays.test.js`: one per part (public holidays, pet awareness, local date).
+  **DONE 2026-11-08 (B22):** `tests/holidays-public.test.js`, `tests/pet-awareness.test.js`,
+  `tests/local-date.test.js`, and the facade's own `tests/holidays.test.js`.
 - `tests/owner-tasks.test.js`: the store and the view.
+  **DONE 2026-11-08 (B22):** `tests/owner-tasks-store.test.js` and `tests/owner-tasks.test.js` (the
+  view). For both splits the 80 test titles are identical before and after (compared from
+  `jest --json`); `holidays-public` and `owner-tasks-store` are declared one-subject exceptions.
+  **Wave T is finished.**
 
 `tests/integration.test.js`, `tests/bug-fixes.test.js` and `tests/smoke.test.js` reach many
 modules by design, but each has one job (wiring, the regression catalogue, the load gate),
@@ -2082,62 +2107,6 @@ shape.
 already extracts test pass/fail counts (`lib/code-review-pipeline.js:348-353`) — build on
 that rather than re-parsing.
 **Effort:** Medium.
-**Priority:** P2 | **Effort:** Medium | **Status:** open
-
----
-
-### 39. The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged
-**Filed 2026-09-14,** from the autonomous-loop design
-([`docs/AUTONOMOUS-LOOP-DESIGN.md`](docs/AUTONOMOUS-LOOP-DESIGN.md) section 4, part five).
-
-**Verified at HEAD.** The queue row is created with exactly these fields and no others:
-```bash
-grep -n "const queuedTask = {" -A 14 lib/task-queue.js
-# -> id, msgTs, channelId, text, description, repo, status, enqueuedAt, startedAt,
-#    completedAt, error
-grep -rniE "merged|landed|pull_?request|isMerged" --include='*.js' lib/ bridge-agent.js | grep -v node_modules
-# -> nothing about merges; the only hits are the word "branch" used for control flow
-```
-There is no branch field, no commit field and no merge field anywhere in the queue or its
-callers. A task reaches `completed` when the executor's process exits successfully, which
-says the work was **done**, not that it **landed**.
-
-**Why that matters beyond tidiness.** `formatStatusResponse` answers `ASK: what's queued`
-from these rows, so "completed" in Slack means "the agent stopped", and an executor that
-committed without pushing, or pushed a branch nobody merged, reports identically to one
-whose work is on `main`. `detectUndeliveredWork` (`lib/clone-lifecycle.js`) catches the
-*unpushed* case and alerts — but a pushed, unmerged branch is delivered by its definition
-and correct by it, and is still not landed.
-
-**It blocks the loop outright.** Decisions D1, D2 and D7 of the loop design all turn on
-"has this merged?": the merge gate, the post-merge suite run against `main`, and the
-preemption of queued work by a fix task about *merged* code. None can be built on a
-completed/landed distinction that does not exist.
-
-**Compounded by, but separate from, #17.** #17 records that nothing can answer which
-commit the running process is on. That is "merged vs deployed"; this is "completed vs
-merged". Both would have to be answerable for a loop to close, and neither is.
-
-**B7, 2026-10-04 — the recording half is done; merge state is not.** `processTask` reads
-the clone's HEAD right after cloning and, in its `finally` before the clone can be deleted,
-records `describeWork()` (`lib/task-work.js`) on the queue row via `TaskQueue.recordWork()`:
-the branch, the head commit, how many commits the task added, and which `refs/heads/*` on
-the REMOTE have that commit as their tip (`git ls-remote`, never the `--single-branch`
-clone). `ASK: what's queued` shows it on each recent row, e.g. `feature/x` @ `abc1234`,
-2 new commit(s), on remote as feature/x, or NOT on the remote. An unreachable remote is
-"remote not checked", never "not on the remote". `recordWork` writes the `work` field
-only, never a status or a delivery verdict, so `tests/task-queue-delivery-invariant.test.js`
-passes unchanged; `_startRunning` clears `work` with the verdict. Guard:
-`tests/task-work.test.js` (real bare origin and clone; 6 of its 14 tests fail with the
-queue and bridge-agent.js changes reverted). **Still open:** whether that branch MERGED —
-that needs the remote's `main` checked against the recorded sha over time, which decisions
-D1, D2 and D7 depend on. Hence `Addresses`, not `Closes`.
-
-**Fix (shape, not chosen):** record the branch and head SHA on the queue row when the task
-pushes, then resolve merge state from the remote. Whatever does the resolving must ask the
-remote, not the scratch clone — `detectUndeliveredWork`'s own comment explains why
-(`--single-branch` clones have no `origin/feature/*` ref, so a local-only check reads a
-pushed branch as unpushed).
 **Priority:** P2 | **Effort:** Medium | **Status:** open
 
 ---
@@ -2498,81 +2467,6 @@ the ceiling should *be*. Both touch `lib/task-parser.js`; neither subsumes the o
 **Not decided here:** the value of N, the wall-clock bound, or what counts as a "checkpoint".
 
 ---
-
-### 67. IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide
-
-**Filed 2026-09-20** (this working session; no prior heading — `git log -S'IDs are allocated at WRITE time' -- WORK-TODO.md` returns only the commit that adds this item).
-
-**Priority:** P2 | **Effort:** small if the answer is a check; unbounded if the answer is a scheme change | **Status:** OPEN — class recorded with three observed instances, nothing implemented
-
-**The mechanism.** "The next ID" is `max(existing) + 1`, read by eye from this file at the
-moment an item is written. Two branches cut from the same base therefore read the same
-maximum and allocate the same numbers, and neither can see the other. Nothing detects it
-until they meet. The duplicate-ID command in "Counts — as commands, not figures" is the
-detector, and it runs **after** the collision exists, not before it.
-
-```bash
-# the allocator, such as it is — the largest ID currently in the file
-grep -oE '^### [0-9]+' WORK-TODO.md | grep -oE '[0-9]+' | sort -n | tail -1
-# the detector, which only fires once both sides are in one tree
-grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
-```
-
-**Three observed instances. Two in this repository, one in the other, all within five days.**
-
-1. **`### 43.` — 2026-09-15.** Two items shared the number: the P1 "A flattened dispatch
-   loses its fields" and a P2 "`getRecentCompleted` sorts by a millisecond timestamp". It
-   was resolved by **closure**, not renumbering — the P2 was fixed and purged, so one
-   `### 43.` remained. Recorded in the "Counts" section above, whose own words are *"the
-   cause is not fixed"*. Regenerate: `git log --oneline -S'The \`### 43.\` collision is resolved' -- WORK-TODO.md`
-   → `3d7ad70`.
-
-2. **`### 57.`–`### 61.` — 2026-09-16 / 2026-09-20, five numbers at once.** Both branches
-   were cut from `cdb5afd` (2026-09-15), whose highest ID was **56**.
-   `claude/brave-cannon-d9lev7` filed 57–61 (`d2288cf`, `115b059`) and merged to `main`;
-   `claude/blissful-ritchie-6mmwoi` filed 57–61 (`34a3c9a`, `38de61a`, `09ac630`) and did
-   not. Resolved by renumbering the unmerged side to **62–66** during the rebase that adds
-   this item — `main`'s addresses win, because they are already cited elsewhere. Regenerate:
-
-   ```bash
-   git merge-base origin/main <the-unmerged-branch>          # -> cdb5afd
-   git show cdb5afd:WORK-TODO.md | grep -oE '^### [0-9]+' | grep -oE '[0-9]+' | sort -n | tail -1   # -> 56
-   ```
-
-3. **SqTools `BACKLOG-408` / `BACKLOG-409` — 2026-09-20, the same day as instance 2.**
-   **Cited as prior art from the other repository, not as something this repo owns or can
-   verify.** It matters only because it establishes the class is not a property of this
-   file's conventions: the same allocator, in a differently-formatted backlog, produced the
-   same failure on the same day.
-
-**Why "the duplicate-ID check is the guard" is not an answer.** It is a *detector*, and it
-detects at merge time — by which point both sides have bodies, cross-references and commit
-messages citing the colliding numbers. Instance 2 cost a reverse-map proof over 243 lines to
-show the renumber changed no content. A detector that fires after the cost has been incurred
-has not prevented anything.
-
-**Two shapes, neither chosen here.**
-
-- **Allocate at merge rather than at write.** A branch files items with a placeholder and
-  the number is assigned when it lands. Removes the collision entirely; costs every
-  in-branch cross-reference the ability to name its target, and every commit body the
-  ability to say `Closes <ID>` before the merge — which is exactly the claim the contract
-  requires. That trade is the whole decision and it is not obvious.
-- **Key items by something that cannot collide** (a slug, a date-ordinal, the filing
-  commit's short SHA). Removes the collision and keeps in-branch citability; costs the
-  property the file's own header calls load-bearing — *"the number is only an address for
-  cross-references"* — because addresses stop being orderable by eye, and every existing
-  `#NN` reference in this file, in `docs/`, and in commit history would then name a scheme
-  that no longer allocates.
-
-**A third, cheaper, and not a fix:** a pre-flight step in the executor contract — fetch
-`origin/main` and re-read the maximum immediately before writing a heading. It narrows the
-window to the length of one branch; it does not close it, because the window *is* the
-branch. Worth recording so it is not mistaken for a solution.
-
-**Not decided here, and deliberately not implemented:** which shape, whether the existing
-`#NN` addresses are migrated or grandfathered, and whether the problem is worth a scheme
-change at this rate of collision.
 
 ## P3 — Nice to have / uncertain ROI
 

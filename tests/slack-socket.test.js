@@ -546,11 +546,22 @@ describe('the wiring in bridge-agent.js', () => {
             'utf8'
         );
         const subscriptions = [...socketSource.matchAll(/client\.on\(\s*'([a-z_]+)'/g)].map((m) => m[1]);
+        // LOGIC CHANGE 2026-11-08 (WORK-TODO #4): 'message' joins the allowed set as a
+        // WAKE-UP, and this guard is widened to admit it, deliberately and with a
+        // replacement check. The claim is unchanged — no message intake — and it is now
+        // carried by asserting what the handler can see: it is messageSignalHandler,
+        // which reads `event.channel` and nothing else from the event (below, and
+        // behaviourally in tests/poll-wake.test.js). The poll loop still reads the text.
         expect(subscriptions.sort()).toEqual(
-            ['connected', 'disconnected', 'reconnecting', 'slash_commands', 'interactive'].sort()
+            ['connected', 'disconnected', 'reconnecting', 'slash_commands', 'interactive', 'message'].sort()
         );
+        expect(socketSource).toMatch(/client\.on\('message', guarded\(messageSignalHandler\(onMessageSignal, logger\)\)\)/);
+        const wakeSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'poll-wake.js'), 'utf8');
+        const handler = wakeSource.slice(wakeSource.indexOf('function messageSignalHandler('));
+        const body = handler.slice(0, handler.indexOf('\n}\n'));
+        expect([...body.matchAll(/event\.([a-z_]+)/g)].map((m) => m[1])).toEqual(['channel', 'channel']);
+        expect(body).not.toMatch(/processTask|processConversation|markTaskProcessed|chat\.|\.text\b|\.user\b|\.ts\b/);
         for (const messageEvent of [
-            'message',
             'app_mention',
             'message_changed',
             'message_replied',

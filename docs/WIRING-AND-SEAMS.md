@@ -457,6 +457,10 @@ keeps arriving.
 
 ## 7. The Socket Mode connection — additive, commands only (2026-09-14)
 
+> **2026-11-08 (WORK-TODO #4):** the connection also subscribes to `message`, as a wake-up
+> only: the handler passes on the channel id and `lib/poll-wake.js` starts one coalesced
+> poll. Message intake is still the poll loop's alone. See CLAUDE.md -> Socket Mode.
+
 `lib/slack-socket.js` opens one Socket Mode WebSocket. **It is not an entry point** — it
 has no `main()` and nothing starts it on its own; `bridge-agent.js` starts it, which is
 the distinction section 1 exists to make.

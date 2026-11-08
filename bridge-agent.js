@@ -206,6 +206,7 @@ const { redact } = require('./lib/redact-secrets');
 // docs/WIRING-AND-SEAMS.md. Pure fs/execFileSync helpers with no bridge state.
 const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-lifecycle');
 const { headSha, describeWork, formatWork } = require('./lib/task-work');
+const { resolveMergeStates, formatMergeState } = require('./lib/merge-state');
 const { formatPreservedCloneAlert } = require('./lib/preserved-clone-alert');
 const { describeTaskStateDivergence } = require('./lib/task-state-divergence');
 const repoHistory = require('./lib/repo-history');
@@ -234,6 +235,7 @@ const { DEFAULT_CLAUDE_BIN } = require('./lib/llm-defaults');
 const { handleSlashCommand, handleViewSubmission } = require('./lib/dispatch-command');
 // LOGIC CHANGE 2026-11-07 (WORK-TODO #78): SqTools alert buttons share the interactive seam.
 const sqtoolsAlertButtons = require('./lib/sqtools-alert-buttons');
+const { createPollWake } = require('./lib/poll-wake');
 
 // ---- Config ----
 
@@ -1416,7 +1418,9 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
 // and last 5 completed tasks with elapsed time.
 // LOGIC CHANGE 2026-03-26: Added rate limit status display when queue is paused.
 // LOGIC CHANGE 2026-04-01: Updated to use task queue for more accurate status.
-function formatStatusResponse() {
+// LOGIC CHANGE 2026-11-08 (WORK-TODO #39): takes the merge state of each recent row,
+// resolved by the caller (lib/merge-state.js) because asking the remote is async.
+function formatStatusResponse(mergeStates = new Map()) {
   // Use task queue for current status (more accurate than memory)
   const queue = taskQueue.getQueue();
   const queueStatus = queue.getStatus();
@@ -1472,7 +1476,7 @@ function formatStatusResponse() {
         : task.status === 'interrupted' ? '⚠️'
         : '❌';
       // LOGIC CHANGE 2026-10-04 (WORK-TODO #39): with the branch and commit it left.
-      response += `• ${timeStr} ${emoji} ${task.description || 'No description'} (${task.status})${formatWork(task.work)}\n`;
+      response += `• ${timeStr} ${emoji} ${task.description || 'No description'} (${task.status})${formatWork(task.work)}${formatMergeState(mergeStates.get(task.id))}\n`;
     }
   } else {
     // Fall back to memory history if queue is empty
@@ -1598,7 +1602,15 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
     // Only bridge agent handles status queries (they're global to the system).
     if (sourceChannel === BRIDGE_CHANNEL && isStatusQuery(questionText)) {
       console.log(`[${agentId}] Status query detected: ${msg.ts}`);
-      const statusResponse = formatStatusResponse();
+      // LOGIC CHANGE 2026-11-08 (WORK-TODO #39): say whether each recent task's commit
+      // reached main. A failure here costs the merge column, never the reply.
+      let mergeStates = new Map();
+      try {
+        mergeStates = await resolveMergeStates(taskQueue.getQueue().getRecentCompleted(5), { workDir: WORK_DIR });
+      } catch (e) {
+        console.error(`[${agentId}] Merge state unavailable: ${e.message}`);
+      }
+      const statusResponse = formatStatusResponse(mergeStates);
       await slack.chat.postMessage({
         channel: sourceChannel,
         thread_ts: msg.ts,
@@ -2093,6 +2105,11 @@ function describeSkipReason(msg) {
   if (isTaskProcessed(msg.ts)) return 'unprefixed message already recorded in processed-tasks.json';
   return 'unprefixed message rejected by isNaturalConversationMessage';
 }
+
+// LOGIC CHANGE 2026-11-08 (WORK-TODO #4): a Socket Mode `message` event in a polled
+// channel starts one poll ~1.5 s later (coalesced), so a typed TASK:/ASK: no longer
+// waits for the next tick. The event is a wake-up only; poll() still reads the message.
+const pollWake = createPollWake({ trigger: pollNow, watchedChannels: () => channelsToPoll });
 
 // LOGIC CHANGE 2026-10-04 (WORK-TODO #4, cheap half): one sweep at a time.
 // Before this, the only re-entrancy check was `isRunning`, which is set around a
@@ -2826,6 +2843,8 @@ let socketMode = null;
         // falls back to lib/task-parser.js's own DEFAULT_GITHUB_ORG, so the generator
         // and the parser cannot disagree about which org a bare repo name belongs to.
       })),
+    // LOGIC CHANGE 2026-11-08 (WORK-TODO #4): THE WAKE SEAM. A channel id, nothing else.
+    onMessageSignal: (channel) => pollWake.wake(channel),
   })
     .then((handle) => {
       socketMode = handle;

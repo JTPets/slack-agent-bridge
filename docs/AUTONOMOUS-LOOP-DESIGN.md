@@ -247,6 +247,14 @@ calls are proposed and stopped on. See §5.
 
 ### Part five — knowledge of merge state. **Not built. This is the blocker.**
 
+> **Built 2026-11-08 (WORK-TODO #39, closed).** Each repo task's queue row records its
+> branch and head commit (`lib/task-work.js`, 2026-10-04), and `lib/merge-state.js`
+> `resolveMergeStates()` answers "has that commit reached `main`?" from the remote on
+> demand: merged / not on main yet / unknown. `ASK: what's queued` shows it. #17's half is
+> answered at boot (the running commit is posted). What part five still does not have is a
+> trigger: nothing polls merge state and moves a row to `verifying-main`; that is the
+> loop itself. The rest of this section is the 2026-09-14 record of the gap.
+
 The loop's central transition is `merging → verifying-main`, and **nothing in this system
 knows whether a branch merged.** The task queue's row is created by `enqueue()`
 (`lib/task-queue.js`) with `{ id, msgTs, channelId, text, description, repo, status,
