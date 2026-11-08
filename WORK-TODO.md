@@ -2466,6 +2466,8 @@ the ceiling should *be*. Both touch `lib/task-parser.js`; neither subsumes the o
 
 **Not decided here:** the value of N, the wall-clock bound, or what counts as a "checkpoint".
 
+**Observed 2026-11-08 (owner paste from the NAS, point-in-time; regenerate with `docker logs --since 168h jt-agent 2>&1 | grep "\[run-stats\]" | tail -40`):** 8 runs since the 2026-11-07 recreate (secretary 3, security 2, story-bot 2, bridge 1). Seven finished in 6-25 s with a longest quiet gap of 9.1 s or less. One secretary run was quiet for 810,827 ms (about 13.5 min) with 0 tool calls and 2 turns, raised the stall alert, and still exited 0 after 834.9 s: a 10-minute stall cut-off in enforce mode would have killed a run that succeeded. No loop: the longest repeat of one tool call was 1. Total cost about $0.49. No long code task is in the sample, so `TASK_LIMITER_MODE` stays `report` and no threshold is set from this; re-sample after a week that includes one.
+
 ---
 
 ## P3 — Nice to have / uncertain ROI
