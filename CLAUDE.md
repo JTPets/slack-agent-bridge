@@ -938,7 +938,8 @@ slack-agent-bridge/
 │   ├── deadline-warning.test.js # The 80% warning's text, and that processTask's runWithFallback call passes onDeadlineWarning posting it to ops (read from bridge-agent.js's source). Carries a negative control
 │   ├── memory-tiers.test.js     # Tests for lib/memory-tiers.js (TTL, auto-promote, cleanup)
 │   ├── message-detection.test.js # Tests for isTaskMessage/isConversationMessage
-│   ├── owner-tasks.test.js      # Tests for lib/owner-tasks.js (checklists, pending tasks)
+│   ├── owner-tasks.test.js      # Tests for the view half of lib/owner-tasks.js (extractActionRequired, isOwnerTasksQuery, formatPendingTasks)
+│   ├── owner-tasks-store.test.js # Tests for lib/owner-tasks-store.js through the facade (checklists, pending tasks, completion, readiness). Split from owner-tasks.test.js 2026-11-08 (WORK-TODO #10 Wave T)
 │   ├── notify-owner.test.js     # Tests for lib/notify-owner.js (priority routing, secretary-vs-DM fallback, redaction)
 │   ├── retry-logic.test.js      # Tests for auto-retry on max turns behavior
 │   ├── heartbeat.test.js        # Tests for lib/heartbeat.js (emoji cycle, terminal reaction, failures never propagate)
@@ -986,7 +987,10 @@ slack-agent-bridge/
 │   ├── digest-failures.test.js  # Regression tests for WORK-TODO #31: an error that merely mentions a rate limit is not filed as one, and no digest line promises an automatic retry or re-queue that does not happen
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
 │   ├── catalog-search.test.js   # Tests for lib/integrations/catalog-search.js (fuzzy matching: exact, partial, misspelling, no-match)
-│   ├── holidays.test.js         # Tests for lib/integrations/holidays.js (API, pet dates, caching)
+│   ├── holidays.test.js         # Tests for the facade lib/integrations/holidays.js (getTodaySpecialDates, the export surface)
+│   ├── holidays-public.test.js  # Tests for lib/integrations/holidays-public.js (the Nager.Date client with https mocked, its cache, the Ontario filter). This and the two below were tests/holidays.test.js until 2026-11-08 (WORK-TODO #10 Wave T)
+│   ├── pet-awareness.test.js    # Tests for lib/integrations/pet-awareness.js (the date list and its lookups)
+│   ├── local-date.test.js       # Tests for lib/integrations/local-date.js (parseDate, formatDate)
 │   ├── gmail.test.js            # Tests for lib/integrations/gmail.js (OAuth, email parsing, API)
 │   ├── email-categorizer.test.js # Tests for lib/integrations/email-categorizer.js (categorization, rules)
 │   ├── sqtools-alerts.test.js   # Tests for lib/sqtools-alerts.js: the observed SqTools subjects that the generic rules misfiled, every action kind, an unknown subject surfaced not dropped, cycle-count severity from the body (unknown is not zero), and the catalogue's own shape

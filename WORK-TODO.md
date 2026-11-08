@@ -382,6 +382,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B6** | Deployment shape — repo halves of owner-side work | Done 2026-10-04: #70 (Dockerfile), #73 (compose proposals), #42 (c), #68 (venv half). Skipped: #59 (its own text sequences it after #17/#73), #17 (deploy shape is the owner's choice) | `Dockerfile`, `.dockerignore`, `docker-compose.example.yml`, `lib/python-venv.js`, `lib/backup-watch.js`, `scripts/backup-status.sh`, `docs/CONFIG-SURFACE-AND-REBUILD.md` | Each repo half is inert until the owner applies it on the NAS |
 | **B17** | Same-day fixes from the backlog pass | Done 2026-10-10: the Claude CLI's stdout reason on a failed exit and usage-limit fallback (608c515); the run watch for #59, report-only; #67 stopgap in the executor contract; #25, #40, #73, #75 closed from box output | `lib/llm-errors.js`, `lib/llm-adapter-claude.js`, `lib/claude-stream-watch.js`, `lib/llm-defaults.js`, `lib/deadline-warning.js`, `bridge-agent.js` (one option), `docker-compose.example.yml`, docs | Runtime code: the adapter now reads stream-json |
 | **B18** | Gemini error label, and code-only items riding along | Done 2026-11-07: #79 (filed and closed), #76 (closed), #78 `ack` verb, #14 retro highlights to story-bot, #10 Wave T `tests/llm-runner.test.js` split | `lib/llm-*.js`, `lib/time-format.js`, `lib/integrations/`, `lib/sqtools-alert-*.js`, `lib/command-router.js`, `lib/watercooler.js`, `lib/agent-context-voices.js`, `tests/` | Disjoint file sets; one commit per item, each with its own checks |
+| **B19-B22** | Four no-input batches, one commit each | Done 2026-11-08: #67 pre-push id check (closed, B19); #39 merge state on `what's queued` (closed, B20); #4 message events wake the poll (B21, Slack app step left); #10 Wave T finished: the holidays and owner-tasks suites split (B22) | `lib/backlog-id-check.js`, `scripts/backlog-id-check.js`, `lib/merge-state.js`, `lib/poll-wake.js`, `lib/slack-socket.js`, `bridge-agent.js` (status reply, socket seam), `tests/` | Disjoint files apart from `bridge-agent.js` (two separate regions) and `WORK-TODO.md` |
 | **OA** | Owner action only, nothing left in the repo | #41, #43, #70 (#25, #40, #73 closed 2026-10-10 from box output; #3, #26, #53, #55, #66 closed 2026-10-10 on live evidence; #52 closed 2026-10-10 on the `ASK: channels` output) | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
 | **B7** | Landed vs completed | Done 2026-10-04: #39 recording half (`work` on the queue row, shown in `what's queued`). Left: merge state | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/task-work.js` | `recordWork` writes no status and no verdict, so the #74 invariant holds unchanged (its suite passes untouched) |
 | **B8** | Small repo halves left after B7 | Done 2026-10-04: #62 (closed), #75 repo half. B9 (same day): `lib/repo-history.js` reads `Closes #N. Addresses #M` on one line as two claims, not two closes | `.gitignore`, `tests/gitignore-publishable.test.js`, `docker-compose.example.yml` | No runtime code |
@@ -1968,7 +1969,13 @@ its own. That leaves three splits:
   and after (compared from `jest --json`), and four of the seven are declared one-subject
   exceptions in `lib/validate-exceptions.json`.
 - `tests/holidays.test.js`: one per part (public holidays, pet awareness, local date).
+  **DONE 2026-11-08 (B22):** `tests/holidays-public.test.js`, `tests/pet-awareness.test.js`,
+  `tests/local-date.test.js`, and the facade's own `tests/holidays.test.js`.
 - `tests/owner-tasks.test.js`: the store and the view.
+  **DONE 2026-11-08 (B22):** `tests/owner-tasks-store.test.js` and `tests/owner-tasks.test.js` (the
+  view). For both splits the 80 test titles are identical before and after (compared from
+  `jest --json`); `holidays-public` and `owner-tasks-store` are declared one-subject exceptions.
+  **Wave T is finished.**
 
 `tests/integration.test.js`, `tests/bug-fixes.test.js` and `tests/smoke.test.js` reach many
 modules by design, but each has one job (wiring, the regression catalogue, the load gate),

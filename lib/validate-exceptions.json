@@ -110,9 +110,9 @@
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for lib/slack-socket.js — the additivity contract, every failure mode resolving inert, outage and recovery reporting. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
     },
     {
-      "path": "tests/holidays.test.js",
-      "lines_when_declared": 564,
-      "reason": "TO SPLIT (owner decision 2026-10-10, #44: one suite per module; WORK-TODO #10 Wave T). Test suite for lib/integrations/holidays.js — the API, the pet-awareness dates and caching. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
+      "path": "tests/holidays-public.test.js",
+      "lines_when_declared": 349,
+      "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Split out of tests/holidays.test.js on 2026-11-08 (WORK-TODO #10 Wave T), one suite per module. Its subject is the public-holiday client (lib/integrations/holidays-public.js): the Nager.Date request, its cache and the Ontario filter. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions."
     },
     {
       "path": "tests/task-queue.test.js",
@@ -170,9 +170,9 @@
       "reason": "JUSTIFIED. Under the limit on code (282). 130 lines are the INJECTION_PATTERNS catalogue and the rationale for each pattern — a security-relevant enumeration whose comments are the point of it."
     },
     {
-      "path": "tests/owner-tasks.test.js",
-      "lines_when_declared": 451,
-      "reason": "TO SPLIT (owner decision 2026-10-10, #44: one suite per module; WORK-TODO #10 Wave T). Test suite for lib/owner-tasks.js and lib/owner-tasks-store.js — checklists and pending tasks. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
+      "path": "tests/owner-tasks-store.test.js",
+      "lines_when_declared": 345,
+      "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Split out of tests/owner-tasks.test.js on 2026-11-08 (WORK-TODO #10 Wave T), one suite per module. Its subject is the activation-checklist store (lib/owner-tasks-store.js): load, save, pending tasks, completion and readiness. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions."
     },
     {
       "path": "tests/email-rate-limiter.test.js",
