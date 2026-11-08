@@ -235,6 +235,7 @@ const { DEFAULT_CLAUDE_BIN } = require('./lib/llm-defaults');
 const { handleSlashCommand, handleViewSubmission } = require('./lib/dispatch-command');
 // LOGIC CHANGE 2026-11-07 (WORK-TODO #78): SqTools alert buttons share the interactive seam.
 const sqtoolsAlertButtons = require('./lib/sqtools-alert-buttons');
+const { createPollWake } = require('./lib/poll-wake');
 
 // ---- Config ----
 
@@ -2105,6 +2106,11 @@ function describeSkipReason(msg) {
   return 'unprefixed message rejected by isNaturalConversationMessage';
 }
 
+// LOGIC CHANGE 2026-11-08 (WORK-TODO #4): a Socket Mode `message` event in a polled
+// channel starts one poll ~1.5 s later (coalesced), so a typed TASK:/ASK: no longer
+// waits for the next tick. The event is a wake-up only; poll() still reads the message.
+const pollWake = createPollWake({ trigger: pollNow, watchedChannels: () => channelsToPoll });
+
 // LOGIC CHANGE 2026-10-04 (WORK-TODO #4, cheap half): one sweep at a time.
 // Before this, the only re-entrancy check was `isRunning`, which is set around a
 // TASK: and NOT around an ASK: answer. So a setInterval tick that landed while an ASK:
@@ -2837,6 +2843,8 @@ let socketMode = null;
         // falls back to lib/task-parser.js's own DEFAULT_GITHUB_ORG, so the generator
         // and the parser cannot disagree about which org a bare repo name belongs to.
       })),
+    // LOGIC CHANGE 2026-11-08 (WORK-TODO #4): THE WAKE SEAM. A channel id, nothing else.
+    onMessageSignal: (channel) => pollWake.wake(channel),
   })
     .then((handle) => {
       socketMode = handle;

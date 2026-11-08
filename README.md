@@ -27,7 +27,7 @@ A Slack bot that executes coding tasks via Claude Code CLI—post a task, get a 
 │  └────────┬────────┘                      └────────▲────────┘       │
 └───────────│────────────────────────────────────────│────────────────┘
             │ poll (the only message path)           │ post results
-            │ + Socket Mode WebSocket: commands only │
+            │ + Socket Mode: commands + poll wake-up │
             ▼                                        │
 ┌───────────────────────────────────────────────────────────────────┐
 │                       BRIDGE AGENT (Node.js)                       │
@@ -139,11 +139,14 @@ The agent responds directly without cloning any repo.
 | `SLACK_APP_TOKEN` | - | App-level token (`xapp-`) for the additive Socket Mode connection. Unset = Socket Mode off, which is a supported state — see below |
 | `SOCKET_MODE_DOWN_ALERT_MS` | `300000` | How long the Socket Mode connection may be down before `#sqtools-ops` is told |
 
-### Socket Mode (slash commands only — additive)
+### Socket Mode (slash commands, plus a poll wake-up — additive)
 
 `lib/slack-socket.js` opens one Socket Mode WebSocket for **slash commands**. It does
-**not** carry messages: the HTTP poll loop is unchanged and is still the only path a
-`TASK:`/`ASK:` message arrives on.
+**not** read messages: the HTTP poll loop is still the only path a `TASK:`/`ASK:` message
+arrives on. Since 2026-11-08 a Slack `message` event in a polled channel starts that poll
+about 1.5 s later instead of at the next 30 s tick (`lib/poll-wake.js`), once the Slack app
+subscribes to the `message.channels` bot event (Event Subscriptions; no Request URL in
+Socket Mode).
 
 **`/dispatch`** is the one command it carries. It opens a modal with **five separate
 inputs** — task, repository, branch, turn budget, instructions — and posts the composed
@@ -321,7 +324,7 @@ slack-agent-bridge/
 │   ├── llm-runner.js     # Provider adapters (claude, gemini, ollama) + fallback chain
 │   ├── llm-metrics.js    # Provider verdict counter (fallback visibility)
 │   ├── task-parser.js    # Message parsing
-│   ├── slack-socket.js   # Additive Socket Mode connection (slash commands only)
+│   ├── slack-socket.js   # Additive Socket Mode connection (slash commands; message events wake the poll)
 │   ├── update-verifier.js # Pre-restart gate for auto-update (node --check, restart plan)
 │   └── validate.js       # Pre-commit checks
 ├── memory/

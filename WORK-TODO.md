@@ -1053,6 +1053,20 @@ way: an interval tick during a long `ASK:` answer used to start a second concurr
 `TASK:` still waits for the next tick. What remains is this item's namesake, moving message
 intake to the socket, which stays parked for the reason above. **Triage suggestion stands:
 P3** — what is left is latency, not a defect; owner's call.
+
+**B21, 2026-11-08 — event triggers built, as a wake-up rather than a second intake.** The
+socket now subscribes to `message`; the handler acks and passes on the channel id only
+(`lib/poll-wake.js` `messageSignalHandler`), and `createPollWake` starts one coalesced
+`pollNow` ~1.5 s later for a channel in the poll set. So a typed `TASK:`/`ASK:` starts
+within seconds while `poll()` stays the one reader, with its dedup, allowlist and skip
+logging, and the parked risk above (the task that repairs intake arriving through the new
+path) does not arise: a dead socket costs the old 30 s, nothing more. Guards
+`tests/poll-wake.test.js`, and `tests/slack-socket.test.js`, whose "no message event" guard
+was **widened to admit `message`** with a replacement check that the handler reads nothing
+but `event.channel`. **Remaining (owner):** Slack app -> Event Subscriptions on, bot event
+`message.channels`, save/reinstall; deploy; then a typed `TASK:` whose "Task found" log line
+comes within a few seconds of its message closes this. Polling is not removed: it is the
+fallback that makes the event path safe to have.
 ---
 
 ### 43. A flattened dispatch loses its fields — the connection for the fix exists, the command does not

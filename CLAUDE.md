@@ -805,7 +805,8 @@ slack-agent-bridge/
 │   ├── bridge-state-workspace.js # The workspace-resolved state: channel-map.json and agent-activation.json, read on demand, with one shared JSON codec
 │   ├── slack-client.js   # Slack client wrapper: channel management (createChannel, ensureChannel, joinAgentChannels, loadChannelMap). Its client comes from lib/slack-web.js
 │   ├── slack-web.js      # THE one place a Slack Web API client is constructed (createWebClient) and THE post helpers (postText, sendDM). The client REDACTS: its chat.postMessage/postEphemeral/update/scheduleMessage run text, blocks and attachments through lib/redact-secrets.js before the request, so every post site in the repo is scrubbed, including ones not yet written. Its logger drops Slack's `already_in_channel` warning and passes every other warning through (WORK-TODO #21). postText/sendDM never throw and return whether the message landed; a caller whose job IS the message checks it. Replaced six divergent postToOps/sendDM copies 2026-10-04 (WORK-TODO #30)
-│   ├── slack-socket.js   # ADDITIVE Slack Socket Mode connection, commands only. startSocketMode() opens one WebSocket for slash commands and NEVER throws: no SLACK_APP_TOKEN, a malformed token, a missing dependency or a rejected handshake each resolve to `{ started: false, reason }` and are reported to #sqtools-ops. The dependency is required lazily so it cannot break bridge-agent's load. Reconnection is the library's; an outage lasting SOCKET_MODE_DOWN_ALERT_MS reaches a human and re-posts until it recovers. Registers NO command — the seam is `onSlashCommand`
+│   ├── slack-socket.js   # ADDITIVE Slack Socket Mode connection: commands, and `message` events as a poll wake-up only (WORK-TODO #4, 2026-11-08). startSocketMode() opens one WebSocket for slash commands and NEVER throws: no SLACK_APP_TOKEN, a malformed token, a missing dependency or a rejected handshake each resolve to `{ started: false, reason }` and are reported to #sqtools-ops. The dependency is required lazily so it cannot break bridge-agent's load. Reconnection is the library's; an outage lasting SOCKET_MODE_DOWN_ALERT_MS reaches a human and re-posts until it recovers. Registers NO command — the seam is `onSlashCommand`
+│   ├── poll-wake.js      # WORK-TODO #4: messageSignalHandler (the socket's `message` handler: acks, passes on the channel id ONLY) and createPollWake, which turns an event in a polled channel into one coalesced pollNow ~1.5 s later. A wake-up, never intake: the poll reads the message. Never throws
 │   ├── staff-tasks.js    # Staff task management: daily tasks, assignments, escalations to #store-tasks. Facade since 2026-10-05 (WORK-TODO #10) over the four modules below
 │   ├── staff-tasks-store.js # staff.json, the daily template, the state file (init() override for tests), and the read-only queries over today (getDailyTasks, getOverdueTasks, getCriticalOverdueTasks)
 │   ├── staff-tasks-time.js # Store hours and HH:MM arithmetic: parseTimeToMinutes, getCurrentTimeMinutes, isStoreHours, normalizeTimeString
@@ -968,6 +969,7 @@ slack-agent-bridge/
 │   ├── bridge-state.test.js     # Tests for lib/bridge-state.js (poll cursors, legacy migration, processed-task dedup; temp-dir CRUD)
 │   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management, joinAgentChannels)
 │   ├── slack-socket.test.js     # Tests for lib/slack-socket.js: THE guard for the additivity contract (every failure mode resolves inert instead of throwing), that a rejection message never echoes the token it rejected, that an outage reaches a human and a recovery does too, and that bridge-agent.js starts the connection AFTER the poll interval is armed and does not await it
+│   ├── poll-wake.test.js        # WORK-TODO #4: a burst of message events in polled channels is ONE poll after the delay, an unpolled channel or no channel wakes nothing, the poll set is read per event, nothing throws, the handler passes on the channel id and never the text, and the bridge-agent.js wiring
 │   ├── multi-channel-routing.test.js # Tests for multi-channel polling and agent routing (buildChannelsToPoll, per-channel cursors, TASK vs ASK routing)
 │   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command, label anchoring, field rejection)
 │   ├── gitignore-publishable.test.js # THE guard that files which must never be publishable are ignored: it asks `git check-ignore --no-index` itself (not a regex over .gitignore) about one representative of each family — every copy of `.env`, editor swap files, `*.local` overrides, a hand copy of state under agents/shared/, the live WORK_DIR at work/ — with the tracked seeds (.env.example, the two agents/shared/ seeds) as negative controls, and asserts `git ls-files -c -i --exclude-standard` is empty. WORK-TODO #62
@@ -1284,13 +1286,25 @@ if channels were recreated while the bot was offline. Results are logged:
 Resolved channel IDs are cached in `agents/shared/channel-map.json` (gitignored) to reduce
 API calls on subsequent startups.
 
-### Socket Mode (commands only) — additive, and NOT how messages arrive
+### Socket Mode (commands, plus a wake-up) — additive, and NOT how messages are read
 
 **LOGIC CHANGE 2026-09-14.** `lib/slack-socket.js` opens one Socket Mode WebSocket
 (`@slack/socket-mode`). It exists to carry **slash commands**. It does not carry
 messages, and the HTTP poll loop is unchanged: `poll()` on `POLL_INTERVAL_MS` remains
 the only path a `TASK:`/`ASK:` message arrives on, with the same dedup, the same
 `ALLOWED_USER_IDS` gate and the same `describeSkipReason` logging.
+
+**LOGIC CHANGE 2026-11-08 (WORK-TODO #4) — message events as a WAKE-UP, not intake.** The
+socket also subscribes to `message`. Its handler (`lib/poll-wake.js` `messageSignalHandler`)
+acks and passes on the **channel id only**; `createPollWake` then starts one poll about
+1.5 s later for a channel in the poll set, coalescing a burst into one. The poll reads the
+message through the same path a tick does, so dedup, the allowlist and skip logging are
+unchanged and a lost event costs only the old `POLL_INTERVAL_MS` wait.
+`tests/slack-socket.test.js` pins that the handler reads nothing but `event.channel`.
+**Inert until the owner enables it on the Slack app:** Features -> Event Subscriptions ->
+turn on, then Subscribe to bot events -> add `message.channels`, save, and reinstall when
+Slack asks. With Socket Mode on there is no Request URL. No new scope: `channels:history`
+is already held.
 
 **Why a socket at all — the transport loses fields the parser cannot recover.** A
 dispatch is a Slack message whose first lines carry `TASK:`/`REPO:`/`BRANCH:`/`TURNS:`/
