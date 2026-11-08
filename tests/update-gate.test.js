@@ -96,7 +96,8 @@ test('the suite gets a scrubbed environment: no token, and a WORK_DIR that is no
         const r = runner({ test: { status: 0, stdout: '', stderr: JEST_GREEN } });
         await runGate({ repoDir: deploy, commit: sha2, gateDir: gateDir(), run: r.run });
         for (const call of r.npm) {
-            expect(Object.keys(call.env).sort()).toEqual(['CI', 'GIT_TERMINAL_PROMPT', 'HOME', 'PATH', 'WORK_DIR']);
+            expect(Object.keys(call.env).sort()).toEqual(['CI', 'GIT_TERMINAL_PROMPT', 'HOME', 'PATH', 'WORK_DIR', 'npm_config_cache']);
+            expect(call.env.npm_config_cache).toBe(path.join(root, 'update-gate-npm-cache'));
             expect(JSON.stringify(call.env)).not.toMatch(/xoxb/);
             expect(call.env.WORK_DIR.startsWith(os.tmpdir())).toBe(true);
         }
