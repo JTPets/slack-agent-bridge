@@ -29,6 +29,7 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { verifyEntryPoints, runSmokeTest, planRestart } = require('./lib/update-verifier');
+const { runGate, formatGateResult } = require('./lib/update-gate');
 const taskLock = require('./lib/task-lock');
 const updateDrain = require('./lib/update-drain');
 // LOGIC CHANGE 2026-09-20: the DELIVERY predicate, not a re-derivation of it. This
@@ -45,7 +46,11 @@ const OPS_CHANNEL_ID = process.env.OPS_CHANNEL_ID;
 // not knowable from this repo (on the NAS host it is /share/CACHEDEV1_DATA/jt-agent).
 // Set LOCAL_REPO_DIR explicitly in .env; an unset value points auto-update at a path
 // that does not exist.
-const LOCAL_REPO_DIR = process.env.LOCAL_REPO_DIR || '/home/jtpets/jt-agent';
+// LOGIC CHANGE 2026-11-08 (WORK-TODO #17): the default is the checkout this file is in.
+// This file lives at the root of the repository it updates, so __dirname is that
+// repository wherever it is mounted (/bridge in the jt-agent container). The old default
+// was the dead Raspberry Pi path, which made an unset value a hard startup failure.
+const LOCAL_REPO_DIR = process.env.LOCAL_REPO_DIR || __dirname;
 const CHECK_INTERVAL_MS = parseInt(process.env.CHECK_INTERVAL_MS, 10) || 5 * 60 * 1000; // 5 minutes default
 const STATE_FILE = process.env.STATE_FILE || path.join(LOCAL_REPO_DIR, '.auto-update-state.json');
 
@@ -102,8 +107,11 @@ async function postToOps(message) {
  * @param {string[]} args - Git command arguments
  * @returns {{ success: boolean, stdout: string, stderr: string }}
  */
+// LOGIC CHANGE 2026-11-08 (WORK-TODO #17): `-c safe.directory` per call. The checkout is
+// owned by the NAS user and git in the container runs as another, which git refuses as
+// "dubious ownership" otherwise. Per call, never `git config --global`.
 function runGit(args) {
-    const result = spawnSync('git', args, {
+    const result = spawnSync('git', ['-c', `safe.directory=${LOCAL_REPO_DIR}`, ...args], {
         cwd: LOCAL_REPO_DIR,
         encoding: 'utf8',
         timeout: 60000 // 60 second timeout
@@ -157,11 +165,19 @@ function gitFetch() {
 }
 
 /**
- * Pull from origin main
+ * Move the deploy tree to exactly `commit`, fast-forward only.
+ *
+ * LOGIC CHANGE 2026-11-08 (WORK-TODO #17): was `git pull origin main`, which fetches
+ * again and lands on whatever main is NOW. With the gate in front of the deploy, main can
+ * move during the gate run, and "deploy exactly what the gate judged" is the rule. The
+ * commit was fetched at the top of the cycle; a refused fast-forward is a stop, never a
+ * force.
+ * @param {string} commit - the sha to land on
  * @returns {{ success: boolean, error?: string }}
  */
-function gitPull() {
-    const result = runGit(['pull', 'origin', 'main']);
+function gitPull(commit) {
+    if (!/^[0-9a-f]{40}$/.test(commit || '')) return { success: false, error: 'no 40-hex commit to fast-forward to' };
+    const result = runGit(['merge', '--ff-only', commit]);
     return {
         success: result.success,
         error: result.success ? undefined : result.stderr
@@ -611,6 +627,32 @@ async function checkForUpdates(overrides = {}) {
 
         console.log(`Update available: ${localHead.substring(0, 7)} -> ${remoteHead.substring(0, 7)}`);
 
+        // ---- THE GATE: the full suite on exactly this commit, before anything else ----
+        // LOGIC CHANGE 2026-11-08 (WORK-TODO #17, owner's choice: "once merged, it should
+        // run a gate check of our testing and if it passes it can auto deploy"). Runs in
+        // a checkout of its own (lib/update-gate.js), so nothing about the running
+        // process changes while it runs and no dispatch is refused yet: the pending
+        // marker below is written only after a green. A red commit is recorded in
+        // failedCommit and never retried; the next commit on main is gated normally.
+        // `runGate` is null in the bare dependency bag (the guard suites inject their
+        // own); every real caller passes it - main() below and lib/self-deploy.js.
+        if (deps.runGate && state.gatedCommit !== remoteHead) {
+            // A marker left by an earlier commit's deferral must not refuse work
+            // through a gate run that is minutes long.
+            deps.clearUpdatePending({ reason: `gating ${remoteHead.substring(0, 7)} before it may apply` });
+            await deps.postToOps(`:test_tube: Update gate: running the full suite on ${remoteHead.substring(0, 7)} - ${deps.getCommitMessage(remoteHead)}`);
+            const gate = await deps.runGate({ commit: remoteHead });
+            await deps.postToOps(deps.formatGateResult(remoteHead, gate));
+            if (gate.moved) return;
+            if (!gate.ok) {
+                state.failedCommit = remoteHead;
+                deps.saveState(state);
+                return;
+            }
+            state.gatedCommit = remoteHead;
+            deps.saveState(state);
+        }
+
         // ---- DRAIN-ONE: the update is PENDING from this moment ----
         // LOGIC CHANGE 2026-09-20. Marked BEFORE the deferral gate is evaluated, not
         // after, and that ordering is the whole mechanism: from the instant an update
@@ -651,6 +693,15 @@ async function checkForUpdates(overrides = {}) {
         // tree beneath a task that was still executing. Deciding to stand aside
         // after the destructive step is not standing aside.
         const deferral = deps.evaluateTaskDeferral();
+        // LOGIC CHANGE 2026-11-08 (WORK-TODO #71): run inside the bridge, this loop can
+        // also see work the files cannot - an `ASK:` being answered takes no lock and
+        // writes no queue row. inProcessBusy names it; the bridge refuses NEW asks while
+        // the marker above is set, so this waits for the one in flight only.
+        const busy = deferral.defer ? null : deps.inProcessBusy();
+        if (busy) {
+            deferral.defer = true;
+            deferral.reason = busy;
+        }
 
         // A stale lock or an orphaned queue entry is released/ignored here, and
         // that is never silent: log (in lib/task-lock.js) plus a post, every time.
@@ -725,7 +776,7 @@ async function checkForUpdates(overrides = {}) {
         console.log('Reset local changes with git reset --hard HEAD');
 
         // Pull the changes
-        const pullResult = deps.gitPull();
+        const pullResult = deps.gitPull(remoteHead);
         if (!pullResult.success) {
             console.error('Git pull failed:', pullResult.error);
             await deps.postToOps(`❌ Auto-update: git pull failed - ${pullResult.error}`);
@@ -892,8 +943,25 @@ const DEFAULT_DEPS = {
     markUpdatePending: (opts) => updateDrain.markPending({ ...opts, markerFile: UPDATE_PENDING_FILE }),
     clearUpdatePending: (opts) => updateDrain.clear({ ...opts, markerFile: UPDATE_PENDING_FILE }),
     postToOps,
-    exit: flushAndExit
+    exit: flushAndExit,
+    // LOGIC CHANGE 2026-11-08 (WORK-TODO #17, #71): no gate and no in-process view in
+    // the bare bag; the real callers supply both (see GATED_DEPS and lib/self-deploy.js).
+    runGate: null,
+    formatGateResult,
+    inProcessBusy: () => null,
 };
+
+/** The dependency bag every real deploy uses: the bare one plus the gate. */
+function gatedDeps(extra = {}) {
+    return {
+        runGate: (opts) => runGate({
+            repoDir: LOCAL_REPO_DIR,
+            gateDir: path.join(WORK_DIR, 'update-gate'),
+            ...opts,
+        }),
+        ...extra,
+    };
+}
 
 /**
  * Log startup configuration (without secrets)
@@ -960,11 +1028,19 @@ async function main() {
 
     // Run initial check
     console.log('Running initial update check...');
-    await checkForUpdates();
+    // LOGIC CHANGE 2026-11-08 (WORK-TODO #17): gated, and one cycle at a time - a gate run
+    // is minutes long and outlasts the interval.
+    let inFlight = false;
+    const cycle = async () => {
+        if (inFlight) return;
+        inFlight = true;
+        try { await checkForUpdates(gatedDeps()); } finally { inFlight = false; }
+    };
+    await cycle();
 
     // Start the polling loop
     console.log(`Starting update check loop (every ${CHECK_INTERVAL_MS / 1000} seconds)`);
-    setInterval(checkForUpdates, CHECK_INTERVAL_MS);
+    setInterval(cycle, CHECK_INTERVAL_MS);
 }
 
 // LOGIC CHANGE 2026-09-13: Only start the loop when run directly. The restart
@@ -990,5 +1066,8 @@ module.exports = {
     evaluateTaskDeferral,
     UPDATE_PENDING_FILE,
     RESTART_EXIT_CODE,
-    DEFAULT_DEPS
+    DEFAULT_DEPS,
+    LOCAL_REPO_DIR,
+    CHECK_INTERVAL_MS,
+    gatedDeps,
 };

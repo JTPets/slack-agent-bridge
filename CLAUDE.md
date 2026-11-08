@@ -436,11 +436,18 @@ Tune `MemoryMax` to the model actually pulled — it must be below `(total RAM -
 ### Auto-update vars
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `LOCAL_REPO_DIR` | Path to local repo, as seen by the auto-update process. **Load-bearing:** `validateConfig()` exits 1 if the path does not exist, and the default below is the dead Pi path — so an unset value is a hard startup failure, not a fallback. | `/home/jtpets/jt-agent` (stale Pi default — set explicitly) |
+| `LOCAL_REPO_DIR` | Path to the deploy tree auto-update operates on. **Leave it unset.** Since 2026-11-08 the default is the checkout `auto-update.js` is in (`/bridge` in the container); in-process self-deploy refuses to start, and says so in `#sqtools-ops`, when this names a different checkout | the checkout itself (`__dirname`) |
+| `SELF_DEPLOY_INTERVAL_MS` | How often the bridge checks `main` and, for a new commit, runs the update gate and deploys on green (`lib/self-deploy.js`, WORK-TODO #17). `0` turns self-deploy off | `300000` (5 min) |
+| `UPDATE_GATE_TIMEOUT_MS` | Per-command timeout inside the update gate (`npm ci`, then the full `npm test`); a timeout is a red gate | `2700000` (45 min) |
 | `CHECK_INTERVAL_MS` | Git poll frequency | `300000` |
 | `STATE_FILE` | auto-update's own state file (`lastKnownCommit`, `failedCommit`, `restartedIntoCommit`) | `$LOCAL_REPO_DIR/.auto-update-state.json` |
 
 ### Self-update — DESIGNED AND TESTED, **NOT WIRED** (verified 2026-09-14)
+
+> **SUPERSEDED 2026-11-08 by "Deploy on green" below**, the owner's answer to WORK-TODO #17
+> ("once merged, it should run a gate check of our testing and if it passes it can auto
+> deploy"). Once the commit carrying it is deployed, the bridge deploys itself. This banner
+> and the one below stay true for every process started before that commit.
 
 > **How the bridge actually deploys today: a human restarts the container.**
 > `auto-update.js` is never started, so nothing in this section describes running
@@ -523,6 +530,35 @@ See "Task lock and self-update deferral" below.
 > `SMOKE_TEST_TIMEOUT_MS` (< `CHECK_INTERVAL_MS`), so a wedged smoke run reverts rather
 > than hanging the update loop. It became wireable once the jest open handle at
 > `bots/storefront.js` (an un-`.unref()`'d module-scope `setInterval`) was fixed.
+
+#### Deploy on green (WORK-TODO #17, owner's choice 2026-11-08)
+
+`lib/self-deploy.js` runs `auto-update.js`'s `checkForUpdates` **inside the bridge process**
+every `SELF_DEPLOY_INTERVAL_MS`, one cycle at a time. In-process, because the container's
+main process is `node bridge-agent.js`: a second daemon's exit restarts nothing. A cycle:
+
+1. `git fetch origin main` in the deploy tree (`-c safe.directory`, per call).
+2. **The gate** (`lib/update-gate.js`), once per new commit: the commit is checked out in
+   `$WORK_DIR/update-gate` (fetched from the deploy tree's own `origin/main`, so no network
+   or credential), `npm ci --ignore-scripts`, then the **full** `npm test -- --ci
+   --maxWorkers=2` with a scrubbed environment (PATH, a temp HOME and WORK_DIR; no token).
+   Green means `lib/test-verdict.js` passed **and 0 skipped**. Red is posted with the
+   failing tail, recorded in `failedCommit` and never retried; the next commit is gated
+   normally. If `main` moved during the run, nothing is judged and the next cycle gates the
+   new commit. Nothing is refused while the gate runs.
+3. On green: the drain-one marker is set, so new `TASK:`s **and new model `ASK:`s** are
+   refused (`lib/ask-drain.js`; built-in commands still answer), and the update waits for
+   the work in flight: the task lock, the queue, and the poll sweep (`busy`, which holds
+   every task and answer).
+4. Then `git reset --hard HEAD`, **`git merge --ff-only <the gated sha>`** (never a pull:
+   main may have moved), the existing guards (a)-(d), and `process.exit(0)`; the container
+   restarts into the gated commit. A refused fast-forward is a stop, never a force.
+
+**Prerequisite on the box, stated:** the gate runs this repository's whole suite, and
+`tests/python-venv.test.js` needs `python3 -m venv`, which today's `node:26` image lacks
+(no `ensurepip`). Until the tracked `Dockerfile` (#70) is adopted, every gate is red at
+that test and nothing deploys itself, which is the safe failure. `.env` changes still need
+`docker compose up -d --force-recreate bridge` by hand: an exit restarts the same container.
 
 #### Two open questions (stated, not decided — owner's call)
 
@@ -617,7 +653,9 @@ docker compose logs -f bridge
 
 # PM2 does not exist on this host and no longer appears anywhere in the code.
 #
-# DEPLOYING A MERGE IS A MANUAL STEP. Nothing starts auto-update.js, so merging to
+# DEPLOYING A MERGE: since 2026-11-08 (WORK-TODO #17) the bridge gates and deploys
+# itself once the commit carrying "Deploy on green" is running (SELF_DEPLOY_INTERVAL_MS=0
+# turns it off). Until then, and for every .env change, it is a manual step: merging to
 # main does not reach the running process. `docker compose restart bridge` is what
 # deploys. An .env change needs `up -d --force-recreate`, not `restart` — restart
 # reuses the existing container and its baked-in environment.
@@ -832,6 +870,11 @@ slack-agent-bridge/
 │   ├── task-work.js      # WORK-TODO #39, recording half: headSha (HEAD as cloned), describeWork (branch, head, commits added, which remote refs/heads/* carry the head, asked via git ls-remote, never the single-branch clone) and formatWork for the status reply. Never throws; an unreachable remote is "not checked", never "not on the remote". Says nothing about merge state
 │   ├── merge-state.js    # WORK-TODO #39, merge half: resolveMergeStates fetches each target repo's `main` into a bare cache under $WORK_DIR/merge-check/ (anonymous https, incremental) and asks `git merge-base --is-ancestor` whether each recent task's recorded head reached it: merged / not on main yet / unknown with the reason (a failed fetch is never "not merged"). A squash or rebase merge reads as not on main. formatMergeState renders it on the `what's queued` reply. execFile argv arrays; never rejects
 │   ├── update-verifier.js # Pre-restart gate for auto-update: node --check on entry points, restart plan (guard c)
+│   ├── update-gate.js    # WORK-TODO #17: THE gate before a self-deploy. runGate checks one exact commit of main out in $WORK_DIR/update-gate (fetched from the deploy tree's origin/main), runs `npm ci --ignore-scripts` and the FULL `npm test` with a scrubbed env, and is green only when lib/test-verdict.js passes AND 0 skipped; `moved` when main moved. formatGateResult is the ops line. spawn argv arrays; never rejects
+│   ├── self-deploy.js    # WORK-TODO #17: runs auto-update.js's gated cycle inside the bridge process every SELF_DEPLOY_INTERVAL_MS, one at a time, with the poll sweep as its in-process busy signal; refuses to start when LOCAL_REPO_DIR names another checkout. Never throws
+│   ├── ask-drain.js      # WORK-TODO #71: while a self-update is pending, a new ASK: or natural message that needs a model is refused (describeAskRefusal); built-in commands (router verbs, `what's queued`) still answer. Pure
+│   ├── task-start-check.js # WORK-TODO #72: checkTaskStart refuses a task when the lock is already held or another queue row is running; describeStartRefusal names `ASK: lock clear`. Pure
+│   ├── lock-command.js   # WORK-TODO #72: `ASK: lock` shows the task lock and the running queue row; `lock clear` releases the lock and interrupts left-over running rows
 │   ├── validate.js       # Pre-commit validation (`npm run validate`): checks bridge-agent.js loads in a subprocess, then runs the declaration-driven file-size gate (lib/file-size-gate.js) and the close reconciliation (lib/close-reconcile.js, which fails on a shallow clone). It needs a populated .env for the first check — without one it reports the missing vars and fails, which is a local-environment condition, not a code defect
 │   ├── weekly-critique.js # The jester's weekly post: deterministic task `weekly-critique`. Builds the digest (lib/critique-digest.js), resolves the critic from the SAME declaration the cron registrar reads (so the verb and the schedule cannot name different agents), and posts one critique in his channel on his provider. A THIN week calls no model at all — a model handed an empty digest and a contrarian persona produces a complaint, so the only reliable honest "nothing to report" is not to ask. Calls runLLM and NOT runWithFallback, deliberately: the chain can land on claude, whose adapter spawns a CLI with --dangerously-skip-permissions, and jester's definition denies file-system. It writes NO state of any kind and its verdict gates nothing — enforced by tests/weekly-critique.test.js, not asserted
 │   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow. Its milestone bulletin carries each agent's message as `highlights` (since 2026-11-07, #14), which story-bot's data context reads. Facade since 2026-10-05 (WORK-TODO #10): re-exports the three modules below under the names it always had
@@ -1032,6 +1075,11 @@ slack-agent-bridge/
 │   ├── toolchain-support.test.js # THE enumerating guard that the SUPPORTED TOOLCHAINS table in CLAUDE.md describes what lib/dependency-install.js actually detects: it reads detectEcosystem's OWN source for every `ecosystem:` name and every manifest filename it tests for, and fails when one has no row in the table — so an ecosystem added to the code without a declared image status is a red test, not a silently stale list. Also fails when the table claims an ecosystem the code cannot detect. Carries its own negative controls
 │   ├── task-lock.test.js            # Tests for lib/task-lock.js (acquire/release, staleness, legacy + unparseable lock formats)
 │   ├── auto-update-defer.test.js    # Tests the deferral gate: defers while a task holds the lock, releases a stale one, escalation bound. Also DRAIN-ONE's updater half: the marker is written before the deferral decision (so it covers the apply window too), cleared before the exit and on every abort path, and — THE task-0 assertion — a `completed` queue entry whose DELIVERY is not yet recorded still defers, while the same entry with a recorded verdict lets the update proceed
+│   ├── auto-update-gate.test.js     # WORK-TODO #17: checkForUpdates with an injected gate: red never pulls and is not retried, green fast-forwards to EXACTLY the gated sha before the exit, a gated commit is not gated twice, a moved main is not judged, the marker is cleared during the gate, and in-process work (#71) defers
+│   ├── update-gate.test.js          # Tests for lib/update-gate.js against REAL git (a temp deploy tree): the exact commit checked out, green only with 0 skipped, a failing suite / absent runner / failed install each red at its stage, a moved main never judged, the scrubbed env (no token, a temp WORK_DIR), a non-hex commit never reaching git, and a timeout killed
+│   ├── self-deploy.test.js          # Tests for lib/self-deploy.js: off at 0, off and reported when LOCAL_REPO_DIR names another checkout, one cycle at a time with the gate and the busy view passed, a throwing cycle reported; and the bridge-agent.js wiring
+│   ├── ask-drain.test.js            # WORK-TODO #71: a model question is refused only while an update is pending, built-in commands still answer, and both conversation paths in the poll loop check it before processConversation (read from source)
+│   ├── task-lock-refusal.test.js    # WORK-TODO #72: the start rule, `ASK: lock` / `lock clear` on a REAL lock file and TaskQueue, and processTask's wiring (check before acquire, refusal thrown inside the try, only an owned lock released) read from source
 │   ├── update-drain.test.js         # Tests lib/update-drain.js AND THE GUARD that the poll loop actually refuses: a source walk over bridge-agent.js's TASK: branch asserting the drain is consulted BEFORE the enqueue, that a refusal is posted in the channel it was typed in, marked processed so it is not re-refused every poll, escalated when the refusal itself cannot be posted, and never falls through to being queued or run. Also that the check degrades OPEN — a throw accepts dispatches, because refusing everything forever is worse than the race and looks identical to a dead bridge. Carries its own negative controls
 │   ├── task-agent-identity.test.js  # THE guard for WORK-TODO #38: a TASK: executes as the agent it was addressed to. It extracts processTask's agent resolution from bridge-agent.js's SOURCE and replays it against every declared agent record, asserts the poll loop hands processTask the same `channelAgentConfig` it already hands processConversation, and enumerates the seven identities that must follow the resolved agent (provider, persona, model, metrics id, bulletin stream, bulletin voice, working memory) plus the one that deliberately does not (the owner's ACTION REQUIRED inbox). Carries its own negative controls
 │   ├── bridge-agent-scope.test.js   # AST scope guard: catches `X is not defined` in bridge-agent.js
@@ -1696,12 +1744,13 @@ the behaviour that existed before drain-one. Refusing every task forever because
 could not be parsed is worse than the race being closed, and is indistinguishable from a
 dead bridge. It is reported once per process.
 
-**`ASK:` is not covered, deliberately and statedly.** `processConversation` takes no
-task lock and writes no queue entry, so a conversation is invisible to this gate and to
-the deferral gate before it — an update can restart one mid-answer. That is a real gap,
-not a claim of coverage: an `ASK:` is a single short LLM call and is re-askable, whereas
-a `TASK:` is up to `TASK_TIMEOUT_MS` of work that may hold a scratch clone. Filed as
-WORK-TODO #71.
+**`ASK:` is covered since 2026-11-08 (WORK-TODO #71, closed).** The owner's rule: "let the
+code finish its loop but halt new asks from starting." While the marker is set, a new
+`ASK:` or natural message that needs a model is refused in its thread
+(`lib/ask-drain.js`); built-in commands still answer, so `ASK: what's queued` and
+`ASK: lock` work while an update waits. The answer already in progress is waited for:
+self-deploy runs in the bridge process and treats the poll sweep, which holds every task
+and answer, as busy.
 
 Guards: `tests/update-drain.test.js` (the module, plus a source walk proving the poll
 loop actually refuses) and `tests/auto-update-defer.test.js` → the two `drain-one`
@@ -1923,6 +1972,16 @@ and replaces that alert's buttons with the outcome. Buttons need Socket Mode
 without them a press does nothing and the verb still works. **Acknowledgement is per
 occurrence**, keyed by Gmail id: a new email with the same subject (the next backup
 failure) is a new alert and is posted. `lib/sqtools-alert-ack.js`.
+
+### Task lock — see it, clear it
+```
+ASK: lock          # what the task lock and the queue say is running
+ASK: lock clear    # release a left-over lock and interrupt rows still marked running
+```
+Since 2026-11-08 (WORK-TODO #72) a task does not start unless the lock is free, no other
+queue row is running, and its own lock is written; otherwise it is refused with the reason
+(`lib/task-start-check.js`). An answer runs in the same sweep as tasks, so while `lock
+clear` runs no task is running and whatever it releases is left over. `lib/lock-command.js`.
 
 ### Channels vs Agents
 ```
