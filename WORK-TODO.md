@@ -92,6 +92,9 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-08** closing **#67** (B19: the pre-push id check) those print **29** open items —
+**6** P1, **19** P2, **4** P3 — and no duplicate ID.
+
 On **2026-11-07** closing **#76** (calendar and holiday days in Toronto time) those print **30** open
 items — **6** P1, **20** P2, **4** P3 — and no duplicate ID.
 
@@ -445,7 +448,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #53 | P2 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | `#jester-agent` was created 2026-09-15 and the critique has posted there every Friday since (latest 2026-10-09 18:00 EDT) |
 | #57 | P2 | Design record; stale constraint corrected in its body (B4) | OD | S | Constraint 1 says "the bridge pushes nothing". At HEAD `cloneRepo` points `origin` at SSH and sets `core.sshCommand` to the bridge's own deploy key (`lib/clone-lifecycle.js:173-190`), so the executor pushes with the bridge's key |
 | #59 | P2 | Report phase BUILT 2026-10-10; enforcement waits on data | B17 | M | `lib/claude-stream-watch.js` reports stalls and loops to `#sqtools-ops` and logs `[run-stats]` per run; nothing is stopped (owner: monitor first). Left: set thresholds from real runs, then `enforce` and remove turns (#15 folded in) |
-| #67 | P2 | Stopgap DONE 2026-10-10 | — | S | `docs/EXECUTOR-CONTRACT.md` now says to allocate from the max ID on `origin/main` and the branch, rechecked before push. Left: a pre-push check that fails on a collision |
+| #67 | P2 | **CLOSED 2026-11-08** (B19, purged) | B19 | S | `node scripts/backlog-id-check.js` (`lib/backlog-id-check.js`) fetches `origin main` before a push and exits 1 when a number the branch files is already on `main` under another title, or was used there and purged; the executor contract requires it. Guard `tests/backlog-id-check.test.js`. Not taken: either scheme change (allocate-at-merge, collision-proof keys); the window left is a push followed by `main` moving before the merge |
 | #58 | P3 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | The adapter owns its deadline; timers cleared on `error`. `tests/llm-runner-deadline.test.js` |
 | #60 | P3 | **CLOSED 2026-10-10** (moved, purged) | OD | — | Text moved to `docs/CAPABILITY-AND-ISOLATION-DESIGN.md` §9, so the shape survives the purge |
 | #48 | P3 | **CLOSED 2026-10-04** (B4, purged) | B4 | S | Rule moved to `CLAUDE.md` → Local LLM (Ollama) provider |
@@ -586,7 +589,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (20)
+**P2 — real gaps, no risk to the running process** (19)
 
 - **#78** — [SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one](#78-sqtools-alerts-reach-the-secretary-but-the-owner-cannot-acknowledge-silence-or-be-nagged-about-one)
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
@@ -607,7 +610,6 @@ work behind an owner's name, which is the opposite of the point.
 - **#51** — [A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it](#51-a-command-that-writes-a-tracked-file-is-destroyed-by-the-next-pull-and-every-configuration-writing-command-shares-it)
 - **#57** — [Before the bridge is given a private-repo credential — the constraints, not the plan](#57-before-the-bridge-is-given-a-private-repo-credential--the-constraints-not-the-plan)
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
-- **#67** — [IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide](#67-ids-are-allocated-at-write-time-from-an-append-only-list-so-two-branches-cut-from-the-same-base-always-collide)
 
 **P3 — nice to have / uncertain ROI** (4)
 
@@ -2498,81 +2500,6 @@ the ceiling should *be*. Both touch `lib/task-parser.js`; neither subsumes the o
 **Not decided here:** the value of N, the wall-clock bound, or what counts as a "checkpoint".
 
 ---
-
-### 67. IDs are allocated at WRITE time from an append-only list, so two branches cut from the same base always collide
-
-**Filed 2026-09-20** (this working session; no prior heading — `git log -S'IDs are allocated at WRITE time' -- WORK-TODO.md` returns only the commit that adds this item).
-
-**Priority:** P2 | **Effort:** small if the answer is a check; unbounded if the answer is a scheme change | **Status:** OPEN — class recorded with three observed instances, nothing implemented
-
-**The mechanism.** "The next ID" is `max(existing) + 1`, read by eye from this file at the
-moment an item is written. Two branches cut from the same base therefore read the same
-maximum and allocate the same numbers, and neither can see the other. Nothing detects it
-until they meet. The duplicate-ID command in "Counts — as commands, not figures" is the
-detector, and it runs **after** the collision exists, not before it.
-
-```bash
-# the allocator, such as it is — the largest ID currently in the file
-grep -oE '^### [0-9]+' WORK-TODO.md | grep -oE '[0-9]+' | sort -n | tail -1
-# the detector, which only fires once both sides are in one tree
-grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
-```
-
-**Three observed instances. Two in this repository, one in the other, all within five days.**
-
-1. **`### 43.` — 2026-09-15.** Two items shared the number: the P1 "A flattened dispatch
-   loses its fields" and a P2 "`getRecentCompleted` sorts by a millisecond timestamp". It
-   was resolved by **closure**, not renumbering — the P2 was fixed and purged, so one
-   `### 43.` remained. Recorded in the "Counts" section above, whose own words are *"the
-   cause is not fixed"*. Regenerate: `git log --oneline -S'The \`### 43.\` collision is resolved' -- WORK-TODO.md`
-   → `3d7ad70`.
-
-2. **`### 57.`–`### 61.` — 2026-09-16 / 2026-09-20, five numbers at once.** Both branches
-   were cut from `cdb5afd` (2026-09-15), whose highest ID was **56**.
-   `claude/brave-cannon-d9lev7` filed 57–61 (`d2288cf`, `115b059`) and merged to `main`;
-   `claude/blissful-ritchie-6mmwoi` filed 57–61 (`34a3c9a`, `38de61a`, `09ac630`) and did
-   not. Resolved by renumbering the unmerged side to **62–66** during the rebase that adds
-   this item — `main`'s addresses win, because they are already cited elsewhere. Regenerate:
-
-   ```bash
-   git merge-base origin/main <the-unmerged-branch>          # -> cdb5afd
-   git show cdb5afd:WORK-TODO.md | grep -oE '^### [0-9]+' | grep -oE '[0-9]+' | sort -n | tail -1   # -> 56
-   ```
-
-3. **SqTools `BACKLOG-408` / `BACKLOG-409` — 2026-09-20, the same day as instance 2.**
-   **Cited as prior art from the other repository, not as something this repo owns or can
-   verify.** It matters only because it establishes the class is not a property of this
-   file's conventions: the same allocator, in a differently-formatted backlog, produced the
-   same failure on the same day.
-
-**Why "the duplicate-ID check is the guard" is not an answer.** It is a *detector*, and it
-detects at merge time — by which point both sides have bodies, cross-references and commit
-messages citing the colliding numbers. Instance 2 cost a reverse-map proof over 243 lines to
-show the renumber changed no content. A detector that fires after the cost has been incurred
-has not prevented anything.
-
-**Two shapes, neither chosen here.**
-
-- **Allocate at merge rather than at write.** A branch files items with a placeholder and
-  the number is assigned when it lands. Removes the collision entirely; costs every
-  in-branch cross-reference the ability to name its target, and every commit body the
-  ability to say `Closes <ID>` before the merge — which is exactly the claim the contract
-  requires. That trade is the whole decision and it is not obvious.
-- **Key items by something that cannot collide** (a slug, a date-ordinal, the filing
-  commit's short SHA). Removes the collision and keeps in-branch citability; costs the
-  property the file's own header calls load-bearing — *"the number is only an address for
-  cross-references"* — because addresses stop being orderable by eye, and every existing
-  `#NN` reference in this file, in `docs/`, and in commit history would then name a scheme
-  that no longer allocates.
-
-**A third, cheaper, and not a fix:** a pre-flight step in the executor contract — fetch
-`origin/main` and re-read the maximum immediately before writing a heading. It narrows the
-window to the length of one branch; it does not close it, because the window *is* the
-branch. Worth recording so it is not mistaken for a solution.
-
-**Not decided here, and deliberately not implemented:** which shape, whether the existing
-`#NN` addresses are migrated or grandfathered, and whether the problem is worth a scheme
-change at this rate of collision.
 
 ## P3 — Nice to have / uncertain ROI
 

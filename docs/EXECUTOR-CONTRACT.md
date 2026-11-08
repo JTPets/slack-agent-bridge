@@ -168,6 +168,14 @@ that maps it and update that document **in the same change**.
   ```
   The command reads index rows as well as headings, because a closed item loses its
   heading but keeps its index row, and IDs are never reused.
+  **Then, immediately before every push that files an item, run the check (2026-11-08):**
+  ```bash
+  node scripts/backlog-id-check.js
+  ```
+  It fetches `origin main` and exits 1 when `main` already holds one of your new numbers
+  under another title, or used it before and purged it. Renumber your side and run it
+  again. Exit 2 means it could not look (for example a shallow clone: `git fetch
+  --unshallow` first), which is not a pass.
 
 **"No document owns this" is a required answer, not permission to skip.** Say it
 explicitly so the gap is visible. A trigger that points at a nonexistent document is a
