@@ -18,6 +18,9 @@
 # (gitignored). Written to a temp file and renamed, so the bridge never reads half a file.
 #
 # LOGIC CHANGE 2026-10-04: new file. POSIX sh; uses only ls, head, wc, date -r, sed, mv.
+# LOGIC CHANGE 2026-11-08: the newest entry may be a DIRECTORY. The DayZ mirror writes one
+# dated folder per night (dayz-backup/2026-11-08/), and the old `-f` test reported that
+# folder as an empty backup directory. Its age is the folder's own mtime.
 
 set -u
 if [ "$#" -lt 2 ]; then
@@ -37,7 +40,7 @@ json_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')";
     printf '%s{"path":%s,' "$sep" "$(json_str "$d")"
     sep=','
     newest=$(ls -t "$d" 2>/dev/null | head -n 1)
-    if [ -n "$newest" ] && [ -f "$d/$newest" ]; then
+    if [ -n "$newest" ] && [ -e "$d/$newest" ]; then
       mtime=$(date -r "$d/$newest" +%s 2>/dev/null) || mtime=null
       [ -n "$mtime" ] || mtime=null
       count=$(ls "$d" | wc -l | tr -d ' ')

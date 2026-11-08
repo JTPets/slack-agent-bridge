@@ -54,6 +54,19 @@ describe('the real host script and the evaluator agree', () => {
     expect(problems.join('\n')).toMatch(/directory does not exist/);
   });
 
+  test('a dated subfolder (the DayZ mirror shape) is a backup with an age, not an empty directory', () => {
+    const d = fs.mkdtempSync(path.join(root, 'dayz-'));
+    const night = path.join(d, '2026-11-08');
+    fs.mkdirSync(night);
+    fs.writeFileSync(path.join(night, 'db.sqlite'), 'x');
+    const fresh = (Date.now() - 3 * H) / 1000;
+    fs.utimesSync(night, fresh, fresh);
+    expect(evaluateStatus(hostStatus([d]), Date.now(), MAX)).toEqual([]);
+    const old = (Date.now() - 40 * H) / 1000;
+    fs.utimesSync(night, old, old);
+    expect(evaluateStatus(hostStatus([d]), Date.now(), MAX).join('\n')).toMatch(/newest backup 2026-11-08 is 40h old/);
+  });
+
   test('THE silent-stoppage case: a fresh dump in a status file the host stopped refreshing', () => {
     const text = hostStatus([dirWith('ok.sql.gz', 1)]);
     const twoDaysLater = Date.now() + 48 * H;
