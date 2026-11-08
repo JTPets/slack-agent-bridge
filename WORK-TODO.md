@@ -405,7 +405,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 |---|---|---|---|---|---|
 | #55 | P1 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | Live resolution ran at every boot since: the bridge joined all its agent channels on `546c3d6` (2026-10-05), and jester's channel resolved. Off-box export of the resolved map moved to #42 as a backup item |
 | #56 | P1 | OPEN, nothing to act on until it recurs | B2 | S | Not seen in 2 runs at triage or 3 on `e7edded`. The adjacent race was removed 2026-10-04 (`0773821` deleted the in-tree temp dir; the shared walker in `lib/source-walk.js` skips a vanished dir). The globalSetup signature is still unexplained |
-| #42 | P1 | (c) DONE in B6 (host status file + bridge age alert) | OA | S/M | `scripts/backup-status.sh` + `lib/backup-watch.js`. Owner: the host cron line and `BACKUP_STATUS_FILE`; (a) off-box pull; (b) a restore |
+| #42 | P1 | PARKED 2026-11-08: the bridge monitors no other system (owner); (c) stays inert in the repo | OA | S/M | `scripts/backup-status.sh` + `lib/backup-watch.js` kept for the future all-systems monitor. SqTools (a)/(b) are SqTools BACKLOG-508 |
 | #41 | P1 | REPO DONE | OA | — | All remaining work is on the appliance |
 | #17 | P1 | Boot-commit report DONE in B1; deploy shape is a decision | OD + B6 | M | Boot post via `lib/repo-history.js` `loadedCommit()`. Remaining: choose start-the-daemon / push-triggered / manual, then B6 wires it |
 | #73 | P1 | **CLOSED 2026-10-10** (purged) | OA | — | Owner applied block (1) on the box and recreated: process 1 is `/sbin/docker-init`, node runs as its own process (pid 7) with no `sh` in between, boot healthy at 546c3d6. The next deploy's log should show "Received SIGTERM" |
@@ -797,6 +797,19 @@ off-box copy; (b) a restore actually performed.
 are small and hold no secret, so they belong in whatever off-box copy (a) produces.
 `node scripts/channel-map.js --resolve` rebuilds the map from Slack if they are lost, so
 this is a convenience, not a recovery path.
+
+**Owner decision 2026-11-08: the bridge does not monitor other systems.** "Today the bridge
+bot doesn't need to monitor dayz or sqtools directly - we will make a system for monitoring
+all other systems eventually." So the host cron line and `BACKUP_STATUS_FILE` are **not**
+installed. `scripts/backup-status.sh` and `lib/backup-watch.js` stay in the repository,
+inert while `BACKUP_STATUS_FILE` is unset (confirmed EMPTY in both the container and
+`.env` on 2026-11-08, with `SLACK_BOT_TOKEN` as the SET control), for that future monitor
+to reuse; 3d285bf taught the script that a dated folder (`dayz-backup/2026-11-08/`) is a
+backup. Observed the same day, point-in-time from the owner's paste: the SqTools dump ran
+at 02:15 (8.8 MB) and the crontab was intact. The SqTools off-box copy and restore, (a) and
+(b), are SqTools' (BACKLOG-508 there). What stays here is the bridge's own workspace state
+in an off-box copy, above.
+**Status:** parked — monitoring belongs to the future all-systems monitor (owner, 2026-11-08).
 ---
 
 ### 41. The NAS is the single point of failure for every stack and every credential, and its exposure has never been established
