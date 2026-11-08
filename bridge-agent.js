@@ -185,6 +185,7 @@ const taskLock = require('./lib/task-lock');
 // self-update is waiting to apply, so the update waits for ONE task rather than for
 // however long work keeps arriving. See lib/update-drain.js.
 const updateDrain = require('./lib/update-drain');
+const { shouldRefuseAsk, describeAskRefusal } = require('./lib/ask-drain');
 
 // LOGIC CHANGE 2026-03-28: Added agent-context module for injecting real data into ASK prompts.
 // Prevents hallucination by giving agents (especially secretary) actual calendar events,
@@ -209,6 +210,7 @@ const { headSha, describeWork, formatWork } = require('./lib/task-work');
 const { resolveMergeStates, formatMergeState } = require('./lib/merge-state');
 const { formatPreservedCloneAlert } = require('./lib/preserved-clone-alert');
 const { describeTaskStateDivergence } = require('./lib/task-state-divergence');
+const { checkTaskStart, describeStartRefusal } = require('./lib/task-start-check');
 const repoHistory = require('./lib/repo-history');
 
 // LOGIC CHANGE 2026-09-20: install the target repo's own dependencies in the scratch
@@ -229,6 +231,7 @@ const { installDependencies } = require('./lib/dependency-install');
 // survives a restart because it exists as a message.
 const { startSocketMode } = require('./lib/slack-socket');
 const { createMainWatch, remoteMainSha } = require('./lib/main-watch');
+const { createSelfDeploy } = require('./lib/self-deploy');
 const { createBackupWatch } = require('./lib/backup-watch');
 const { createClaudeAuthWatch, probeClaudeAuth } = require('./lib/claude-auth-watch');
 const { DEFAULT_CLAUDE_BIN } = require('./lib/llm-defaults');
@@ -509,6 +512,28 @@ function drainStateForDispatch() {
   }
 }
 
+/**
+ * WORK-TODO #71 (owner, 2026-11-08: "let the code finish its loop but halt new asks from
+ * starting"). While a self-update is pending, a new question that needs a model is
+ * refused in its thread and marked processed, like a refused TASK:. Built-in commands
+ * still answer (lib/ask-drain.js). Returns true when the message was refused.
+ */
+async function refuseAskForPendingUpdate(msg, channelId) {
+  const pending = drainStateForDispatch();
+  if (!shouldRefuseAsk({ text: msg.text, drain: pending })) return false;
+  console.warn(`[bridge-agent] Refusing ask ${msg.ts}: a self-update is pending (${pending.state.commit || 'unknown commit'})`);
+  try {
+    await slack.chat.postMessage({
+      channel: channelId, thread_ts: msg.thread_ts || msg.ts,
+      text: redact(describeAskRefusal(pending.state)), unfurl_links: false,
+    });
+  } catch (err) {
+    await postToOps(`:rotating_light: A question in <#${channelId}> was held for a pending update and the notice could not be posted (${err.message}). The person has not been told.`);
+  }
+  markTaskProcessed(msg.ts);
+  return true;
+}
+
 // ---- Task parsing ----
 // Functions moved to lib/task-parser.js: parseTask, isTaskMessage, isConversationMessage, alreadyProcessed
 
@@ -592,14 +617,32 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
   // that a task is running. Auto-update will wait for this file to be removed
   // before restarting, to avoid interrupting running tasks.
   // LOGIC CHANGE 2026-09-14: "restarting PM2" -> "restarting". There is no pm2 here.
-  // Best effort: a task that cannot write its lock still runs. A missing lock
-  // risks an interrupting restart, which beats refusing to do the work at all.
-  const lockResult = taskLock.acquire({
-    msgTs: msg.ts,
-    description: task.description,
-    lockFile: TASK_LOCK_FILE,
-  });
-  if (!lockResult.acquired) {
+  // LOGIC CHANGE 2026-11-08 (WORK-TODO #72, owner: "if locked - refuse - then a human
+  // can over rule"): no longer best effort. A task starts only when the lock and the
+  // queue agree nothing else is running AND its own lock is written; otherwise it is
+  // refused before any work (thrown inside the try below, so the failure path posts it
+  // and fails the queue row) and the owner overrules with `ASK: lock clear`. A lock this
+  // task did not write is never released by this task.
+  let startRefusal = null;
+  try {
+    startRefusal = checkTaskStart({
+      lock: taskLock.inspect({ lockFile: TASK_LOCK_FILE }),
+      running: taskQueue.getQueue().getRunning(),
+      queueId,
+    });
+  } catch (checkErr) {
+    startRefusal = `the lock and the queue could not be read (${checkErr.message})`;
+  }
+  const lockResult = startRefusal
+    ? { acquired: false, refused: true }
+    : taskLock.acquire({
+      msgTs: msg.ts,
+      description: task.description,
+      lockFile: TASK_LOCK_FILE,
+    });
+  const lockOwned = lockResult.acquired === true;
+  if (!lockResult.acquired && !lockResult.refused) {
+    startRefusal = `the task lock could not be written (${lockResult.error})`;
     console.error(
       `[bridge-agent] Running without a task lock (${lockResult.error}) - ` +
       `a self-update during this task will not defer for it`
@@ -625,11 +668,12 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
   // dequeue()'s "first pending entry" search would pick the wrong entry whenever a
   // second one is pending. Best effort, like the lock - a queue write that fails
   // must not stop the work; but it is logged, never swallowed.
-  if (queueId) {
+  if (queueId && !startRefusal) {
     try {
       taskQueue.getQueue().markRunning(queueId);
     } catch (queueErr) {
       console.error('[bridge-agent] Queue markRunning failed:', queueErr.message);
+      startRefusal = `the queue could not record this task as running (${queueErr.message})`;
       // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged.
       await postToOps(describeTaskStateDivergence({
         kind: 'queue_not_marked_running', description: task.description, error: queueErr.message,
@@ -668,6 +712,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
     if (task.errors && task.errors.length > 0) {
       throw new Error(`Task message rejected: ${task.errors.join('; ')}`);
     }
+    if (startRefusal) throw new Error(describeStartRefusal(startRefusal));
 
     // LOGIC CHANGE 2026-03-27: Start heartbeat reactions (eyes -> cycling emojis).
     await heartbeat.start();
@@ -1401,7 +1446,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
     // release and reports a failed unlink rather than swallowing it. A lock that
     // survives this block is now aged out by the staleness rule instead of
     // blocking every future deploy.
-    const releaseResult = taskLock.release(TASK_LOCK_FILE);
+    const releaseResult = lockOwned ? taskLock.release(TASK_LOCK_FILE) : { existed: false };
     if (releaseResult.existed && !releaseResult.released) {
       console.error(
         `[bridge-agent] Task lock ${TASK_LOCK_FILE} could not be removed ` +
@@ -2345,6 +2390,8 @@ async function pollSweep() {
         // Each agent processes conversations with its own personality and system_prompt.
         // LOGIC CHANGE 2026-03-28: Added isTaskProcessed() to prevent re-answering old ASK: messages.
         if (isConversationMessage(msg) && !alreadyProcessed(msg) && !isTaskProcessed(msg.ts)) {
+          // LOGIC CHANGE 2026-11-08 (WORK-TODO #71): halt new asks while an update waits.
+          if (await refuseAskForPendingUpdate(msg, channelId)) continue;
           await processConversation(msg, channelId, channelAgentConfig);
           markTaskProcessed(msg.ts);
           continue;
@@ -2368,6 +2415,7 @@ async function pollSweep() {
           }
 
           console.log(`[bridge-agent] Natural conversation in ${agentId} channel: ${msg.ts}`);
+          if (await refuseAskForPendingUpdate(msg, channelId)) continue;
           await processConversation(msg, channelId, channelAgentConfig);
           markTaskProcessed(msg.ts);
           continue;
@@ -2576,6 +2624,21 @@ if (MAIN_WATCH_INTERVAL_MS > 0) {
   setTimeout(runMainWatch, 60000).unref();
   setInterval(runMainWatch, MAIN_WATCH_INTERVAL_MS).unref();
 }
+
+// LOGIC CHANGE 2026-11-08 (WORK-TODO #17, owner's choice): merged code deploys itself
+// once the full suite passes on it. lib/self-deploy.js runs auto-update.js's cycle in
+// this process, gated by lib/update-gate.js; a green commit applies when nothing is in
+// flight, then this process exits and the container restarts it. `busy` is the poll
+// sweep, which holds every TASK: and ASK: while it runs (WORK-TODO #71).
+// SELF_DEPLOY_INTERVAL_MS=0 turns it off.
+const selfDeploy = createSelfDeploy({
+  repoDir: __dirname,
+  busy: () => (pollInFlight ? 'a task or an answer is in progress' : null),
+  postToOps,
+});
+selfDeploy.start().then((r) => {
+  console.log(`  Deploy:   ${r.started ? 'self-deploy ON (gated by the full suite)' : `self-deploy OFF (${r.reason})`}`);
+});
 
 // LOGIC CHANGE 2026-10-04 (WORK-TODO #42 c): the backup age alert. The host writes
 // BACKUP_STATUS_FILE (scripts/backup-status.sh, host cron); this reads it hourly and

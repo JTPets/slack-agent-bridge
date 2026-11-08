@@ -248,7 +248,10 @@ stop.
   `docs/CONFIG-SURFACE-AND-REBUILD.md` → Step 0, consequences 2 and 3, and Step 10.
 - **`BRANCH:` is the branch to clone *from*, not one to create.** To create a branch,
   clone `main` and `git checkout -b` in the instructions.
-- **Deploys are manual, and merging deploys nothing.** Nothing starts `auto-update.js`.
+- **A merge deploys only after the gate passes on it, and only once the deploy-on-green
+  commit is running** (WORK-TODO #17, 2026-11-08: `lib/self-deploy.js` gates each new
+  `main` commit with the full suite and deploys it on green). Until then, and on a red gate,
+  deploys are manual and merging deploys nothing.
   A merge to `main` reaches the running bridge only when a human runs
   `docker compose restart bridge` on the NAS. **Never report a change as deployed, and
   never verify a fix against the live bridge, on the strength of having pushed it.** See

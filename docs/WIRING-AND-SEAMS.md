@@ -54,7 +54,7 @@ that is checkable, not just that it could be started.
 | Entry point | How it starts | Role |
 |-------------|---------------|------|
 | `bridge-agent.js` | `node bridge-agent.js` (container `command:`) | The bridge: polls Slack, runs tasks, handles ASK commands. Since 2026-09-14 it also starts an **additive** Socket Mode connection for slash commands (§7) — started after the poll interval is armed, never awaited, and off by default |
-| `auto-update.js` | **Nothing starts it** (verified 2026-09-14) | Git-poll → verify → `process.exit(0)` self-deploy — *designed, tested, not running* |
+| `auto-update.js` | **Its cycle runs inside `bridge-agent.js`** via `lib/self-deploy.js` since 2026-11-08 (WORK-TODO #17); the standalone daemon is still started by nothing | Git-poll → **full-suite gate** (`lib/update-gate.js`) → ff-only to the gated sha → verify → `process.exit(0)`. Live once the commit carrying it is deployed |
 | `morning-digest.js` | cron `0 8 * * *` | Daily digest DM |
 | `security-review.js` | cron `0 1 * * *` | Nightly commit audit |
 | `scripts/watercooler.js` | cron (Mon 8:30 / Fri 17:00) + manual | Multi-agent standup |
