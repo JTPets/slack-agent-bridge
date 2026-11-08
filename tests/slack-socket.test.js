@@ -509,7 +509,13 @@ describe('the wiring in bridge-agent.js', () => {
         // poll loop lets a bot post through without an allowlist check.
         const seam = code.slice(code.indexOf('startSocketMode({'));
         expect(seam).toMatch(/isAuthorized:\s*isUserAuthorized/);
-        expect((seam.match(/isAuthorized:\s*isUserAuthorized/g) || []).length).toBe(2);
+        // LOGIC CHANGE 2026-11-07 (WORK-TODO #78): three handlers now sit on the seam
+        // (the slash command, the dispatch submission, the SqTools alert buttons), each
+        // handed the same isUserAuthorized. The count is "one per handler", not looser:
+        // a handler on the seam without the allowlist still fails this.
+        const handlers = (seam.match(/handle(SlashCommand|ViewSubmission|AckAction)\(envelope/g) || []).length;
+        expect(handlers).toBe(3);
+        expect((seam.match(/isAuthorized:\s*isUserAuthorized/g) || []).length).toBe(handlers);
     });
 
     test('the composed task is POSTED, not handed to the task path directly', () => {

@@ -232,6 +232,8 @@ const { createBackupWatch } = require('./lib/backup-watch');
 const { createClaudeAuthWatch, probeClaudeAuth } = require('./lib/claude-auth-watch');
 const { DEFAULT_CLAUDE_BIN } = require('./lib/llm-defaults');
 const { handleSlashCommand, handleViewSubmission } = require('./lib/dispatch-command');
+// LOGIC CHANGE 2026-11-07 (WORK-TODO #78): SqTools alert buttons share the interactive seam.
+const sqtoolsAlertButtons = require('./lib/sqtools-alert-buttons');
 
 // ---- Config ----
 
@@ -2801,8 +2803,17 @@ let socketMode = null;
         isAuthorized: isUserAuthorized,
         notify: postToOps,
       }),
-    onInteractive: (envelope) =>
-      handleViewSubmission(envelope, {
+    // LOGIC CHANGE 2026-11-07 (WORK-TODO #78): a press of a SqTools alert button
+    // (block_actions) goes to lib/sqtools-alert-buttons.js, gated by the same allowlist;
+    // everything else (the /dispatch modal's view_submission) goes where it always did.
+    onInteractive: (envelope) => (sqtoolsAlertButtons.isAckAction(envelope && envelope.body)
+      ? sqtoolsAlertButtons.handleAckAction(envelope, {
+        isAuthorized: isUserAuthorized,
+        updateMessage: (args) => slack.chat.update(args),
+        postEphemeral: (args) => slack.chat.postEphemeral(args),
+        notify: postToOps,
+      })
+      : handleViewSubmission(envelope, {
         postMessage: (args) => slack.chat.postMessage({ ...args, unfurl_links: false }),
         isAuthorized: isUserAuthorized,
         // LOGIC CHANGE 2026-10-04 (WORK-TODO #46): the poll set, read at submit time so
@@ -2814,7 +2825,7 @@ let socketMode = null;
         // githubOrg is deliberately NOT passed: omitted, lib/dispatch-message.js
         // falls back to lib/task-parser.js's own DEFAULT_GITHUB_ORG, so the generator
         // and the parser cannot disagree about which org a bare repo name belongs to.
-      }),
+      })),
   })
     .then((handle) => {
       socketMode = handle;
