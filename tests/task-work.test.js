@@ -189,7 +189,7 @@ describe('the bridge-agent.js wiring', () => {
   });
 
   test('the status reply renders each recent row with its work', () => {
-    const fn = src.slice(src.indexOf('function formatStatusResponse()'));
+    const fn = src.slice(src.indexOf('function formatStatusResponse('));
     expect(fn.slice(0, 4000)).toMatch(/formatWork\(task\.work\)/);
   });
 });

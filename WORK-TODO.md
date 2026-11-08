@@ -92,6 +92,9 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-08** closing **#39** (B20: merge state on `what's queued`) those print **28** open items —
+**6** P1, **18** P2, **4** P3 — and no duplicate ID.
+
 On **2026-11-08** closing **#67** (B19: the pre-push id check) those print **29** open items —
 **6** P1, **19** P2, **4** P3 — and no duplicate ID.
 
@@ -435,7 +438,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
 | #7 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `onDeadlineWarning` at 80% posts `lib/deadline-warning.js` to ops; `tests/llm-runner-deadline.test.js`, `tests/deadline-warning.test.js` |
 | #8 | P2 | **CLOSED 2026-10-10** (purged) | SEED | — | Re-checked for duplicate runs: two dedup layers (done/failed reaction, `processed-tasks.json` by `ts`), a `TASK:` marked processed before it runs (`tests/task-rerun-guard.test.js`), one poll sweep at a time (`tests/poll-reentrancy.test.js`), and every re-read skip logged (`describeSkipReason`). A resubmission is a new message and runs, as intended |
-| #39 | P2 | Recording half DONE in B7; merge state OPEN | B7 | M | `lib/task-work.js` `describeWork` + `TaskQueue.recordWork` (writes `work` only, so the #74 invariant needed no change). Left: resolve merged-or-not from the remote, which D1/D2/D7 need |
+| #39 | P2 | **CLOSED 2026-11-08** (B20, purged) | B20 | M | Recording half B7 (`lib/task-work.js`); merge half `lib/merge-state.js`: each status query fetches the target repo's `main` into a bare cache under `$WORK_DIR/merge-check/` and asks `merge-base --is-ancestor` of each recent row's head. `what's queued` says merged / not on main yet / unknown. Guard `tests/merge-state.test.js` (real bare origin). A squash merge reads as not on main; nothing polls it yet (the loop, `docs/AUTONOMOUS-LOOP-DESIGN.md` part five) |
 | #40 | P2 | **CLOSED 2026-10-10** (purged) | OA | — | Owner ran `git status --short --untracked-files=no` in `/bridge` on 2026-10-10: no output, so no tracked file is modified |
 | #37 | P2 | decision | OD | S | `lib/notify-owner.js:165-168` returns `true` after only logging; HIGH is the default priority (`:147`) |
 | #64 | P2 | Refusal half DONE in B5; gate not lifted | — | M | A bare verb in an agent channel is refused with a pointer to `#claude-bridge`. Running verbs there waits on the capability model (#65, CAPABILITY-AND-ISOLATION-DESIGN) |
@@ -589,7 +592,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (19)
+**P2 — real gaps, no risk to the running process** (18)
 
 - **#78** — [SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one](#78-sqtools-alerts-reach-the-secretary-but-the-owner-cannot-acknowledge-silence-or-be-nagged-about-one)
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
@@ -601,7 +604,6 @@ work behind an owner's name, which is the opposite of the point.
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
 - **#5** — [Mid-task `ask_on_slack` capability](#5-mid-task-ask_on_slack-capability)
 - **#6** — [Structured task result format](#6-structured-task-result-format)
-- **#39** — [The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged](#39-the-queue-cannot-tell-a-completed-task-from-a-landed-one--nothing-here-knows-whether-a-branch-merged)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
 - **#64** — [A verb typed in an agent's channel is answered by a model as conversation — the same text behaves differently depending on where it is typed](#64-a-verb-typed-in-an-agents-channel-is-answered-by-a-model-as-conversation--the-same-text-behaves-differently-depending-on-where-it-is-typed)
 - **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
@@ -2084,62 +2086,6 @@ shape.
 already extracts test pass/fail counts (`lib/code-review-pipeline.js:348-353`) — build on
 that rather than re-parsing.
 **Effort:** Medium.
-**Priority:** P2 | **Effort:** Medium | **Status:** open
-
----
-
-### 39. The queue cannot tell a completed task from a landed one — nothing here knows whether a branch merged
-**Filed 2026-09-14,** from the autonomous-loop design
-([`docs/AUTONOMOUS-LOOP-DESIGN.md`](docs/AUTONOMOUS-LOOP-DESIGN.md) section 4, part five).
-
-**Verified at HEAD.** The queue row is created with exactly these fields and no others:
-```bash
-grep -n "const queuedTask = {" -A 14 lib/task-queue.js
-# -> id, msgTs, channelId, text, description, repo, status, enqueuedAt, startedAt,
-#    completedAt, error
-grep -rniE "merged|landed|pull_?request|isMerged" --include='*.js' lib/ bridge-agent.js | grep -v node_modules
-# -> nothing about merges; the only hits are the word "branch" used for control flow
-```
-There is no branch field, no commit field and no merge field anywhere in the queue or its
-callers. A task reaches `completed` when the executor's process exits successfully, which
-says the work was **done**, not that it **landed**.
-
-**Why that matters beyond tidiness.** `formatStatusResponse` answers `ASK: what's queued`
-from these rows, so "completed" in Slack means "the agent stopped", and an executor that
-committed without pushing, or pushed a branch nobody merged, reports identically to one
-whose work is on `main`. `detectUndeliveredWork` (`lib/clone-lifecycle.js`) catches the
-*unpushed* case and alerts — but a pushed, unmerged branch is delivered by its definition
-and correct by it, and is still not landed.
-
-**It blocks the loop outright.** Decisions D1, D2 and D7 of the loop design all turn on
-"has this merged?": the merge gate, the post-merge suite run against `main`, and the
-preemption of queued work by a fix task about *merged* code. None can be built on a
-completed/landed distinction that does not exist.
-
-**Compounded by, but separate from, #17.** #17 records that nothing can answer which
-commit the running process is on. That is "merged vs deployed"; this is "completed vs
-merged". Both would have to be answerable for a loop to close, and neither is.
-
-**B7, 2026-10-04 — the recording half is done; merge state is not.** `processTask` reads
-the clone's HEAD right after cloning and, in its `finally` before the clone can be deleted,
-records `describeWork()` (`lib/task-work.js`) on the queue row via `TaskQueue.recordWork()`:
-the branch, the head commit, how many commits the task added, and which `refs/heads/*` on
-the REMOTE have that commit as their tip (`git ls-remote`, never the `--single-branch`
-clone). `ASK: what's queued` shows it on each recent row, e.g. `feature/x` @ `abc1234`,
-2 new commit(s), on remote as feature/x, or NOT on the remote. An unreachable remote is
-"remote not checked", never "not on the remote". `recordWork` writes the `work` field
-only, never a status or a delivery verdict, so `tests/task-queue-delivery-invariant.test.js`
-passes unchanged; `_startRunning` clears `work` with the verdict. Guard:
-`tests/task-work.test.js` (real bare origin and clone; 6 of its 14 tests fail with the
-queue and bridge-agent.js changes reverted). **Still open:** whether that branch MERGED —
-that needs the remote's `main` checked against the recorded sha over time, which decisions
-D1, D2 and D7 depend on. Hence `Addresses`, not `Closes`.
-
-**Fix (shape, not chosen):** record the branch and head SHA on the queue row when the task
-pushes, then resolve merge state from the remote. Whatever does the resolving must ask the
-remote, not the scratch clone — `detectUndeliveredWork`'s own comment explains why
-(`--single-branch` clones have no `origin/feature/*` ref, so a local-only check reads a
-pushed branch as unpushed).
 **Priority:** P2 | **Effort:** Medium | **Status:** open
 
 ---

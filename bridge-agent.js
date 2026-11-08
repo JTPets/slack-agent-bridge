@@ -206,6 +206,7 @@ const { redact } = require('./lib/redact-secrets');
 // docs/WIRING-AND-SEAMS.md. Pure fs/execFileSync helpers with no bridge state.
 const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-lifecycle');
 const { headSha, describeWork, formatWork } = require('./lib/task-work');
+const { resolveMergeStates, formatMergeState } = require('./lib/merge-state');
 const { formatPreservedCloneAlert } = require('./lib/preserved-clone-alert');
 const { describeTaskStateDivergence } = require('./lib/task-state-divergence');
 const repoHistory = require('./lib/repo-history');
@@ -1416,7 +1417,9 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
 // and last 5 completed tasks with elapsed time.
 // LOGIC CHANGE 2026-03-26: Added rate limit status display when queue is paused.
 // LOGIC CHANGE 2026-04-01: Updated to use task queue for more accurate status.
-function formatStatusResponse() {
+// LOGIC CHANGE 2026-11-08 (WORK-TODO #39): takes the merge state of each recent row,
+// resolved by the caller (lib/merge-state.js) because asking the remote is async.
+function formatStatusResponse(mergeStates = new Map()) {
   // Use task queue for current status (more accurate than memory)
   const queue = taskQueue.getQueue();
   const queueStatus = queue.getStatus();
@@ -1472,7 +1475,7 @@ function formatStatusResponse() {
         : task.status === 'interrupted' ? '⚠️'
         : '❌';
       // LOGIC CHANGE 2026-10-04 (WORK-TODO #39): with the branch and commit it left.
-      response += `• ${timeStr} ${emoji} ${task.description || 'No description'} (${task.status})${formatWork(task.work)}\n`;
+      response += `• ${timeStr} ${emoji} ${task.description || 'No description'} (${task.status})${formatWork(task.work)}${formatMergeState(mergeStates.get(task.id))}\n`;
     }
   } else {
     // Fall back to memory history if queue is empty
@@ -1598,7 +1601,15 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
     // Only bridge agent handles status queries (they're global to the system).
     if (sourceChannel === BRIDGE_CHANNEL && isStatusQuery(questionText)) {
       console.log(`[${agentId}] Status query detected: ${msg.ts}`);
-      const statusResponse = formatStatusResponse();
+      // LOGIC CHANGE 2026-11-08 (WORK-TODO #39): say whether each recent task's commit
+      // reached main. A failure here costs the merge column, never the reply.
+      let mergeStates = new Map();
+      try {
+        mergeStates = await resolveMergeStates(taskQueue.getQueue().getRecentCompleted(5), { workDir: WORK_DIR });
+      } catch (e) {
+        console.error(`[${agentId}] Merge state unavailable: ${e.message}`);
+      }
+      const statusResponse = formatStatusResponse(mergeStates);
       await slack.chat.postMessage({
         channel: sourceChannel,
         thread_ts: msg.ts,
