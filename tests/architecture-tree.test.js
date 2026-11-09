@@ -169,6 +169,7 @@ describe('CLAUDE.md architecture tree is complete', () => {
             'channel-map.json',
             'agent-activation.json',
             'approval-queue.json',
+            'activation-answers.json',
             'check-state.json',
             'delivery-quotes.json',
             'working.json',

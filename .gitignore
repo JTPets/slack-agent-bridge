@@ -38,6 +38,7 @@ agents/shared/channel-map.json
 # destroyed twice by auto-update's `git reset --hard HEAD`, and an activation is a
 # fact about THIS workspace, not about the repository.
 agents/shared/agent-activation.json
+agents/shared/activation-answers.json
 agents/shared/approval-queue.json
 # data/ holds runtime files only (delivery quotes, staff-task state with staff names,
 # the Square catalog cache). INVERSE rule, 2026-10-04 (WORK-TODO #62): an allowlist of

@@ -478,7 +478,13 @@ ASK: create <id> channel=<name> provider=<claude|gemini|ollama> [repo=<owner/nam
 ```
 
 They are verbs in the one command table (`lib/command-router.js`), implemented in
-`lib/agent-activation.js`. `activate` does all four things or none of them:
+`lib/agent-activation.js`. **First, since 2026-11-09 (WORK-TODO #80), it walks the agent's
+checklist** in `agents/activation-checklists.json` (`lib/activation-checklist.js`): an
+`Add <NAME> to .env` step is checked by the bridge (SET/EMPTY, never the value), any other
+step is answered with `ASK: activate <id> done <n>` (`undo <n>`), and with any step open it
+activates nothing and lists what is left. Answers are kept in the gitignored
+`agents/shared/activation-answers.json`. Once every step passes, `activate` does all four
+things or none of them:
 
 1. resolve the declared `channel_name` to an id — local map first, then Slack by
    name, **find-only**;

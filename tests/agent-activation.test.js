@@ -266,7 +266,7 @@ describe('the activation command surface', () => {
 
     test('activate refuses an agent whose declared channel does not exist, and says why', async () => {
         const planned = registry.loadAgents().find(a => a.status === 'planned' && !a.channel);
-        const result = await activation.handleActivate({ args: planned.id, slackClient: slackStub() });
+        const result = await activation.handleActivate({ checklists: {}, args: planned.id, slackClient: slackStub() });
         expect(result.ok).toBe(false);
         expect(result.text).toMatch(/does not exist in this workspace/);
         expect(result.text).toMatch(/Nothing was changed/);
@@ -284,7 +284,7 @@ describe('the activation command surface', () => {
     // failure this whole dispatch exists to stop.
     test('without the re-registration hook it says a restart is needed, and does not imply otherwise', async () => {
         const planned = registry.loadAgents().find(a => a.status === 'planned' && !a.channel);
-        const result = await activation.handleActivate({
+        const result = await activation.handleActivate({ checklists: {},
             args: planned.id,
             slackClient: slackStub({ [planned.channel_name]: 'C_NEW' }),
         });
@@ -297,7 +297,7 @@ describe('the activation command surface', () => {
     test('with the hook it reports live effect, and the hook actually ran', async () => {
         const planned = registry.loadAgents().find(a => a.status === 'planned' && !a.channel);
         const onActivationChanged = jest.fn();
-        const result = await activation.handleActivate({
+        const result = await activation.handleActivate({ checklists: {},
             args: planned.id,
             slackClient: slackStub({ [planned.channel_name]: 'C_NEW' }),
             onActivationChanged,
@@ -309,7 +309,7 @@ describe('the activation command surface', () => {
 
     test('a hook that throws downgrades the claim instead of reporting success', async () => {
         const planned = registry.loadAgents().find(a => a.status === 'planned' && !a.channel);
-        const result = await activation.handleActivate({
+        const result = await activation.handleActivate({ checklists: {},
             args: planned.id,
             slackClient: slackStub({ [planned.channel_name]: 'C_NEW' }),
             onActivationChanged: jest.fn(() => { throw new Error('registrar exploded'); }),
@@ -321,7 +321,7 @@ describe('the activation command surface', () => {
     // The durability claim, asserted rather than only written down.
     test('every activation verdict states that the decision survives a restart and a pull', async () => {
         const planned = registry.loadAgents().find(a => a.status === 'planned' && !a.channel);
-        const activated = await activation.handleActivate({
+        const activated = await activation.handleActivate({ checklists: {},
             args: planned.id,
             slackClient: slackStub({ [planned.channel_name]: 'C_NEW' }),
             onActivationChanged: jest.fn(),
@@ -335,7 +335,7 @@ describe('the activation command surface', () => {
 
     test('deactivate keeps the resolved channel so re-activating needs no Slack lookup', async () => {
         const planned = registry.loadAgents().find(a => a.status === 'planned' && !a.channel);
-        await activation.handleActivate({
+        await activation.handleActivate({ checklists: {},
             args: planned.id,
             slackClient: slackStub({ [planned.channel_name]: 'C_NEW' }),
             onActivationChanged: jest.fn(),

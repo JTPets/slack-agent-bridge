@@ -92,6 +92,9 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-09** filing **#80** (B25, the activation checklist session) those print **24**
+open items — **6** P1, **14** P2, **4** P3 — and no duplicate ID.
+
 On **2026-11-09** closing **#49**, **#64** and **#65** (B24: read-only verbs in any channel,
 natural conversation only where the agent can write nothing, the provider-override harm
 closed by per-agent tools) those print **23** open items — **6** P1, **13** P2, **4** P3 — and
@@ -394,6 +397,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B19-B22** | Four no-input batches, one commit each | Done 2026-11-08: #67 pre-push id check (closed, B19); #39 merge state on `what's queued` (closed, B20); #4 message events wake the poll (B21, Slack app step left); #10 Wave T finished: the holidays and owner-tasks suites split (B22) | `lib/backlog-id-check.js`, `scripts/backlog-id-check.js`, `lib/merge-state.js`, `lib/poll-wake.js`, `lib/slack-socket.js`, `bridge-agent.js` (status reply, socket seam), `tests/` | Disjoint files apart from `bridge-agent.js` (two separate regions) and `WORK-TODO.md` |
 | **B23** | Deploy on green, on the owner's answers of 2026-11-08 | Done 2026-11-08: #17 built (gate + in-process self-deploy; closes on the first observed self-deploy); #71 closed (new asks halted while an update waits); #72 closed (a task refused while the lock and the queue disagree; `ASK: lock` / `lock clear`) | `lib/update-gate.js`, `lib/self-deploy.js`, `lib/ask-drain.js`, `lib/task-start-check.js`, `lib/lock-command.js`, `auto-update.js`, `bridge-agent.js`, `lib/command-router.js`, `tests/` | One batch: the three meet in the update cycle and the poll loop |
 | **B24** | Owner answers of 2026-11-08, second half | Done 2026-11-09: #64 closed (read-only verbs run in any channel, the rest refused); #49 closed (natural conversation only where the agent can write nothing); #65 closed (the tool harm is closed by per-agent tools; owner); #37 built (HIGH digest + secretary proposals into the approval queue); #51 built (tracked-file changes pushed as a branch); #47 built (`ASK: provider`) | `lib/agent-channel-verbs.js`, `lib/natural-conversation.js`, `lib/high-notices.js`, `lib/high-digest.js`, `lib/definition-branch.js`, `lib/provider-switch.js`, `lib/agent-create.js`, `lib/notify-owner.js`, `lib/command-router.js`, `bridge-agent.js`, `tests/` | One batch: shared `bridge-agent.js` and command table |
+| **B25** | Activation checklist session (owner 2026-11-09) | Done 2026-11-09: #80 filed and built (`activate <id>` checks `.env` steps itself and asks the rest; activates only when all pass) | `lib/activation-checklist.js`, `lib/agent-activation.js`, `lib/owner-tasks-store.js`, `lib/bridge-state*.js`, `tests/` | No `bridge-agent.js` change |
 | **OA** | Owner action only, nothing left in the repo | #41, #43, #70 (#25, #40, #73 closed 2026-10-10 from box output; #3, #26, #53, #55, #66 closed 2026-10-10 on live evidence; #52 closed 2026-10-10 on the `ASK: channels` output) | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
 | **B7** | Landed vs completed | Done 2026-10-04: #39 recording half (`work` on the queue row, shown in `what's queued`). Left: merge state | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/task-work.js` | `recordWork` writes no status and no verdict, so the #74 invariant holds unchanged (its suite passes untouched) |
 | **B8** | Small repo halves left after B7 | Done 2026-10-04: #62 (closed), #75 repo half. B9 (same day): `lib/repo-history.js` reads `Closes #N. Addresses #M` on one line as two claims, not two closes | `.gitignore`, `tests/gitignore-publishable.test.js`, `docker-compose.example.yml` | No runtime code |
@@ -453,6 +457,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #37 | P2 | Built B24 | — | S | Closes on the first HIGH digest seen in `#sqtools-ops` |
 | #47 | P2 | Built B24 | — | S | `ASK: provider`; closes on the first branch pushed from the box |
 | #66 | P2 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | Observed live: `lib/main-watch.js` posted "`main` differs from the running bridge" once per new `main` sha (2026-10-05 08:25 and 17:17, 2026-10-06 08:17 EDT) |
+| #80 | P2 | Built B25 | B25 | S | `activate` is a checklist session; closes on the first activation through it on the box |
 | #51 | P2 | Built B24 for tracked files | — | S | `create` and `provider` push a branch; closes on the first branch pushed from the box |
 | #52 | P2 | **CLOSED 2026-10-10** (purged) | OA | — | Owner ran `ASK: channels` on production 2026-10-10: 8 owned channels, 0 agent channels the bot is missing, 1 unowned (`#bot-memory`, put to the owner as a decision), 2 planned agents unresolved (storefront, marketing) |
 | #53 | P2 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | `#jester-agent` was created 2026-09-15 and the critique has posted there every Friday since (latest 2026-10-09 18:00 EDT) |
@@ -599,7 +604,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (18)
+**P2 — real gaps, no risk to the running process** (14)
 
 - **#78** — [SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one](#78-sqtools-alerts-reach-the-secretary-but-the-owner-cannot-acknowledge-silence-or-be-nagged-about-one)
 - **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
@@ -614,6 +619,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#51** — [A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it](#51-a-command-that-writes-a-tracked-file-is-destroyed-by-the-next-pull-and-every-configuration-writing-command-shares-it)
 - **#57** — [Before the bridge is given a private-repo credential — the constraints, not the plan](#57-before-the-bridge-is-given-a-private-repo-credential--the-constraints-not-the-plan)
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
+- **#80** — [Activating an agent ignores its checklist, and a checklist tick proves nothing](#80-activating-an-agent-ignores-its-checklist-and-a-checklist-tick-proves-nothing)
 
 **P3 — nice to have / uncertain ROI** (4)
 
@@ -2256,6 +2262,34 @@ the ceiling should *be*. Both touch `lib/task-parser.js`; neither subsumes the o
 **Not decided here:** the value of N, the wall-clock bound, or what counts as a "checkpoint".
 
 **Observed 2026-11-08 (owner paste from the NAS, point-in-time; regenerate with `docker logs --since 168h jt-agent 2>&1 | grep "\[run-stats\]" | tail -40`):** 8 runs since the 2026-11-07 recreate (secretary 3, security 2, story-bot 2, bridge 1). Seven finished in 6-25 s with a longest quiet gap of 9.1 s or less. One secretary run was quiet for 810,827 ms (about 13.5 min) with 0 tool calls and 2 turns, raised the stall alert, and still exited 0 after 834.9 s: a 10-minute stall cut-off in enforce mode would have killed a run that succeeded. No loop: the longest repeat of one tool call was 1. Total cost about $0.49. No long code task is in the sample, so `TASK_LIMITER_MODE` stays `report` and no threshold is set from this; re-sample after a week that includes one.
+
+---
+
+### 80. Activating an agent ignores its checklist, and a checklist tick proves nothing
+**Filed 2026-11-09.** Owner, 2026-11-09: "activation checklist should be a ask and answer
+session in the bot itself once its able to activate". Until then `ASK: activate <id>`
+(`lib/agent-activation.js`) never read `agents/activation-checklists.json`, so an agent
+could be activated with its credentials missing; a step was done only because someone
+typed `completed: true` into a tracked file, which a tick written on the box loses on the
+next deploy; and the secretary's "what do I need to do" listed every unticked step,
+including ones already done.
+
+**B25, 2026-11-09 — built.** `lib/activation-checklist.js`. `ASK: activate <id>` shows the
+checklist with each step's state and activates only when every step passes:
+- an `Add <NAME> to .env` step is checked by the bridge (SET when its process environment
+  holds a non-blank value, never the value) and cannot be ticked by hand;
+- every other step is answered with `ASK: activate <id> done <n> ...` (`undo <n>` takes it
+  back), stored in the gitignored `agents/shared/activation-answers.json` keyed by the
+  step's text; a step already ticked in the tracked file counts;
+- a refused answer (an env step, an unknown number) writes nothing;
+- `getPendingTasks` (the "what do I need to do" list) drops a step that passes.
+Guard: `tests/activation-checklist.test.js` (5 of its 10 tests fail against the
+pre-change `handleActivate`).
+
+**Left:** a live read-only call per credential, so SET also means "works" (needs one probe
+per integration; none exists for Square, Meta, LinkedIn or Google Business today).
+**Close condition:** one planned agent activated through the session on the box.
+**Priority:** P2 | **Effort:** S | **Status:** built (B25); closes on the first activation through the session
 
 ---
 
