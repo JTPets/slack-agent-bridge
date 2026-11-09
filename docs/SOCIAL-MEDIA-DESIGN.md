@@ -112,41 +112,37 @@ All posts require owner approval before scheduling. The agent NEVER auto-posts w
 - Appropriate pricing and promotions
 - Compliance with pet food advertising guidelines
 
-## Integration Architecture
+## What is built (2026-11-09)
 
-### Meta Graph API
-- **Purpose**: Facebook and Instagram posting, scheduling, analytics
-- **Requires**: Facebook App creation, Page access token
-- **Endpoints**:
-  - `POST /{page-id}/feed` - Facebook posts
-  - `POST /{ig-user-id}/media` - Instagram media
-  - `GET /{page-id}/insights` - Analytics
+The owner chose Facebook, Instagram, Google Business Profile and Bluesky, both posting and
+reading (2026-11-09). The sections below this one are the original March design; where they
+differ, this section is what the code does.
 
-### Square Catalog API
-- **Purpose**: Product data for spotlight posts
-- **Access**: Read-only (`square-catalog-read` permission)
-- **Data**: Product name, description, price, images, categories, variations
+| Step | Where | What it does |
+|------|-------|--------------|
+| New items | `lib/catalog-new-items.js`, `lib/integrations/square-catalog-api.js` | Daily diff of the read-only Square catalog against the ids and category names seen before. First run is a baseline. Square has no brand field, so a new category stands in for a new brand |
+| Drafts | `lib/social-drafts.js` | The agent's own model, one turn, no tools, the item's facts only, answers JSON: a post for Facebook/Instagram/Google and a 300-character Bluesky version. Posted in #social-media with Publish / Edit / Reject |
+| Approval | `lib/social-buttons.js` | **The only path to a live post.** An allowlisted person presses Publish behind a confirm naming the platforms. The draft is claimed first, so it publishes once. Each platform's result (link or reason) is written on the post |
+| Publishing | `lib/social-meta.js`, `lib/social-gbp.js`, `lib/social-bluesky.js`, `lib/social-platforms.js` | Graph API v26.0 (Page photo/feed post; Instagram container then publish), Business Profile v4 localPosts, Bluesky createRecord. An unconfigured platform is skipped and named |
+| Reading | same, `lib/social-insights.js` | A daily snapshot per platform kept 400 days, because the platforms show today's numbers, not a history |
+| Digest | `lib/social-insights.js` | Mondays (and `ASK: social`): followers this week, best post, Instagram comments nobody answered, repeat commenters, new and lost Bluesky followers, unanswered Google reviews, the listing's views/calls/directions against the week before. Computed, not written by a model |
+| Schedule | `lib/social-daily.js` | `social-daily` at 09:00 Toronto; on demand with `ASK: social` |
 
-### Image Generation
-- **Claude API**: Generate image prompts, describe visual concepts
-- **Stable Diffusion / DALL-E**: Generate custom graphics (future)
-- **Canva API**: Template-based designs for consistency (optional)
+**What the platforms do not give**, so nothing here claims it: Facebook and Instagram return no list
+of followers (counts, aggregated demographics and commenters only). Bluesky's follower list is
+public. LinkedIn and X are not built: LinkedIn company-page access needs LinkedIn's vetting, and X's
+API is pay-per-use since 2026.
 
-### Canva API (Optional)
-- **Purpose**: Professional template-based designs
-- **Templates**: Product spotlight, nutrition tip, promotion announcement
-- **Brand Kit**: JT Pets colors, fonts, logo placement
+**Never auto-posts.** The model never sees a platform token: tokens live in `.env` and are used only
+by the publishing code after a press.
 
 ## Environment Variables
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `META_ACCESS_TOKEN` | Meta Graph API access token (page token) | Yes |
-| `META_PAGE_ID` | Facebook Page ID | Yes |
-| `INSTAGRAM_BUSINESS_ID` | Instagram Business Account ID | Yes |
-| `CANVA_API_KEY` | Canva API key (optional) | No |
-
-**Note:** These tokens require owner setup via Meta Business Suite. See activation checklist in `agents/activation-checklists.json`.
+The full table is in `CLAUDE.md` → "Social media". Names: `META_PAGE_ACCESS_TOKEN`, `META_PAGE_ID`,
+`INSTAGRAM_BUSINESS_ID`, `META_GRAPH_VERSION`, `GBP_ACCOUNT_ID`, `GBP_LOCATION_ID`,
+`GBP_REFRESH_TOKEN`, `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`, `BLUESKY_PDS`, plus
+`SQUARE_ACCESS_TOKEN` for the new-item check. Setup steps are the social-media activation
+checklist in `agents/activation-checklists.json`.
 
 ## Implementation Phases
 

@@ -124,14 +124,19 @@
     "status": "planned",
     "doc": "docs/SOCIAL-MEDIA-DESIGN.md",
     "tasks": [
-      { "description": "Set up Meta Business Suite app and get access tokens", "completed": false, "priority": "high" },
-      { "description": "Add META_ACCESS_TOKEN to .env", "completed": false, "priority": "high" },
+      { "description": "Create a Meta developer app (Business type) with Facebook Login for Business, linked to the JT Pets Page and Instagram business account; grant pages_manage_posts, pages_read_engagement, read_insights, instagram_basic, instagram_content_publish, instagram_manage_insights, instagram_manage_comments", "completed": false, "priority": "high" },
+      { "description": "Add META_PAGE_ACCESS_TOKEN to .env", "completed": false, "priority": "high", "note": "A long-lived Page token (from a long-lived user token), not a short-lived user token" },
       { "description": "Add META_PAGE_ID to .env", "completed": false, "priority": "high" },
       { "description": "Add INSTAGRAM_BUSINESS_ID to .env", "completed": false, "priority": "high" },
+      { "description": "Request Google Business Profile API access for the Google Cloud project and enable the My Business and Business Profile Performance APIs", "completed": false, "priority": "high" },
+      { "description": "Add GBP_REFRESH_TOKEN to .env", "completed": false, "priority": "high", "note": "Minted with the business.manage scope, using the existing GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET" },
+      { "description": "Add GBP_ACCOUNT_ID to .env", "completed": false, "priority": "high" },
+      { "description": "Add GBP_LOCATION_ID to .env", "completed": false, "priority": "high" },
+      { "description": "Add BLUESKY_HANDLE to .env", "completed": false, "priority": "high" },
+      { "description": "Add BLUESKY_APP_PASSWORD to .env", "completed": false, "priority": "high", "note": "An app password from Bluesky settings, never the account password" },
+      { "description": "Add SQUARE_ACCESS_TOKEN to .env", "completed": false, "priority": "high", "note": "Read-only, ITEMS_READ scope only. Shared with the storefront agent" },
       { "description": "Create #social-media Slack channel for draft approvals", "completed": true, "priority": "high", "completedAt": "2026-03-27" },
       { "description": "Invite @bridge-agent to #social-media channel", "completed": true, "priority": "high", "note": "Auto-join handles this now" },
-      { "description": "Create content calendar template skill", "completed": false, "priority": "medium" },
-      { "description": "Build product spotlight generator from Square catalog", "completed": false, "priority": "medium" },
       { "description": "Create nutrition tip library from owner knowledge", "completed": false, "priority": "medium" },
       { "description": "Design Instagram post templates (optional Canva integration)", "completed": false, "priority": "low" }
     ]
