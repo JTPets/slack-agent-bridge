@@ -761,6 +761,7 @@ slack-agent-bridge/
 │   │   ├── watercooler-state.json # Tracks last standup timestamp (created at runtime, gitignored)
 │   │   ├── processed-tasks.json  # Task deduplication: Slack msg timestamps (created at runtime, gitignored)
 │   │   ├── channel-map.json      # Resolved channel ID cache (created at runtime, gitignored)
+│   │   ├── activation-answers.json # The owner's answers to activation checklist steps (`activate <id> done <n>`, WORK-TODO #80), keyed by step text (created at runtime, gitignored)
 │   │   ├── approval-queue.json   # Manual approval queue for auto-generated tasks (created at runtime, gitignored)
 │   │   ├── staff.json            # Staff member definitions (name, slackId, role)
 │   │   └── daily-tasks-template.json  # Recurring daily store tasks template
@@ -781,6 +782,7 @@ slack-agent-bridge/
 │           └── check-state.json  # Last successful inbox-check timestamp (created at runtime, gitignored)
 ├── lib/
 │   ├── agent-activation.js # Turning a DEFINITION into a running agent in this workspace: resolveAgentChannel (local channel map first, then Slack by name — and it NEVER creates a channel), activateAgent/deactivateAgent/resetActivation writing workspace-local state via lib/bridge-state.js, getAgentsNeedingActivation, plus the handlers behind the `available`/`activate`/`deactivate` verbs. Refuses, changing nothing, when the declared channel does not exist. An activation re-derives the poll set and the scheduler through the caller's onActivationChanged hook, and when it cannot, the verdict SAYS a restart is needed rather than implying a live effect it did not have
+│   ├── activation-checklist.js # WORK-TODO #80: `ASK: activate <id>` as a question-and-answer session over agents/activation-checklists.json. checklistGate runs before activateAgent: an `Add <NAME> to .env` step is checked by the bridge (SET/EMPTY, never the value, cannot be ticked), any other step is answered with `activate <id> done <n>` (`undo <n>`), stored in the gitignored agents/shared/activation-answers.json keyed by step text; activates only when every step passes. A refused answer writes nothing. taskPasses also drops passing steps from getPendingTasks
 │   ├── agent-frontmatter.js # A deliberately tiny YAML-subset codec — scalars, lists of scalars, one level of nested maps — for the frontmatter block of an agent definition. Knows nothing about agents. THROWS with a line number on anything outside the subset rather than guessing. No js-yaml: it resolves only as a transitive jest dependency and is absent under `npm ci --omit=dev`
 │   ├── agent-markdown.js # THE reader and writer of agents/<id>/agent.md: parseAgentMarkdown, serializeAgent, loadDefinitions. Enforces the one rule that makes a definition portable — a `channel:` key, or any value shaped like a Slack id, is REFUSED, not stripped
 │   ├── agent-create.js   # `create` — a new agent DEFINITION from a template, given an id, a channel NAME, a provider and an optional target repo. Separate from lib/agent-activation.js because the two have different durability: activation writes gitignored workspace state and survives a pull, creation writes a TRACKED file that the next `git reset --hard HEAD` discards, and the verdict says so in those words (WORK-TODO #51). Creates no Slack channel, resolves none, activates nothing — the new definition is `planned` with no schedule and no watches. Fields are REJECTED, never sanitised, and a refusal writes nothing
@@ -962,6 +964,7 @@ slack-agent-bridge/
 │   ├── repo-history.test.js     # Tests for lib/repo-history.js against REAL git repositories in temp dirs. Carries THE regression test for a fabricated citation: `Closes WORK-TODO P1 #18.` (a real commit body here, 6454fb0) was read as a claim about item #1 by an optional-`#` pattern, because `P1` supplies a digit first. Also that a shallow clone is UNAVAILABLE rather than a short history — the fixture clones via `file://` because git ignores --depth for a local path
 │   ├── critique-digest.test.js  # Tests for lib/critique-digest.js and lib/critique-signals.js. THE property under test is that an UNAVAILABLE signal is never rendered as an empty one — every source is exercised in both states — plus the thinness rule (windowed signals only; a missing sensor is unknown, not quiet)
 │   ├── bug-fixes.test.js        # Regression tests for named past defects: rate-limit false positives, memory-file corruption resilience, null exit code = interrupted, stale working memory, addTask on corrupted tasks.json
+│   ├── activation-checklist.test.js # WORK-TODO #80: env steps SET/EMPTY never the value (every live `Add X to .env` step parses as one); open steps refuse with how to answer and activate nothing; `done` writes the temp answers file and activates once all pass; refused answers write nothing; the pending list drops a SET or answered step. 5 of 10 fail against the pre-change handleActivate
 │   ├── agent-create.test.js     # Tests for lib/agent-create.js: that it creates and resolves no Slack channel, that a created definition is planned with no schedule, that every field is rejected rather than sanitised and a refusal writes nothing, and THE honesty assertion — the success verdict states that the next pull destroys the file unless it is committed
 │   ├── agent-context.test.js    # Tests for lib/agent-context.js (anti-hallucination, secretary context)
 │   ├── agent-activation.test.js # Tests for lib/agent-activation.js and the workspace-state half of lib/bridge-state.js, against real files in a temp dir: THE guard that activation never creates a Slack channel (the replaced implementation did), that a declared channel which does not exist is refused with nothing recorded, and that the decision lands in a gitignored file so it survives a pull
@@ -2069,6 +2072,13 @@ ASK: create <id> channel=<name> provider=<claude|gemini|ollama> [repo=<owner/nam
 ```
 - `activate`/`deactivate` write `agents/shared/agent-activation.json`, which is
   **gitignored** — the decision survives a restart AND a pull.
+- **`activate` is a checklist session (since 2026-11-09, WORK-TODO #80).** With open steps
+  in `agents/activation-checklists.json` it activates nothing and lists each step: an
+  `Add <NAME> to .env` step is checked by the bridge (SET/EMPTY, never the value; add it to
+  `.env` and recreate), any other step is answered with `ASK: activate <id> done <n> ...`
+  (`undo <n>` takes it back). Answers go in the gitignored
+  `agents/shared/activation-answers.json`. When every step passes, the same command (or the
+  last `done`) activates. `lib/activation-checklist.js`.
 - `create` **pushes** `agents/<id>/agent.md` as a new branch of `BRIDGE_REPO`
   (`agent-def/create-<id>-<stamp>`) and writes nothing into the running checkout
   (WORK-TODO #51, owner's shape c, 2026-11-09). The owner merges it; the update gate
@@ -2247,7 +2257,9 @@ created the channel and rewrote the registry. Neither is true. To turn a `planne
    `agents/shared/agent-activation.json` (gitignored, so it survives a restart and a pull).
    A channel that does not resolve is refused with nothing recorded. It returns
    `{ ok, agent, channelId, joined, reason?, note? }`.
-3. Complete any activation checklist items (`ASK: what do I need to do`).
+3. Activation checks the agent's checklist first (WORK-TODO #80): `.env` steps are checked
+   by the bridge, every other step is answered with `ASK: activate <id> done <n>`, and the
+   agent is activated only when every step passes.
 
 See "Agent Definition and Activation" under Built-in Commands, and
 [docs/AGENTS.md](docs/AGENTS.md) → "Activating an agent in this workspace".

@@ -65,6 +65,7 @@ function useFixtureWorkspace(options = {}) {
         bridgeState.init({
             channelMapFile: path.join(handle.dir, 'channel-map.json'),
             activationFile: path.join(handle.dir, 'agent-activation.json'),
+            answersFile: path.join(handle.dir, 'activation-answers.json'),
             stateFile: path.join(handle.dir, 'state.json'),
             processedTasksFile: path.join(handle.dir, 'processed-tasks.json'),
         });
