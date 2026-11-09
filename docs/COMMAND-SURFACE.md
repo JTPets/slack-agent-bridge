@@ -177,7 +177,7 @@ two available places both lose it:
 |---|---|---|
 | `provider <agent> <provider>` | The agent's provider | Today the only durable home is `LLM_PROVIDER_<AGENTID>` in `.env`, which **a command cannot write** — `.env` is owner-managed and off-limits, and a change to it needs `--force-recreate`. Writing the definition instead is #51. The requirement this verb must meet is already recorded as WORK-TODO **#47**: report a per-agent before/after table with the *source* of each value, and never flatten an agent that was explicitly pinned |
 | `activate` / `deactivate` | Which agents run here | **Registered and working today**, into `agents/shared/agent-activation.json`. Listed in group C anyway because that file is the one learned store with a real durability story and *no export* — it survives a pull and dies with the box (§8.1 row 2). The verb is not blocked; its **durability** is the open half |
-| `create <id> …` | A new agent definition | **Registered today**, and it writes a **tracked** file. It does not hide #51 — its verdict states that the next pull destroys the file unless it is committed. That honesty is what keeps it shipped; the durable version is what part 3 is for |
+| `create <id> …` | A new agent definition | **Registered.** Since 2026-11-09 (#51, owner's shape c) it pushes the definition as a new branch for the owner to merge and writes nothing into the running checkout; the update gate deploys the merge. `provider <p> [id …]` (#47) uses the same path |
 | `feedback <text>` | A change request against the invoking channel's agent | Nothing exists. See §4 |
 | `label <label> → <agent> → <destination>` | A mail-label binding | Nothing exists, and the fetch path cannot scope by label at all. See `docs/CAPABILITY-AND-ISOLATION-DESIGN.md` |
 
