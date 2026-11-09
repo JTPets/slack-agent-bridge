@@ -441,6 +441,7 @@ Tune `MemoryMax` to the model actually pulled — it must be below `(total RAM -
 | `SELF_DEPLOY_INTERVAL_MS` | How often the bridge checks `main` and, for a new commit, runs the update gate and deploys on green (`lib/self-deploy.js`, WORK-TODO #17). `0` turns self-deploy off | `300000` (5 min) |
 | `UPDATE_GATE_TIMEOUT_MS` | Per-command timeout inside the update gate (`npm ci`, then the full `npm test`); a timeout is a red gate | `2700000` (45 min) |
 | `BRIDGE_REPO` | The bridge's own repository. `ASK: create` and `ASK: provider` push their change there as a new branch for the owner to merge (`lib/definition-branch.js`, WORK-TODO #51), using `DEPLOY_KEY_PATH` | `jtpets/slack-agent-bridge` |
+| `JEST_WORKER_ID` | **Never set it.** Jest sets it in every test worker; while it is set, `lib/definition-branch.js` refuses its default (real GitHub) clone, so no test can push a branch. Added 2026-11-09 after a test run pushed `agents/test-create-honesty` (PR #90) | - |
 | `CHECK_INTERVAL_MS` | Git poll frequency | `300000` |
 | `STATE_FILE` | auto-update's own state file (`lastKnownCommit`, `failedCommit`, `restartedIntoCommit`) | `$LOCAL_REPO_DIR/.auto-update-state.json` |
 

@@ -80,6 +80,16 @@ test('a failed clone is reported, and the scratch directory is gone', async () =
     expect(fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('definition-branch-')).length).toBe(before);
 });
 
+test('under jest the real clone is refused, so no test can push to GitHub (the PR #90 regression)', async () => {
+    expect(process.env.JEST_WORKER_ID).toBeTruthy();
+    const r = await pushDefinitionBranch({ files: [{ path: 'agents/x/agent.md', content: 'x' }], branch: 'agent-def/z', message: 'm' });
+    expect(r).toMatchObject({ ok: false, reason: expect.stringMatching(/refused under jest/) });
+    // and the verbs that default to it: create and provider without an injected push
+    const create = await require('../lib/agent-create').handleCreate({ args: 'jest-guard channel=jest-guard provider=claude' });
+    expect(create.ok).toBe(false);
+    expect(create.text).toMatch(/refused under jest/);
+});
+
 test('branchName is valid for git-identifiers', () => {
     const b = branchName('agent-def', 'provider-gemini', new Date('2026-11-09T13:04:05Z'));
     expect(b).toBe('agent-def/provider-gemini-20261109130405');
