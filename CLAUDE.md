@@ -28,7 +28,7 @@ Node.js Slack polling agent that monitors Slack channels for task messages and e
 
 ## Tech Stack
 
-- **Runtime**: Node.js 26 (the newest LTS; `image: node:26` in `docker-compose.example.yml`, `node:26.13.0-bookworm` in the Dockerfile, since 2026-11-01). The production tree needs Node >=22 (undici 8, googleapis 189, the Claude CLI), and `tests/dependency-upgrade.test.js` fails on any production package the image's Node cannot run. **Every dependency and the base image are kept at their newest release** (owner rule, 2026-11-01); Dependabot watches npm and the Dockerfile
+- **Runtime**: Node.js 26 (the newest LTS since 2026-11-01; `node:26.13.0-bookworm` in the Dockerfile, whose image `jt-agent:local` the live compose has run since 2026-11-09). The production tree needs Node >=22 (undici 8, googleapis 189, the Claude CLI), and `tests/dependency-upgrade.test.js` fails on any production package the image's Node cannot run. **Every dependency and the base image are kept at their newest release** (owner rule, 2026-11-01); Dependabot watches npm and the Dockerfile
 - **Slack SDK**: @slack/web-api ^8.2.0 (fetch transport since 2026-10-05; errors still carry `err.data.error`, proven by `tests/dependency-upgrade.test.js`)
 - **Process supervisor**: the container runtime (`restart: unless-stopped`). There is no PM2 and no process manager inside the `jt-agent` image.
 - **Timezone**: `America/Toronto`, named **explicitly at every site** — the code does
@@ -559,8 +559,10 @@ main process is `node bridge-agent.js`: a second daemon's exit restarts nothing.
 
 **Prerequisite on the box, stated:** the gate runs this repository's whole suite, and
 `tests/python-venv.test.js` needs `python3 -m venv`, which today's `node:26` image lacks
-(no `ensurepip`). Until the tracked `Dockerfile` (#70) is adopted, every gate is red at
-that test and nothing deploys itself, which is the safe failure. `.env` changes still need
+(no `ensurepip`). **The tracked `Dockerfile` (#70) was adopted on 2026-11-09** (image
+`jt-agent:local`, `python3 -m venv` exit 0 in it), so this prerequisite is met; every gate
+before that was red at that test, which was the safe failure. A rebuilt image is the
+command in the Dockerfile header. `.env` changes still need
 `docker compose up -d --force-recreate bridge` by hand: an exit restarts the same container.
 
 #### Two open questions (stated, not decided — owner's call)
@@ -1129,7 +1131,7 @@ slack-agent-bridge/
 ├── README.md             # Project overview
 ├── COMMANDMENTS.md       # Non-negotiable rules, prepended to every task prompt
 ├── WORK-TODO.md          # The backlog: flat, one ### heading per OPEN item, stable numeric IDs never reused, closed items purged (git history + the `Closes <ID>` commit body are the record), index regenerated from the headings. Counts are commands, not figures: `grep -cE '^### [0-9]+[a-z]?\. ' WORK-TODO.md`
-├── Dockerfile            # PROPOSED jt-agent image (WORK-TODO #70), not yet used by the live compose: node:26.13.0-bookworm (Dependabot bumps it) and the newest @anthropic-ai/claude-code at build (`build --pull --no-cache`; unpinned 2026-11-09, owner's newest rule), python3-venv installed once (#68). Copies nothing in — the code is the bind-mounted checkout and the credentials stay in the env_file. Adoption is the PROPOSED block (2) in docker-compose.example.yml. Node 20 is end of life since April 2026
+├── Dockerfile            # THE jt-agent image (WORK-TODO #70, closed), live as `jt-agent:local` since 2026-11-09: node:26.13.0-bookworm (Dependabot bumps it) and the newest @anthropic-ai/claude-code at build (`docker build --pull --no-cache`; unpinned 2026-11-09, owner's newest rule), python3-venv installed once (#68). Copies nothing in — the code is the bind-mounted checkout and the credentials stay in the env_file. The build command (with the QNAP `DOCKER_CONFIG` workaround) is in its header
 ├── .dockerignore         # Excludes the whole build context, because the Dockerfile copies nothing — so .env and .deploy_key are never sent to a build
 ├── docker-compose.example.yml # The deployment definition, off-box. Reproduces the live compose captured 2026-09-14 (untracked and now gitignored on the NAS) and carries the proposed container hardening as commented blocks — see docs/CONFIG-SURFACE-AND-REBUILD.md Step 7.7. No secret belongs in it; credentials live only in the off-repo env_file
 ├── .gitattributes        # Line-ending normalization (* text=auto eol=lf) - stops CRLF corruption
@@ -1258,8 +1260,8 @@ step detects the ecosystem (a `package.json` → `npm ci` with a lockfile, else
 from the branch or its dependency tree runs at install time — the branch's own tests still
 run in Phase 3 with full reach; a `requirements.txt`/`pyproject.toml`/`setup.py` →
 `python3 -m pip`, which has no equivalent switch) and runs it. **The bridge's own tooling (node, npm, jest, the Claude CLI) is NOT installed
-here** — it is baked into the container at start (`docker-compose.example.yml`
-`command:` runs `npm ci && npm install -g @anthropic-ai/claude-code`); a *target* repo's
+here** — the CLI is baked into the image (`Dockerfile`, since 2026-11-09) and the start
+command runs the bridge's own `npm ci`; a *target* repo's
 deps cannot be baked because the bridge dispatches to arbitrary repos, so they install
 into the clone that owns them. **An install failure STOPS the dispatch before any code is
 written**, reported as a HARNESS failure (`INSTALL_FAILED`/`INSTALLER_ABSENT`/`TIMED_OUT`)
@@ -1276,9 +1278,9 @@ UNVERIFIED: no python repo is cloned in any test here, and the deployed image is
 (`lib/python-venv.js`: `python3 -m venv .venv`, then `.venv/bin/python -m pip install …`;
 `.venv/` goes in the clone's `.git/info/exclude` so the clone does not read as undelivered
 work). PEP 668 is in force on the image, so a system-wide install would refuse even with
-pip. On today's image the venv step itself fails (no `ensurepip`) and is reported as
-`INSTALLER_ABSENT`; the tracked `Dockerfile` (#70, not yet adopted on the box) adds
-`python3-venv`, which supplies it. Phase 3 still runs only `npm test`, so a python
+pip. On the pre-2026-11-09 image the venv step itself failed (no `ensurepip`) and was reported as
+`INSTALLER_ABSENT`; the tracked `Dockerfile` (#70) adds `python3-venv`, which supplies
+it, and has been the live image since 2026-11-09, so a venv can now be created. Phase 3 still runs only `npm test`, so a python
 repo's tests are not run by the bridge either way.
 
 #### Supported toolchains — a STATED list, because an unstated one drifts
@@ -1292,8 +1294,8 @@ That is the same class as a Postgres-major mismatch.
 
 | Ecosystem | Manifest (`detectEcosystem`) | Installer | Status in the `jt-agent` image |
 |-----------|------------------------------|-----------|--------------------------------|
-| **node** | `package.json`; a `package-lock.json` or `npm-shrinkwrap.json` selects `npm ci` over `npm install` | `npm` | **SUPPORTED.** node and npm *are* the image (`image: node:26`) |
-| **python** | `requirements.txt`, `pyproject.toml`, `setup.py` | `python3 -m venv .venv`, then the venv's `python -m pip` | **NOT SUPPORTED.** `python3` is present, `pip` is not, so every python dispatch refuses with `INSTALLER_ABSENT`. WORK-TODO **#68** |
+| **node** | `package.json`; a `package-lock.json` or `npm-shrinkwrap.json` selects `npm ci` over `npm install` | `npm` | **SUPPORTED.** node and npm *are* the image (the Dockerfile's node base) |
+| **python** | `requirements.txt`, `pyproject.toml`, `setup.py` | `python3 -m venv .venv`, then the venv's `python -m pip` | **NOT SUPPORTED.** Since 2026-11-09 the image has `python3-venv`, so the per-clone venv and its pip can be created; no python repo has been dispatched to end to end and its pins are not named. WORK-TODO **#68** |
 | **`none`** *(anything else)* | no recognised manifest | nothing is run | **NOT DETECTED.** Nothing is installed and the task proceeds — the research/audit and no-dependency case, not a refusal |
 
 **The python row is operator-supplied and dated, not regenerable from a checkout.**

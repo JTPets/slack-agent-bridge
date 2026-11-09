@@ -1267,13 +1267,13 @@ it is block (2) of the PROPOSED section in `docker-compose.example.yml`. With it
 rebuild path becomes:
 
 ```
-cp docker-compose.example.yml /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml   # with block (2) applied
-docker compose build --pull --no-cache bridge   # --no-cache fetches the newest Claude CLI
+cp docker-compose.example.yml /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml
+DOCKER_CONFIG=/tmp/jt-docker-config docker build --pull --no-cache -t jt-agent:local /share/CACHEDEV1_DATA/jt-agent
 docker compose up -d bridge
 docker exec jt-agent claude --version     # the CLI this build installed
 ```
 
-**Unverified:** the build was not run (no container daemon where this was written) and the
+**Applied 2026-11-09 (owner paste):** the image built on the NAS (CLI 2.1.319, `python3 -m venv` exit 0) and the bridge booted on it at f477a0a. `docker compose build` fails on QNAP (`mkdir .../container-station/homes/<user>: permission denied`); `DOCKER_CONFIG` at a writable folder with plain `docker build` works, and `--no-cache` is what fetches the newest CLI. `.env`'s `CLAUDE_BIN` was changed from `/bridge/.npm-global/bin/claude` to `/usr/local/bin/claude`. Historical note: before that, the build was not run (no container daemon where this was written) and the
 base tag was not checked against the registry. **Node 20 has been end of life since April
 2026**; this pins its last release rather than moving to 22, which is its own decision.
 

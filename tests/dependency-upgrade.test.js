@@ -104,7 +104,12 @@ describe('every production dependency runs on the Node the image ships', () => {
     const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8');
     const compose = fs.readFileSync(path.join(ROOT, 'docker-compose.example.yml'), 'utf8');
     const pinned = (dockerfile.match(/^FROM node:(\d+\.\d+\.\d+)/m) || [])[1];
-    const liveMajor = (compose.match(/^\s*image:\s*node:(\d+)\s*$/m) || [])[1];
+    // LOGIC CHANGE 2026-11-09 (#70 adopted): the live compose runs the Dockerfile's image,
+    // `jt-agent:local`, so its Node IS the pinned base. A compose back on a stock node tag
+    // is still read from that tag.
+    const composeNode = (compose.match(/^\s*image:\s*node:(\d+)\s*$/m) || [])[1];
+    const composeBuilt = /^\s*image:\s*jt-agent:local\s*$/m.test(compose);
+    const liveMajor = composeNode || (composeBuilt && pinned ? String(semver.major(pinned)) : undefined);
     const lock = require('../package-lock.json');
 
     function offenders(packages) {

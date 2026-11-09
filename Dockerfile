@@ -1,6 +1,9 @@
-# Dockerfile — the jt-agent image, built rather than pulled. PROPOSED (WORK-TODO #70, B6,
-# 2026-10-04): the live deployment runs the floating `image: node:26` tag until the owner switches
-# the compose file to `build:` (docker-compose.example.yml, the PROPOSED BUILD block).
+# Dockerfile — the jt-agent image, built rather than pulled (WORK-TODO #70, B6 2026-10-04).
+# ADOPTED on the box 2026-11-09: the live compose runs `image: jt-agent:local`. Build it with
+#   DOCKER_CONFIG=/tmp/jt-docker-config docker build --pull --no-cache -t jt-agent:local /share/CACHEDEV1_DATA/jt-agent
+# On QNAP, `docker compose build` fails creating a config folder under Container Station's
+# home ("mkdir .../container-station/homes/<user>: permission denied"); DOCKER_CONFIG
+# pointed at a writable folder is the workaround, and plain `docker build` needs no `build:` key.
 #
 # WHY A BUILD STEP. Until this file, the only install step was the compose `command:`,
 # run at every container START as an unprivileged user: the toolchain was whatever
@@ -22,8 +25,7 @@
 # owner's rule is newest, upgraded rather than pinned, and nothing moved the old pin:
 # Dependabot's docker ecosystem bumps the FROM line, never an npm package named in an
 # ARG, so 2.1.316 would have stayed 2.1.316 forever. Docker caches the install layer, so
-# a rebuild only fetches a newer CLI with `--no-cache`: always build with
-#   docker compose build --pull --no-cache bridge
+# a rebuild only fetches a newer CLI with `--no-cache`: always build with the command at the top.
 # Between rebuilds the CLI is as old as the last build (the pre-image compose re-installed
 # it at every start). The base stays an exact tag because Dependabot raises it as a PR and
 # tests/dependency-upgrade.test.js checks the production tree runs on it.

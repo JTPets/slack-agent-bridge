@@ -92,6 +92,10 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-09** closing **#70** (B26: the image is built and running on the box; the Claude
+CLI installs `latest`) those print **23** open items — **6** P1, **13** P2, **4** P3 — and no
+duplicate ID.
+
 On **2026-11-09** filing **#80** (B25, the activation checklist session) those print **24**
 open items — **6** P1, **14** P2, **4** P3 — and no duplicate ID.
 
@@ -397,8 +401,9 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B19-B22** | Four no-input batches, one commit each | Done 2026-11-08: #67 pre-push id check (closed, B19); #39 merge state on `what's queued` (closed, B20); #4 message events wake the poll (B21, Slack app step left); #10 Wave T finished: the holidays and owner-tasks suites split (B22) | `lib/backlog-id-check.js`, `scripts/backlog-id-check.js`, `lib/merge-state.js`, `lib/poll-wake.js`, `lib/slack-socket.js`, `bridge-agent.js` (status reply, socket seam), `tests/` | Disjoint files apart from `bridge-agent.js` (two separate regions) and `WORK-TODO.md` |
 | **B23** | Deploy on green, on the owner's answers of 2026-11-08 | Done 2026-11-08: #17 built (gate + in-process self-deploy; closes on the first observed self-deploy); #71 closed (new asks halted while an update waits); #72 closed (a task refused while the lock and the queue disagree; `ASK: lock` / `lock clear`) | `lib/update-gate.js`, `lib/self-deploy.js`, `lib/ask-drain.js`, `lib/task-start-check.js`, `lib/lock-command.js`, `auto-update.js`, `bridge-agent.js`, `lib/command-router.js`, `tests/` | One batch: the three meet in the update cycle and the poll loop |
 | **B24** | Owner answers of 2026-11-08, second half | Done 2026-11-09: #64 closed (read-only verbs run in any channel, the rest refused); #49 closed (natural conversation only where the agent can write nothing); #65 closed (the tool harm is closed by per-agent tools; owner); #37 built (HIGH digest + secretary proposals into the approval queue); #51 built (tracked-file changes pushed as a branch); #47 built (`ASK: provider`) | `lib/agent-channel-verbs.js`, `lib/natural-conversation.js`, `lib/high-notices.js`, `lib/high-digest.js`, `lib/definition-branch.js`, `lib/provider-switch.js`, `lib/agent-create.js`, `lib/notify-owner.js`, `lib/command-router.js`, `bridge-agent.js`, `tests/` | One batch: shared `bridge-agent.js` and command table |
+| **B26** | The #70 image on the box | Done 2026-11-09: #70 closed (owner built `jt-agent:local` with `DOCKER_CONFIG=… docker build`, compose switched, `CLAUDE_BIN=/usr/local/bin/claude`); the Claude CLI installs `latest`, not a pin | `Dockerfile`, `docker-compose.example.yml`, `CLAUDE.md`, `docs/CONFIG-SURFACE-AND-REBUILD.md` | No code change |
 | **B25** | Activation checklist session (owner 2026-11-09) | Done 2026-11-09: #80 filed and built (`activate <id>` checks `.env` steps itself and asks the rest; activates only when all pass) | `lib/activation-checklist.js`, `lib/agent-activation.js`, `lib/owner-tasks-store.js`, `lib/bridge-state*.js`, `tests/` | No `bridge-agent.js` change |
-| **OA** | Owner action only, nothing left in the repo | #41, #43, #70 (#25, #40, #73 closed 2026-10-10 from box output; #3, #26, #53, #55, #66 closed 2026-10-10 on live evidence; #52 closed 2026-10-10 on the `ASK: channels` output) | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
+| **OA** | Owner action only, nothing left in the repo | #41, #43 (#70 closed 2026-11-09 on the owner's build paste; #25, #40, #73 closed 2026-10-10 from box output; #3, #26, #53, #55, #66 closed 2026-10-10 on live evidence; #52 closed 2026-10-10 on the `ASK: channels` output) | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
 | **B7** | Landed vs completed | Done 2026-10-04: #39 recording half (`work` on the queue row, shown in `what's queued`). Left: merge state | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/task-work.js` | `recordWork` writes no status and no verdict, so the #74 invariant holds unchanged (its suite passes untouched) |
 | **B8** | Small repo halves left after B7 | Done 2026-10-04: #62 (closed), #75 repo half. B9 (same day): `lib/repo-history.js` reads `Closes #N. Addresses #M` on one line as two claims, not two closes | `.gitignore`, `tests/gitignore-publishable.test.js`, `docker-compose.example.yml` | No runtime code |
 | **B10** | #10 file splits, by the boundaries its table names | Done 2026-10-05: `lib/integrations/gmail.js`, `lib/watercooler.js`, `lib/memory-tiers.js`, `lib/approval-queue.js` | the split modules, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js` | Pure moves; facades keep every caller unchanged. `bridge-agent.js` stays excluded |
@@ -428,8 +433,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #3 | P1 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | Observed live in `#sqtools-ops`: every boot since 2026-10-01 posts "Scheduler refused 2 job(s)" for the planned `social-media` and `marketing`, and story-bot's scheduled job runs in its joined channel (Friday 18:00 posts) |
 | #4 | P1 | Cheap half DONE in B5 (immediate poll after `/dispatch`, one sweep at a time); socket intake parked | B5 | S/M | Namesake (message intake on the socket) is parked by its own text. Suggest P3: latency, not a defect |
 | #43 | P1 | REPO DONE | OA | — | `/dispatch` built and wired (`bridge-agent.js:2588`); Slack app steps remain. Suggest P2 |
-| #70 | P2 | REPO DONE in B6 | OA | M | Tracked `Dockerfile` with pinned base and CLI, `.dockerignore`, compose block (2), rebuild doc Step 12. Build unverified here. Node 20 is EOL |
-| #68 | P2 | Venv half DONE in B6 | OA | M | `lib/python-venv.js`. Left: adopt the image (#70), name the pins, a real python dispatch (needs #57) |
+| #68 | P2 | Venv half DONE in B6; image adopted 2026-11-09 | OA | M | `lib/python-venv.js`; `python3 -m venv` works in the live image. Left: name the pins, a real python dispatch (needs #57) |
 | #4b | P2 | OWNER DECISIONS ONLY (B4) | OD | — | Repo halves done in B4: all 59 `process.env` reads are in `.env.example` and `CLAUDE.md`, guarded. Left: the infra-repo/secrets-store decision and cleaning unread keys out of the live `.env` |
 | #30 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | M | Every client is built by `lib/slack-web.js` `createWebClient()`, which redacts every `chat.*` post; the six helper copies delegate to `postText`/`sendDM`. Guard `tests/slack-redaction.test.js` |
 | #31 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `lib/digest-failures.js` uses llm-runner `isRateLimitError`; no line promises a retry or re-queue. Guard `tests/digest-failures.test.js` |
@@ -604,10 +608,9 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (14)
+**P2 — real gaps, no risk to the running process** (13)
 
 - **#78** — [SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one](#78-sqtools-alerts-reach-the-secretary-but-the-owner-cannot-acknowledge-silence-or-be-nagged-about-one)
-- **#70** — [This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start](#70-this-service-has-no-build-step--what-resembles-one-is-npm-running-as-an-unprivileged-user-at-every-container-start)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
 - **#27** — [A task has write access to the entire live deployment, including every credential — recorded, undecided](#27-a-task-has-write-access-to-the-entire-live-deployment-including-every-credential--recorded-undecided)
@@ -1024,7 +1027,9 @@ Guards `tests/update-gate.test.js`, `tests/auto-update-gate.test.js`,
 `tests/self-deploy.test.js`. **Not yet true on the box, stated:** the gate runs
 `tests/python-venv.test.js`, which needs `python3 -m venv`, and today's image has no
 `ensurepip`, so every gate is red until #70's Dockerfile is adopted. Nothing deploys itself
-before that, which is the safe direction.
+before that, which is the safe direction. **2026-11-09: the image is adopted** (owner paste:
+`jt-agent:local`, `python3 -m venv` exit 0, boot at f477a0a), so the next commit on `main`
+is the first that can gate green.
 **Status:** open — closes on the first self-deploy observed in `#sqtools-ops` (a GREEN gate
 line, then the boot line naming that same sha).
 
@@ -1240,96 +1245,6 @@ Regenerate the observed misfiling: search `#email-monitor-agent` for `[SqTools]`
 **Priority:** P2 | **Effort:** M | **Status:** intake built; acknowledgement verb and buttons built 2026-11-07, a real button press not yet observed
 
 ---
-
-### 70. This service has no build step — what resembles one is `npm` running as an unprivileged user at every container start
-**Filed 2026-09-20,** by the pass that recorded #68's probe evidence. **It ranks above #68
-in this tier because #68 is one symptom of it** — "there is nowhere for a root
-`RUN apt-get install` to go" is not a fact about python, it is a fact about the
-deployment's shape, and every future need for a system package, a compiled extension, a
-CA bundle or a second runtime lands on the same wall.
-
-**The finding, established by absence.** Three facts, all regenerable from a checkout:
-
-```bash
-grep -n "image:\|build:\|user:\|command:\|NPM_CONFIG_PREFIX" docker-compose.example.yml
-git log --all --oneline --diff-filter=A --name-only | grep -i dockerfile   # prints nothing
-```
-
-- **`image: node:20`** (`docker-compose.example.yml:64`) is a stock upstream tag.
-- **There is no `build:` key**, and **no `Dockerfile` has ever existed** in this repository
-  or anywhere in its history — established at `claude/intelligent-wright-312i8c`, merged as
-  `8ad5791`, and re-run at this commit.
-- **What resembles a build is the compose `command:`** (`docker-compose.example.yml:83`):
-  `sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"`,
-  running as **`user: "1000:100"`** (`:66`), installing into a bind mount because
-  `NPM_CONFIG_PREFIX: /bridge/.npm-global` (`:73`) redirects npm's global prefix there.
-
-**Three consequences, in the order they will be felt.**
-
-1. **No reproducibility.** Installation happens at *start*, not at build, so the running
-   toolchain is whatever resolved at the last restart. `npm ci` does pin this repo's own
-   dependency tree from the committed `package-lock.json` — that half is sound, and was
-   fixed deliberately on 2026-09-13. **The other two inputs are pinned by nothing:**
-   `npm install -g @anthropic-ai/claude-code` names no version, and `node:20` is a floating
-   tag. A restart in six months runs a different Claude CLI and a different Node 20 against
-   the same commit, and no artifact anywhere records which ones the process is on. That is
-   the same class as the gitignored-lockfile problem, one layer up, and #17's open question
-   — "is the running process on current `main`?" — does not even reach it: knowing the
-   commit would still not tell you the toolchain.
-2. **Every start pays a full install**, including a restart whose only purpose is to deploy
-   a one-line change. The bridge's only deploy mechanism is a restart (see #17), so this
-   cost is paid on the critical path of every deploy.
-3. **There is no place for anything that needs root.** This is the one that is already
-   biting: it is exactly why **#68** is stuck, and `apt-get` in the `command:` would fail
-   on permissions at every start inside a `restart: unless-stopped` service — a restart
-   loop with no shell. Shape (d) in #68 (run as root) is rejected for widening #27's blast
-   radius, which leaves no unprivileged answer at all within the current shape.
-
-**PRIOR ART, cited and not read.** A worked example of the alternative already runs on this
-same NAS: **SqTools' merge-gate runner builds a real image and installs at build time.**
-That establishes the pattern is viable in this estate, on this hardware, under this
-operator — it is not a theoretical improvement. **This is cited from the operator's
-account only.** The dispatch that filed this item was scoped to this repository alone, so
-nothing here has read that runner's compose file, Dockerfile, build output or any other
-artifact of it. **No claim about its contents should be read into this entry** — only that
-such a thing exists and works on this NAS. Verifying it is a separate dispatch against
-`jtpets/SquareDashboardTool`.
-
-**The runner is NOT reusable as a container, and the reason is a security property, not an
-inconvenience.** The gate runner's design deliberately **holds no credential** — that is
-what lets it execute branch code. **This service is the opposite: it holds
-`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `GEMINI_API_KEY`, the Google OAuth trio and the git
-deploy key**, and it executes LLM-authored code in scratch clones (#27). **The two must
-never share a container or an image.** What transfers is the *pattern* — a tracked
-Dockerfile, a `build:` key, install-at-build, a pinned base — and nothing else. A future
-reader tempted to "just point jt-agent at the gate runner's image" should read this
-paragraph as the refusal.
-
-**Not designed here, deliberately.** The shapes are #68's (a) and (b), and choosing one is
-an owner decision with an off-repo half. What this item adds is that the choice is **not
-about python**: it is about whether this deployment has a build step at all, and it should
-be made once, on those terms, rather than re-litigated by the next dispatch that needs a
-system package.
-
-**Definition of done.** A tracked `Dockerfile` and a `build:` key exist, with the base image
-and the Claude CLI both **pinned by version**; `docs/CONFIG-SURFACE-AND-REBUILD.md` names
-the build in the rebuild path; and the rebuild is performed on the NAS. The last is an
-owner action (#26, #17) — the first two are reachable from a branch and are not blocked.
-
-**Re-checked 2026-11-07 — still open, one consequence narrowed.** The live box moved off Node 20 on
-2026-11-02 (owner-pasted deploy of `c7aacfa`, compose edited to `image: node:26`), so the end-of-life base
-is gone. The item's namesake is not: the live compose still runs the stock floating `node:26` tag and
-installs the Claude CLI at start (`docker-compose.example.yml:71` and `:99`), and the tracked `Dockerfile`
-(base and CLI pinned) has not been built or adopted on the NAS. The last DoD step is still the owner's.
-
-**DoD amended 2026-11-09.** The CLI is no longer pinned: the owner's rule (2026-11-01) is newest,
-upgraded rather than pinned, and no automation could move an npm version held in a Dockerfile ARG.
-It installs `latest` and is refreshed by `docker compose build --pull --no-cache bridge`. The base
-stays an exact tag, raised by Dependabot's docker PRs.
-
-**Related:** #68 (the first symptom, and blocked on this), #27 (why running as root is
-rejected), #26 and #17 (the live compose is off-repo and nothing here deploys), #41 (the
-NAS as the single point of failure this image would be rebuilt on).
 
 ### 68. The bridge image serves node only, for an estate that is one-third python — and it is not a config edit
 **Filed 2026-09-20,** by the dispatch sent to add python and pip to the image; it stopped
@@ -1571,10 +1486,11 @@ clone (`lib/python-venv.js`): `python3 -m venv .venv`, then `.venv/bin/python -m
 preserve every python clone as uncommitted work. A venv that cannot be created (the live
 image has no `ensurepip`) is `INSTALLER_ABSENT`; a pip failure inside a created venv is
 still `INSTALL_FAILED`. Guard `tests/python-venv.test.js`, including a real venv install.
-The tracked `Dockerfile` (#70) adds `python3-venv`, which is DoD item 3's shape (a) — not
-adopted. **Two things this does not do, stated:** Phase 3 runs only `npm test`, so a python
+The tracked `Dockerfile` (#70) adds `python3-venv`, which is DoD item 3's shape (a) —
+**adopted 2026-11-09** (owner paste: `docker run --rm jt-agent:local sh -c 'python3 -m venv /tmp/v'`
+→ exit 0; the live container runs `jt-agent:local`). **Two things this does not do, stated:** Phase 3 runs only `npm test`, so a python
 repo's tests are never run by the bridge; and the repo is unreachable anyway (#57).
-**Remaining:** items 3-5 (adopt the image, name the pins, a real python dispatch).
+**Remaining:** items 4-5 (name the pins, a real python dispatch).
 ---
 
 ### 27. A task has write access to the entire live deployment, including every credential — recorded, undecided
