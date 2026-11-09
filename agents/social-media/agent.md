@@ -23,8 +23,8 @@ integrations:
   - facebook-pages-api
   - canva-api
 schedule:
-  cron: "0 9 * * 1,3,5"
-  task: content-calendar
+  cron: "0 9 * * *"
+  task: social-daily
 watches: null
 ---
 

@@ -241,6 +241,8 @@ const { DEFAULT_CLAUDE_BIN } = require('./lib/llm-defaults');
 const { handleSlashCommand, handleViewSubmission } = require('./lib/dispatch-command');
 // LOGIC CHANGE 2026-11-07 (WORK-TODO #78): SqTools alert buttons share the interactive seam.
 const sqtoolsAlertButtons = require('./lib/sqtools-alert-buttons');
+// LOGIC CHANGE 2026-11-09: social post drafts' Publish/Edit/Reject buttons and Edit form.
+const socialButtons = require('./lib/social-buttons');
 const { createPollWake } = require('./lib/poll-wake');
 
 // ---- Config ----
@@ -2921,7 +2923,18 @@ let socketMode = null;
     // LOGIC CHANGE 2026-11-07 (WORK-TODO #78): a press of a SqTools alert button
     // (block_actions) goes to lib/sqtools-alert-buttons.js, gated by the same allowlist;
     // everything else (the /dispatch modal's view_submission) goes where it always did.
-    onInteractive: (envelope) => (sqtoolsAlertButtons.isAckAction(envelope && envelope.body)
+    // LOGIC CHANGE 2026-11-09: a social post draft's buttons and Edit form go to
+    // lib/social-buttons.js first (THE ONLY path from a draft to a live post), gated by
+    // the same allowlist.
+    onInteractive: (envelope) => (socialButtons.isSocialInteraction(envelope && envelope.body)
+      ? socialButtons.handleSocialInteraction(envelope, {
+        isAuthorized: isUserAuthorized,
+        updateMessage: (args) => slack.chat.update(args),
+        postEphemeral: (args) => slack.chat.postEphemeral(args),
+        openView: (args) => slack.views.open(args),
+        notify: postToOps,
+      })
+      : sqtoolsAlertButtons.isAckAction(envelope && envelope.body)
       ? sqtoolsAlertButtons.handleAckAction(envelope, {
         isAuthorized: isUserAuthorized,
         updateMessage: (args) => slack.chat.update(args),

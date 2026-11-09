@@ -637,6 +637,23 @@ should be observable while it happens.
 | `CATALOG_CACHE_FILE` | Local cache of the Square catalog | `data/catalog-cache.json` |
 | `CATALOG_CACHE_TTL_MS` | Age at which the cached catalog is refetched (when `SQUARE_ACCESS_TOKEN` is set) | `3600000` (1 h) |
 
+### Social media (`lib/social-*.js`, 2026-11-09)
+A platform with nothing set is skipped and named as "not set up". Nothing publishes without an allowlisted person pressing **Publish** on a draft (`lib/social-buttons.js`). **Never log any of these.**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `META_PAGE_ACCESS_TOKEN` | Long-lived Facebook Page token; also used for the linked Instagram account. Needs pages_manage_posts, pages_read_engagement, read_insights, instagram_basic, instagram_content_publish, instagram_manage_insights, instagram_manage_comments | - |
+| `META_PAGE_ID` | Facebook Page id | - |
+| `INSTAGRAM_BUSINESS_ID` | Instagram business account id linked to the Page | - |
+| `META_GRAPH_VERSION` | Graph API version | `v26.0` |
+| `GBP_ACCOUNT_ID` / `GBP_LOCATION_ID` | Google Business Profile account and location ids | - |
+| `GBP_REFRESH_TOKEN` | OAuth refresh token minted with `business.manage` (uses `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`). `GOOGLE_REFRESH_TOKEN` is not reused: it lacks the scope | - |
+| `BLUESKY_HANDLE` | Bluesky handle; reading needs only this | - |
+| `BLUESKY_APP_PASSWORD` | Bluesky APP password (never the account password) | - |
+| `BLUESKY_PDS` | The account's PDS | `https://bsky.social` |
+
+`SQUARE_ACCESS_TOKEN` (storefront table above) is also what the daily new-item check reads; a read-only `ITEMS_READ` token is enough.
+
 **Note:** `STORE_INBOX_CHANNEL_ID` (listed in Twilio section) is also used by the storefront widget for logging conversations and delivery quote requests.
 
 ---
@@ -897,6 +914,15 @@ slack-agent-bridge/
 │   ├── sqtools-alert-buttons.js # WORK-TODO #78, the button half: Silence / Nag me / Close today on each SqTools alert post, one row per alert that needs the owner, valued by that alert's FULL Gmail id (acknowledgement is per occurrence: a new email with the same subject is a new alert). A press (block_actions over the Socket Mode `interactive` seam, routed by bridge-agent.js) is allowlist-gated, acked first, recorded through lib/sqtools-alert-ack.js handleAck, and the pressed row on the post is replaced by the outcome. Never rejects
 │   ├── email-check-report.js # Whether a SUCCESSFUL inbox check posts, and what it says (decidePost, formatOkMessage). A scheduled check is QUIET unless something is flagged, the fetch was partial or rate-limited, there was a >90-minute gap since the previous check that day, or it is the first check of the Toronto day (the heartbeat that makes a stopped job visible). An on-demand `check-inbox` always posts. Split from lib/email-check.js 2026-10-02 after the owner called the half-hourly "Inbox check OK" posts spam
 │   ├── catalog-new-items.js # 2026-11-09, for the social media agent: checkNewItems diffs the read-only Square catalog against agents/shared/catalog-seen.json (gitignored) and reports items and category names never seen before. A first run is a BASELINE (records, reports nothing new); a failed read, an empty catalog or a corrupt state file is FAILED and records nothing. Ids are never forgotten, so a restored item is not new twice. formatNewItemsReport is the Slack text. Never rejects
+│   ├── social-http.js # 2026-11-09: THE HTTP helper the social clients share: requestJson (JSON, a timeout, the credential ONLY in the Authorization header so no URL carries a token, every error passed through lib/redact-secrets.js) and fetchBytes (an image to re-upload). SocialApiError
+│   ├── social-meta.js # 2026-11-09: Facebook Page and Instagram over Graph API v26.0: publishFacebook (photo or text post), publishInstagram (container, wait for FINISHED, publish; refuses without a photo), readFacebook/readInstagram (followers, last 10 posts, yesterday's account totals, recent commenters and whether each was answered). Meta returns no follower LIST and nothing here claims one
+│   ├── social-gbp.js # 2026-11-09: Google Business Profile: publishGbp (a v4 localPost) and readGbp (reviews with unanswered ones, and last week's views, calls, direction requests and website clicks from the Performance API). Its own GBP_REFRESH_TOKEN with business.manage
+│   ├── social-bluesky.js # 2026-11-09: Bluesky over XRPC: publishBluesky (app-password session, optional image blob; over 300 graphemes is REFUSED, never cut) and readBluesky (profile, last 10 posts, newest 100 follower handles, all public and unauthenticated)
+│   ├── social-platforms.js # 2026-11-09: THE platform list (facebook, instagram, gbp, bluesky): publishEverywhere (an unconfigured platform is skipped and named, one failure never stops the others), readEverything (the daily snapshot), publishTargets, formatPublishResults. Never rejects
+│   ├── social-drafts.js # 2026-11-09: post drafts for new items in agents/shared/social-drafts.json (gitignored): buildDraftPrompt (the item's facts only), parseDraftAnswer (JSON text + a Bluesky short version, or a failed draft), createDrafts, buildDraftBlocks (Publish behind a confirm dialog naming the platforms, Edit, Reject). Writes and shows; NEVER publishes
+│   ├── social-buttons.js # 2026-11-09: THE ONLY path from a draft to a live post. A Publish press by an allowlisted person claims the draft (pending -> publishing in one write, so a second press publishes nothing), publishes everywhere, records each platform's outcome and updates the post; nothing live puts it back to pending. Edit opens a form; Reject records. Routed first from bridge-agent.js's interactive seam. Never rejects
+│   ├── social-insights.js # 2026-11-09: the daily snapshot history in agents/shared/social-metrics.json (gitignored, 400 days) and buildWeeklyDigest, computed not written by a model: followers this week per platform, best post, unanswered Instagram comments, repeat commenters, new and lost Bluesky followers, unanswered Google reviews, the listing's week against the last. An unreadable source says so, never zero
+│   ├── social-daily.js # 2026-11-09: deterministic task `social-daily` (the social-media agent's 09:00 cron and `ASK: social`): snapshot, new Square items -> model drafts (agent's own provider, one turn, empty temp cwd, no tools) posted with buttons (at most 5 a run), and the Monday digest. Failures to #sqtools-ops. Publishes nothing
 │   ├── email-rate-limiter.js # Rate limiting for email-to-Slack pipeline: sliding window, cooldown, flood protection
 │   ├── boot-record.js    # The commit this process booted on, recorded once by bridge-agent.js (from lib/repo-history.js loadedCommit) so later readers in the same process, such as the jester's digest, report it instead of re-reading the working tree
 │   ├── llm-metrics.js    # LLM provider verdict counter: recordVerdict, getStats (fallback visibility)
@@ -1057,6 +1083,10 @@ slack-agent-bridge/
 │   ├── failure-visibility.test.js # THE guard that a terminal failure reaches a human and not only a container log: notifyOps posts and redacts, a scheduled job rejected with not_in_channel escalates, a rejected bulletin notification escalates, and bridge-agent's startup/Phase-3 handlers post rather than swallow
 │   ├── catalog-new-items.test.js # Tests for lib/catalog-new-items.js on temp state files: baseline, new once, restored not new, new category, and that a failed read, an empty catalog and a corrupt state file are failures that record nothing
 │   ├── square-catalog-api.test.js # Tests for lib/integrations/square-catalog-api.js over an injected request: cursor followed and URL-encoded, deleted objects skipped, created_at/categories/image_url mapped, the older category_id, a failed image listing tolerated and a failed item listing thrown
+│   ├── social-http.test.js # Tests for lib/social-http.js: the token rides only in the Authorization header, a platform error and a timeout are SocialApiErrors whose message carries no token, a non-JSON 200 is an error, fetchBytes' size limit
+│   ├── social-platforms.test.js # Tests for lib/social-meta.js, lib/social-gbp.js, lib/social-bluesky.js and lib/social-platforms.js over an injected fetch: each platform's request shapes, Instagram's container wait and refusal without a photo, Bluesky's 300-grapheme refusal and image upload, the Google token exchange and metric sums, unconfigured platforms skipped and named, one failure not stopping the others, and a failed read reported unavailable
+│   ├── social-drafts.test.js # Tests for lib/social-drafts.js and lib/social-buttons.js on temp files: the prompt carries only the item's facts, a malformed answer is a failed draft, the buttons, THE publish-once property (a second press publishes nothing), nothing live returns the draft to pending, an unauthorized press does nothing, Edit and Reject, and the bridge-agent.js routing
+│   ├── social-insights.test.js # Tests for lib/social-insights.js and lib/social-daily.js: snapshot retention, the weekly digest's lines (follower change, best post, unanswered comments, regulars, Bluesky gained/lost, Google reviews and week), an unreadable source never zero, and the daily run's steps, the draft cap, the Monday digest and failure reporting
 │   ├── email-rate-limiter.test.js # Tests for lib/email-rate-limiter.js (sliding window, cooldown, flood protection)
 │   ├── email-sanitizer.test.js  # Tests for lib/integrations/email-sanitizer.js (prompt-injection detection and stripping)
 │   ├── llm-metrics.test.js      # Tests for lib/llm-metrics.js (verdict recording, getStats, retention)
@@ -2038,6 +2068,17 @@ ASK: create channel channel-name
 - Returns channel ID if successful
 - If channel exists, joins it instead of failing
 - Requires `channels:manage` scope
+
+### Social media — on demand
+```
+ASK: social
+```
+Runs the social-media agent's daily job now (`social-daily`, `lib/social-daily.js`), posting in
+its channel: the platform snapshot, a draft with **Publish / Edit / Reject** buttons for each new
+Square item, and the weekly digest. **It publishes nothing**: a post goes live only when an
+allowlisted person presses Publish (`lib/social-buttons.js`), and each platform's outcome is
+written on the post. Platforms: Facebook, Instagram, Google Business Profile, Bluesky; one with no
+credentials is skipped and named. Buttons need Socket Mode and Interactivity, the same as `/dispatch`.
 
 ### The Jester's weekly critique — on demand
 

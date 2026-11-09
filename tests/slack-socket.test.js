@@ -513,8 +513,10 @@ describe('the wiring in bridge-agent.js', () => {
         // (the slash command, the dispatch submission, the SqTools alert buttons), each
         // handed the same isUserAuthorized. The count is "one per handler", not looser:
         // a handler on the seam without the allowlist still fails this.
-        const handlers = (seam.match(/handle(SlashCommand|ViewSubmission|AckAction)\(envelope/g) || []).length;
-        expect(handlers).toBe(3);
+        // LOGIC CHANGE 2026-11-09: a fourth, the social post draft buttons
+        // (handleSocialInteraction), held to the same rule.
+        const handlers = (seam.match(/handle(SlashCommand|ViewSubmission|AckAction|SocialInteraction)\(envelope/g) || []).length;
+        expect(handlers).toBe(4);
         expect((seam.match(/isAuthorized:\s*isUserAuthorized/g) || []).length).toBe(handlers);
     });
 
