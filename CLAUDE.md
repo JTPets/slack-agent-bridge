@@ -1171,7 +1171,7 @@ slack-agent-bridge/
 ## Security
 
 • GitHub branch protection MUST be enabled on main for all repos: block force pushes, prevent deletion
-• Dependabot enabled: checks npm dependencies weekly on Mondays, opens PRs for security updates (max 5 open PRs)
+• Dependabot (`.github/dependabot.yml`): npm packages and the Dockerfile base image, weekly on Mondays, every update not only security ones (the owner's rule: newest version of everything). Minor and patch releases arrive grouped, one PR per ecosystem; a major comes alone
 • Bot only processes messages from ALLOWED_USER_IDS
 • Never log or post tokens, API keys, or .env values
 • **Claude tools are per agent (since 2026-11-07, `lib/agent-tools.js`).** Only an agent whose definition declares `claude-code` (bridge, code-bridge, code-sqtools) runs with `--dangerously-skip-permissions` (required for non-interactive CC; mitigated by: max turns cap, timeout, user allowlist, branch protection). Every other run is `--restricted --strict-mcp-config --tools <list>`: no shell, file tools confined to the working directory, and for the agents that read email or talk to customers no tools at all. Guard: `tests/agent-tools.test.js`

@@ -1,4 +1,9 @@
 version: 2
+# LOGIC CHANGE 2026-11-09: updates are GROUPED. Each ecosystem's minor and patch releases
+# arrive as one PR a week instead of one PR per package, so staying current is one merge;
+# a major release still comes alone, because it is the kind that needs reading. Merging
+# deploys itself: auto-update.js runs the full suite on the merged commit (lib/update-gate.js)
+# before it restarts into it.
 updates:
   # LOGIC CHANGE 2026-11-01: the owner's rule is that every piece of software is kept at
   # its newest version. The googleapis ignore (added 2026-10-05 because 178.1+ needed
@@ -18,6 +23,11 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "deps"
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "docker"
     directory: "/"
@@ -29,3 +39,8 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "deps"
+    groups:
+      docker-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
