@@ -1268,9 +1268,9 @@ rebuild path becomes:
 
 ```
 cp docker-compose.example.yml /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml   # with block (2) applied
-docker compose build bridge
+docker compose build --pull --no-cache bridge   # --no-cache fetches the newest Claude CLI
 docker compose up -d bridge
-docker exec jt-agent claude --version     # the pinned CLI
+docker exec jt-agent claude --version     # the CLI this build installed
 ```
 
 **Unverified:** the build was not run (no container daemon where this was written) and the

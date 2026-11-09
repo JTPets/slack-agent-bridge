@@ -1322,6 +1322,11 @@ is gone. The item's namesake is not: the live compose still runs the stock float
 installs the Claude CLI at start (`docker-compose.example.yml:71` and `:99`), and the tracked `Dockerfile`
 (base and CLI pinned) has not been built or adopted on the NAS. The last DoD step is still the owner's.
 
+**DoD amended 2026-11-09.** The CLI is no longer pinned: the owner's rule (2026-11-01) is newest,
+upgraded rather than pinned, and no automation could move an npm version held in a Dockerfile ARG.
+It installs `latest` and is refreshed by `docker compose build --pull --no-cache bridge`. The base
+stays an exact tag, raised by Dependabot's docker PRs.
+
 **Related:** #68 (the first symptom, and blocked on this), #27 (why running as root is
 rejected), #26 and #17 (the live compose is off-repo and nothing here deploys), #41 (the
 NAS as the single point of failure this image would be rebuilt on).

@@ -150,7 +150,7 @@ services:
     # and the SqTools /repo mount removed (#75).
 
     # (2) BUILD THE IMAGE INSTEAD OF INSTALLING AT EVERY START — WORK-TODO #70. Pins the
-    # base and the Claude CLI (see Dockerfile), installs python3-venv once (#68), and the
+    # base (see Dockerfile), installs the newest Claude CLI at build, installs python3-venv once (#68), and the
     # start command shrinks to the repo's own `npm ci`. Replace `image: node:26` with
     # the two keys below, drop NPM_CONFIG_PREFIX and the PATH override from
     # `environment:` (the CLI is now /usr/local/bin/claude, the CLAUDE_BIN default - and a
@@ -159,5 +159,6 @@ services:
     # build: .
     # image: jt-agent:local
     # command: sh -c "npm ci && exec node bridge-agent.js"
-    # Rebuild path: docker compose build bridge && docker compose up -d bridge
-    # Verify: docker exec jt-agent claude --version   (prints the pinned version)
+    # Rebuild path: docker compose build --pull --no-cache bridge && docker compose up -d bridge
+    # (--no-cache is what fetches the newest CLI; a cached layer keeps the old one)
+    # Verify: docker exec jt-agent claude --version   (prints the CLI the build installed)
