@@ -186,6 +186,8 @@ const taskLock = require('./lib/task-lock');
 // however long work keeps arriving. See lib/update-drain.js.
 const updateDrain = require('./lib/update-drain');
 const { shouldRefuseAsk, describeAskRefusal } = require('./lib/ask-drain');
+const { decideAgentChannelVerb, describeVerbRefusal } = require('./lib/agent-channel-verbs');
+const { naturalConversationVerdict } = require('./lib/natural-conversation');
 
 // LOGIC CHANGE 2026-03-28: Added agent-context module for injecting real data into ASK prompts.
 // Prevents hallucination by giving agents (especially secretary) actual calendar events,
@@ -233,6 +235,7 @@ const { startSocketMode } = require('./lib/slack-socket');
 const { createMainWatch, remoteMainSha } = require('./lib/main-watch');
 const { createSelfDeploy } = require('./lib/self-deploy');
 const { createBackupWatch } = require('./lib/backup-watch');
+const { createHighDigest, intervalFromEnv: highDigestInterval } = require('./lib/high-digest');
 const { createClaudeAuthWatch, probeClaudeAuth } = require('./lib/claude-auth-watch');
 const { DEFAULT_CLAUDE_BIN } = require('./lib/llm-defaults');
 const { handleSlashCommand, handleViewSubmission } = require('./lib/dispatch-command');
@@ -1595,6 +1598,8 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
     // change. The router adds verbs; it takes none away. `runCommand` returns
     // { handled: false } for anything it does not own, so nothing that worked before
     // stops working.
+    const agentChannelVerb = sourceChannel === BRIDGE_CHANNEL ? { action: null }
+      : decideAgentChannelVerb(questionText, knownAgentIds());
     if (sourceChannel === BRIDGE_CHANNEL) {
       const routed = await commandRouter.runCommand(questionText, {
         slack,
@@ -1623,20 +1628,30 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
         });
         return;
       }
-    } else if (commandRouter.isBareCommand(questionText, knownAgentIds())) {
+    } else if (agentChannelVerb.action) {
       // LOGIC CHANGE 2026-10-04 (WORK-TODO #64, the safe half): a verb typed on its own
       // in an agent's channel used to fall through to that agent's model, which
-      // answered a question about the system from a persona that cannot see it - a
-      // confident wrong answer. Refuse it and say where the verb runs. The gate itself
-      // is NOT lifted: running verbs here needs the capability model (#64's other half).
-      const verb = commandRouter.parseCommand(questionText).verb;
-      console.log(`[${agentId}] Bridge verb \`${verb}\` refused in an agent channel: ${msg.ts}`);
+      // answered a question about the system from a persona that cannot see it.
+      // LOGIC CHANGE 2026-11-09 (WORK-TODO #64, owner's answer 2026-11-08): a verb that
+      // only reads now RUNS here, with this channel's agent as the invoking agent; a verb
+      // that changes something or starts work is refused with the reason
+      // (lib/agent-channel-verbs.js decides from the command table's `kind`).
+      const { verb } = agentChannelVerb;
+      let replyText;
+      if (agentChannelVerb.action === 'run') {
+        const routed = await commandRouter.runCommand(questionText, {
+          slack, agent: currentAgent, channelId: sourceChannel, userId: msg.user,
+        });
+        console.log(`[${agentId}] Read-only command \`${verb}\` handled in an agent channel: ${msg.ts} (ok=${routed.ok})`);
+        replyText = routed.text;
+      } else {
+        console.log(`[${agentId}] Bridge verb \`${verb}\` refused in an agent channel: ${msg.ts}`);
+        replyText = describeVerbRefusal(verb, BRIDGE_CHANNEL);
+      }
       await slack.chat.postMessage({
         channel: sourceChannel,
         thread_ts: msg.ts,
-        text: `:information_source: \`${verb}\` is a bridge command. It runs in <#${BRIDGE_CHANNEL}>, not here: ` +
-          `in this channel an ASK: goes to ${agentName} as a conversation, and a model would guess the answer. ` +
-          'Nothing was run.',
+        text: replyText,
         unfurl_links: false,
       });
       return;
@@ -2414,6 +2429,14 @@ async function pollSweep() {
             continue;
           }
 
+          // LOGIC CHANGE 2026-11-09 (WORK-TODO #49, owner's answer 2026-11-08): only an
+          // agent whose model run can write nothing answers an unprefixed message, so a
+          // remark cannot reach a shell or an edit tool without an explicit ASK:/TASK:.
+          const natural = naturalConversationVerdict(channelAgentConfig);
+          if (!natural.allowed) {
+            console.log(`[bridge-agent] Skipped natural message in ${agentId} channel (${channelId}) ts=${msg.ts}: ${natural.reason}`);
+            continue;
+          }
           console.log(`[bridge-agent] Natural conversation in ${agentId} channel: ${msg.ts}`);
           if (await refuseAskForPendingUpdate(msg, channelId)) continue;
           await processConversation(msg, channelId, channelAgentConfig);
@@ -2639,6 +2662,18 @@ const selfDeploy = createSelfDeploy({
 selfDeploy.start().then((r) => {
   console.log(`  Deploy:   ${r.started ? 'self-deploy ON (gated by the full suite)' : `self-deploy OFF (${r.reason})`}`);
 });
+
+// LOGIC CHANGE 2026-11-09 (WORK-TODO #37, owner's answer 2026-11-08): HIGH owner notices
+// are recorded (lib/high-notices.js) and posted here as a digest every
+// HIGH_DIGEST_INTERVAL_MS when there are any; the secretary then proposes next steps
+// into the approval queue, and nothing runs until the owner approves one.
+const HIGH_DIGEST_INTERVAL_MS = highDigestInterval();
+if (HIGH_DIGEST_INTERVAL_MS > 0) {
+  const highDigest = createHighDigest({ notify: postToOps, bridgeChannelId: BRIDGE_CHANNEL });
+  const runHighDigest = () => highDigest.tick().catch(err => console.error('[high-digest] tick threw:', err.message));
+  setTimeout(runHighDigest, 120000).unref();
+  setInterval(runHighDigest, HIGH_DIGEST_INTERVAL_MS).unref();
+}
 
 // LOGIC CHANGE 2026-10-04 (WORK-TODO #42 c): the backup age alert. The host writes
 // BACKUP_STATUS_FILE (scripts/backup-status.sh, host cron); this reads it hourly and

@@ -346,7 +346,7 @@ the channel.
 
 | Failure | The question |
 |---|---|
-| `notifyOwner(msg, PRIORITY.HIGH)` | **It goes nowhere.** `lib/notify-owner.js` logs it "for digest" and returns `true` — and no digest consumes it. A caller asking for a HIGH notification gets a success return and no notification. Filed as WORK-TODO #37. The fix is either to build the digest or to collapse HIGH into an ops post, and that is a decision about volume, not a bug fix |
+| `notifyOwner(msg, PRIORITY.HIGH)` | **Recorded and posted in a digest since 2026-11-09 (WORK-TODO #37).** It used to log "for digest" and return `true` with no digest. Now `lib/high-notices.js` records it, `lib/high-digest.js` posts the digest to `#sqtools-ops` and queues the secretary's proposed next steps for approval, and a notice that cannot be recorded is posted at once |
 | An LLM call that fell back to a secondary provider | Recorded by `lib/llm-metrics.js` and answerable on demand. Should a *single* fallback interrupt anyone, or only a rate crossing a threshold? A threshold needs a number the owner picks |
 | A per-agent context build failing (`lib/agent-context.js`, 11 sites) | Degrades an ASK answer rather than failing it. Reporting each one is plausibly a post per conversation |
 | An agent with a schedule but `channel: null` (`jester`, active) | Its weekly job silently never arms. Startup ops post, or a weekly digest? This is WORK-TODO #3 part 2 and belongs with that item's fix, not bolted on here |

@@ -20,6 +20,9 @@ jest.mock('../lib/owner-tasks', () => ({
     extractActionRequired: jest.fn(),
 }));
 
+// WORK-TODO #37: HIGH notices are recorded; never into the live WORK_DIR from a test.
+jest.mock('../lib/high-notices', () => ({ record: jest.fn(() => ({ recorded: true, id: 'abcd1234' })) }));
+
 const { getAgent } = require('../lib/agent-registry');
 const { addTask, extractActionRequired } = require('../lib/owner-tasks');
 
@@ -147,11 +150,11 @@ describe('notify-owner', () => {
         });
 
         describe('high priority', () => {
-            it('should log for digest without immediate notification', async () => {
+            it('should record for the digest without immediate notification', async () => {
                 const result = await notifyOwner.notifyOwner('Test message', notifyOwner.PRIORITY.HIGH);
 
                 expect(result).toBe(true);
-                // Currently just logs, no Slack message
+                expect(require('../lib/high-notices').record).toHaveBeenCalledWith('Test message');
                 expect(mockSlack.chat.postMessage).not.toHaveBeenCalled();
             });
         });

@@ -259,7 +259,7 @@ const POLL_INTERVAL = 5000;
 | `REPOS` | Comma-separated repos. Read by `getConfiguredRepos()` in `lib/config.js` — the single owner of the list — for the nightly security review AND for the `/dispatch` form's repository select. Adding a repository is this variable plus `docker compose up -d --force-recreate bridge`; it is not a code change. **The default stopped naming `jtpets/SquareDashboardTool` on 2026-10-02**: the bridge cannot clone it (WORK-TODO #57), so listing it only made the audit and the form offer something that fails | `jtpets/slack-agent-bridge` |
 | `CLAUDE_RATE_LIMIT_PAUSE` | Initial pause duration (ms) when rate limit/bandwidth exhausted | `1800000` |
 | `STORE_TASKS_CHANNEL_ID` | #store-tasks channel ID for staff task management | - |
-| `NATURAL_CONVERSATION_MODE` | Enable natural language processing for messages without TASK:/ASK: prefixes. Applies in EVERY polled channel; only an allowlisted person's message qualifies — a bot's post (this bot's included) never does, since 2026-10-04 (WORK-TODO #49) | `false` |
+| `NATURAL_CONVERSATION_MODE` | Enable natural language processing for messages without TASK:/ASK: prefixes. Only an allowlisted person's message qualifies — a bot's post (this bot's included) never does, since 2026-10-04 (WORK-TODO #49). Since 2026-11-09 it is answered only in a channel whose agent's model run can write nothing (`lib/natural-conversation.js`): bridge, code-bridge and code-sqtools need a prefix | `false` |
 | `GEMINI_API_KEY` | Google Gemini API key for fallback provider. **Never log this.** | - |
 | `LLM_FALLBACK_ENABLED` | Enable automatic fallback to secondary LLM on rate limits | `true` |
 | `LLM_FALLBACK_PROVIDER` | Secondary LLM provider to use when primary hits rate limits | `gemini` |
@@ -270,6 +270,7 @@ const POLL_INTERVAL = 5000;
 | `EMAIL_RATE_LIMIT_SLACK_PER_WINDOW` | Max Slack messages to post per rate limit window | `20` |
 | `EMAIL_CHECK_MAX_LOOKBACK_MS` | Ceiling on how far back a scheduled inbox check looks when no successful check is recorded | `86400000` (24 h) |
 | `EMAIL_CHECK_MAX_RESULTS` | Max messages fetched per scheduled inbox check | `50` |
+| `HIGH_DIGEST_INTERVAL_MS` | How often HIGH owner notices (`notifyOwner(…, PRIORITY.HIGH)`, today the ACTION REQUIRED lines tasks print) are posted as a digest to `#sqtools-ops`, followed by next steps the secretary proposes into the approval queue (`lib/high-digest.js`, WORK-TODO #37). Posts only when there are notices. `0` turns it off | `3600000` (1 h) |
 | `SQTOOLS_ALERT_NAG_MS` | Minimum gap between two reminders of a SqTools alert the owner asked to be nagged about (`ASK: ack <id> nag`, `lib/sqtools-alert-ack.js`). Reminders ride on the inbox check, so they also wait for the next one | `7200000` (2 h) |
 | `SQTOOLS_ALERT_SENDERS` | Comma-separated From addresses whose `[SqTools] …` emails are SqTools alerts: taken out of the generic email rules and posted to the secretary's channel by `lib/sqtools-alert-intake.js` | `jtpets@jtpets.ca` |
 | `EMAIL_RATE_LIMIT_WINDOW_MS` | Rate limit sliding window size in ms | `300000` (5 min) |
@@ -439,6 +440,7 @@ Tune `MemoryMax` to the model actually pulled — it must be below `(total RAM -
 | `LOCAL_REPO_DIR` | Path to the deploy tree auto-update operates on. **Leave it unset.** Since 2026-11-08 the default is the checkout `auto-update.js` is in (`/bridge` in the container); in-process self-deploy refuses to start, and says so in `#sqtools-ops`, when this names a different checkout | the checkout itself (`__dirname`) |
 | `SELF_DEPLOY_INTERVAL_MS` | How often the bridge checks `main` and, for a new commit, runs the update gate and deploys on green (`lib/self-deploy.js`, WORK-TODO #17). `0` turns self-deploy off | `300000` (5 min) |
 | `UPDATE_GATE_TIMEOUT_MS` | Per-command timeout inside the update gate (`npm ci`, then the full `npm test`); a timeout is a red gate | `2700000` (45 min) |
+| `BRIDGE_REPO` | The bridge's own repository. `ASK: create` and `ASK: provider` push their change there as a new branch for the owner to merge (`lib/definition-branch.js`, WORK-TODO #51), using `DEPLOY_KEY_PATH` | `jtpets/slack-agent-bridge` |
 | `CHECK_INTERVAL_MS` | Git poll frequency | `300000` |
 | `STATE_FILE` | auto-update's own state file (`lastKnownCommit`, `failedCommit`, `restartedIntoCommit`) | `$LOCAL_REPO_DIR/.auto-update-state.json` |
 
@@ -820,7 +822,7 @@ slack-agent-bridge/
 │   ├── memory-tiers-maintenance.js # cleanupMemory (expire and archive), autoPromote, startupCleanup across agents, migrateToTiers from the legacy layout
 │   ├── owner-tasks.js    # Owner task PRESENTATION and command recognition: formatPendingTasks, isOwnerTasksQuery, extractActionRequired (ACTION REQUIRED detection). Also the facade that re-exports lib/owner-tasks-store.js, so `require('./lib/owner-tasks')` still answers for the whole surface
 │   ├── owner-tasks-store.js # The activation-checklist STORE: sole reader/writer of agents/activation-checklists.json plus the CRUD and readiness maths (loadChecklists, saveChecklists, getPendingTasks, completeTask, completeChecklistItem, getAgentReadiness, getAllAgentReadiness, addTask). Extracted from owner-tasks.js 2026-09-15 (WORK-TODO #10); the dependency runs one way, store <- view, so there is no cycle. Re-exported by lib/owner-tasks.js, so callers are unchanged
-│   ├── notify-owner.js   # Owner notification layer, the single path for owner-facing messages: init() injects the Slack client/owner id/ops channel; notifyOps posts an operational failure to #sqtools-ops (redacted) so a lib module never needs a fourth postToOps; notifyOwner routes by PRIORITY (CRITICAL -> the secretary agent's channel when active, else a direct DM; HIGH -> logged for a digest that does not exist yet; LOW -> logged only) plus taskFailed/taskCompleted/actionRequired/rateLimitHit/rateLimitCleared. Redacts via lib/redact-secrets.js before anything leaves
+│   ├── notify-owner.js   # Owner notification layer, the single path for owner-facing messages: init() injects the Slack client/owner id/ops channel; notifyOps posts an operational failure to #sqtools-ops (redacted) so a lib module never needs a fourth postToOps; notifyOwner routes by PRIORITY (CRITICAL -> the secretary agent's channel when active, else a direct DM; HIGH -> recorded in lib/high-notices.js for the digest lib/high-digest.js posts, or posted to ops at once when it cannot be recorded (WORK-TODO #37); LOW -> logged only) plus taskFailed/taskCompleted/actionRequired/rateLimitHit/rateLimitCleared. Redacts via lib/redact-secrets.js before anything leaves
 │   ├── dispatch-command.js # THE COMMAND half of /dispatch: handleSlashCommand acknowledges within Slack's three-second window and THEN opens the modal from the trigger_id; handleViewSubmission composes the submission and POSTS it to the channel /dispatch was opened in when the poll loop watches it (so the task runs as that channel's agent), REFUSES it in the form anywhere else — never redirected to the bridge channel (WORK-TODO #46) — and then calls onDispatched, which bridge-agent.js uses to poll immediately (#4). poll() picks it up like any other message (one intake path, one dedup owner) — it never calls the task path. Authorisation is this module's own gate via lib/config.js isUserAuthorized, because a bot-posted message bypasses the poll loop's allowlist by design. Neither handler ever rejects
 │   ├── dispatch-delivery.js # Where and how a /dispatch submission is delivered: resolveDispatchTarget (the invoking channel when it is in the poll set, otherwise a refusal with the reason — WORK-TODO #46) and raceWithTimeout (the post bounded inside Slack's ack window). Split from dispatch-command.js 2026-10-04 for the 300-line rule; re-exported by it
 │   ├── dispatch-modal.js   # THE FORM half of /dispatch: buildModalView builds the five separate inputs FROM lib/dispatch-message.js's FIELD_KEYS (so form and generator cannot gain a field independently), extractSubmission reads them back out of a view_submission (Slack sends a blank optional input as null), and toSlackErrors keys a rejection by block_id so it lands on the offending input
@@ -875,6 +877,12 @@ slack-agent-bridge/
 │   ├── ask-drain.js      # WORK-TODO #71: while a self-update is pending, a new ASK: or natural message that needs a model is refused (describeAskRefusal); built-in commands (router verbs, `what's queued`) still answer. Pure
 │   ├── task-start-check.js # WORK-TODO #72: checkTaskStart refuses a task when the lock is already held or another queue row is running; describeStartRefusal names `ASK: lock clear`. Pure
 │   ├── lock-command.js   # WORK-TODO #72: `ASK: lock` shows the task lock and the running queue row; `lock clear` releases the lock and interrupts left-over running rows
+│   ├── agent-channel-verbs.js # WORK-TODO #64: decideAgentChannelVerb — a bare verb in an agent channel RUNS when the command table says `kind: 'report'` (with that channel's agent) and is REFUSED otherwise; describeVerbRefusal lists the read-only verbs generated from the table. Pure
+│   ├── natural-conversation.js # WORK-TODO #49: naturalConversationVerdict — an unprefixed message is answered only by an agent whose model run can write nothing (lib/agent-tools.js resolves no full set and only READ tools). An allowlist, so a tool granted later disqualifies the agent the day it is granted. Pure
+│   ├── high-notices.js   # WORK-TODO #37: THE store behind PRIORITY.HIGH, $WORK_DIR/high-notices.json: record (never throws; a failed write returns the error so notify-owner posts the notice at once), undigested, markDigested. Digested notices kept 7 days
+│   ├── high-digest.js    # WORK-TODO #37: every HIGH_DIGEST_INTERVAL_MS posts the undigested HIGH notices to #sqtools-ops, marks them only after the post landed, then asks the secretary (one turn, no tools, temp cwd; refused if her run could write) for at most 3 next steps, each composed by lib/dispatch-message.js and placed in the APPROVAL QUEUE for #claude-bridge. Never throws
+│   ├── definition-branch.js # WORK-TODO #51 (owner's shape c): pushDefinitionBranch clones main of BRIDGE_REPO (cloneRepo, deploy key), writes files under agents/ only, commits, pushes a NEW branch (no force) and confirms it with ls-remote; the clone is removed in finally. Used by `create` and `provider`; nothing is written into the running checkout. execFileSync argv; never throws
+│   ├── provider-switch.js # WORK-TODO #47: `ASK: provider <p> [id ...]` — edits each definition's `llm_provider:` line and pushes the result as a branch, listing every agent before and after with its source; an agent pinned by LLM_PROVIDER_<AGENTID> is left alone and named, and a code agent moving off claude is flagged (its tools exist only there)
 │   ├── validate.js       # Pre-commit validation (`npm run validate`): checks bridge-agent.js loads in a subprocess, then runs the declaration-driven file-size gate (lib/file-size-gate.js) and the close reconciliation (lib/close-reconcile.js, which fails on a shallow clone). It needs a populated .env for the first check — without one it reports the missing vars and fails, which is a local-environment condition, not a code defect
 │   ├── weekly-critique.js # The jester's weekly post: deterministic task `weekly-critique`. Builds the digest (lib/critique-digest.js), resolves the critic from the SAME declaration the cron registrar reads (so the verb and the schedule cannot name different agents), and posts one critique in his channel on his provider. A THIN week calls no model at all — a model handed an empty digest and a contrarian persona produces a complaint, so the only reliable honest "nothing to report" is not to ask. Calls runLLM and NOT runWithFallback, deliberately: the chain can land on claude, whose adapter spawns a CLI with --dangerously-skip-permissions, and jester's definition denies file-system. It writes NO state of any kind and its verdict gates nothing — enforced by tests/weekly-critique.test.js, not asserted
 │   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow. Its milestone bulletin carries each agent's message as `highlights` (since 2026-11-07, #14), which story-bot's data context reads. Facade since 2026-10-05 (WORK-TODO #10): re-exports the three modules below under the names it always had
@@ -1077,6 +1085,8 @@ slack-agent-bridge/
 │   ├── auto-update-defer.test.js    # Tests the deferral gate: defers while a task holds the lock, releases a stale one, escalation bound. Also DRAIN-ONE's updater half: the marker is written before the deferral decision (so it covers the apply window too), cleared before the exit and on every abort path, and — THE task-0 assertion — a `completed` queue entry whose DELIVERY is not yet recorded still defers, while the same entry with a recorded verdict lets the update proceed
 │   ├── auto-update-gate.test.js     # WORK-TODO #17: checkForUpdates with an injected gate: red never pulls and is not retried, green fast-forwards to EXACTLY the gated sha before the exit, a gated commit is not gated twice, a moved main is not judged, the marker is cleared during the gate, and in-process work (#71) defers
 │   ├── update-gate.test.js          # Tests for lib/update-gate.js against REAL git (a temp deploy tree): the exact commit checked out, green only with 0 skipped, a failing suite / absent runner / failed install each red at its stage, a moved main never judged, the scrubbed env (no token, a temp WORK_DIR), a non-hex commit never reaching git, and a timeout killed
+│   ├── high-digest.test.js          # WORK-TODO #37: lib/high-notices.js on a real temp file; the digest posts before it marks (a failed post keeps the notices), proposals reach the approval queue as parseable TASK messages and a field label in one is refused, the secretary is asked with no tools and one turn or not at all; notify-owner's HIGH records, and posts at once when it cannot (the old `return true` as the negative control)
+│   ├── definition-branch.test.js    # WORK-TODO #51 and #47 against a REAL bare origin: a new branch holds exactly the pushed commit and main is untouched, an existing branch is refused (no force), paths outside agents/ and a bad branch never reach git, and the provider switch's plan (pinned kept, already-there unchanged, one-line edit) and verdicts
 │   ├── self-deploy.test.js          # Tests for lib/self-deploy.js: off at 0, off and reported when LOCAL_REPO_DIR names another checkout, one cycle at a time with the gate and the busy view passed, a throwing cycle reported; and the bridge-agent.js wiring
 │   ├── ask-drain.test.js            # WORK-TODO #71: a model question is refused only while an update is pending, built-in commands still answer, and both conversation paths in the poll loop check it before processConversation (read from source)
 │   ├── task-lock-refusal.test.js    # WORK-TODO #72: the start rule, `ASK: lock` / `lock clear` on a REAL lock file and TaskQueue, and processTask's wiring (check before acquire, refusal thrown inside the try, only an owned lock released) read from source
@@ -1995,11 +2005,23 @@ WORK-TODO #52.
 
 ### A verb typed in an agent's channel
 A bridge verb typed **on its own** in an agent's channel (`ASK: status`, `ASK: history 20`,
-`ASK: status secretary`) is refused with a pointer to `#claude-bridge`. It used to reach that
-agent's model, which answered a question about the system as conversation. Only the verb
-alone, or the verb plus one number or agent id, is refused: `ASK: create a post about the
-sale` is a request to the agent and still goes to it. Verbs still do not RUN in agent
-channels; that needs the capability model (WORK-TODO #64).
+`ASK: status secretary`) never reaches that agent's model. Since 2026-11-09 (WORK-TODO #64,
+owner's answer 2026-11-08) a **read-only** verb (`kind: 'report'` in the command table:
+help, status, agents, holidays, history, channels, available) **runs there**, with that
+channel's agent as the invoking agent. A verb that changes something or starts work
+(`activate`, `create`, `lock`, `provider`, `ack`, `check-inbox`, `critique`, ...) is refused
+with a pointer to `#claude-bridge` until approval rules for agent channels are defined.
+Only the verb alone, or the verb plus one number or agent id, counts: `ASK: create a post
+about the sale` is a request to the agent and still goes to it. `lib/agent-channel-verbs.js`.
+
+### Natural conversation
+With `NATURAL_CONVERSATION_MODE=true`, an allowlisted person's message with no prefix is
+answered by the channel's agent **only when that agent's model run can write nothing**
+(WORK-TODO #49, owner's answer 2026-11-08): no full tool set and only read tools, per
+`lib/agent-tools.js`. Today that is every agent except bridge, code-bridge and
+code-sqtools, which need `ASK:`/`TASK:`. A tool granted to an agent later (sending email,
+say) takes its channel out of natural conversation the day it is granted. A skipped
+message is logged with the reason. `lib/natural-conversation.js`.
 
 ### Create Channel
 Create a Slack channel and invite the bot:
@@ -2046,14 +2068,34 @@ ASK: create <id> channel=<name> provider=<claude|gemini|ollama> [repo=<owner/nam
 ```
 - `activate`/`deactivate` write `agents/shared/agent-activation.json`, which is
   **gitignored** — the decision survives a restart AND a pull.
-- `create` writes `agents/<id>/agent.md`, which is **TRACKED** — it does **not** survive
-  a pull. `auto-update.js` runs `git reset --hard HEAD` first, so an uncommitted
-  definition is destroyed. The command's verdict says so; commit and push it, or treat
-  it as a draft. WORK-TODO #51 is the class; `create` does not solve it, it refuses to
-  hide it.
+- `create` **pushes** `agents/<id>/agent.md` as a new branch of `BRIDGE_REPO`
+  (`agent-def/create-<id>-<stamp>`) and writes nothing into the running checkout
+  (WORK-TODO #51, owner's shape c, 2026-11-09). The owner merges it; the update gate
+  deploys it. The reply gives the compare link and says nothing changed on the box yet.
+  It used to write the file in place, where the next `git reset --hard` discarded it and
+  an untracked copy would have blocked the self-deploy's fast-forward.
 - A created definition is `planned`, with no schedule and no watches. Fields are
   **rejected, never sanitised**, and a refusal writes nothing.
 - See [docs/AGENTS.md](docs/AGENTS.md) → "Activating an agent in this workspace".
+
+### Provider switch
+```
+ASK: provider <claude|gemini|ollama>            # every defined agent
+ASK: provider <claude|gemini|ollama> <id> ...   # only these
+```
+Edits each definition's `llm_provider:` line and pushes the result as one branch, the same
+way as `create`, with a before/after line per agent and its source (WORK-TODO #47). An
+agent pinned by its own `LLM_PROVIDER_<AGENTID>` is left alone and the variable is named;
+an agent already on the target is unchanged; a code agent moved off claude is flagged,
+because its tools exist only on the Claude CLI. Nothing changes until the branch is merged
+and deployed. `lib/provider-switch.js`.
+
+### Owner notices (HIGH) digest
+`notifyOwner(…, PRIORITY.HIGH)` (today: the ACTION REQUIRED lines a task prints) is
+recorded and posted to `#sqtools-ops` as a digest every `HIGH_DIGEST_INTERVAL_MS` when there
+are any. The secretary then proposes at most three next steps, each queued in the approval
+queue for `#claude-bridge` (source `high-digest`); nothing runs until `ASK: approve <id>`.
+It used to log and report success while the owner received nothing (WORK-TODO #37).
 
 ### Channel Mapping
 ```

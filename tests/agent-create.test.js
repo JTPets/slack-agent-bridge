@@ -14,7 +14,9 @@
  *     it defines acts before a human has read it;
  *   - every field is REJECTED rather than sanitised, and a refusal writes nothing;
  *   - a tracked definition still cannot carry a Slack id;
- *   - the verdict states the durability honestly — the next pull destroys it.
+ *   - since 2026-11-09 (WORK-TODO #51, shape c) `create` writes NOTHING into the
+ *     checkout: it pushes the definition as a branch for the owner to merge, and says
+ *     that nothing changes on the box until then.
  */
 
 const fs = require('fs');
@@ -135,28 +137,46 @@ describe('the verdict is honest about what it did and did not do', () => {
     test('a refusal says nothing was written, and lists every reason', async () => {
         const result = await create.handleCreate({ args: 'Bad Id channel=C0ANZUEJXEJ provider=gpt5' });
         expect(result.ok).toBe(false);
-        expect(result.text).toMatch(/Nothing was written/);
+        expect(result.text).toMatch(/Nothing was pushed/);
         expect(result.text).toMatch(/must be a NAME, not a Slack id/);
         expect(result.text).toMatch(/must be one of/);
     });
 
-    // THE honesty assertion, and the reason this command is allowed to exist at all.
-    test('a success states that the next pull destroys the file unless it is committed', async () => {
+    // THE honesty assertion: the definition goes out as a branch, never into the checkout.
+    test('a success pushes the definition as a branch, writes nothing locally, and says nothing changed yet', async () => {
         const agentsDir = path.join(__dirname, '..', 'agents');
         const id = 'test-create-honesty';
-        try {
-            const result = await create.handleCreate({ args: `${id} channel=some-channel provider=claude repo=jtpets/x` });
-            expect(result.ok).toBe(true);
-            expect(result.text).toMatch(/TRACKED/);
-            expect(result.text).toMatch(/next pull destroys it unless it is committed/);
-            expect(result.text).toMatch(/git reset --hard HEAD/);
-            expect(result.text).toMatch(/WORK-TODO #51/);
-            // And it says what it did NOT do, in both directions.
-            expect(result.text).toMatch(/nothing here creates a channel/);
-            expect(result.text).toMatch(/planned/);
-            expect(result.text).toMatch(/Do not copy them into the system prompt/);
-        } finally {
-            fs.rmSync(path.join(agentsDir, id), { recursive: true, force: true });
-        }
+        const pushes = [];
+        const push = async (p) => { pushes.push(p); return { ok: true, branch: p.branch, sha: 'f'.repeat(40) }; };
+        const result = await create.handleCreate({ args: `${id} channel=some-channel provider=claude repo=jtpets/x`, push });
+        expect(result.ok).toBe(true);
+        expect(fs.existsSync(path.join(agentsDir, id))).toBe(false);
+        expect(pushes).toHaveLength(1);
+        expect(pushes[0].files.map(f => f.path)).toEqual([`agents/${id}/agent.md`]);
+        expect(parseAgentMarkdown(pushes[0].files[0].content).id).toBe(id);
+        expect(pushes[0].branch).toMatch(new RegExp(`^agent-def/create-${id}-\\d{14}$`));
+        expect(result.text).toMatch(/Pushed branch `agent-def\/create-test-create-honesty-/);
+        expect(result.text).toMatch(/Nothing has changed on the box yet/);
+        // And it says what it did NOT do, in both directions.
+        expect(result.text).toMatch(/nothing here creates a channel/);
+        expect(result.text).toMatch(/planned/);
+        expect(result.text).toMatch(/Do not copy them into the system prompt/);
+    });
+
+    test('a failed push is reported as a failure, and still nothing is written locally', async () => {
+        const id = 'test-create-nopush';
+        const result = await create.handleCreate({
+            args: `${id} channel=some-channel provider=claude`,
+            push: async (p) => ({ ok: false, branch: p.branch, reason: 'Permission denied (publickey)' }),
+        });
+        expect(result.ok).toBe(false);
+        expect(result.text).toMatch(/Could not push .*Permission denied \(publickey\)\. Nothing was written on the box/);
+        expect(fs.existsSync(path.join(__dirname, '..', 'agents', id))).toBe(false);
+    });
+
+    test('a refusal never reaches the push', async () => {
+        let pushed = false;
+        await create.handleCreate({ args: 'Bad Id channel=x provider=claude', push: async () => { pushed = true; return { ok: true }; } });
+        expect(pushed).toBe(false);
     });
 });

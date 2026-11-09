@@ -92,6 +92,11 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-09** closing **#49**, **#64** and **#65** (B24: read-only verbs in any channel,
+natural conversation only where the agent can write nothing, the provider-override harm
+closed by per-agent tools) those print **23** open items — **6** P1, **13** P2, **4** P3 — and
+no duplicate ID.
+
 On **2026-11-08** closing **#71** and **#72** (B23: deploy on green, new asks halted while an
 update waits, a task refused while the lock and the queue disagree) those print **26** open
 items — **6** P1, **16** P2, **4** P3 — and no duplicate ID.
@@ -388,6 +393,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B18** | Gemini error label, and code-only items riding along | Done 2026-11-07: #79 (filed and closed), #76 (closed), #78 `ack` verb, #14 retro highlights to story-bot, #10 Wave T `tests/llm-runner.test.js` split | `lib/llm-*.js`, `lib/time-format.js`, `lib/integrations/`, `lib/sqtools-alert-*.js`, `lib/command-router.js`, `lib/watercooler.js`, `lib/agent-context-voices.js`, `tests/` | Disjoint file sets; one commit per item, each with its own checks |
 | **B19-B22** | Four no-input batches, one commit each | Done 2026-11-08: #67 pre-push id check (closed, B19); #39 merge state on `what's queued` (closed, B20); #4 message events wake the poll (B21, Slack app step left); #10 Wave T finished: the holidays and owner-tasks suites split (B22) | `lib/backlog-id-check.js`, `scripts/backlog-id-check.js`, `lib/merge-state.js`, `lib/poll-wake.js`, `lib/slack-socket.js`, `bridge-agent.js` (status reply, socket seam), `tests/` | Disjoint files apart from `bridge-agent.js` (two separate regions) and `WORK-TODO.md` |
 | **B23** | Deploy on green, on the owner's answers of 2026-11-08 | Done 2026-11-08: #17 built (gate + in-process self-deploy; closes on the first observed self-deploy); #71 closed (new asks halted while an update waits); #72 closed (a task refused while the lock and the queue disagree; `ASK: lock` / `lock clear`) | `lib/update-gate.js`, `lib/self-deploy.js`, `lib/ask-drain.js`, `lib/task-start-check.js`, `lib/lock-command.js`, `auto-update.js`, `bridge-agent.js`, `lib/command-router.js`, `tests/` | One batch: the three meet in the update cycle and the poll loop |
+| **B24** | Owner answers of 2026-11-08, second half | Done 2026-11-09: #64 closed (read-only verbs run in any channel, the rest refused); #49 closed (natural conversation only where the agent can write nothing); #65 closed (the tool harm is closed by per-agent tools; owner); #37 built (HIGH digest + secretary proposals into the approval queue); #51 built (tracked-file changes pushed as a branch); #47 built (`ASK: provider`) | `lib/agent-channel-verbs.js`, `lib/natural-conversation.js`, `lib/high-notices.js`, `lib/high-digest.js`, `lib/definition-branch.js`, `lib/provider-switch.js`, `lib/agent-create.js`, `lib/notify-owner.js`, `lib/command-router.js`, `bridge-agent.js`, `tests/` | One batch: shared `bridge-agent.js` and command table |
 | **OA** | Owner action only, nothing left in the repo | #41, #43, #70 (#25, #40, #73 closed 2026-10-10 from box output; #3, #26, #53, #55, #66 closed 2026-10-10 on live evidence; #52 closed 2026-10-10 on the `ASK: channels` output) | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
 | **B7** | Landed vs completed | Done 2026-10-04: #39 recording half (`work` on the queue row, shown in `what's queued`). Left: merge state | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/task-work.js` | `recordWork` writes no status and no verdict, so the #74 invariant holds unchanged (its suite passes untouched) |
 | **B8** | Small repo halves left after B7 | Done 2026-10-04: #62 (closed), #75 repo half. B9 (same day): `lib/repo-history.js` reads `Closes #N. Addresses #M` on one line as two claims, not two closes | `.gitignore`, `tests/gitignore-publishable.test.js`, `docker-compose.example.yml` | No runtime code |
@@ -398,7 +404,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B14** | Dependabot #13/#14, then #10 Wave 3 | Done 2026-10-05: `@slack/web-api` 8, `@slack/socket-mode` 3.1, `googleapis` 178.0 with a Node 20 engines guard (Dependabot PRs closed, Node-22-only googleapis ignored); `security-review.js` (git reads to `lib/security-review-git.js`), `lib/integrations/google-calendar.js` (collapsed; reads `GOOGLE_REFRESH_TOKEN`) | `package.json`, `package-lock.json`, `.github/dependabot.yml`, `tests/dependency-upgrade.test.js`, the split modules, `tests/security-review-git.test.js`, `tests/google-calendar.test.js`, `lib/validate-exceptions.json`, `tests/smoke.test.js` | Runtime code. The calendar now accepts `GOOGLE_REFRESH_TOKEN`, so on a box with only that name set it starts fetching events. Next is Wave 4, owner-gated |
 | **B15** | #10 Wave 4, the two splits with no open question | Done 2026-10-05: `lib/llm-runner.js` (seven parts; `runLLM` to `lib/llm-dispatch.js` so the fallback chain needs no cycle), `lib/integrations/holidays.js` (three parts) | the split modules, `tests/integration.test.js`, `lib/validate-exceptions.json`, `tests/module-splits.test.js`, `tests/smoke.test.js`, docs line citations | Pure moves; every export is the same object through the facades. `tests/llm-runner.test.js` is not split (Wave T, after #44). The rest of Wave 4 is owner-gated |
 | **B16** | Close what live evidence already proves; two fixes found on the way | Done 2026-10-10: #3, #26, #53, #55, #66 closed; the jester's digest reports the boot commit (`lib/boot-record.js`) instead of "nothing records it"; `proxy-addr` 2.0.7 -> 2.0.8 (GHSA-jqcg-44mw-7w3h) | `lib/boot-record.js`, `lib/critique-digest.js`, `bridge-agent.js` (one line), `tests/critique-digest.test.js`, `package-lock.json`, docs | Runtime code: the digest change and a production dependency patch |
-| **OD** | Owner decision first | #4b, #27, #37, #51, #65, #47, #49 (#71 and #72 closed 2026-11-08; #75 closed 2026-10-10; #29 and #67 moved to work; #60 moved to the capability design §9 and closed 2026-10-10) | — | Small code once chosen; listed so nobody dispatches them undecided |
+| **OD** | Owner decision first | #4b, #27 (#37, #47, #51 built and #49, #64, #65 closed 2026-11-09, B24; #71 and #72 closed 2026-11-08; #75 closed 2026-10-10; #29 and #67 moved to work; #60 moved to the capability design §9 and closed 2026-10-10) | — | Small code once chosen; listed so nobody dispatches them undecided |
 | **SEED** | 2026-04 seed ideas — features to build, not drop (owner 2026-10-10) | #5, #6, #13 (later), #14, #16 (#8 closed; #15 folded into #59) | — | Owner: unbuilt features stay in the backlog to be built |
 
 ### Every item
@@ -444,13 +450,10 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #8 | P2 | **CLOSED 2026-10-10** (purged) | SEED | — | Re-checked for duplicate runs: two dedup layers (done/failed reaction, `processed-tasks.json` by `ts`), a `TASK:` marked processed before it runs (`tests/task-rerun-guard.test.js`), one poll sweep at a time (`tests/poll-reentrancy.test.js`), and every re-read skip logged (`describeSkipReason`). A resubmission is a new message and runs, as intended |
 | #39 | P2 | **CLOSED 2026-11-08** (B20, purged) | B20 | M | Recording half B7 (`lib/task-work.js`); merge half `lib/merge-state.js`: each status query fetches the target repo's `main` into a bare cache under `$WORK_DIR/merge-check/` and asks `merge-base --is-ancestor` of each recent row's head. `what's queued` says merged / not on main yet / unknown. Guard `tests/merge-state.test.js` (real bare origin). A squash merge reads as not on main; nothing polls it yet (the loop, `docs/AUTONOMOUS-LOOP-DESIGN.md` part five) |
 | #40 | P2 | **CLOSED 2026-10-10** (purged) | OA | — | Owner ran `git status --short --untracked-files=no` in `/bridge` on 2026-10-10: no output, so no tracked file is modified |
-| #37 | P2 | decision | OD | S | `lib/notify-owner.js:165-168` returns `true` after only logging; HIGH is the default priority (`:147`) |
-| #64 | P2 | Refusal half DONE in B5; gate not lifted | — | M | A bare verb in an agent channel is refused with a pointer to `#claude-bridge`. Running verbs there waits on the capability model (#65, CAPABILITY-AND-ISOLATION-DESIGN) |
-| #47 | P2 | requirement for an unbuilt verb | OD | — | Suggest P3 |
-| #65 | P2 | OPEN, needs design | OD | M | `lib/config.js:168-170` lets the env var win over a definition that denies file-system |
+| #37 | P2 | Built B24 | — | S | Closes on the first HIGH digest seen in `#sqtools-ops` |
+| #47 | P2 | Built B24 | — | S | `ASK: provider`; closes on the first branch pushed from the box |
 | #66 | P2 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | Observed live: `lib/main-watch.js` posted "`main` differs from the running bridge" once per new `main` sha (2026-10-05 08:25 and 17:17, 2026-10-06 08:17 EDT) |
-| #49 | P2 | Q1-3 answered and bot path closed in B5 | OD | S | Remaining: the owner decides whether, and on which channels, to turn it on (cost depends on workspace volume). Suggest P3 while off |
-| #51 | P2 | decision | OD | — | Also: `CLAUDE.md` "Agent Activation" still says to edit the deleted `agents/agents.json` (B4) |
+| #51 | P2 | Built B24 for tracked files | — | S | `create` and `provider` push a branch; closes on the first branch pushed from the box |
 | #52 | P2 | **CLOSED 2026-10-10** (purged) | OA | — | Owner ran `ASK: channels` on production 2026-10-10: 8 owned channels, 0 agent channels the bot is missing, 1 unowned (`#bot-memory`, put to the owner as a decision), 2 planned agents unresolved (storefront, marketing) |
 | #53 | P2 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | `#jester-agent` was created 2026-09-15 and the critique has posted there every Friday since (latest 2026-10-09 18:00 EDT) |
 | #57 | P2 | PARKED 2026-11-08: eventually push to all repos; revisit once this repo is private (owner) | OD | S | Constraint 1 says "the bridge pushes nothing". At HEAD `cloneRepo` points `origin` at SSH and sets `core.sshCommand` to the bridge's own deploy key (`lib/clone-lifecycle.js:173-190`), so the executor pushes with the bridge's key |
@@ -607,10 +610,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#5** — [Mid-task `ask_on_slack` capability](#5-mid-task-ask_on_slack-capability)
 - **#6** — [Structured task result format](#6-structured-task-result-format)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
-- **#64** — [A verb typed in an agent's channel is answered by a model as conversation — the same text behaves differently depending on where it is typed](#64-a-verb-typed-in-an-agents-channel-is-answered-by-a-model-as-conversation--the-same-text-behaves-differently-depending-on-where-it-is-typed)
 - **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
-- **#65** — [A per-agent provider override outranks a definition, so an agent's declared denial can be undone from `.env`](#65-a-per-agent-provider-override-outranks-a-definition-so-an-agents-declared-denial-can-be-undone-from-env)
-- **#49** — [`NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does](#49-natural_conversation_mode-is-off-and-nothing-establishes-what-turning-it-on-does)
 - **#51** — [A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it](#51-a-command-that-writes-a-tracked-file-is-destroyed-by-the-next-pull-and-every-configuration-writing-command-shares-it)
 - **#57** — [Before the bridge is given a private-repo credential — the constraints, not the plan](#57-before-the-bridge-is-given-a-private-repo-credential--the-constraints-not-the-plan)
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
@@ -2033,9 +2033,9 @@ that rather than re-parsing.
 ---
 
 ### 37. `notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success
-**BLOCKED — OWNER DECISION.** Build the digest, or collapse HIGH into `notifyOps()`. That
-is a choice about how much traffic `#sqtools-ops` should carry, not a bug fix. The code is
-small either way; the decision is the gate.
+**Decided 2026-11-08 (owner):** "build the digest and it should be pushed to slack and we can
+have one of our agents read and diagnose next steps for approval." **Built 2026-11-09 (B24)**,
+see the update at the end.
 **Filed 2026-09-14,** from the failure-path enumeration
 ([`docs/AUTONOMOUS-LOOP-DESIGN.md`](docs/AUTONOMOUS-LOOP-DESIGN.md) section 5).
 
@@ -2054,65 +2054,18 @@ change).
 or to collapse HIGH into a `notifyOps()` post, and that is a decision about how much
 traffic the owner wants in `#sqtools-ops`, not a bug fix an executor should make alone.
 Whichever is chosen, `PRIORITY.HIGH` must stop returning `true` for a message it dropped.
-**Priority:** P2 | **Effort:** Low | **Status:** open — owner decides digest vs. ops post
 
----
+**B24, 2026-11-09 — built.** A HIGH notice is recorded in `$WORK_DIR/high-notices.json`
+(`lib/high-notices.js`); `lib/high-digest.js` posts the undigested ones to `#sqtools-ops`
+every `HIGH_DIGEST_INTERVAL_MS` (1 h; only when there are any), marks them only after the post
+landed, then asks the secretary (one turn, no tools; not asked if her run could write) for at
+most three next steps, each composed through `lib/dispatch-message.js` and placed in the
+approval queue for `#claude-bridge` (source `high-digest`). A notice that cannot be recorded
+is posted to ops at once, so HIGH no longer returns `true` for a dropped message. Guard:
+`tests/high-digest.test.js`. **Close condition:** one digest observed in `#sqtools-ops` on the
+box (today the only HIGH caller is the ACTION REQUIRED line a task prints).
+**Priority:** P2 | **Effort:** Low | **Status:** built (B24); closes on the first digest observed in #sqtools-ops
 
-### 64. A verb typed in an agent's channel is answered by a model as conversation — the same text behaves differently depending on where it is typed
-**Filed 2026-09-16,** from the command-surface pass
-([`docs/COMMAND-SURFACE.md`](docs/COMMAND-SURFACE.md) §3).
-
-**Verified at HEAD.** Regenerate:
-```bash
-grep -n "runCommand" bridge-agent.js        # :1299, inside the gate below
-sed -n '1288,1302p' bridge-agent.js         # if (sourceChannel === BRIDGE_CHANNEL) {
-```
-
-`ASK: agents` in `#claude-bridge` runs the deterministic verb with no model. The same text
-in `#email-monitor-agent` never reaches the router — `processConversation` falls through to
-the LLM path and answers it **as a conversation with the email-monitor agent**, in that
-agent's persona, from a model that cannot see the agent surface it is being asked about.
-Identical input, two behaviours, decided by the channel and reported nowhere. The second is
-worse than a refusal because it produces a confident answer.
-
-**The gate was deliberate and its stated reason is sound; the conclusion is not.**
-`bridge-agent.js:1288-1291` says an agent channel is how an *agent* is addressed and a verb
-answering there would be the verb/name mixing the (now closed) #45 existed to prevent. That
-rule forbids `jester` being a **command name**. It does not require a verb to be
-unavailable where an agent lives.
-
-**Second half of the same defect:** even in the bridge channel the router is handed
-`agent: agentConfig` (`bridge-agent.js:1301`) — the module-scope bridge record — not
-`handlingAgent`, which the enclosing function has already resolved and passes to everything
-else. So a verb has no notion of an invoking agent at all.
-
-**Intended behaviour (the design, not the fix):** the channel is an **argument** to the
-verb, not a router for it. A verb is recognised in every polled channel; it inherits the
-invoking channel's agent, its data context and its declared capability; a verb that agent
-has no capability for is **refused with the reason** rather than silently reinterpreted;
-an unrecognised verb prints the table so "not a verb" and "a verb you may not run" are
-distinguishable.
-
-**Why it is not fixed here, and what it is really waiting on.** The refusal clause needs
-"this agent's capability" to mean something, and it does not:
-`grep -rn "permissions\|denied" --include=*.js . | grep -v node_modules | grep -v '^./tests/'`
-finds **no production reader** of either field
-([`docs/CAPABILITY-AND-ISOLATION-DESIGN.md`](docs/CAPABILITY-AND-ISOLATION-DESIGN.md) §2).
-Lifting the channel gate **without** the capability check would make every verb runnable by
-every agent, which is a widening, not a fix. The two land together or not at all.
-**Citations re-checked 2026-10-04 (B4).** The router call is `commandRouter.runCommand` at `bridge-agent.js:1501`, passed `agent: agentConfig` at `:1503`. Regenerate: `grep -n "commandRouter.runCommand" -A2 bridge-agent.js`.
-**Priority:** P2 | **Effort:** Low for the gate, Medium with the capability check that must accompany it
-**Status:** open — defect confirmed, intended behaviour recorded, blocked on the capability model
-
-
-**B5, 2026-10-04 — the refusal half landed; the gate is not lifted.** A bridge verb typed on
-its own in an agent channel (the verb alone, or the verb plus one number or agent id) is now
-refused with a pointer to `#claude-bridge` instead of being answered by the agent's model
-(`commandRouter.isBareCommand`, the `else` of the bridge-channel gate in
-`processConversation`; guard `tests/agent-channel-verbs.test.js`). A sentence that merely
-starts with a verb ("create a post about the sale") still goes to the agent. That removes the
-confident wrong answer and widens nothing. **Remaining, unchanged:** running verbs in agent
-channels with the invoking agent as an argument, which needs the capability model.
 ---
 
 ### 47. A global provider switch must say what it changed, and must not flatten per-agent settings
@@ -2134,126 +2087,24 @@ Any future command that sets it — "put everything on ollama" — has two ways 
 **source** of each value, and touches only agents whose resolved source is the global
 default or the hard fallback. `resolveAgentLlm` already returns `provider_source` per agent
 for exactly this; `ASK: agent status` renders it today.
-**Priority:** P2 | **Effort:** Low, if built on the resolver | **Status:** open — requirement recorded, nothing built
 
----
+**B24, 2026-11-09 — built (owner: "16: sure").** `ASK: provider <p> [id ...]`
+(`lib/provider-switch.js`). Every definition now declares its own `llm_provider`, so the
+global `LLM_PROVIDER` reaches no agent and switching it would change nothing; the verb edits
+each definition's one `llm_provider:` line instead and pushes the result as a branch
+(`lib/definition-branch.js`, #51). The reply lists every agent before and after with its
+source; an agent pinned by `LLM_PROVIDER_<AGENTID>` is left alone and the variable named; an
+agent already on the target is unchanged; a code agent moved off claude is flagged. Guard:
+`tests/definition-branch.test.js`. **Close condition:** one switch branch observed pushed to
+GitHub from the box (the push with the deploy key is proven only against a local bare repo).
+**Priority:** P2 | **Effort:** Low, if built on the resolver | **Status:** built (B24); closes on the first branch observed pushed from the box
 
-### 65. A per-agent provider override outranks a definition, so an agent's declared denial can be undone from `.env`
-**Filed 2026-09-16,** from the persistence-design pass.
-**Reported, deliberately NOT fixed. Do not "fix" it by deleting the override** — see below.
-
-**The mechanism, verified at HEAD.** `resolveLlmProvider` (`lib/config.js:165-177`)
-resolves in this order:
-
-```bash
-sed -n '150,177p' lib/config.js
-```
-> 1. `LLM_PROVIDER_<AGENTID>` env var  2. the definition's `llm_provider`
-> 3. `LLM_PROVIDER` env var  4. `'claude'`
-
-`agents/jester/agent.md` declares `llm_provider: gemini` and **denies `file-system`**.
-`LLM_PROVIDER_JESTER=claude` in `.env` beats the declaration, and `runClaudeAdapter` spawns
-the CLI with `--dangerously-skip-permissions` (`lib/llm-adapter-claude.js:59`).
-
-**Why that contradicts a security decision rather than merely surprising someone.**
-`lib/weekly-critique.js` deliberately calls `runLLM` and **not** `runWithFallback`, and
-`docs/JESTER-DESIGN.md` §4 states the reason in those words: the chain can land on `claude`
-and *"routing him automatically onto a tool-capable engine to save a weekly joke is not a
-trade worth making."* The override reaches the same engine by configuration. The design
-avoided it by accident and left it reachable on purpose.
-
-**What §4 does carry, and it is a mitigation rather than a boundary:** `maxTurns: 1` and a
-fresh empty temp directory as `cwd`, both asserted in `tests/weekly-critique.test.js`. The
-CLI still spawns with permission checks disabled, in a writable directory, for one turn.
-
-**UNVERIFIED, and it stays unverified from any checkout:** whether the override is actually
-set. `.env` is owner-managed and off-limits (`docs/EXECUTOR-CONTRACT.md` §7), and the only
-occurrence of `LLM_PROVIDER_JESTER` in this repository is a test fixture. **The bridge
-answers it on the box, with provenance:**
-
-```bash
-node scripts/agent-surface.js | grep jester    # or: ASK: status
-# `claude (env:LLM_PROVIDER_<AGENTID>)` = the instance is live
-# `gemini (registry:agent.md)` = it is not
-```
-
-**Why the fix is not removal.** The override exists *because a tracked file did not
-survive*: an on-box edit to a tracked definition is destroyed by `git reset --hard HEAD` —
-twice observed, per `.gitignore`'s own comment — and `LLM_PROVIDER_<AGENTID>` is the only
-per-agent mechanism that survives a pull. Removing it takes the workaround and leaves the
-durability problem.
-
-**Close condition, in two parts, and the second is the item's namesake:**
-1. A durable, per-workspace place to write a per-agent provider that is neither a tracked
-   file nor `.env` — `agent_setting` in
-   [`docs/STATE-AND-MEMORY-DESIGN.md`](docs/STATE-AND-MEMORY-DESIGN.md) §2.5, which exists
-   to retire this variable.
-2. **A provider a definition denies is REFUSED at resolution with a stated reason,
-   whatever it came from** — reject-never-sanitise, the rule `lib/git-identifiers.js`
-   already applies to a repository name. That needs `denied` to be read by something, and
-   nothing reads it ([`docs/CAPABILITY-AND-ISOLATION-DESIGN.md`](docs/CAPABILITY-AND-ISOLATION-DESIGN.md) §2.1).
-
-Until (2), an owner who pins jester to claude gets what they asked for and nothing says it
-contradicts his declaration.
-**Citations re-checked 2026-10-04 (B4).** `resolveLlmProvider` starts at `lib/config.js:166`; the CLI flag is at `lib/llm-adapter-claude.js:59` (was `lib/llm-runner.js:380` before the 2026-10-05 split). Regenerate: `grep -n "function resolveLlmProvider" lib/config.js; grep -n "dangerously-skip-permissions" lib/llm-adapter-claude.js`.
-**Update 2026-11-07 — the harm is closed a different way; the item stays open.** Every
-definition now declares `llm_provider: claude` (owner: "move all to claude", then "per agent
-permission is needed"), and the claude adapter enforces each agent's `permissions`/`denied`
-(`lib/agent-tools.js`, guard `tests/agent-tools.test.js`): jester's `denied: file-system`
-gives his run `--restricted --tools ""`, **whatever provider resolved and wherever it came
-from**. So an override no longer hands him a tool-capable engine. Close condition (2) as
-written (refuse the *provider*) is no longer the right shape and (1) is not built, so this
-is `Addresses`, not `Closes`; the remaining question is only whether a `.env` provider
-override should be able to outrank a definition at all.
-**Priority:** P2 | **Effort:** Low once (1) exists | **Status:** open — the tool-capability harm is closed by per-agent tool enforcement (2026-11-07); the provider-precedence half remains
-
----
-
-### 49. `NATURAL_CONVERSATION_MODE` is off, and nothing establishes what turning it on does
-**Filed 2026-09-15,** from the command-router pass. **This is a question to answer, not a
-defect to fix.**
-**Problem:** `config.NATURAL_CONVERSATION_MODE` (`lib/config.js`, default `false` —
-`process.env.NATURAL_CONVERSATION_MODE === 'true'`) gates a reply path for messages
-carrying neither `TASK:` nor `ASK:`. With it off, every such message is skipped, and the
-skip is logged by `describeSkipReason`. So the flag's *off* behaviour is well understood
-and the *on* behaviour has never been observed: no test exercises a real message through
-it, no run has been recorded with it enabled, and the blast radius is not written down
-anywhere.
-**The questions, in the order they have to be answered:**
-- Which channels does it apply to — the bridge channel only, or every polled agent channel?
-  Every channel means every incidental human remark in five channels reaches an LLM.
-- Does the allowlist still gate it? The poll loop's gate is
-  `!isUserAuthorized(msg.user) && !isBotMessage`, and a bot post bypasses it by design
-  (`lib/dispatch-command.js` header) — so a bot's own message could trigger a reply, and a
-  reply is a message.
-- What stops two agents in one channel answering, or an agent answering its own answer?
-- What does it cost per day at current message volume, and on which provider?
-**Why it matters now:** the command router and the status verb both make it cheaper to add
-things that *would* depend on this path. Nothing should, until the four questions above
-have answers.
-**Priority:** P2 | **Effort:** Low to investigate; unknown to make safe | **Status:** open — question recorded, unanswered
-
-
-**Answered from code, B5 2026-10-04.** (1) **Every polled channel**, not only the bridge
-channel: the natural branch sits inside the per-channel loop in `poll()`. (2) **The allowlist
-gated it, but with the bot exempt** — and the bot's own top-level posts (an inbox report in
-the email-monitor channel, for one) carry `bot_id` and no `subtype`, so they passed
-`isNaturalConversationMessage` and would have been answered by a model. **Fixed:** a message
-with `bot_id` is never natural conversation (`lib/task-parser.js`), and the natural branch
-no longer exempts the bot (guard `tests/agent-channel-verbs.test.js`). (3) **Two agents in one
-channel cannot both answer** — a channel maps to one agent in `channelsToPoll`; **an agent
-cannot answer its own answer** — replies are posted as thread replies and
-`conversations.history` returns only top-level messages. (4) **Cost: not answerable from the
-repository.** It is one model call per human remark in any polled channel, on that channel's
-agent's provider; the volume is a property of the workspace. **Remaining (owner):** decide
-whether to turn it on, and if so, on which channels — today it is all or nothing.
-**Status:** open — questions 1-3 answered and the bot path closed; 4 is the owner's measurement.
 ---
 
 ### 51. A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it
-**BLOCKED — OWNER DECISION.** Three shapes recorded, none chosen, and the item explicitly
-forbids the obvious wrong move (*do not fix this by adding a fourth store*). Shape (b) is
-already demonstrated by `create`. Picking the shape is the gate.
+**Decided 2026-11-08 (owner): shape (a)/(c) as a branch** — "let it push a code fix to the
+github? Which then can handle the deploy after it passes green?" Built 2026-11-09 (B24), see
+the update at the end.
 **Filed 2026-09-15.** **This is a class, filed after its third instance.** A built-in
 command that changes configuration has exactly two places to write: a tracked file, which
 `auto-update.js`'s `git reset --hard HEAD` discards on the next pull, or a gitignored
@@ -2296,7 +2147,18 @@ running system and the tracked declaration drift without anyone being told.
 mechanisms; a fix that adds a fourth is not one.
 **Priority:** P2 | **Effort:** Low for (b) per command; High for (a)
 **Risk:** (a) is the only one that can push to `main` and should not be attempted before #17
-**Status:** open — class recorded with its instances; no shape chosen
+**Status:** built for tracked files (B24); closes on the first branch observed pushed from the box
+
+**B24, 2026-11-09 — built for tracked files.** `lib/definition-branch.js` clones `main`,
+writes the changed files (only under `agents/`), commits, pushes a NEW branch (never `main`,
+never forced) and confirms it with `ls-remote`. `create` (and #47's `provider`) use it and
+write nothing into the running checkout. That also removes a defect found while building it:
+an untracked `agents/<id>/agent.md` left in the deploy tree would make the self-deploy's
+`git merge --ff-only` refuse the commit that adds the same file. The owner merges the branch
+and the update gate deploys it, so this is (a) without `main`: no command can change `main`.
+The gitignored writers (`activate`, the channel map) are unchanged and remain invisible to
+review; that half is the state design's (STATE-AND-MEMORY-DESIGN.md). **Close condition:** a
+branch observed pushed from the box with the deploy key.
 
 ---
 
