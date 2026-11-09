@@ -1,6 +1,9 @@
-# Dockerfile — the jt-agent image, built rather than pulled. PROPOSED (WORK-TODO #70, B6,
-# 2026-10-04): the live deployment runs the floating `image: node:26` tag until the owner switches
-# the compose file to `build:` (docker-compose.example.yml, the PROPOSED BUILD block).
+# Dockerfile — the jt-agent image, built rather than pulled (WORK-TODO #70, B6 2026-10-04).
+# ADOPTED on the box 2026-11-09: the live compose runs `image: jt-agent:local`. Build it with
+#   DOCKER_CONFIG=/tmp/jt-docker-config docker build --pull --no-cache -t jt-agent:local /share/CACHEDEV1_DATA/jt-agent
+# On QNAP, `docker compose build` fails creating a config folder under Container Station's
+# home ("mkdir .../container-station/homes/<user>: permission denied"); DOCKER_CONFIG
+# pointed at a writable folder is the workaround, and plain `docker build` needs no `build:` key.
 #
 # WHY A BUILD STEP. Until this file, the only install step was the compose `command:`,
 # run at every container START as an unprivileged user: the toolchain was whatever
@@ -17,13 +20,22 @@
 #
 # PINS, and what moves them. Change a pin here, rebuild, restart; the boot post names the
 # commit, and `claude --version` in the container names the CLI.
+#
+# LOGIC CHANGE 2026-11-09: the Claude CLI is no longer pinned; it installs `latest`. The
+# owner's rule is newest, upgraded rather than pinned, and nothing moved the old pin:
+# Dependabot's docker ecosystem bumps the FROM line, never an npm package named in an
+# ARG, so 2.1.316 would have stayed 2.1.316 forever. Docker caches the install layer, so
+# a rebuild only fetches a newer CLI with `--no-cache`: always build with the command at the top.
+# Between rebuilds the CLI is as old as the last build (the pre-image compose re-installed
+# it at every start). The base stays an exact tag because Dependabot raises it as a PR and
+# tests/dependency-upgrade.test.js checks the production tree runs on it.
 #   node:26.13.0-bookworm  LOGIC CHANGE 2026-11-01: the newest LTS release (Node 26
 #                          "Lithium", 2026-10-28, nodejs.org/dist/index.json). Was
 #                          node:20.20.2, end of life since April 2026. The owner's rule
 #                          (2026-11-01): every piece of software is kept at its newest
 #                          version. Tag confirmed on Docker Hub 2026-11-01. bookworm =
 #                          Debian 12, matching the 2026-09-20 probe of the live image.
-#   claude-code 2.1.316    `npm view @anthropic-ai/claude-code version` on 2026-11-01. It
+#   claude-code latest     newest at build time (was pinned to 2.1.316, 2026-11-01). It
 #                          declares engines.node >=22, so Node 20 could no longer run it.
 #   python3-venv           Debian bookworm's package (security updates only). Supplies
 #                          ensurepip, so lib/python-venv.js can create a per-clone venv
@@ -33,7 +45,7 @@
 
 FROM node:26.13.0-bookworm
 
-ARG CLAUDE_CODE_VERSION=2.1.316
+ARG CLAUDE_CODE_VERSION=latest
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3-venv \
