@@ -154,6 +154,12 @@ const SPLITS = [
             'filterOntarioHolidays', 'parseDate', 'formatDate', 'clearCache', 'CACHE_TTL_MS',
         ],
     },
+    {   facade: 'auto-update.js', // #10 Wave 4, 2026-11-11; DEFAULT_DEPS and gatedDeps stay in it
+        parts: ['config', 'git', 'state', 'deferral', 'apply', 'daemon'].map((p) => `lib/update-${p}.js`),
+        exports: ['checkForUpdates', 'abortUpdate', 'revertTo', 'flushAndExit', 'loadState', 'saveState', 'gitResetTo',
+            'checkTaskQueue', 'evaluateTaskDeferral', 'UPDATE_PENDING_FILE', 'RESTART_EXIT_CODE', 'DEFAULT_DEPS',
+            'LOCAL_REPO_DIR', 'CHECK_INTERVAL_MS', 'gatedDeps'],
+    },
     {
         // Nothing the router exported moved: the four report handlers and renderHelp
         // were never exported, so the export list is unchanged and the guard that

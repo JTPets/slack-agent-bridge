@@ -35,11 +35,6 @@
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Split out of tests/llm-runner.test.js on 2026-11-07 (WORK-TODO #10 Wave T), one suite per module of the lib/llm-runner.js split. Its subject is runWithFallback and the provider chain (lib/llm-fallback.js), including the ollama -> gemini -> claude chain. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions."
     },
     {
-      "path": "auto-update.js",
-      "lines_when_declared": 879,
-      "reason": "DEFERRED. Boundary named: git porcelain (runGit/gitFetch/gitPull/gitResetHard/gitResetTo/npmInstall) and the deferral gate (checkTaskQueue/evaluateTaskDeferral) are separable. Held because nothing starts this daemon (WORK-TODO #17), so a refactor buys no safety while risking the 62 tests that inject a dependency bag into checkForUpdates(). WORK-TODO #10."
-    },
-    {
       "path": "tests/task-parser.test.js",
       "lines_when_declared": 860,
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for lib/task-parser.js — field-label anchoring, value rejection, turn clamping and the ASK-command recognisers. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."

@@ -403,6 +403,7 @@ order is the schedule. Batches that share a file are never meant to run side by 
 | **B24** | Owner answers of 2026-11-08, second half | Done 2026-11-09: #64 closed (read-only verbs run in any channel, the rest refused); #49 closed (natural conversation only where the agent can write nothing); #65 closed (the tool harm is closed by per-agent tools; owner); #37 built (HIGH digest + secretary proposals into the approval queue); #51 built (tracked-file changes pushed as a branch); #47 built (`ASK: provider`) | `lib/agent-channel-verbs.js`, `lib/natural-conversation.js`, `lib/high-notices.js`, `lib/high-digest.js`, `lib/definition-branch.js`, `lib/provider-switch.js`, `lib/agent-create.js`, `lib/notify-owner.js`, `lib/command-router.js`, `bridge-agent.js`, `tests/` | One batch: shared `bridge-agent.js` and command table |
 | **B26** | The #70 image on the box | Done 2026-11-09: #70 closed (owner built `jt-agent:local` with `DOCKER_CONFIG=… docker build`, compose switched, `CLAUDE_BIN=/usr/local/bin/claude`); the Claude CLI installs `latest`, not a pin | `Dockerfile`, `docker-compose.example.yml`, `CLAUDE.md`, `docs/CONFIG-SURFACE-AND-REBUILD.md` | No code change |
 | **B25** | Activation checklist session (owner 2026-11-09) | Done 2026-11-09: #80 filed and built (`activate <id>` checks `.env` steps itself and asks the rest; activates only when all pass) | `lib/activation-checklist.js`, `lib/agent-activation.js`, `lib/owner-tasks-store.js`, `lib/bridge-state*.js`, `tests/` | No `bridge-agent.js` change |
+| **B27** | Split the self-update cycle | Done 2026-11-11: #10 Wave 4's `auto-update.js` split (#10 stays open for the rest); #17 `gatedCommit` read back (closes on the first observed self-deploy, as before) | `auto-update.js`, `lib/update-*.js`, `tests/update-state.test.js`, `tests/module-splits.test.js`, `tests/auto-update-gate.test.js` | Unblocked by #17 being live |
 | **OA** | Owner action only, nothing left in the repo | #41, #43 (#70 closed 2026-11-09 on the owner's build paste; #25, #40, #73 closed 2026-10-10 from box output; #3, #26, #53, #55, #66 closed 2026-10-10 on live evidence; #52 closed 2026-10-10 on the `ASK: channels` output) | — | Each needs a restart, a NAS command, a Slack app setting or a channel |
 | **B7** | Landed vs completed | Done 2026-10-04: #39 recording half (`work` on the queue row, shown in `what's queued`). Left: merge state | `lib/task-queue.js`, `bridge-agent.js` (`processTask` finally), `lib/task-work.js` | `recordWork` writes no status and no verdict, so the #74 invariant holds unchanged (its suite passes untouched) |
 | **B8** | Small repo halves left after B7 | Done 2026-10-04: #62 (closed), #75 repo half. B9 (same day): `lib/repo-history.js` reads `Closes #N. Addresses #M` on one line as two claims, not two closes | `.gitignore`, `tests/gitignore-publishable.test.js`, `docker-compose.example.yml` | No runtime code |
@@ -1030,6 +1031,17 @@ Guards `tests/update-gate.test.js`, `tests/auto-update-gate.test.js`,
 before that, which is the safe direction. **2026-11-09: the image is adopted** (owner paste:
 `jt-agent:local`, `python3 -m venv` exit 0, boot at f477a0a), so the next commit on `main`
 is the first that can gate green.
+**2026-11-11 (B27): a defect in the built half, fixed.** `loadState` listed its keys by hand
+and never read back `gatedCommit`, which the cycle has saved since 2026-11-08. So a green
+commit held back by a running task (or an answer in progress) was gated again on every cycle:
+another 35-minute suite each time, a `:test_tube:` post each time, and, because the gate
+clears the pending marker while it runs, new dispatches accepted throughout, so under steady
+work the deploy could keep missing its idle moment. An idle bridge was unaffected (green, then
+straight to apply). Every suite injected its own `loadState`, so all were green. Now
+`lib/update-state.js` reads one `STATE_KEYS` list, and `tests/update-state.test.js` reads every
+`state.<key> =` the cycle writes from source and fails when one is missing (2 of its 6 tests
+fail with `gatedCommit` removed). The running bridge (f477a0a) still has the defect, so the
+commit that carries the fix is gated by the old code.
 **Status:** open — closes on the first self-deploy observed in `#sqtools-ops` (a GREEN gate
 line, then the boot line naming that same sha).
 
@@ -1589,7 +1601,7 @@ push path; none of it should be attempted without a way to verify the bridge sti
 ### 10. Split the god-files that break the repo's own 300-line rule
 **Filed 2026-09-13** (derived: `20dc049`).
 **Problem:** The repo enforces a 300-line-per-file rule (`lib/validate.js`, `MAX_LINES = 300`)
-and **55** `.js` files exceed it (2026-10-05, after B15; regenerate with the command below). Until 2026-09-15 the gate was **unconditionally red**, so a
+and **57** `.js` files exceed it (2026-11-11, after B27: 13 source modules, 44 test suites; regenerate with the command below). Until 2026-09-15 the gate was **unconditionally red**, so a
 new violation could not be told apart from the standing ones without diffing path lists by
 hand — that happened twice in the week of 2026-09-08. The exceptions had never been examined.
 
@@ -1683,15 +1695,17 @@ the clone and git reads to `lib/security-review-git.js`) and `lib/integrations/g
 three copies collapsed into one); in B15 (2026-10-05), Wave 4: `lib/llm-runner.js` (1183 -> 93: `llm-errors.js`,
 `llm-defaults.js`, `llm-dispatch.js`, `llm-adapter-claude.js`, `llm-adapter-gemini.js`, `llm-adapter-ollama.js`,
 `llm-fallback.js`) and `lib/integrations/holidays.js` (387 -> 61: `holidays-public.js`, `pet-awareness.js`,
-`local-date.js`). Each split file stays as a facade re-exporting every name it had;
+`local-date.js`); in B27 (2026-11-11), Wave 4's `auto-update.js` (1073 -> 294: `lib/update-config.js`,
+`update-git.js`, `update-state.js`, `update-deferral.js`, `update-apply.js`, `update-daemon.js`; its
+340-line `checkForUpdates` is now 120, the deferral bookkeeping and the apply half moved unchanged into
+`holdUpdate` and `applyUpdate`). Each split file stays as a facade re-exporting every name it had;
 `tests/module-splits.test.js` fails if a facade drops a name or holds a copy instead of the moved function.
 
-**Source modules (14)**
+**Source modules (13)**
 
 | lines | code | file | disposition | reason |
 |------:|-----:|------|-------------|--------|
 | 2735 | 1571 | `bridge-agent.js` | split (deferred) | The monolith. Seams C (`lib/ask-commands.js`), D (rate-limit state), E (poll loop) are declared in WIRING-AND-SEAMS §6. Deferred **by this task's own terms**: not cut during a size-limit exercise. |
-| 995 | 538 | `auto-update.js` | split (deferred) | Boundary: git porcelain (`runGit`/`gitFetch`/`gitPull`/`gitResetHard`/`gitResetTo`/`npmInstall`) and the deferral gate (`checkTaskQueue`/`evaluateTaskDeferral`) are two separable concerns. Deferred: nothing starts this daemon (#17), so a refactor buys no safety and risks the 62 tests that inject a dependency bag into `checkForUpdates()`. |
 | 761 | 357 | `lib/task-queue.js` | justify | One state machine over one file. **Corrected 2026-10-04:** this row said "under the limit on code (296)"; it is 357 code lines now, so that half of the justification is false. What remains true: the length is the `markRunning`, `completionSeq` and delivery-verdict history in comments, and the store has one owner. A split would cut on terminal-writers vs. readers (`getRecentCompleted`, `getStatus`); deferred, not justified. |
 | 614 | 263 | `lib/task-parser.js` | split (deferred) | Boundary: task-message parsing vs. the ASK-command recognisers (`isStatusQuery` … `parseShowTaskCommand`), which belong in Seam C's `lib/ask-commands.js` alongside the handlers they gate. **Deferred deliberately** so recogniser and handler move in one change. Also under the limit on code (224). |
 | 579 | 398 | `lib/task-decomposer.js` | justify | **Zero production callers** (WIRING-AND-SEAMS §3) — reachable only from its own test. Splitting dead code multiplies unexecuted surface. The open decision is delete-or-wire, which is the owner's, not a split. |
@@ -1788,7 +1802,7 @@ now covers them too.
 | file | lines | targets (seam) | what it waits on |
 |------|------:|----------------|------------------|
 | `lib/task-parser.js` | 620 | The ASK recognisers (`isStatusQuery` … `parseShowTaskCommand`, `isNaturalConversationMessage`) move to `lib/ask-commands.js` with Seam C's handlers from `bridge-agent.js`. | Lifting the `bridge-agent.js` exclusion for Seam C. `tests/task-parser.test.js` reads this file's source for its anti-drift guards. |
-| `auto-update.js` | 995 | `lib/update-git.js` (`runGit` … `npmInstall`); `lib/update-deferral.js` (`checkTaskQueue`, `evaluateTaskDeferral`); `lib/update-state.js` (`loadState`, `saveState`) | #17. If the daemon is deleted rather than started, the file leaves the list with no split. |
+| `auto-update.js` | 995 | **DONE in B27, 2026-11-11.** #17 made the cycle live (in-process, `lib/self-deploy.js`), which was the wait. As planned plus three: `lib/update-config.js` (the env-derived paths every part reads, so no part requires the facade back), `lib/update-apply.js` (`applyUpdate`, `abortUpdate`, `revertTo`, `flushAndExit`) and `lib/update-daemon.js` (`main`, `validateConfig`, `logStartupConfig`). The facade keeps `checkForUpdates`, `DEFAULT_DEPS` and `gatedDeps`. The suites that inject a dependency bag (defer, restart, gate, self-deploy) passed unchanged; the one source match on `LOCAL_REPO_DIR`'s default became a behavioural check. The split found a defect, fixed in the same batch: #17's `gatedCommit` was never read back. | — |
 | `lib/task-decomposer.js` | 579 | none | The owner's delete-or-wire decision. It has zero production callers. |
 | `lib/task-queue.js` | 790 | `task-queue-delivery.js` (`normalizeDelivery`, `deliveryRecorded`); the readers (`getRecentCompleted`, `getStatus`, the module-level `getQueueStatus`) go to `task-queue-view.js` as a prototype mixin. All terminal writers stay in `task-queue.js`. | A guard redesign. `tests/task-queue-delivery-invariant.test.js` and `tests/task-queue-lifecycle.test.js` walk this file's source. Splitting a class this way is the least mechanical cut on the list. |
 | `bridge-agent.js` | 2868 | Seams C, D and E (WIRING-AND-SEAMS §6) | Its own exclusion. Seam C pairs with `lib/task-parser.js` above. |

@@ -118,8 +118,19 @@ test('the default fast-forward refuses anything that is not a full sha, before g
     expect(autoUpdate.DEFAULT_DEPS.gitPull('main')).toEqual({ success: false, error: 'no 40-hex commit to fast-forward to' });
 });
 
+// LOGIC CHANGE 2026-11-11 (WORK-TODO #10): the default moved to lib/update-config.js with
+// the split. A source match on the old line would now pass or fail on spelling; this asks
+// the module itself, with LOCAL_REPO_DIR unset, which directory it chose.
 test('LOCAL_REPO_DIR defaults to the checkout auto-update.js is in', () => {
-    const fs = require('fs');
-    const src = fs.readFileSync(require.resolve('../auto-update'), 'utf8');
-    expect(src).toMatch(/const LOCAL_REPO_DIR = process\.env\.LOCAL_REPO_DIR \|\| __dirname;/);
+    const path = require('path');
+    const saved = process.env.LOCAL_REPO_DIR;
+    delete process.env.LOCAL_REPO_DIR;
+    try {
+        jest.isolateModules(() => {
+            const cfg = require('../lib/update-config');
+            expect(cfg.LOCAL_REPO_DIR).toBe(path.dirname(require.resolve('../auto-update')));
+        });
+    } finally {
+        if (saved !== undefined) process.env.LOCAL_REPO_DIR = saved;
+    }
 });
