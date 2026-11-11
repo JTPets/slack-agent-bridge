@@ -342,7 +342,7 @@ WORK-TODO **#24**, already filed (and partly fixed for `approval-queue` by
 `init({ file })` override; #24 is closed.
 
 `WORK_DIR`'s default string `/tmp/bridge-agent` is written out at three sites:
-`auto-update.js:53`, `lib/task-lock.js:57`, `lib/task-queue.js:33` (plus `lib/config.js`).
+`lib/update-config.js` (`auto-update.js:53` until the 2026-11-11 split), `lib/task-lock.js:57`, `lib/task-queue.js:33` (plus `lib/config.js`).
 
 **Canonical implementation:** none. No `lib/paths.js` exists.
 
@@ -418,7 +418,7 @@ grep -rnE "execFileSync\('git'|spawnSync\('git'|spawn\('git'" --include='*.js' .
 | Site | API | `--` before positionals | Timeout |
 |------|-----|-------------------------|---------|
 | `lib/clone-lifecycle.js:134` `git()` | `execFileSync`, argv array | yes, at each call site | 60 s / 15 s |
-| `auto-update.js:98` `runGit()` | `spawnSync`, argv array | **no** | 60 s |
+| `lib/update-git.js` `runGit()` (`auto-update.js:98` until 2026-11-11) | `spawnSync`, argv array | **no** | 60 s |
 
 Both use argv arrays, so `tests/no-shell-execution.test.js` is satisfied by both and the
 command-injection class stays closed. They differ on the *option-parser* half of the rule
