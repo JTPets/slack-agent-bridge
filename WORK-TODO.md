@@ -2221,10 +2221,30 @@ checklist with each step's state and activates only when every step passes:
 Guard: `tests/activation-checklist.test.js` (5 of its 10 tests fail against the
 pre-change `handleActivate`).
 
-**Left:** a live read-only call per credential, so SET also means "works" (needs one probe
-per integration; none exists for Square, Meta, LinkedIn or Google Business today).
+**B30, 2026-11-12 — live probes built.** `lib/credential-probe.js`. When `activate` is
+asked, a SET env step is probed with one read-only call and passes only when it works, or
+when no probe exists ("SET (not probed)", stated); a failing probe blocks like EMPTY, with
+the reason (redacted, never the value). Every env step in `agents/activation-checklists.json`
+at 698d5ec and its probe:
+- facebook (`readFacebook`): META_PAGE_ACCESS_TOKEN, META_PAGE_ID;
+- instagram (`readInstagram`): INSTAGRAM_BUSINESS_ID;
+- gbp (`readGbp`, token exchange + reviews): GBP_REFRESH_TOKEN, GBP_ACCOUNT_ID, GBP_LOCATION_ID;
+- bluesky (`readBluesky`, public profile): BLUESKY_HANDLE;
+- square (one page of GET /v2/catalog/list): SQUARE_ACCESS_TOKEN (storefront and social-media);
+- none (no read-only client exists): BLUESKY_APP_PASSWORD (only `createSession`, inline in
+  `publishBluesky`), LINKEDIN_ACCESS_TOKEN/PERSON_URN/ORG_URN/CLIENT_ID/CLIENT_SECRET,
+  YELP_API_KEY, GA_PROPERTY_ID, GOOGLE_MERCHANT_CENTER_ID, GOOGLE_BUSINESS_PROFILE_ACCOUNT_ID,
+  and the already-ticked ALLOWED_USER_IDS and GOOGLE_CALENDAR_IDS (not credentials).
+A Gmail probe (GOOGLE_REFRESH_TOKEN, `users.getProfile`) exists but no checklist step names
+that variable. Regenerate the step list:
+`node -e 'const ck=require("./lib/activation-checklist");for(const[id,a]of Object.entries(require("./agents/activation-checklists.json")))for(const t of a.tasks||[]){const k=ck.stepKind(t.description);if(k.kind==="env")console.log(id,k.name)}'`.
+Guard: `tests/credential-probe.test.js` (the blocking test fails against the pre-B30 gate).
+
+**Left:** probes for the "none" rows need a read-only client first (LinkedIn, Yelp, GA,
+Merchant Center, a Bluesky session check). Unverified: any probe against the real
+platforms; every test injects its client or fetch.
 **Close condition:** one planned agent activated through the session on the box.
-**Priority:** P2 | **Effort:** S | **Status:** built (B25); closes on the first activation through the session
+**Priority:** P2 | **Effort:** S | **Status:** built (B25, probes B30); closes on the first activation through the session
 
 ---
 
