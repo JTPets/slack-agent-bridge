@@ -434,7 +434,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #3 | P1 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | Observed live in `#sqtools-ops`: every boot since 2026-10-01 posts "Scheduler refused 2 job(s)" for the planned `social-media` and `marketing`, and story-bot's scheduled job runs in its joined channel (Friday 18:00 posts) |
 | #4 | P1 | Cheap half DONE in B5 (immediate poll after `/dispatch`, one sweep at a time); socket intake parked | B5 | S/M | Namesake (message intake on the socket) is parked by its own text. Suggest P3: latency, not a defect |
 | #43 | P1 | REPO DONE | OA | — | `/dispatch` built and wired (`bridge-agent.js:2588`); Slack app steps remain. Suggest P2 |
-| #68 | P2 | Venv half DONE in B6; image adopted 2026-11-09 | OA | M | `lib/python-venv.js`; `python3 -m venv` works in the live image. Left: name the pins, a real python dispatch (needs #57) |
+| #68 | P2 | Venv half DONE in B6; image adopted 2026-11-09; Phase-3 pytest DONE in B29 (2026-11-12) | OA | M | `lib/python-venv.js`, `lib/python-test-command.js`; `python3 -m venv` works in the live image. Left: name the pins, a real python dispatch (needs #57) |
 | #4b | P2 | OWNER DECISIONS ONLY (B4) | OD | — | Repo halves done in B4: all 59 `process.env` reads are in `.env.example` and `CLAUDE.md`, guarded. Left: the infra-repo/secrets-store decision and cleaning unread keys out of the live `.env` |
 | #30 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | M | Every client is built by `lib/slack-web.js` `createWebClient()`, which redacts every `chat.*` post; the six helper copies delegate to `postText`/`sendDM`. Guard `tests/slack-redaction.test.js` |
 | #31 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `lib/digest-failures.js` uses llm-runner `isRateLimitError`; no line promises a retry or re-queue. Guard `tests/digest-failures.test.js` |
@@ -454,7 +454,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #10 | P2 | OPEN, B10-B15 splitting; wave plan in the item | — | L | 55 over (41 suites / 14 modules) after B15, all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
 | #44 | P2 | **CLOSED 2026-10-10** (owner decided, purged) | OD | — | The rule is one function per file, not a raw line count. A suite for one subject stays one file at any length; a suite spanning several modules splits so each set runs on its own. Applied in #10 Wave T and `lib/validate-exceptions.json` |
 | #5 | P2 | OPEN, speculative | SEED | L | Nothing built. Changes the execution model — park |
-| #6 | P2 | partly done | SEED | M | Phase 3 already builds a structured verdict (`lib/code-review-pipeline.js:443`); no Block Kit card. Park |
+| #6 | P2 | built (B29, 2026-11-12) | SEED | M | `lib/task-result.js` card posted by `notifyOwner.taskCompleted`/`taskFailed`. Left: the first real card seen in `#sqtools-ops` |
 | #7 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `onDeadlineWarning` at 80% posts `lib/deadline-warning.js` to ops; `tests/llm-runner-deadline.test.js`, `tests/deadline-warning.test.js` |
 | #8 | P2 | **CLOSED 2026-10-10** (purged) | SEED | — | Re-checked for duplicate runs: two dedup layers (done/failed reaction, `processed-tasks.json` by `ts`), a `TASK:` marked processed before it runs (`tests/task-rerun-guard.test.js`), one poll sweep at a time (`tests/poll-reentrancy.test.js`), and every re-read skip logged (`describeSkipReason`). A resubmission is a new message and runs, as intended |
 | #39 | P2 | **CLOSED 2026-11-08** (B20, purged) | B20 | M | Recording half B7 (`lib/task-work.js`); merge half `lib/merge-state.js`: each status query fetches the target repo's `main` into a bare cache under `$WORK_DIR/merge-check/` and asks `merge-base --is-ancestor` of each recent row's head. `what's queued` says merged / not on main yet / unknown. Guard `tests/merge-state.test.js` (real bare origin). A squash merge reads as not on main; nothing polls it yet (the loop, `docs/AUTONOMOUS-LOOP-DESIGN.md` part five) |
@@ -1426,6 +1426,19 @@ an ecosystem the list does not declare.
    installs its dependencies and Phase 3 reports a real assertion count, the same bar #61
    was closed against (#61 is closed and purged — `723dfed`, `git log -S'### 61. ' -- WORK-TODO.md`). That needs the repo reachable (#57) as well as the image rebuilt.
 
+**Phase 3 runs the python suite — DONE 2026-11-12 (B29).** Phase 3 used to run only the npm
+test script, so a python clone with a working venv scored `runner_absent` every time, and
+`lib/test-verdict.js` could not read a pytest summary at all. Now `lib/python-test-command.js`
+gives Phase 3 `.venv/bin/python -m pytest -p no:cacheprovider` with
+`PYTHONDONTWRITEBYTECODE=1` for a python clone (no cache or bytecode left to make a delivered
+clone look undelivered), and the classifier reads pytest's summary under the same rules: a
+pass needs exit 0 and a positive count, only skips or only xfails or nothing collected is
+not a pass, an error counts as failed, and `No module named pytest` is `runner_absent`.
+Node repos are unchanged. Proved with a real venv and real pytest installed by the real
+install step (`tests/python-phase3.test.js`). pytest is installed only when the repo
+declares it. **DoD items 3 to 5 above are untouched by this:** the pins are still unnamed
+and no python repo has been dispatched to (#57).
+
 **Related:** **#70 — the architectural finding this is one symptom of: there is no build
 step at all, which is why there is nowhere for a root `RUN` to go. #70 ranks above this
 item.** #61 (the install step this depends on; closed and purged by `723dfed`), #57 (the
@@ -1966,10 +1979,28 @@ no tool loop) this capability does not apply to them.
 **Problem:** Task results are raw text dumps; no consistent success/failure/files/tests
 shape.
 **Fix:** define a result schema and render it as a Block Kit card. Note that Phase 3
-already extracts test pass/fail counts (`lib/code-review-pipeline.js:348-353`) — build on
-that rather than re-parsing.
-**Effort:** Medium.
-**Priority:** P2 | **Effort:** Medium | **Status:** open
+already extracts test pass/fail counts — build on that rather than re-parsing.
+
+**BUILT 2026-11-12 (B29).** `lib/task-result.js` `buildTaskResult` is the schema: outcome
+(completed / failed / interrupted / max-turns), repo and requested branch, the clone's
+branch, head, commits added and files changed (`lib/task-work.js` `describeWork`, which
+gained `filesChanged`), the Phase-3 verdict taken from `validateOutput`'s `testRun`
+(`lib/test-verdict.js`, not re-parsed), engine, elapsed, source and the output or error.
+`resultFacts()` feeds both `renderBlocks` (the card) and `renderText` (the fallback), so
+they cannot carry different facts. `notifyOwner.taskCompleted`/`taskFailed` post it through
+`lib/slack-web.js` `postBlocks` when given `options.result`; a card Slack refuses is posted
+again as its text alone. Phase 3 now runs **before** the result post (it used to run after,
+in separate posts), so the verdict is on the card; the green "Code review passed" post is
+gone, the failed/did-not-run detail posts stay. The delivery verdict goes on the queue row
+as before and into a `[task-result]` log line. Tests: `tests/task-result.test.js` (same
+facts, redaction of blocks through a real `createWebClient` client with a plain `WebClient`
+as the negative control, wiring), `tests/task-work.test.js` (filesChanged).
+**Left (why this is not closed):** a card has never been posted to real Slack, so whether
+Slack accepts the block shape is unverified here. Closes when the first card is seen in
+`#sqtools-ops` (a refused card still delivers its text, so a refusal shows as a text-only
+result plus `Task result card refused` in the log).
+
+**Priority:** P2 | **Effort:** Medium | **Status:** built 2026-11-12 (B29); closes when a card is seen in `#sqtools-ops`
 
 ---
 

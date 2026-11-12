@@ -209,6 +209,10 @@ const { redact } = require('./lib/redact-secrets');
 // docs/WIRING-AND-SEAMS.md. Pure fs/execFileSync helpers with no bridge state.
 const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-lifecycle');
 const { headSha, describeWork, formatWork } = require('./lib/task-work');
+// LOGIC CHANGE 2026-11-12 (WORK-TODO #6): one structured task result, posted as a card.
+const {
+  OUTCOME: RESULT_OUTCOME, buildTaskResult, withDelivery, renderText, formatResultLogLine,
+} = require('./lib/task-result');
 const { resolveMergeStates, formatMergeState } = require('./lib/merge-state');
 const { formatPreservedCloneAlert } = require('./lib/preserved-clone-alert');
 const { describeTaskStateDivergence } = require('./lib/task-state-divergence');
@@ -453,6 +457,20 @@ async function postToOps(text) {
 // refs a repo task left behind on its queue row (lib/task-work.js). Writes only the
 // row's `work` field, never a status or a delivery verdict, so the #74 invariant is
 // untouched. A failure is reported to ops, never fatal to the task.
+/**
+ * The work a clone holds, for the result card (lib/task-work.js). Never throws: a work
+ * record that cannot be read is a card without it, never a task that cannot report.
+ */
+function readTaskWork(taskDir, baseSha) {
+  if (!taskDir || !fs.existsSync(taskDir)) return null;
+  try {
+    return describeWork(taskDir, baseSha);
+  } catch (workErr) {
+    console.error('[bridge-agent] Could not read the task work for its result:', workErr.message);
+    return null;
+  }
+}
+
 async function recordTaskWork(queueId, taskDir, baseSha, description) {
   try {
     taskQueue.getQueue().recordWork(queueId, describeWork(taskDir, baseSha));
@@ -1061,7 +1079,16 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
       // LOGIC CHANGE 2026-09-20: this post IS the interrupted task's result — there
       // is no other output to deliver — so its outcome is captured and recorded on
       // the queue entry below rather than discarded.
-      const interruptDelivered = await postToOps(`:warning: Task interrupted${signalNote} (likely container restart) after ${elapsed}s.${stderrNote}\nSource: <${msgLink(msg.ts, sourceChannel)}|source>`);
+      // LOGIC CHANGE 2026-11-12 (WORK-TODO #6): the same result shape as every other
+      // ending, as text (postToOps posts text).
+      const interruptDelivered = await postToOps(renderText(buildTaskResult({
+        task,
+        outcome: RESULT_OUTCOME.INTERRUPTED,
+        elapsed,
+        provider: usedProvider,
+        error: `Interrupted${signalNote} (likely container restart).${stderrNote ? `\n${safeStderr.slice(-1000)}` : ''}`,
+        sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
+      })));
       // stderrNote is built from safeStderr (already redacted); postToOps redacts again defensively.
       taskSuccess = true; // Don't mark as failure
       if (memoryTaskId) {
@@ -1116,11 +1143,41 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
     // output reached nobody was written to the queue as `completed`, byte-identical
     // to one the owner read. That is the signal an update gate has to trust to know
     // a task is finished, so it is now recorded rather than assumed.
+    //
+    // LOGIC CHANGE 2026-11-12 (WORK-TODO #6): Phase 3 now runs BEFORE this post, so the
+    // post can be one card carrying the test verdict beside the branch, commits, files
+    // and output (lib/task-result.js). Before, the result went out first and the verdict
+    // followed in a separate post. The queue row stays `running` while the gate runs,
+    // which is truthful: the task is not finished until it has been judged. The
+    // ordering post -> terminal write -> lock release is unchanged.
+    let validation = null;
+    let validationError = null;
+    if (task.repo && taskDir && fs.existsSync(taskDir)) {
+      try {
+        validation = validateOutput(taskDir, { testScript: taskTestScript });
+      } catch (validErr) {
+        validationError = validErr;
+      }
+    }
+    const taskResult = buildTaskResult({
+      task,
+      outcome: hitMaxTurns ? RESULT_OUTCOME.MAX_TURNS : RESULT_OUTCOME.COMPLETED,
+      elapsed,
+      provider: usedProvider,
+      work: readTaskWork(taskDir, taskBaseSha),
+      validation,
+      validationError,
+      summary: truncate(output),
+      sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
+    });
     const resultDelivered = await notifyOwner.taskCompleted(task, truncate(output), {
       elapsed,
       sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
       llmProvider: usedProvider,
+      result: taskResult,
     });
+    console.log(formatResultLogLine(withDelivery(taskResult, resultDelivered === true,
+      resultDelivered === true ? 'result card posted to the ops channel' : 'the result card post failed')));
 
     // Never a silent null: a failed delivery is announced (best effort — the ops
     // channel is where the result itself just failed to land, so this may fail too)
@@ -1173,9 +1230,24 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
     // LOGIC CHANGE 2026-03-28: Phase 3 of code review pipeline.
     // Run tests and quality checks after execution. Post results to ops channel.
     // Tests failing here means Claude didn't run them properly — report as "needs-fix".
-    if (task.repo && taskDir && fs.existsSync(taskDir)) {
+    // LOGIC CHANGE 2026-11-12 (WORK-TODO #6): the gate ran above, before the result card,
+    // which carries its verdict. What stays here is the DETAIL a card does not hold: the
+    // output tail of a gate that failed or did not run, and the advisory warnings. The
+    // green "Code review passed" post is gone; the card's Tests line says it.
+    if (validationError) {
+      console.error('[bridge-agent] Phase 3 validation error:', validationError.message);
+      // LOGIC CHANGE 2026-09-14: a review that could not run is not a review that
+      // passed. Previously this swallowed the throw and the task reported success
+      // with no gate having been applied at all.
+      await postToOps(
+        `:rotating_light: *Code review did not complete* — the gate threw before reaching a verdict.\n` +
+        `Task: ${task.description}\n${validationError.message}\n` +
+        `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
+      ).catch(postErr => {
+        console.error('[bridge-agent] Could not post Phase 3 failure:', postErr.message);
+      });
+    } else if (validation) {
       try {
-        const validation = validateOutput(taskDir, { testScript: taskTestScript });
         const testRun = validation.testRun;
 
         // LOGIC CHANGE 2026-09-14: three outcomes, not two, and none of them is
@@ -1190,7 +1262,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
           await postToOps(
             `:rotating_light: *Code review: the test gate DID NOT RUN.*\n` +
             `Task: ${task.description}\n` +
-            `Command: \`${taskTestScript}\` — outcome: \`${testRun.outcome}\`\n` +
+            `Command: \`${validation.testCommand || taskTestScript}\` — outcome: \`${testRun.outcome}\`\n` +
             `${testRun.reason}\n` +
             `\`\`\`\n${validation.testOutput.slice(-1200)}\n\`\`\`\n` +
             `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
@@ -1203,12 +1275,6 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
             `\`\`\`\n${validation.testOutput.slice(-1500)}\n\`\`\`\n` +
             `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
           );
-        } else {
-          await postToOps(
-            `:white_check_mark: *Code review passed* — ${validation.testsPassed} tests passing.\n` +
-            `Task: ${task.description}\n` +
-            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
-          );
         }
         if (validation.warnings.length > 0) {
           await postToOps(
@@ -1216,18 +1282,8 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
             `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
           );
         }
-      } catch (validErr) {
-        console.error('[bridge-agent] Phase 3 validation error:', validErr.message);
-        // LOGIC CHANGE 2026-09-14: a review that could not run is not a review that
-        // passed. Previously this swallowed the throw and the task reported success
-        // with no gate having been applied at all.
-        await postToOps(
-          `:rotating_light: *Code review did not complete* — the gate threw before reaching a verdict.\n` +
-          `Task: ${task.description}\n${validErr.message}\n` +
-          `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
-        ).catch(postErr => {
-          console.error('[bridge-agent] Could not post Phase 3 failure:', postErr.message);
-        });
+      } catch (detailErr) {
+        console.error('[bridge-agent] Could not post the Phase 3 detail:', detailErr.message);
       }
     }
 
@@ -1346,13 +1402,27 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
     // `failed` entry, which is the one message class that must not go quiet.
     // `opsPosted` is the delivery: the DM is a CRITICAL-priority escalation on top
     // of it, not a substitute, and it is false whenever no ownerId is configured.
+    // LOGIC CHANGE 2026-11-12 (WORK-TODO #6): the ops post is the result card, with the
+    // work the clone holds (a failed task may still have pushed a branch).
+    const failureResult = buildTaskResult({
+      task,
+      outcome: RESULT_OUTCOME.FAILED,
+      elapsed,
+      provider: llmProvider || 'claude',
+      work: readTaskWork(taskDir, taskBaseSha),
+      error: safeErrMsg,
+      sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
+    });
     const failureReport = await notifyOwner.taskFailed(task, err, {
       elapsed,
       sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
       llmProvider: llmProvider || 'claude',
+      result: failureResult,
     });
     const failureDelivered = failureReport?.opsPosted === true
       || failureReport?.ownerNotified === true;
+    console.log(formatResultLogLine(withDelivery(failureResult, failureDelivered,
+      failureDelivered ? 'failure card posted or owner notified' : 'the failure report reached nobody')));
     if (!failureDelivered) {
       console.error(
         `[bridge-agent] Task ${msg.ts} FAILED and the failure report reached nobody ` +
