@@ -334,6 +334,11 @@ because each extraction must keep `node -e "require('./bridge-agent.js')"` green
 Extracted verbatim into `lib/clone-lifecycle.js`; `bridge-agent.js` now imports the
 three helpers. `tests/undelivered-work.test.js` was re-pointed at the module source and
 `tests/clone-lifecycle.test.js` added for `cloneRepo`/`cleanupDir`. Full suite green.
+**Split 2026-11-12 (WORK-TODO #10, B28):** `detectUndeliveredWork` and `SHA_PATTERN` moved
+to `lib/clone-delivery.js` and `assertValidTargetDir` to `lib/clone-target.js`;
+`lib/clone-lifecycle.js` keeps `cloneRepo`/`cleanupDir` and re-exports all five names, so
+`bridge-agent.js` is unchanged. `tests/undelivered-work.test.js` now lifts its source from
+`lib/clone-delivery.js`.
 - **Lines:** was 459–610 (`cloneRepo`, `cleanupDir`, `detectUndeliveredWork`), ~152 LOC.
 - **Why first:** zero coupling to module state. Inputs are `(repo, branch, dir)` and a
   dir path; outputs are fs effects + a `{undelivered, reason}` object. Only external

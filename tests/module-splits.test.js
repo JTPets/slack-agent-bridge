@@ -8,172 +8,15 @@
  * every name the facade exported before the split is still exported, and is the SAME
  * function object as the one in the module it moved to (not a copy that can drift).
  *
- * The export lists below are the pre-split `module.exports` keys, copied from the
- * parent commit, so a name dropped from a facade is a red test.
+ * The export lists are the pre-split `module.exports` keys, copied from the parent
+ * commit, so a name dropped from a facade is a red test. Since 2026-11-12 (B28) the
+ * table lives in tests/helpers/module-splits-table.js, so this suite stays under the
+ * 300-line limit as it grows.
  */
 
 const path = require('path');
 
-const SPLITS = [
-    {
-        facade: 'lib/integrations/gmail.js',
-        parts: ['lib/integrations/gmail-auth.js', 'lib/integrations/gmail-message.js'],
-        exports: [
-            'getRecentEmails', 'fetchRecentEmails', 'getEmailById', 'getEmailHeaders', 'hasCredentials',
-            'createGmailClient', 'getRefreshToken', 'stripHtml', 'decodeBase64Url', 'getHeader',
-            'extractBody', 'transformEmail',
-        ],
-    },
-    {
-        facade: 'lib/watercooler.js',
-        parts: ['lib/watercooler-catalogue.js', 'lib/watercooler-context.js', 'lib/watercooler-prompt.js'],
-        exports: [
-            'runStandup', 'isStandupCommand', 'parseStandupType', 'getStandupSchedule',
-            'getLastStandupTime', 'saveLastStandupTime', 'getBulletinsSinceLastStandup',
-            'getRecentCompletions', 'getAgentBacklog', 'formatBulletinsSummary',
-            'formatCompletionsSummary', 'formatBacklogSummary', 'formatPreviousMessages',
-            'buildStandupPrompt', 'getAgentDisplay', 'sortAgentsForStandup',
-            'filterStandupParticipants', 'isGeminiConfigured', 'init', 'AGENT_DISPLAY',
-            'DEFAULT_WATERCOOLER_STATE_FILE', 'WATERCOOLER_STATE_FILE', 'STANDUP_TYPES',
-            'AGENT_STANDUP_PROMPTS', 'DEFAULT_STANDUP_TYPE',
-        ],
-    },
-    {
-        facade: 'lib/memory-tiers.js',
-        parts: ['lib/memory-tiers-store.js', 'lib/memory-tiers-entries.js', 'lib/memory-tiers-maintenance.js'],
-        exports: [
-            'MEMORY_FILES', 'DEFAULT_SHORT_TERM_TTL', 'DEFAULT_LONG_TERM_DECAY_DAYS', 'AUTO_PROMOTE_THRESHOLD',
-            'createEntry', 'getAgentMemoryPath', 'ensureMemoryDir', 'loadMemoryFile', 'saveMemoryFile',
-            'isExpired', 'shouldDecay', 'addWorkingMemory', 'clearWorkingMemory', 'addShortTerm',
-            'promoteToLongTerm', 'addPermanent', 'getRelevantMemory', 'cleanupMemory', 'autoPromote',
-            'startupCleanup', 'migrateToTiers', 'touchEntry',
-        ],
-    },
-    {
-        facade: 'lib/approval-queue.js',
-        parts: ['lib/approval-queue-store.js', 'lib/approval-queue-decisions.js', 'lib/approval-queue-view.js'],
-        // init is wrapped on purpose: the store's init sets the path, the facade's
-        // returns the facade so `init(...).queueTask` keeps working.
-        wrapped: ['init'],
-        exports: [
-            'init', 'loadQueue', 'saveQueue', 'queueTask', 'getPendingTasks', 'getTaskById', 'approveTask',
-            'approveAllTasks', 'rejectTask', 'rejectAllTasks', 'cleanup', 'getStats', 'formatPendingTasks',
-            'formatTaskDetails', 'requiresApproval', 'clearQueue', 'DEFAULT_QUEUE_FILE',
-            'APPROVAL_REQUIRED_SOURCES', 'MAX_PENDING_AGE_MS',
-        ],
-    },
-    {
-        facade: 'lib/staff-tasks.js',
-        parts: ['lib/staff-tasks-store.js', 'lib/staff-tasks-time.js', 'lib/staff-tasks-slack.js', 'lib/staff-tasks-commands.js'],
-        exports: [
-            'loadStaff', 'getStaffByName', 'getStaffBySlackId', 'getEscalationRecipients',
-            'loadDailyTemplate', 'loadTasksState', 'saveTasksState', 'formatTask', 'formatCompletedTask',
-            'createTask', 'completeTask', 'getDailyTasks', 'getOverdueTasks', 'getCriticalOverdueTasks',
-            'postDailyTasks', 'escalateTask', 'checkAndEscalateOverdue', 'isStoreHours',
-            'parseTimeToMinutes', 'getCurrentTimeMinutes', 'normalizeTimeString', 'parseAssignCommand',
-            'isStaffTaskCommand', 'parseStaffTaskCommandType', 'formatDigestSummary', 'formatOverdueList',
-            'formatTodayList', 'PRIORITY_EMOJI', 'STORE_HOURS', 'STAFF_FILE', 'TEMPLATE_FILE', 'init',
-            'DEFAULT_TASKS_STATE_FILE', 'TASKS_STATE_FILE',
-        ],
-    },
-    {
-        facade: 'lib/security-followup.js',
-        parts: ['lib/security-findings.js', 'lib/security-followup-dedup.js'],
-        exports: [
-            'parseFindings', 'groupFindingsByFile', 'getHighestSeverity', 'findCodeAgent',
-            'buildTaskMessage', 'filterActionableFindings', 'processSecurityBulletin',
-            'createSecurityFollowupHandler', 'formatFollowupSummary', 'wasRecentlyCreated',
-            'recordTaskCreated', 'cleanupDedupMap', 'clearDedupMap', 'SEVERITY_LEVELS', 'SEVERITY_EMOJI',
-        ],
-    },
-    {
-        facade: 'memory/memory-manager.js',
-        parts: ['memory/memory-store.js', 'memory/memory-context.js'],
-        exports: [
-            'loadMemory', 'saveMemory', 'addTask', 'completeTask', 'failTask', 'getTaskHistory',
-            'getActiveTasks', 'getContext', 'updateContext', 'buildTaskContext', 'buildAgentContext',
-            'addAgentWorkingMemory', 'clearAgentWorkingMemory', 'addAgentShortTerm', 'promoteAgentMemory',
-            'setAgentPermanent', 'cleanupAgentMemory', 'autoPromoteAgentMemory', 'startupMemoryCleanup',
-            'migrateAgentMemory',
-        ],
-    },
-    {
-        facade: 'lib/agent-context.js',
-        parts: ['lib/agent-context-sources.js', 'lib/agent-context-ops.js', 'lib/agent-context-voices.js'],
-        exports: [
-            'buildEnrichedPrompt', 'buildAgentDataContext', 'buildSecretaryContext', 'buildSecurityContext',
-            'buildJesterContext', 'buildStoryBotContext', 'buildCodeAgentContext', 'buildGenericContext',
-            'formatEventsForPrompt', 'ANTI_HALLUCINATION_RULE',
-        ],
-    },
-    {
-        facade: 'bots/storefront.js',
-        parts: ['bots/storefront-session.js', 'bots/storefront-records.js', 'bots/storefront-prompt.js'],
-        exports: [
-            'app', 'getOrCreateSession', 'buildPrompt', 'sanitizeInput', 'cleanExpiredSessions', 'sessions',
-            'STOREFRONT_AGENT_CONFIG', 'loadDeliveryQuotes', 'saveDeliveryQuotes', 'logDeliveryQuoteToSlack',
-            'DELIVERY_QUOTES_FILE', 'initializeCatalog', 'catalogInitialized',
-        ],
-    },
-    {
-        facade: 'lib/bridge-state.js',
-        parts: ['lib/bridge-state-poll.js', 'lib/bridge-state-workspace.js'],
-        // init is wrapped on purpose: it forwards to both parts and returns the facade.
-        wrapped: ['init'],
-        exports: [
-            'init', 'loadState', 'saveState', 'getLastChecked', 'setLastChecked', 'loadProcessedTasks',
-            'saveProcessedTasks', 'isTaskProcessed', 'markTaskProcessed', 'cleanupProcessedTasks',
-            'loadChannelMap', 'saveChannelMap', 'getChannelId', 'setChannelId', 'loadActivations',
-            'getActivation', 'setActivation', 'clearActivation', 'DEFAULT_CHANNEL_MAP_FILE',
-            'DEFAULT_ACTIVATION_FILE',
-        ],
-    },
-    {
-        // runLLM is in lib/llm-dispatch.js, not the facade, so lib/llm-fallback.js can
-        // call it without a require cycle back through lib/llm-runner.js.
-        facade: 'lib/llm-runner.js',
-        parts: ['lib/llm-errors.js', 'lib/llm-defaults.js', 'lib/llm-dispatch.js', 'lib/llm-adapter-claude.js',
-            'lib/llm-adapter-gemini.js', 'lib/llm-adapter-ollama.js', 'lib/llm-fallback.js', 'lib/llm-http-failure.js'],
-        exports: [
-            'runLLM', 'runWithFallback', 'runClaudeAdapter', 'runOpenAIAdapter', 'runOllamaAdapter',
-            'runGeminiAdapter', 'validateGeminiOnStartup', 'validateOllamaOnStartup', 'isOllamaAvailable',
-            'DEFAULT_PROVIDER', 'DEFAULT_MAX_TURNS', 'DEFAULT_TIMEOUT', 'DEFAULT_FALLBACK_PROVIDER',
-            'FALLBACK_ENABLED', 'DEFAULT_FALLBACK_CHAINS', 'DEFAULT_OLLAMA_BASE_URL', 'DEFAULT_OLLAMA_KEEP_ALIVE',
-            'DEFAULT_OLLAMA_NUM_CTX', 'DEFAULT_OLLAMA_TIMEOUT', 'resolveFallbackChain', 'providerAvailability',
-            'fallbackReasonFor', 'normalizeThink', 'describeClaudeExit', 'signalFromExitCode', 'isRateLimitError',
-            'RateLimitError', 'RATE_LIMIT_PATTERNS', 'isBandwidthExhausted', 'BandwidthExhaustedError',
-            'BANDWIDTH_EXHAUSTION_PATTERNS', 'MIN_REAL_OUTPUT_LENGTH', 'WARN_AT_FRACTION',
-        ],
-    },
-    {
-        facade: 'lib/integrations/holidays.js',
-        parts: ['lib/integrations/holidays-public.js', 'lib/integrations/pet-awareness.js', 'lib/integrations/local-date.js'],
-        exports: [
-            'getTodayHoliday', 'getTodayPetAwareness', 'getActivePetAwareness', 'getUpcomingHolidays',
-            'getUpcomingPetAwareness', 'isHoliday', 'getTodaySpecialDates', 'PET_AWARENESS_DATES',
-            'filterOntarioHolidays', 'parseDate', 'formatDate', 'clearCache', 'CACHE_TTL_MS',
-        ],
-    },
-    {   facade: 'auto-update.js', // #10 Wave 4, 2026-11-11; DEFAULT_DEPS and gatedDeps stay in it
-        parts: ['config', 'git', 'state', 'deferral', 'apply', 'daemon'].map((p) => `lib/update-${p}.js`),
-        exports: ['checkForUpdates', 'abortUpdate', 'revertTo', 'flushAndExit', 'loadState', 'saveState', 'gitResetTo',
-            'checkTaskQueue', 'evaluateTaskDeferral', 'UPDATE_PENDING_FILE', 'RESTART_EXIT_CODE', 'DEFAULT_DEPS',
-            'LOCAL_REPO_DIR', 'CHECK_INTERVAL_MS', 'gatedDeps'],
-    },
-    {
-        // Nothing the router exported moved: the four report handlers and renderHelp
-        // were never exported, so the export list is unchanged and the guard that
-        // matters is tests/command-router.test.js enumerating handlers across both files.
-        // morning-digest.js is not listed: it has no exports and requiring it starts the
-        // cron job, so its split is pinned by tests/digest-sections.test.js instead.
-        facade: 'lib/command-router.js',
-        parts: ['lib/command-renderers.js'],
-        exports: [
-            'COMMANDS', 'NOT_COMMANDS', 'DETERMINISTIC_TASKS', 'parseCommand', 'isCommand',
-            'isBareCommand', 'runCommand', 'listVerbs',
-        ],
-    },
-];
+const { SPLITS } = require('./helpers/module-splits-table');
 
 const load = (rel) => require(path.join(__dirname, '..', rel));
 
@@ -200,11 +43,53 @@ describe.each(SPLITS)('$facade', (split) => {
     });
 
     test('every part is under the 300-line limit and is loaded by the facade', () => {
-        const gate = require('../lib/file-size-gate');
-        const measured = new Map(gate.measure().map((f) => [f.path, f.lines]));
-        for (const rel of [split.facade, ...split.parts]) {
-            expect(measured.get(rel)).toBeLessThanOrEqual(300);
+        expect(overLimit(split)).toEqual([]);
+    });
+});
+
+/** Files of a split over 300 lines; a facadeOverLimit facade must instead be declared. */
+function overLimit(split) {
+    const gate = require('../lib/file-size-gate');
+    const measured = new Map(gate.measure().map((f) => [f.path, f.lines]));
+    const declared = require('../lib/validate-exceptions.json').exceptions.map((e) => e.path);
+    const out = [];
+    for (const rel of [split.facade, ...split.parts]) {
+        if (!measured.has(rel)) { out.push(`${rel}: not found`); continue; }
+        if (measured.get(rel) <= 300) continue;
+        if (rel === split.facade && split.facadeOverLimit && declared.includes(rel)) continue;
+        out.push(`${rel}: ${measured.get(rel)} lines`);
+    }
+    return out;
+}
+
+describe('B28 (2026-11-12): moved constants are the same objects, and the bulletin path still moves', () => {
+    test('a constant re-exported by a facade is the part\'s own object, not a copy', () => {
+        expect(load('lib/task-queue.js').STATUS).toBe(load('lib/task-queue-status.js').STATUS);
+        expect(load('lib/integrations/email-sanitizer.js').INJECTION_PATTERNS)
+            .toBe(load('lib/integrations/email-injection-patterns.js').INJECTION_PATTERNS);
+        expect(load('lib/integrations/email-categorizer.js').DEFAULT_RULES)
+            .toBe(load('lib/integrations/email-categorizer-rules.js').DEFAULT_RULES);
+        expect(load('lib/clone-lifecycle.js').SHA_PATTERN).toBe(load('lib/clone-delivery.js').SHA_PATTERN);
+    });
+
+    test('init() through the bulletin-board facade moves the path the store reads', () => {
+        const bb = load('lib/bulletin-board.js');
+        const store = load('lib/bulletin-board-store.js');
+        try {
+            bb.init({ bulletinFile: '/nonexistent/bulletin.json' });
+            expect(store.BULLETIN_FILE).toBe('/nonexistent/bulletin.json');
+            expect(bb.BULLETIN_FILE).toBe('/nonexistent/bulletin.json');
+        } finally {
+            bb.init();
         }
+        expect(bb.BULLETIN_FILE).toBe(bb.DEFAULT_BULLETIN_FILE);
+    });
+
+    test('negative control: facadeOverLimit exempts a declared facade, never a part or an undeclared one', () => {
+        expect(overLimit({ facade: 'lib/task-queue.js', facadeOverLimit: true, parts: [] })).toEqual([]);
+        expect(overLimit({ facade: 'lib/task-queue.js', parts: [] })).toHaveLength(1);
+        expect(overLimit({ facade: 'lib/task-queue-view.js', facadeOverLimit: true, parts: ['lib/task-queue.js'] }))
+            .toHaveLength(1);
     });
 });
 

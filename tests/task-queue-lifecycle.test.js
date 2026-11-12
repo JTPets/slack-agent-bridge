@@ -24,6 +24,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+const { assemblyFiles, pm2Literals } = require('./helpers/task-queue-sources');
+
 const BRIDGE_AGENT_PATH = path.join(__dirname, '..', 'bridge-agent.js');
 const source = fs.readFileSync(BRIDGE_AGENT_PATH, 'utf8');
 
@@ -223,17 +225,9 @@ describe('task queue lifecycle as bridge-agent.js actually drives it', () => {
 
     test('the recovery reason does not name PM2 — this deployment has none', () => {
         expect(INTERRUPTED_ON_STARTUP_REASON).not.toMatch(/pm2/i);
-        const queueSource = fs.readFileSync(
-            path.join(__dirname, '..', 'lib', 'task-queue.js'),
-            'utf8'
-        );
-        // The module header documents the removal, so comments may name PM2.
-        // Strip them first — what must not survive is a PM2 string the code WRITES.
-        const stripped = queueSource
-            .replace(/\/\*[\s\S]*?\*\//g, '')
-            .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-        const literals = stripped.match(/'[^'\n]*'|"[^"\n]*"|`[^`]*`/g) || [];
-        expect(literals.filter((l) => /pm2/i.test(l))).toEqual([]);
+        // LOGIC CHANGE 2026-11-12 (#10, B28): every lib/task-queue*.js file, not one.
+        // (the enumeration itself is asserted in tests/task-queue-delivery-invariant.test.js)
+        expect(pm2Literals(assemblyFiles())).toEqual([]);
     });
 
     test('startup recovery runs before cleanup, so no RUNNING entry is stranded', () => {
@@ -288,6 +282,12 @@ describe('the guard itself detects what it claims to', () => {
         } finally {
             fs.rmSync(tempDir, { recursive: true, force: true });
         }
+    });
+
+    test('a PM2 string in a task-queue part other than the facade is caught', () => {
+        const files = [{ rel: 'lib/task-queue.js', source: "// pm2 in a comment\nconst a = 'ok';" },
+            { rel: 'lib/task-queue-view.js', source: "const r = 'killed by PM2 restart';" }];
+        expect(pm2Literals(files)).toEqual(["lib/task-queue-view.js: 'killed by PM2 restart'"]);
     });
 
     test('the extractor finds every terminal write, not just the running one', () => {

@@ -1614,7 +1614,7 @@ push path; none of it should be attempted without a way to verify the bridge sti
 ### 10. Split the god-files that break the repo's own 300-line rule
 **Filed 2026-09-13** (derived: `20dc049`).
 **Problem:** The repo enforces a 300-line-per-file rule (`lib/validate.js`, `MAX_LINES = 300`)
-and **57** `.js` files exceed it (2026-11-11, after B27: 13 source modules, 44 test suites; regenerate with the command below). Until 2026-09-15 the gate was **unconditionally red**, so a
+and **53** `.js` files exceed it (2026-11-12, after B28: 9 source modules, 44 test suites; it was 57 after B27; regenerate with the command below). Until 2026-09-15 the gate was **unconditionally red**, so a
 new violation could not be told apart from the standing ones without diffing path lists by
 hand — that happened twice in the week of 2026-09-08. The exceptions had never been examined.
 
@@ -1711,26 +1711,27 @@ three copies collapsed into one); in B15 (2026-10-05), Wave 4: `lib/llm-runner.j
 `local-date.js`); in B27 (2026-11-11), Wave 4's `auto-update.js` (1073 -> 294: `lib/update-config.js`,
 `update-git.js`, `update-state.js`, `update-deferral.js`, `update-apply.js`, `update-daemon.js`; its
 340-line `checkForUpdates` is now 120, the deferral bookkeeping and the apply half moved unchanged into
-`holdUpdate` and `applyUpdate`). Each split file stays as a facade re-exporting every name it had;
+`holdUpdate` and `applyUpdate`); in B28 (2026-11-12), the last of Wave 4's guard-redesign cut and Wave 5:
+`lib/task-queue.js` (790 -> 586, still declared: `task-queue-status.js`, `task-queue-delivery.js`, `task-queue-view.js`;
+see its row), `lib/integrations/email-categorizer.js` (498 -> 225: `email-categorizer-rules.js`,
+`email-categorizer-push.js`), `lib/integrations/email-sanitizer.js` (470 -> 58: `email-injection-patterns.js`,
+`email-content-sanitize.js`, `email-prompt-wrap.js`), `lib/bulletin-board.js` (470 -> 76: `bulletin-board-store.js`,
+`bulletin-board-format.js`) and `lib/clone-lifecycle.js` (347 -> 165: `clone-target.js`, `clone-delivery.js`). Each split file stays as a facade re-exporting every name it had;
 `tests/module-splits.test.js` fails if a facade drops a name or holds a copy instead of the moved function.
 
-**Source modules (13)**
+**Source modules (9)** (2026-11-12, after B28; the four rows B28 split are gone and four rows carry its verdict)
 
 | lines | code | file | disposition | reason |
 |------:|-----:|------|-------------|--------|
 | 2735 | 1571 | `bridge-agent.js` | split (deferred) | The monolith. Seams C (`lib/ask-commands.js`), D (rate-limit state), E (poll loop) are declared in WIRING-AND-SEAMS §6. Deferred **by this task's own terms**: not cut during a size-limit exercise. |
-| 761 | 357 | `lib/task-queue.js` | justify | One state machine over one file. **Corrected 2026-10-04:** this row said "under the limit on code (296)"; it is 357 code lines now, so that half of the justification is false. What remains true: the length is the `markRunning`, `completionSeq` and delivery-verdict history in comments, and the store has one owner. A split would cut on terminal-writers vs. readers (`getRecentCompleted`, `getStatus`); deferred, not justified. |
+| 586 | 269 | `lib/task-queue.js` | justify (split done, B28) | **Split 2026-11-12 (B28) and kept over the limit on purpose.** Everything that is not a writer moved out: `STATUS` to `task-queue-status.js`, the verdict helpers to `task-queue-delivery.js`, the seven readers to `task-queue-view.js` (installed on the prototype). What stays is one job, the writers of the queue state machine, so every terminal status write sits beside its `normalizeDelivery()` call. `getQueueStatus` stayed too (it needs the module's singleton, and moving it would make the view require the facade back). The two source-reading guards now enumerate every file the class is built from (`tests/helpers/task-queue-sources.js`), each with a negative control. |
 | 614 | 263 | `lib/task-parser.js` | split (deferred) | Boundary: task-message parsing vs. the ASK-command recognisers (`isStatusQuery` … `parseShowTaskCommand`), which belong in Seam C's `lib/ask-commands.js` alongside the handlers they gate. **Deferred deliberately** so recogniser and handler move in one change. Also under the limit on code (224). |
 | 579 | 398 | `lib/task-decomposer.js` | justify | **Zero production callers** (WIRING-AND-SEAMS §3) — reachable only from its own test. Splitting dead code multiplies unexecuted surface. The open decision is delete-or-wire, which is the owner's, not a split. |
-| 498 | 270 | `lib/integrations/email-categorizer.js` | justify | **Under the limit on code** (247). The file's length is the `DEFAULT_RULES` catalogue and the precedence documentation that makes `rules.json` readable as a specification. |
 | 476 | 293 | `lib/code-review-pipeline.js` | justify | Three phases of one pipeline, and **under the limit on code** (293). The phases share the `context` object; splitting them puts one data structure's producers and consumers in three files. |
-| 470 | 258 | `lib/bulletin-board.js` | justify | **Under the limit on code** (247). Store plus its two renderers over one JSON file; the renderers exist to keep bulletin formatting from being re-derived per caller, which is the defect CANONICAL-HELPERS §32 records. |
-| 470 | 282 | `lib/integrations/email-sanitizer.js` | justify | **Under the limit on code** (282). 130 lines are the `INJECTION_PATTERNS` catalogue and the rationale for each pattern — a security-relevant enumeration whose comments are the point. |
-| 427 | 250 | `lib/slack-client.js` | justify | **Under the limit on code** (273). It is one factory closure (`createSlackClient`) plus channel-map persistence; a cut inside the factory would split a single object's methods across files. |
+| 427 | 250 | `lib/slack-client.js` | justify (B28 verdict: one job) | Channel management through one client: every function is a method of the object `createSlackClient` returns, plus the channel-map cache it reads. A cut would split one object's methods across files. **Finding (B28, not fixed):** `inviteBotToChannel` calls `auth.test` and never uses the result, one wasted Slack call per invite. |
 | 406 | 173 | `lib/notify-owner.js` | justify | More comment (176) than code (192). It was the **canonical destination** named by CANONICAL-HELPERS §1/§2. **2026-10-04:** #30 put the canonical post in `lib/slack-web.js` instead (it must be reachable by scripts that never call `notifyOwner.init`), and `notifyChannel` now delegates to it. |
-| 397 | 231 | `lib/email-rate-limiter.js` | justify | **Under the limit on code** (231). One sliding-window algorithm applied to three buckets; splitting per bucket triples the surface for a single algorithm. |
-| 373 | 181 | `lib/update-drain.js` | justify | 62% comment over one small marker codec that mirrors `lib/task-lock.js`; the comments are the drain-one reasoning (no ceiling, heartbeat not deadline). Full reason in `lib/validate-exceptions.json`. |
-| 347 | 158 | `lib/clone-lifecycle.js` | justify | **49% comment, 158 lines of code.** It was extracted 2026-09-14 as Seam A precisely to be one concern, and its comments carry the argv-array and delivery-detection reasoning that three lost tasks paid for. Splitting it would undo the seam to satisfy a line count. |
+| 397 | 231 | `lib/email-rate-limiter.js` | justify (B28 verdict: one job) | One sliding-window limiter with cooldown over one shared state, applied to three buckets. **Finding (B28, not fixed):** the three `canProcess…`/`record…` pairs are near-copies; a bucket-parameterised pair would shorten the file without splitting it. |
+| 373 | 181 | `lib/update-drain.js` | justify (B28 verdict: one job) | 62% comment over one small marker codec that mirrors `lib/task-lock.js`; the comments are the drain-one reasoning (no ceiling, heartbeat not deadline). Full reason in `lib/validate-exceptions.json`. |
 
 **Test suites (41)**
 
@@ -1817,10 +1818,30 @@ now covers them too.
 | `lib/task-parser.js` | 620 | The ASK recognisers (`isStatusQuery` … `parseShowTaskCommand`, `isNaturalConversationMessage`) move to `lib/ask-commands.js` with Seam C's handlers from `bridge-agent.js`. | Lifting the `bridge-agent.js` exclusion for Seam C. `tests/task-parser.test.js` reads this file's source for its anti-drift guards. |
 | `auto-update.js` | 995 | **DONE in B27, 2026-11-11.** #17 made the cycle live (in-process, `lib/self-deploy.js`), which was the wait. As planned plus three: `lib/update-config.js` (the env-derived paths every part reads, so no part requires the facade back), `lib/update-apply.js` (`applyUpdate`, `abortUpdate`, `revertTo`, `flushAndExit`) and `lib/update-daemon.js` (`main`, `validateConfig`, `logStartupConfig`). The facade keeps `checkForUpdates`, `DEFAULT_DEPS` and `gatedDeps`. The suites that inject a dependency bag (defer, restart, gate, self-deploy) passed unchanged; the one source match on `LOCAL_REPO_DIR`'s default became a behavioural check. The split found a defect, fixed in the same batch: #17's `gatedCommit` was never read back. | — |
 | `lib/task-decomposer.js` | 579 | none | The owner's delete-or-wire decision. It has zero production callers. |
-| `lib/task-queue.js` | 790 | `task-queue-delivery.js` (`normalizeDelivery`, `deliveryRecorded`); the readers (`getRecentCompleted`, `getStatus`, the module-level `getQueueStatus`) go to `task-queue-view.js` as a prototype mixin. All terminal writers stay in `task-queue.js`. | A guard redesign. `tests/task-queue-delivery-invariant.test.js` and `tests/task-queue-lifecycle.test.js` walk this file's source. Splitting a class this way is the least mechanical cut on the list. |
+| `lib/task-queue.js` | 790 | **DONE in B28, 2026-11-12** (see its row in the table above). As planned: `task-queue-delivery.js` (`normalizeDelivery`, `deliveryRecorded`); the readers (`getRecentCompleted`, `getStatus`, the module-level `getQueueStatus`) go to `task-queue-view.js` as a prototype mixin. All terminal writers stay in `task-queue.js`. | A guard redesign. `tests/task-queue-delivery-invariant.test.js` and `tests/task-queue-lifecycle.test.js` walk this file's source. Splitting a class this way is the least mechanical cut on the list. |
 | `bridge-agent.js` | 2868 | Seams C, D and E (WIRING-AND-SEAMS §6) | Its own exclusion. Seam C pairs with `lib/task-parser.js` above. |
 
 **Wave 5 — the files under 300 lines of code; judged one function per file (#44, decided 2026-10-10)**
+
+**B28 verdicts (2026-11-12), each file read in full.** Split, because each did more than one
+job: `lib/integrations/email-categorizer.js` (the rules / the bulletin side effect / the walk),
+`lib/integrations/email-sanitizer.js` (what an injection is / how a field is made safe / how
+it is placed in a prompt), `lib/bulletin-board.js` (the store / rendering; `isBulletinQuery`
+stays in the facade) and `lib/clone-lifecycle.js` (making a clone / judging delivery; the
+shared path check is its own file). Kept whole, one job each, reason in
+`lib/validate-exceptions.json`: `lib/slack-client.js`, `lib/email-rate-limiter.js`,
+`lib/update-drain.js`. Every moved function's source is byte-identical to the parent commit
+(checked with `Function.prototype.toString` against the original file); facades re-export
+every old name as the same object (`tests/module-splits.test.js`, whose table moved to
+`tests/helpers/module-splits-table.js`). `tests/undelivered-work.test.js` now lifts
+`detectUndeliveredWork` from `lib/clone-delivery.js`; `tests/clone-lifecycle.test.js` still
+reads `cloneRepo` in `lib/clone-lifecycle.js`, and `tests/no-shell-execution.test.js` scans
+every file, so all three stay pointed at the code they guard.
+
+**Still open in #10 after B28:** `lib/code-review-pipeline.js` and `lib/notify-owner.js` (Wave 5,
+owned by B29, which edits them for other reasons), `lib/task-parser.js` and
+`lib/task-decomposer.js` (Wave 4, waiting as stated in its table), and `bridge-agent.js` (its
+own exclusion).
 
 `lib/integrations/email-categorizer.js`, `lib/code-review-pipeline.js`,
 `lib/bulletin-board.js`, `lib/integrations/email-sanitizer.js`, `lib/slack-client.js`,

@@ -186,7 +186,7 @@ guarded by `tests/timezone-explicit.test.js`. What is *not* guarded is the optio
 **IDENTICAL** across six sites: `bridge-agent.js:292`, `:316`, `:1073`, `:1092`,
 `lib/agent-context.js:61`, `morning-digest.js:132`.
 
-**Date + time** — **EQUIVALENT**: `lib/bulletin-board.js:283` sets `hour12: true`;
+**Date + time** — **EQUIVALENT**: `lib/bulletin-board.js:283` (rendering moved to `lib/bulletin-board-format.js` 2026-11-12, B28) sets `hour12: true`;
 `lib/email-check-report.js:107` (moved from `lib/email-check.js` 2026-10-02) omits it. `en-US` defaults to 12-hour, so the rendered string
 is the same; the omission is an inconsistency in a file added the same day as this map,
 not a behaviour difference.
@@ -199,15 +199,15 @@ fails on an inline `.timestamp).toLocale…String(` in production code. As filed
 
 | Site | Function | Renders | Consumer |
 |------|----------|---------|----------|
-| `lib/bulletin-board.js:283` | `formatBulletinsForSlack` | month, day, hour, minute (`Sep 14, 2:05 PM`) | human, in Slack |
-| `lib/bulletin-board.js:409` | `formatBulletinsForContext` | month, day, hour, minute (`Sep 14, 2:05 PM`) — **CORRECTED 2026-09-16**, see below | LLM prompt, **every** agent |
+| `lib/bulletin-board-format.js:32` (was `lib/bulletin-board.js:283`; moved 2026-11-12, B28) | `formatBulletinsForSlack` | month, day, hour, minute (`Sep 14, 2:05 PM`) | human, in Slack |
+| `lib/bulletin-board-format.js:151` (was `lib/bulletin-board.js:409`; moved 2026-11-12, B28) | `formatBulletinsForContext` | month, day, hour, minute (`Sep 14, 2:05 PM`) — **CORRECTED 2026-09-16**, see below | LLM prompt, **every** agent |
 | `lib/agent-context.js:177` / `:277` | security / story-bot context | month, day only (`Sep 14`) | LLM prompt, those two agents |
 
 **CORRECTED 2026-09-16 — the worst half of this row is no longer true, and this map
 said it was for a day longer than it was.** The generic path was described here as
 dropping the timestamp entirely. It stopped doing that at commit `d77cdfa`, which
 rewrote `formatBulletinsForContext` to emit an America/Toronto date **and** time per
-bulletin (`lib/bulletin-board.js:409`). Regenerate:
+bulletin (`lib/bulletin-board.js:409` then; `lib/bulletin-board-format.js:151` since the 2026-11-12 split). Regenerate:
 
 ```bash
 grep -n "b.timestamp" lib/bulletin-board.js lib/agent-context.js
@@ -298,12 +298,12 @@ grep -rnE "JSON\.parse\(fs\.readFileSync|writeFileSync\(" --include='*.js' . \
 
 Seventeen modules implement the same load-with-default / write-JSON pair:
 `lib/agent-registry.js:32,136` · `lib/approval-queue.js:67,116` ·
-`lib/bridge-state.js:76,92,127,147` · `lib/bulletin-board.js:50,93` ·
+`lib/bridge-state.js:76,92,127,147` · `lib/bulletin-board-store.js:53,102` (was `lib/bulletin-board.js:50,93`; B28) ·
 `lib/email-check.js:79,103` · `lib/llm-metrics.js:73,106` · `lib/memory-tiers.js:77,110` ·
 `lib/owner-tasks.js:25,55` · `lib/slack-client.js:38,64` · `lib/staff-tasks.js:119,143` ·
 `lib/task-lock.js:178,108` · `lib/task-queue.js:89,115` · `lib/watercooler.js:106,127` ·
 `memory/memory-manager.js:35,66` · `auto-update.js:425,458` ·
-`lib/integrations/email-categorizer.js:89` (read only) ·
+`lib/integrations/email-categorizer-rules.js:72` (read only; was `email-categorizer.js:89` until B28) ·
 `bridge-agent.js:1818,1836` (inline).
 
 They are **EQUIVALENT** on the happy path and on the corrupt-file path (all return a
@@ -401,7 +401,7 @@ grep -rnE "isValid[A-Za-z]*\(|assertValid[A-Za-z]*\(" --include='*.js' . \
 
 **Canonical implementation: `lib/git-identifiers.js`.** Every consumer calls it and none
 re-derives a pattern: `lib/task-parser.js:139,161` (boundary),
-`lib/clone-lifecycle.js:128-130,241` (sink), `lib/security-review-git.js:73` (`cloneRepo`) and `security-review.js:102` (`reviewRepo`). Rejection
+`lib/clone-lifecycle.js:86-88` and `lib/clone-delivery.js:55` (sinks; one file until the 2026-11-12 B28 split), `lib/security-review-git.js:73` (`cloneRepo`) and `security-review.js:102` (`reviewRepo`). Rejection
 messages are generated from the same character lists the patterns use, guarded by
 `tests/git-identifiers.test.js`.
 
@@ -417,7 +417,7 @@ grep -rnE "execFileSync\('git'|spawnSync\('git'|spawn\('git'" --include='*.js' .
 
 | Site | API | `--` before positionals | Timeout |
 |------|-----|-------------------------|---------|
-| `lib/clone-lifecycle.js:134` `git()` | `execFileSync`, argv array | yes, at each call site | 60 s / 15 s |
+| `lib/clone-lifecycle.js:91` `git()` (and `lib/clone-delivery.js` since B28) | `execFileSync`, argv array | yes, at each call site | 60 s / 15 s |
 | `lib/update-git.js` `runGit()` (`auto-update.js:98` until 2026-11-11) | `spawnSync`, argv array | **no** | 60 s |
 
 Both use argv arrays, so `tests/no-shell-execution.test.js` is satisfied by both and the
