@@ -54,6 +54,19 @@ afterEach(() => {
 });
 
 describe('describeWork against real repositories', () => {
+  // WORK-TODO #6 (2026-11-12): the files the task's commits changed, for the result card.
+  test('filesChanged lists the files the new commits touched, and [] when there are none', () => {
+    const base = headSha(clone);
+    expect(describeWork(clone, base).filesChanged).toEqual([]);
+    commit(clone, 'b.txt');
+    commit(clone, 'c.txt');
+    expect(describeWork(clone, base).filesChanged.sort()).toEqual(['b.txt', 'c.txt']);
+  });
+
+  test('filesChanged is null (unknown), never [], without a base to diff from', () => {
+    expect(describeWork(clone, null).filesChanged).toBeNull();
+  });
+
   test('a clone the task did not change: no new commits, on the remote as main', () => {
     const base = headSha(clone);
     const work = describeWork(clone, base);
