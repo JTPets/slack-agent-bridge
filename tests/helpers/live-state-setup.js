@@ -25,7 +25,9 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const capture = require('./global-hook-capture');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 
@@ -124,16 +126,41 @@ function diff(before, after) {
     return changed;
 }
 
-const SNAPSHOT_FILE = path.join(require('os').tmpdir(), 'bridge-live-state-snapshot.json');
+/**
+ * The pre-run snapshot's path for one jest process.
+ *
+ * LOGIC CHANGE 2026-11-12 (WORK-TODO #56, B31): this was ONE fixed path,
+ * `<tmpdir>/bridge-live-state-snapshot.json`, shared by every jest run on the machine.
+ * Two runs at once (the update gate's `npm test` and a dispatch's Phase-3 `npm test`
+ * share the jt-agent container's /tmp) overwrote each other's snapshot, and the first
+ * teardown removed the file the second one needed: the second run went RED with
+ * "the pre-run snapshot is unreadable", a stack ending in runGlobalHook ->
+ * requireAndTranspileModule. Reproduced 2026-11-12 with two `npx jest` started a second
+ * apart. globalSetup and globalTeardown run in the same jest parent process, so its
+ * pid names the run; tests/global-hook-capture.test.js holds the race.
+ *
+ * @param {number} [pid]
+ * @returns {string}
+ */
+function snapshotFileFor(pid = process.pid) {
+    return path.join(os.tmpdir(), `bridge-live-state-snapshot-${pid}.json`);
+}
 
-module.exports = async function globalSetup() {
-    fs.writeFileSync(SNAPSHOT_FILE, JSON.stringify(snapshot(), null, 2), 'utf8');
-};
+const SNAPSHOT_FILE = snapshotFileFor();
+
+// LOGIC CHANGE 2026-11-12 (WORK-TODO #56): any throw is recorded to the gitignored
+// .jest-global-hook-failures.jsonl and stderr before it propagates. This file is not
+// transformed (package.json transformIgnorePatterns), so the recording does not depend
+// on babel-jest or its cache.
+module.exports = capture.guard('globalSetup', async function globalSetup() {
+    fs.writeFileSync(snapshotFileFor(), JSON.stringify(snapshot(), null, 2), 'utf8');
+});
 
 module.exports.snapshot = snapshot;
 module.exports.diff = diff;
 module.exports.stateFiles = stateFiles;
 module.exports.fingerprint = fingerprint;
 module.exports.SNAPSHOT_FILE = SNAPSHOT_FILE;
+module.exports.snapshotFileFor = snapshotFileFor;
 module.exports.REPO_ROOT = REPO_ROOT;
 module.exports.DATA_STATE_FILES = DATA_STATE_FILES;
