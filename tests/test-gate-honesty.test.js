@@ -242,7 +242,7 @@ describe('every test invocation in the repo routes through the classifier', () =
         // Anchors the one-hop rule: if this set grows, a new module started running
         // tests and the enumeration above must be re-read, not assumed.
         const names = [...classifyingModules(listSourceFiles())].sort();
-        expect(names).toEqual(['code-review-pipeline', 'test-verdict', 'update-gate', 'update-verifier']);
+        expect(names).toEqual(['code-review-pipeline', 'jest-stress', 'test-verdict', 'update-gate', 'update-verifier']);
     });
 
     test('the known invocation sites are still the known invocation sites', () => {
@@ -255,7 +255,7 @@ describe('every test invocation in the repo routes through the classifier', () =
         expect(sites).toEqual([
             'bridge-agent.js',
             path.join('lib', 'code-review-pipeline.js'),
-            path.join('lib', 'update-gate.js'), path.join('lib', 'update-verifier.js'),
+            path.join('lib', 'update-gate.js'), path.join('lib', 'update-verifier.js'), path.join('scripts', 'jest-stress.js'),
         ]);
     });
 });

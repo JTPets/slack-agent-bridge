@@ -425,7 +425,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | ID | Tier | Verdict at `71d2112` | Batch | Effort | Evidence, and what is left |
 |---|---|---|---|---|---|
 | #55 | P1 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | Live resolution ran at every boot since: the bridge joined all its agent channels on `546c3d6` (2026-10-05), and jester's channel resolved. Off-box export of the resolved map moved to #42 as a backup item |
-| #56 | P1 | OPEN, nothing to act on until it recurs | B2 | S | Not seen in 2 runs at triage or 3 on `e7edded`. The adjacent race was removed 2026-10-04 (`0773821` deleted the in-tree temp dir; the shared walker in `lib/source-walk.js` skips a vanished dir). The globalSetup signature is still unexplained |
+| #56 | P1 | OPEN, instrumented 2026-11-12 (B31); waits for a captured record | B2 | S | A hook failure now writes `.jest-global-hook-failures.jsonl`. Two concurrent runs sharing one snapshot file reproduced the same stack and is fixed (per-pid snapshot). The 2026-09-16 pair is still unexplained |
 | #42 | P1 | PARKED 2026-11-08: the bridge monitors no other system (owner); (c) stays inert in the repo | OA | S/M | `scripts/backup-status.sh` + `lib/backup-watch.js` kept for the future all-systems monitor. SqTools (a)/(b) are SqTools BACKLOG-508 |
 | #41 | P1 | REPO DONE | OA | — | All remaining work is on the appliance |
 | #17 | P1 | Deploy on green BUILT in B23 (owner chose 2026-11-08) | — | M | In-process self-deploy gated by the full suite. Closes on the first observed self-deploy; needs #70's image first (the python venv test) |
@@ -732,10 +732,70 @@ that turns the run red. Three full runs with the capture above, on `e7edded`:
 `exit=0` each time, 90 suites / 2620 tests / 0 skipped. Three more data points, not a
 running total: runs between 2026-09-16 and now were not all counted. None of this touches what this item records (`globalSetup` failing to
 *load*), so it stays open.
+**2026-11-12 (B31): instrumented, the signature re-read, and one real cause of this exact
+stack found and fixed. The 2026-09-16 failures themselves are still not explained.**
+
+- **The signature does not mean "failed to load".** jest 30 runs a global hook *inside*
+  `ScriptTransformer.requireAndTranspileModule` (`node_modules/@jest/core/build/index.js`
+  `runGlobalHook`, the hook is the callback at `@jest/transform/build/index.js:628`). A throw
+  from the hook's **body** prints `... requireAndTranspileModule -> async runGlobalHook`, the
+  stack recorded on 2026-09-16. A real load/transform failure prints a different stack: node's
+  10-frame limit cuts it inside the module loader (`pirates`, `Module.require`) and it never
+  reaches `runGlobalHook`. Both pinned by real jest runs in `tests/global-hook-capture.test.js`.
+  So the likelier reading of 2026-09-16 is "a hook threw", not "the transform broke".
+- **Ruled IN, reproduced, fixed: two jest runs at once shared one snapshot file.**
+  `live-state-setup.js` wrote `<tmpdir>/bridge-live-state-snapshot.json`, one fixed path for
+  every run on the machine, and the teardown deleted it. Two `npx jest` started a second apart
+  in this checkout: the second to finish went RED with `Got error running globalTeardown ...
+  the pre-run snapshot is unreadable (ENOENT ...)`, stack ending
+  `requireAndTranspileModule -> runGlobalHook`. On the box this pairs the update gate's
+  `npm test` (`lib/update-gate.js` `scrubbedEnv` sets HOME and WORK_DIR, **not TMPDIR**, so
+  `/tmp`) with any Phase-3 `npm test` of a bridge dispatch in the same container: a good commit
+  gated red that way is recorded in `failedCommit` and never re-gated. The snapshot is now
+  per jest process (`snapshotFileFor(pid)`; setup and teardown run in the same parent
+  process). Test: "a run that finishes first leaves the other run its snapshot" fails
+  against the old fixed path (run 2026-11-12). **Not shown** to be the 2026-09-16 cause: that
+  session's runs were not recorded as concurrent, and that report said globalSetup.
+- **Ruled OUT: a half-written cache entry.** Transform results are written with
+  `write-file-atomic` (rename) and read back only when a sha1 checksum matches
+  (`@jest/transform/build/index.js:703-790`, jest 30.5.2); a torn entry is a cache miss, not
+  bad code. What can still throw is a cache file vanishing between `existsSync` and
+  `readFileSync` (`jest: failed to read cache file`, Linux only) or a failed write (`jest:
+  failed to cache transform results`), e.g. under a concurrent `--clearCache`. Neither is
+  shown to have happened; the global hooks no longer pass through that code at all.
+- **Ruled OUT: a jest version change between runs.** The lockfile pinned jest 30.5.1 from
+  `e215f31` (2026-09-13) through 2026-09-17 (`git log -- package-lock.json`); the hooks were
+  added the day before (`0698602`). Transform cache keys include the transformer's version.
+- **Shared cache directory, ruled in as possible, harmless by design.** The default cache is
+  `<tmpdir>/jest_<uid base36>` (`jest-config` `getCacheDirectory`; `/tmp/jest_0` here), so the
+  gate and every other jest in the jt-agent container share it. jest takes no lock; the
+  atomic-write and checksum rules above are what make that safe.
+- **Instrumented, independent of the transform.** `tests/helpers/global-hook-capture.js`
+  wraps both hooks: any throw is appended to the gitignored `.jest-global-hook-failures.jsonl`
+  in the repo root (message, stack, jest and node versions, cache directory, other jest
+  processes alive with pid/uid/cwd) and printed to stderr, then rethrown. The hooks and the
+  capture module are in package.json `transformIgnorePatterns`, so node's own loader reads
+  them: before, the hooks' babel output sat in the transform cache
+  (`livestatesetup_*` under `jest-transform-cache-*`); after, none. A project whose transform
+  throws on every file still records its hook's message (test), and a hook left transformed
+  dies in the transform with nothing recorded (negative control).
+- **Stress command:** `node scripts/jest-stress.js --runs N [-- <jest args>]` (each run's
+  output to its own file, never a pipe: over pipes, failing runs' output was seen ending
+  mid-line). B31 counts, 2026-11-12, this container, PG not involved: 10 sequential runs,
+  10 green (153 suites, 3472 tests, 0 skipped each, 0 records); two 5-run loops started 3 s
+  apart, 10 of 10 green. **Control** with the old hooks, two 3-run loops at once: 1 of 6 red
+  at `globalTeardown ... snapshot is unreadable` with every suite passing (152/152, 3460/3460).
+- **Seen on the way, not this item's to fix:** `lib/test-verdict.js` classed that red run
+  as `runner_absent` ("zero assertions executed ... run npm ci") because the output contains
+  `ENOENT` (its `ABSENT_PATTERNS`), though 3460 tests had passed. A gate red for this reason
+  would be reported on the box as a missing runner.
+
+**Next if it recurs:** read `.jest-global-hook-failures.jsonl`; `otherJestProcesses` says
+whether another jest was running.
 **Priority:** P1 by the apparatus rule | **Effort:** Low to instrument, unknown to fix
 **Risk:** Unknown — a gate that can fail to start is the shape the apparatus rule is about
-**Status:** open — two unreproduced observations, same signature; every counted run since is
-green; instrument before hunting
+**Status:** open, instrumented 2026-11-12 — one concurrent-run cause of the same stack fixed;
+the two 2026-09-16 failures still unexplained; waiting for a captured record
 
 ---
 

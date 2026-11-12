@@ -11,18 +11,22 @@
 
 const fs = require('fs');
 const setup = require('./live-state-setup');
+const capture = require('./global-hook-capture');
 
-module.exports = async function globalTeardown() {
+// LOGIC CHANGE 2026-11-12 (WORK-TODO #56): recorded on any throw, like globalSetup, and
+// the snapshot is this process's own (setup.snapshotFileFor()), not one shared path.
+module.exports = capture.guard('globalTeardown', async function globalTeardown() {
+    const snapshotFile = setup.snapshotFileFor();
     let before;
     try {
-        before = JSON.parse(fs.readFileSync(setup.SNAPSHOT_FILE, 'utf8'));
+        before = JSON.parse(fs.readFileSync(snapshotFile, 'utf8'));
     } catch (err) {
         throw new Error(`live-state guard: the pre-run snapshot is unreadable (${err.message}). ` +
             'A guard that cannot compare must fail, not pass silently.');
     }
     const changed = setup.diff(before, setup.snapshot());
 
-    fs.rmSync(setup.SNAPSHOT_FILE, { force: true });
+    fs.rmSync(snapshotFile, { force: true });
 
     if (changed.length) {
         throw new Error(
@@ -32,4 +36,4 @@ module.exports = async function globalTeardown() {
             "module an init({ file }) override and point the suite at os.tmpdir() — the shape " +
             'lib/bridge-state.js and lib/approval-queue.js already use (WORK-TODO #24).');
     }
-};
+});

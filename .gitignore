@@ -107,3 +107,7 @@ models/
 # The deployment definition. Off-box copy: docker-compose.example.yml (tracked).
 # Ignored so `git clean -fd` in the deploy directory cannot delete it — WORK-TODO #26.
 docker-compose.yml
+
+# Written by tests/helpers/global-hook-capture.js when a jest globalSetup/globalTeardown
+# throws (WORK-TODO #56): the full error, so it survives a run piped through `tail`.
+/.jest-global-hook-failures.jsonl

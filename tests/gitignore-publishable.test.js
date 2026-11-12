@@ -48,6 +48,8 @@ const MUST_BE_IGNORED = [
     'data/catalog-cache.json',
     'data/delivery-quotes.json',
     'data/some-future-writer.json',
+    // WORK-TODO #56: tests/helpers/global-hook-capture.js writes a failing hook's error here.
+    '.jest-global-hook-failures.jsonl',
 ];
 
 // Tracked on purpose. Each must stay publishable, or the family rules ate a real file.
