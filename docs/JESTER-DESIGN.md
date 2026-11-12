@@ -67,28 +67,30 @@ is also the input worth least — see section 2.
 
 ### 1.2 The bulletin stream — **YES, and it is the only conversational thing he can reach.**
 
-`formatBulletinsForContext(agentId, limit = 10)` (`lib/bulletin-board.js:397`) is what
+`formatBulletinsForContext(agentId, limit = 10)` (`lib/bulletin-board-format.js:139`; in
+`lib/bulletin-board.js` until the 2026-11-12 B28 split, which moved the store and the
+renderers into `lib/bulletin-board-store.js` and `lib/bulletin-board-format.js`) is what
 every agent's prompt gets. At HEAD it carries, per bulletin:
 
 - the **type** (one of seven: `milestone`, `alert`, `vendor_deal`, `customer_insight`,
   `task_completed`, `security_finding`, `content_idea` — `BULLETIN_TYPES`,
-  `lib/bulletin-board.js:20`),
+  `lib/bulletin-board-store.js:35`),
 - the **posting agent id**,
-- an **America/Toronto local timestamp** (`lib/bulletin-board.js:409`),
+- an **America/Toronto local timestamp** (`lib/bulletin-board-format.js:151`),
 - **every scalar payload field**, each value capped at 200 chars (`formatBulletinData`,
-  `lib/bulletin-board.js:351`).
+  `lib/bulletin-board-format.js:93`).
 
 It does **not** carry the bulletin id, any link back to the work, anything past the
 newest 10, or anything past the 7-day retention (`DEFAULT_CLEANUP_DAYS`,
-`lib/bulletin-board.js:31`; swept by `morning-digest.js:485`, the only production
+`lib/bulletin-board-store.js:46`; swept by `morning-digest.js:485`, the only production
 caller of `cleanupOldBulletins`).
 
 Two properties that matter for a weekly post:
 
 - **`unreadBy` is applied and nothing marks anything read.** The filter is
-  `unreadBy: agentId` (`lib/bulletin-board.js:398`), and `markRead` has **no production
+  `unreadBy: agentId` (`lib/bulletin-board-format.js:140`), and `markRead` has **no production
   caller** (`grep -rn "markRead" --include='*.js' . | grep -v node_modules | grep -v tests/`
-  -> three hits, all inside `lib/bulletin-board.js` itself). So "unread" is currently
+  -> three hits, all inside the bulletin-board modules themselves). So "unread" is currently
   a no-op filter that always passes. Harmless today; it would silently start hiding
   material the day anything calls `markRead`.
 - **Seven days of retention against a weekly schedule is exactly enough and no more.**
@@ -151,7 +153,7 @@ grep -n "'clone'" -A 2 lib/clone-lifecycle.js
 A task's scratch clone contains **one commit**. `git log`, `git log --grep`, blame and
 any "what changed this week" question are unanswerable inside it. `--single-branch` is
 implied by `--branch`, which is separately why `detectUndeliveredWork` asks the remote
-rather than a local tracking ref (`lib/clone-lifecycle.js:214-220`).
+rather than a local tracking ref (`lib/clone-delivery.js:28-34`; in `lib/clone-lifecycle.js` until the 2026-11-12 B28 split).
 
 **Consequence, and it decides the architecture of part 2:** the git-derived signals
 cannot be gathered by the agent. They are gathered by **the bridge process, in its own

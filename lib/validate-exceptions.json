@@ -121,8 +121,8 @@
     },
     {
       "path": "lib/task-queue.js",
-      "lines_when_declared": 557,
-      "reason": "DEFERRED. One state machine over one file with one owner. Corrected 2026-10-04: this entry said the file was under the limit on code (296); it is 357 code lines now, so that half of the justification no longer holds. The length is still mostly the markRunning, completionSeq and delivery-verdict history in comments. A split would cut terminal writers from readers (getRecentCompleted, getStatus); recorded against WORK-TODO #10."
+      "lines_when_declared": 586,
+      "reason": "JUSTIFIED (one job; WORK-TODO #10 B28, 2026-11-12): the WRITERS of one state machine over task-queue.json - enqueue, markRunning/_startRunning, complete, fail, interrupt, recoverInterrupted, recordWork, cleanup - which must stay in one file so every terminal status write sits beside its normalizeDelivery() call where tests/task-queue-delivery-invariant.test.js reads it. B28 moved out everything that is not a writer: STATUS (lib/task-queue-status.js), the delivery-verdict helpers (lib/task-queue-delivery.js) and the readers (lib/task-queue-view.js, mixed in). The remaining length is the markRunning, completionSeq and delivery-verdict reasoning in comments beside the writes it governs."
     },
     {
       "path": "tests/watercooler.test.js",
@@ -160,11 +160,6 @@
       "reason": "JUSTIFIED. Three phases of one pipeline, under the limit on code (293). The phases share the context object; splitting them would put one data structure's producer and consumers in three files."
     },
     {
-      "path": "lib/integrations/email-sanitizer.js",
-      "lines_when_declared": 470,
-      "reason": "JUSTIFIED. Under the limit on code (282). 130 lines are the INJECTION_PATTERNS catalogue and the rationale for each pattern — a security-relevant enumeration whose comments are the point of it."
-    },
-    {
       "path": "tests/owner-tasks-store.test.js",
       "lines_when_declared": 345,
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Split out of tests/owner-tasks.test.js on 2026-11-08 (WORK-TODO #10 Wave T), one suite per module. Its subject is the activation-checklist store (lib/owner-tasks-store.js): load, save, pending tasks, completion and readiness. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions."
@@ -176,8 +171,8 @@
     },
     {
       "path": "lib/slack-client.js",
-      "lines_when_declared": 443,
-      "reason": "JUSTIFIED. Under the limit on code (273). It is one factory closure (createSlackClient) plus channel-map persistence; a cut inside the factory would split one object's methods across files."
+      "lines_when_declared": 427,
+      "reason": "JUSTIFIED (one job; WORK-TODO #10 B28 verdict, 2026-11-12): channel management through one client - find, create, ensure, join, invite and the channel-map cache - all methods of the one object createSlackClient returns. Cutting the closure would split one object's methods across files with shared private state. Read in full for B28; finding recorded in #10: inviteBotToChannel calls auth.test and never uses the result."
     },
     {
       "path": "tests/bug-fixes.test.js",
@@ -190,11 +185,6 @@
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for lib/bulletin-board.js — inter-agent communication. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
     },
     {
-      "path": "lib/integrations/email-categorizer.js",
-      "lines_when_declared": 432,
-      "reason": "JUSTIFIED. Under the limit on code (247). The length is the DEFAULT_RULES catalogue and the precedence documentation that makes agents/email-monitor/memory/rules.json readable as a specification."
-    },
-    {
       "path": "tests/clone-lifecycle.test.js",
       "lines_when_declared": 429,
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for lib/clone-lifecycle.js — cloneRepo argv and -- separators, assertValidTargetDir rejections, cleanupDir. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
@@ -205,11 +195,6 @@
       "reason": "JUSTIFIED. More comment (176) than code (192). It is the canonical destination named by docs/CANONICAL-HELPERS.md sections 1 and 2 — WORK-TODO #30 will move more into it, not less — so splitting it now works against the declared consolidation."
     },
     {
-      "path": "lib/bulletin-board.js",
-      "lines_when_declared": 406,
-      "reason": "JUSTIFIED. Under the limit on code (247). A store plus its two renderers over one JSON file; the renderers exist so bulletin formatting is not re-derived per caller, which is the defect docs/CANONICAL-HELPERS.md records as WORK-TODO #32."
-    },
-    {
       "path": "tests/code-review-pipeline.test.js",
       "lines_when_declared": 400,
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for lib/code-review-pipeline.js — reviewTask, buildPrompt and validateOutput. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
@@ -217,7 +202,7 @@
     {
       "path": "lib/email-rate-limiter.js",
       "lines_when_declared": 397,
-      "reason": "JUSTIFIED. Under the limit on code (231). One sliding-window algorithm applied to three buckets; splitting per bucket would triple the surface for a single algorithm."
+      "reason": "JUSTIFIED (one job; WORK-TODO #10 B28 verdict, 2026-11-12): one sliding-window limiter with cooldown, applied to three buckets (emails, bulletins, Slack posts) over one shared state object. Splitting per bucket would triple the surface of a single algorithm. Read in full for B28; the three can/record pairs are near-duplicates, which is a duplication finding recorded in #10, not a second job."
     },
     {
       "path": "tests/task-agent-identity.test.js",
@@ -241,8 +226,8 @@
     },
     {
       "path": "lib/update-drain.js",
-      "lines_when_declared": 372,
-      "reason": "JUSTIFIED. 62% comment: the file is one small marker-file codec (markPending/inspect/clear/clearIfStale/describeRefusal, mirroring lib/task-lock.js deliberately so the two coordination files behave alike) carrying the reasoning that decides drain-one — why the wait has NO CEILING, why the staleness rule is a heartbeat on `lastSeenAt` and not a deadline on `since`, why it errs toward refusing, and why a marker left behind is the worst failure this file can produce. Splitting it would separate that reasoning from the twelve lines it governs, which is the failure mode WORK-TODO #10 records for this rule."
+      "lines_when_declared": 373,
+      "reason": "JUSTIFIED (one job; WORK-TODO #10 B28 verdict, 2026-11-12): owning the DRAIN-ONE marker $WORK_DIR/.update-pending and describing its state - markPending/inspect/clear/clearIfStale/describeRefusal, mirroring lib/task-lock.js deliberately. 62% comment: the reasoning that decides drain-one (no ceiling, a heartbeat on lastSeenAt not a deadline on since, why it errs toward refusing). Splitting it would separate that reasoning from the lines it governs."
     },
     {
       "path": "tests/update-drain.test.js",
@@ -263,11 +248,6 @@
       "path": "tests/multi-channel-routing.test.js",
       "lines_when_declared": 352,
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for multi-channel polling and agent routing — per-channel cursors, TASK vs ASK. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
-    },
-    {
-      "path": "lib/clone-lifecycle.js",
-      "lines_when_declared": 347,
-      "reason": "JUSTIFIED. 49% comment: 170 comment lines to 158 of code. Extracted 2026-09-14 as seam A precisely to be one concern, and its comments carry the argv-array and delivery-detection reasoning that three lost tasks paid for. Splitting it would undo the seam to satisfy a line count."
     },
     {
       "path": "tests/message-detection.test.js",

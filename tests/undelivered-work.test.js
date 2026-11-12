@@ -34,7 +34,10 @@ const source = fs.readFileSync(BRIDGE_AGENT_PATH, 'utf8');
 // LOGIC CHANGE 2026-09-14: detectUndeliveredWork moved to lib/clone-lifecycle.js
 // (seam A). Its source-text lift now reads from the extracted module rather than
 // bridge-agent.js, but the classification behaviour it exercises is unchanged.
-const CLONE_LIFECYCLE_PATH = path.join(__dirname, '..', 'lib', 'clone-lifecycle.js');
+// LOGIC CHANGE 2026-11-12 (WORK-TODO #10, B28): it moved again, unchanged, to
+// lib/clone-delivery.js; lib/clone-lifecycle.js re-exports it. The lift reads the file
+// that holds the source, and the indexOf assertion below fails if it is not there.
+const CLONE_LIFECYCLE_PATH = path.join(__dirname, '..', 'lib', 'clone-delivery.js');
 const cloneLifecycleSource = fs.readFileSync(CLONE_LIFECYCLE_PATH, 'utf8');
 
 /**

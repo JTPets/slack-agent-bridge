@@ -52,7 +52,7 @@ describe('the three bulletin vocabularies agree', () => {
             const src = fs.readFileSync(file, 'utf8');
             // postBulletin('agent', 'type', ...) — literal second argument only. A
             // variable second argument cannot be checked here and is covered by the
-            // runtime rejection log in lib/integrations/email-categorizer.js.
+            // runtime rejection log in lib/integrations/email-categorizer-push.js.
             for (const m of src.matchAll(/postBulletin\(\s*['"][^'"]+['"]\s*,\s*['"]([^'"]+)['"]/g)) {
                 if (!BULLETIN_TYPES.includes(m[1])) {
                     invalid.push(`${path.relative(REPO_ROOT, file)}: "${m[1]}"`);

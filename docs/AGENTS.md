@@ -295,7 +295,7 @@ the guard.
 Five call sites. Regenerate the list rather than trusting this table:
 
 ```bash
-grep -rn "postBulletin(" --include=*.js . | grep -v node_modules | grep -v '^./tests/' | grep -v '^./lib/bulletin-board.js'
+grep -rn "postBulletin(" --include=*.js . | grep -v node_modules | grep -v '^./tests/' | grep -v '^./lib/bulletin-board'
 ```
 
 | Posted by | Type | When |
@@ -304,7 +304,7 @@ grep -rn "postBulletin(" --include=*.js . | grep -v node_modules | grep -v '^./t
 | `security-review.js` | `security_finding` | the nightly audit finds something |
 | `morning-digest.js` (as `secretary`) | `milestone` | the digest runs |
 | `lib/watercooler.js` (as `watercooler`) | `milestone` | a standup completes |
-| `lib/integrations/email-categorizer.js` | **the category name** | a category whose action is `push_to_secretary` matches |
+| `lib/integrations/email-categorizer-push.js` (in `email-categorizer.js` until 2026-11-12) | **the category name** | a category whose action is `push_to_secretary` matches |
 
 The last row is the one to watch. It types the bulletin by the *category name*, and
 category names come from `agents/email-monitor/memory/rules.json`, which is

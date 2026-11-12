@@ -98,7 +98,7 @@ is filed as a WORK-TODO item rather than taken unilaterally.
 This one is a silent data-loss path *inside a feature written to prevent silent data
 loss*, so it is stated in full.
 
-**What the feature does** (repository-verified, `lib/clone-lifecycle.js:237-330`,
+**What the feature does** (repository-verified, `lib/clone-delivery.js:51-152` (in `lib/clone-lifecycle.js` until the 2026-11-12 B28 split),
 called from `bridge-agent.js:964-981`): before deleting a task's scratch clone,
 `detectUndeliveredWork(dir)` classifies it. A clone with uncommitted changes, or with
 local commits that `git ls-remote origin` does not show on the remote, or whose delivery
@@ -867,7 +867,7 @@ refused* (a human is told, and the system stops rather than guessing), *silently
 | 1 | Channel map | `agents/shared/channel-map.json` | gitignored | **learned** | `resolveAgentChannel` (`lib/agent-activation.js`), `ensureChannel` (`lib/slack-client.js`), `scripts/channel-map.js` | `applyWorkspaceState()` in `lib/agent-registry.js`, via `loadAgents()` — so transitively every consumer of an agent record | `git clean -fdx`, box loss, volume loss | **Loudly refused, then silently degraded.** Boot re-resolves and posts what it could not resolve to `#sqtools-ops` — but only *declared names that are real* resolve. Everything else stops being joined, polled and scheduled at once (`activeChannels()`), so an agent does not fail, it disappears |
 | 2 | Activation decisions | `agents/shared/agent-activation.json` | gitignored | **learned** | `activateAgent`/`deactivateAgent`/`resetActivation` → `lib/bridge-state.js` | `applyWorkspaceState()` | `git clean -fdx`, box loss | **Silently degraded.** Every agent reverts to its definition's `default_status`. This file **wins over** the definition (`lib/agent-registry.js:106-112`), so losing it changes which agents run, and nothing reports the change |
 | 3 | Approval queue | `agents/shared/approval-queue.json` | gitignored | **learned** | `lib/approval-queue.js` | same, and `ASK: pending approvals` | `git clean -fdx`, box loss | **Silently degraded.** Auto-generated security tasks awaiting owner approval vanish. Nothing re-derives them — the nightly review that produced them has moved on |
-| 4 | Email filter rules | `agents/email-monitor/memory/rules.json` | **TRACKED** | **both, and that is the defect** | a human, on the box | `loadRules()` on **every** check (`lib/integrations/email-categorizer.js:89`) | `git reset --hard HEAD`, any `git checkout`/pull on the box | **Silently degraded, and this is the sharpest one.** Routing reverts to the committed file. The owner stops being shown a class of mail and is told nothing — the failure mode part 4 of the memory design exists to prevent |
+| 4 | Email filter rules | `agents/email-monitor/memory/rules.json` | **TRACKED** | **both, and that is the defect** | a human, on the box | `loadRules()` on **every** check (`lib/integrations/email-categorizer-rules.js:72`; `email-categorizer.js:89` until B28) | `git reset --hard HEAD`, any `git checkout`/pull on the box | **Silently degraded, and this is the sharpest one.** Routing reverts to the committed file. The owner stops being shown a class of mail and is told nothing — the failure mode part 4 of the memory design exists to prevent |
 | 5 | Activation checklists | `agents/activation-checklists.json` | **TRACKED, written at runtime** | **both** | `lib/owner-tasks-store.js` (`addTask` from an `ACTION REQUIRED:` line, `completeTask`) | `ASK: my tasks`, agent readiness | `git reset --hard HEAD`, any pull | **Silently degraded.** Completed items un-complete and auto-captured owner actions disappear. Same class as #4 and as WORK-TODO **#51** |
 | 6 | Agent definitions' mutable fields | `agents/<id>/agent.md` (`default_status`, `schedule`, `llm_provider`) | **TRACKED** | **declared** | a human, on the box | `loadAgents()` | `git reset --hard HEAD` | **Silently degraded.** Already happened twice — `.gitignore`'s own comment records it: *"a tracked status field was destroyed twice by auto-update's `git reset --hard HEAD`"*. The surviving workaround is `LLM_PROVIDER_<AGENTID>` in `.env`, i.e. a second store for one field |
 | 7 | Staff task state | `data/staff-tasks-state.json` | **NEITHER tracked NOR ignored** | **learned** | `lib/staff-tasks.js:143` | assignments, overdue checks, escalation, morning digest | **`git clean -fd` — no `-x` needed**; box loss | **Silently degraded**, plus a disclosure risk: it is not ignored, so `git add -A` on the box commits staff names and assignments into a repository that is going open source |
@@ -985,9 +985,9 @@ container recreation (row 11) empties the file anyway.
 **Finding two — and from ten bulletins.** Confirmed with a correction to the number:
 
 ```bash
-grep -n "function formatBulletinsForContext" lib/bulletin-board.js   # :397  limit = 10
+grep -n "function formatBulletinsForContext" lib/bulletin-board-format.js   # :139  limit = 10 (moved 2026-11-12, B28)
 grep -n "LIMITS = " lib/critique-signals.js                          # :37   bulletins: 5
-grep -n "DEFAULT_CLEANUP_DAYS" lib/bulletin-board.js                 # :31   7
+grep -n "DEFAULT_CLEANUP_DAYS" lib/bulletin-board-store.js           # :46   7 (moved 2026-11-12, B28)
 ```
 
 Ten is the cap on the stream injected into **every agent's prompt**. The critique's own cap
