@@ -43,7 +43,7 @@
 #                          NOT SUPPORTED in CLAUDE.md's toolchain table until a python repo
 #                          has been dispatched to end to end and its pins are named.
 
-FROM node:26.13.0-bookworm
+FROM node:26.13.1-bookworm
 
 ARG CLAUDE_CODE_VERSION=latest
 
