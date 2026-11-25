@@ -35,6 +35,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { OUTCOME, classifyTestRun, parseAssertions, findingFor } = require('../lib/test-verdict');
+const { SPLITS } = require('./helpers/module-splits-table');
 
 const REPO_ROOT = path.join(__dirname, '..');
 
@@ -56,6 +57,9 @@ const IMPORTS_CLASSIFIER = /require\(['"][./]*[\w/.-]*test-verdict['"]\)/;
  * by classifying the result itself OR by handing the run to a module that does
  * (bridge-agent.js names the script and delegates to validateOutput). Two hops would
  * make the rule mean almost nothing; zero would force an unused import on callers.
+ * LOGIC CHANGE 2026-11-25 (#10, B37): a split's facade counts as the part it re-exports
+ * (code-review-pipeline -> review-validate), only for facades declared in
+ * tests/helpers/module-splits-table.js, so a split is still one hop and nothing else widens.
  *
  * @param {string[]} files - Repo-relative paths
  * @returns {Set<string>} Module basenames without .js
@@ -67,6 +71,9 @@ function classifyingModules(files) {
         if (IMPORTS_CLASSIFIER.test(stripComments(src))) {
             names.add(path.basename(rel, '.js'));
         }
+    }
+    for (const split of SPLITS) {
+        if (split.parts.some((p) => names.has(path.basename(p, '.js')))) names.add(path.basename(split.facade, '.js'));
     }
     return names;
 }
@@ -242,7 +249,7 @@ describe('every test invocation in the repo routes through the classifier', () =
         // Anchors the one-hop rule: if this set grows, a new module started running
         // tests and the enumeration above must be re-read, not assumed.
         const names = [...classifyingModules(listSourceFiles())].sort();
-        expect(names).toEqual(['code-review-pipeline', 'jest-stress', 'test-verdict', 'update-gate', 'update-verifier']);
+        expect(names).toEqual(['code-review-pipeline', 'jest-stress', 'review-validate', 'test-verdict', 'update-gate', 'update-verifier']);
     });
 
     test('the known invocation sites are still the known invocation sites', () => {
@@ -254,7 +261,7 @@ describe('every test invocation in the repo routes through the classifier', () =
         }).sort();
         expect(sites).toEqual([
             'bridge-agent.js',
-            path.join('lib', 'code-review-pipeline.js'),
+            path.join('lib', 'review-context.js'), path.join('lib', 'review-validate.js'),
             path.join('lib', 'update-gate.js'), path.join('lib', 'update-verifier.js'), path.join('scripts', 'jest-stress.js'),
         ]);
     });
@@ -285,6 +292,14 @@ describe('the guard itself detects what it claims to', () => {
     test('two hops do NOT count — the rule is not vacuous', () => {
         const code = stripComments("const x = require('./some-unrelated-module');\nspawnSync('npm', ['test']);\n");
         expect(reachesClassifier(code, new Set(['test-verdict', 'code-review-pipeline']))).toBe(false);
+    });
+
+    test('only a DECLARED facade of a classifying part counts, not any module requiring one', () => {
+        // B37 negative control: lib/review-context.js requires lib/review-validate.js and
+        // is not a facade, so the facade rule must not admit it as a classifier.
+        const names = classifyingModules(listSourceFiles());
+        expect(names.has('code-review-pipeline')).toBe(true);
+        expect(names.has('review-context')).toBe(false);
     });
 
     test('prose in a comment naming a test command does not trip the scan', () => {

@@ -386,10 +386,12 @@ describe('code-review-pipeline', () => {
 // swallowing errors in validateOutput. Verify they now log before returning.
 describe('code-review-pipeline silent catch regression', () => {
     it('pipeline source has no bare catch {} blocks (all must log)', () => {
-        const pipelineSrc = fs.readFileSync(
-            path.join(__dirname, '../lib/code-review-pipeline.js'),
-            'utf8'
-        );
+        // LOGIC CHANGE 2026-11-25 (B37): the pipeline is a facade over four parts; read
+        // all of them, or the guard would scan a file with no catch block at all.
+        const pipelineSrc = [
+            'code-review-pipeline', 'review-context', 'review-prompt', 'review-validate', 'pipeline-command',
+        ].map((name) => fs.readFileSync(path.join(__dirname, `../lib/${name}.js`), 'utf8')).join('\n');
+        expect(pipelineSrc).toMatch(/\} catch \(/);
         // Bare catch blocks: "} catch {" with nothing or only a comment inside
         const bareCatch = /\} catch \s*\{[\s]*\}/g;
         const ignoreCatch = /\} catch \s*\{\s*\/\*\s*ignore\s*\*\/\s*\}/g;

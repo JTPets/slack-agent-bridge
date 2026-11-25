@@ -553,6 +553,34 @@ describe('task-decomposer', () => {
             expect(result.subtasks[0].agentId).toBe('code-bridge');
         });
 
+        // LOGIC CHANGE 2026-11-25 (B37): regression test. Each id and each dependency read
+        // Date.now() separately and the repair pass used the whole first id as the base,
+        // so a dependency on subtask 0 became "<ms>-0-0", which no subtask has, and the
+        // dependent subtask stayed blocked forever. Fails against the pre-B37 decomposeTask.
+        test('a dependency names the id of the subtask it depends on', async () => {
+            const { runLLM } = require('../lib/llm-runner');
+            runLLM.mockResolvedValueOnce({
+                output: JSON.stringify({
+                    shouldDecompose: true,
+                    reasoning: 'two steps',
+                    subtasks: [
+                        { description: 'First', instructions: 'Do first', taskType: 'code' },
+                        { description: 'Second', instructions: 'Do second', taskType: 'code', dependsOn: [0] },
+                    ],
+                }),
+            });
+            const task = {
+                description: 'Complex task',
+                instructions: '1. First step\n2. Second step\n3. Third step\nDo this and that and also another thing, then finally wrap up',
+            };
+
+            const { subtasks } = await decomposeTask(task);
+            expect(subtasks[1].dependsOn).toEqual([subtasks[0].id]);
+
+            subtasks[0].status = SUBTASK_STATUS.COMPLETED;
+            expect(getReadySubtasks(subtasks).map(st => st.description)).toEqual(['Second']);
+        });
+
         test('handles LLM saying no decomposition needed', async () => {
             const { runLLM } = require('../lib/llm-runner');
             runLLM.mockResolvedValueOnce({

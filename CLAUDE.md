@@ -877,7 +877,11 @@ slack-agent-bridge/
 │   ├── main-watch.js     # WORK-TODO #66: `git ls-remote origin refs/heads/main` (async, argv) on MAIN_WATCH_INTERVAL_MS, compared with the boot commit from lib/repo-history.js; posts to #sqtools-ops ONCE per new main sha when they differ, and says "differs", never "behind" (ls-remote gives no history). An unreadable remote is reported once per process. Report-only
 │   ├── command-router.js # THE verb -> handler table for built-in commands. A command is a VERB with known parameters; an agent is addressed by its channel, never by a command name (WORK-TODO #45). It is NOT a second registry: a verb whose kind is `scheduled` carries a task NAME from lib/agent-task-catalogue.js and delegates to getDeterministicTask(name).run(), because a cron job and an on-demand command are the same operation triggered differently. Handlers never post — they return { ok, text } and the caller posts. Registered today: help (renders the table itself), status (per-agent provider/model/adapter with provenance), agents (the surface table), holidays, history (#9), channels (#52), available/activate/deactivate/create, check-inbox, critique. isBareCommand() recognises a verb typed on its own, which bridge-agent.js REFUSES in an agent channel with a pointer to #claude-bridge rather than letting a model answer it (#64, the safe half). `weather` is NOT registered: fetchWeather moved to lib/integrations/weather.js on 2026-10-05, so a verb is buildable but is not yet a command
 │   ├── command-renderers.js # The read-only report handlers behind the table (status, agents, holidays, channels) and renderHelp, the pure renderer `help` calls with the table. Split from command-router.js 2026-10-05 (WORK-TODO #10); the table itself stays in the router
-│   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3)
+│   ├── code-review-pipeline.js  # 3-phase task pipeline: reviewTask (Phase 1), buildPrompt (Phase 2), validateOutput (Phase 3). Facade since 2026-11-25 (WORK-TODO #10, B37), one part per phase below, every old export the same object
+│   ├── pipeline-command.js # runCommand: the pipeline's one way to run a command in a clone (spawnSync, argv array). Shared by Phase 1 and Phase 3 (B37)
+│   ├── review-context.js # Phase 1: reviewTask as a hub over its reads (readOptional for CLAUDE.md/COMMANDMENTS.md/package.json, the JS file list, the git log, a sample test, findRelevantFiles by keyword) and createExecutionPlan, whose default test command is Phase 3's DEFAULT_TEST_SCRIPT (B37)
+│   ├── review-prompt.js  # Phase 2: buildPrompt, the executor's prompt in its fixed section order. Pure (B37)
+│   ├── review-validate.js # Phase 3: validateOutput as a hub over runTestGate (the test command, classified by lib/test-verdict.js), changedFilesOf and checkChangedFile (the per-file rules as structured findings); DEFAULT_TEST_SCRIPT (B37)
 │   ├── channel-map-rebuild.js # THE reproduction path for the workspace channel mapping (WORK-TODO #55): reconstructFromHistory() recovers the ids from agents/agents.json as it stood when the markdown migration deleted it, joining on the AGENT ID so a name correction cannot orphan one; resolveDeclaredChannels() asks Slack what the declared names mean HERE, via the same resolveAgentChannel() the boot path calls. A value already resolved against the live workspace always beats a reconstructed one. Creates no channel, writes no tracked file
 │   ├── clone-lifecycle.js # Git/clone lifecycle (seam A): cloneRepo, cleanupDir, detectUndeliveredWork, assertValidTargetDir. Every git call is an execFileSync argv array — no function here builds a shell command string Since 2026-11-12 (WORK-TODO #10, B28) keeps cloneRepo and cleanupDir and re-exports the two modules below
 │   ├── clone-target.js   # assertValidTargetDir, the clone-directory boundary check both cloneRepo and detectUndeliveredWork apply. Moved out 2026-11-12 (WORK-TODO #10, B28); re-exported by lib/clone-lifecycle.js
@@ -916,11 +920,21 @@ slack-agent-bridge/
 │   ├── approval-queue-store.js # The queue file (path overridable by init for tests), load/save, ids, queueTask, lookups, requiresApproval
 │   ├── approval-queue-decisions.js # approve/reject one or all, and the expiry sweep (cleanup)
 │   ├── approval-queue-view.js # Slack rendering of the queue: getStats, formatPendingTasks, formatTaskDetails, getTaskAge. Writes nothing
-│   ├── task-decomposer.js # Automated task decomposition: analyzeComplexity, decomposeTask, findAgentForTask, subtask management
+│   ├── task-decomposer.js # Automated task decomposition: analyzeComplexity, decomposeTask, findAgentForTask, subtask management. Since 2026-11-25 (WORK-TODO #10, B37) keeps decomposeTask as the hub and re-exports the five parts below; still no production caller
+│   ├── task-complexity.js # The decomposition heuristic: analyzeComplexity, MULTI_TASK_INDICATORS, DEFAULT_COMPLEXITY_THRESHOLD. Pure (B37)
+│   ├── subtask-routing.js # detectTaskType and findAgentForTask (repository first, then task type), over the active agents (B37)
+│   ├── subtask-graph.js  # SUBTASK_STATUS, createSubtask, getReadySubtasks (blocked and skipped by dependency), allSubtasksComplete (B37)
+│   ├── subtask-format.js # generateSummary and formatSubtaskAsMessage (a TASK: message the parser reads back). Pure (B37)
+│   ├── decomposition-prompt.js # The model prompt for a JSON decomposition and parseDecompositionResponse (B37)
 │   ├── task-lock.js      # Sole owner of $WORK_DIR/.task-running: acquire/release plus the staleness rule that stops an orphaned lock freezing self-update
 │   ├── task-state-divergence.js # The #sqtools-ops text for when the bridge's answers to "is a task running?" diverge (WORK-TODO #72): a task running without its lock, a queue entry not marked running, or a terminal queue write that failed. Each says what the divergence does to the poll loop and the self-update gate. Pure: builds a string, posts nothing; processTask posts it at each of the five best-effort write sites
 │   ├── update-drain.js   # Sole owner of $WORK_DIR/.update-pending, the DRAIN-ONE marker: once an update is known, bridge-agent.js REFUSES new dispatches, so the update waits for ONE task instead of for however long work keeps arriving. markPending/inspect/clear/clearIfStale/describeRefusal. THERE IS NO CEILING — a pending update may wait indefinitely, is never forced, and never kills a task; the staleness rule is a HEARTBEAT on `lastSeenAt` (a marker no updater is refreshing is an orphan, and honouring it would leave the bridge silently accepting no work at all), never a deadline on `since`, which grows without limit. Errs toward pending, like the task lock errs toward held. Decides and describes; does no I/O beyond the marker, no Slack call, no git call
-│   ├── task-parser.js    # Task message parsing and message type detection
+│   ├── task-parser.js    # Task message parsing and message type detection. Facade since 2026-11-25 (WORK-TODO #10, B37) over the five parts below, every old export the same object
+│   ├── task-message.js   # Reading a TASK message: FIELD_LABELS, parseTask (the hub: find each uppercase line-anchored label, apply its field rule, refuse unclaimed body text) and findUnclaimedLines. Pure (B37)
+│   ├── task-fields.js    # Each single-line field's value rule: normalizeRepo, parseRepoField/parseBranchField/parseTurnsField/parseSkillField returning a value, a refusal or nothing; SKILL_PATTERN, SKILL_PUNCTUATION. Pure (B37)
+│   ├── task-turns.js     # THE turn budgets: DEFAULT_TURNS, MIN_TURNS, TURNS_CEILING, the conversation default and ceiling, conversationTurns (B37)
+│   ├── message-kind.js   # What kind of Slack message this is: isTaskMessage, isConversationMessage, isNaturalConversationMessage, alreadyProcessed, EMOJI_DONE/EMOJI_FAILED (B37)
+│   ├── ask-commands.js   # The phrase-matched ASK: built-in recognisers and parsers (status query, create channel, approval list/approve/reject/show task); the handlers are lib/conversation-builtins.js (B37)
 │   ├── task-queue.js     # Persistent task queue: coordinates tasks between bridge-agent and auto-update. markRunning() is the live `running` transition; dequeue() has no production caller. recordWork() writes a row's `work` field only (#39) Since 2026-11-12 (WORK-TODO #10, B28) holds the writers of the state machine only; the three modules below are its other parts, every old export the same object
 │   ├── task-queue-status.js # STATUS, the queue's status vocabulary. Moved out 2026-11-12 (WORK-TODO #10, B28); re-exported by lib/task-queue.js
 │   ├── task-queue-delivery.js # The delivery-verdict helpers: normalizeDelivery (never null), deliveryRecorded, DELIVERY_NOT_RECORDED. Moved out 2026-11-12 (WORK-TODO #10, B28); re-exported by lib/task-queue.js
@@ -1103,6 +1117,7 @@ slack-agent-bridge/
 │   ├── security-review-git.test.js # Tests for lib/security-review-git.js against REAL temp repositories: the 24-hour window (older commits and merges left out), the diff across the window, the initial-commit fallback, a non-repository is [], and a malformed repo is refused before git runs
 │   ├── google-calendar.test.js # Tests for lib/integrations/google-calendar.js over a mocked googleapis client, run against the three-copy code before the 2026-10-05 collapse: each window, the request shape, the event shape, the all-calendars merge order, every failure is [], and the regression test that GOOGLE_REFRESH_TOKEN alone configures it
 │   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
+│   ├── code-review-pipeline-parts.test.js # WORK-TODO #10, B37: each pipeline part on its own against a REAL temp git repo: runCommand, Phase 1's reads and default test command, Phase 2's section order, Phase 3's changed files, per-file findings and a command with no test count not passing
 │   ├── clone-lifecycle.test.js  # Tests for lib/clone-lifecycle.js (cloneRepo argv/`--` separators, assertValidTargetDir rejections, deploy-key paths, cleanupDir, export surface)
 │   ├── undelivered-work.test.js # Tests for detectUndeliveredWork + processTask's delivery-gated cleanup (the regression guard for the three tasks lost to unconditional cleanup)
 │   ├── preserved-clone-alert.test.js # Regression test for WORK-TODO #25: the preserved-clone alert names the container, the `docker exec` to reach the path, and that a recreate deletes the clone unless WORK_DIR is mounted, using the configured WORK_DIR
@@ -1124,6 +1139,7 @@ slack-agent-bridge/
 │   ├── poll-wake.test.js        # WORK-TODO #4: a burst of message events in polled channels is ONE poll after the delay, an unpolled channel or no channel wakes nothing, the poll set is read per event, nothing throws, the handler passes on the channel id and never the text, and the bridge-agent.js wiring
 │   ├── multi-channel-routing.test.js # Tests for multi-channel polling and agent routing (buildChannelsToPoll, per-channel cursors, TASK vs ASK routing)
 │   ├── task-parser.test.js      # Tests for task parsing logic (includes create channel command, label anchoring, field rejection)
+│   ├── task-parser-parts.test.js # WORK-TODO #10, B37: each task-parser part on its own: every field rule's value/refusal/nothing, conversationTurns, the parseTask hub collecting every refusal in order, message kinds, the ASK recognisers
 │   ├── gitignore-publishable.test.js # THE guard that files which must never be publishable are ignored: it asks `git check-ignore --no-index` itself (not a regex over .gitignore) about one representative of each family — every copy of `.env`, editor swap files, `*.local` overrides, a hand copy of state under agents/shared/, the live WORK_DIR at work/ — with the tracked seeds (.env.example, the two agents/shared/ seeds) as negative controls, and asserts `git ls-files -c -i --exclude-standard` is empty. WORK-TODO #62
 │   ├── git-identifiers.test.js  # Tests for lib/git-identifiers.js (repo/branch allowlists, injection payload rejection, message-vs-pattern agreement probed over every ASCII punctuation character)
 │   ├── no-shell-execution.test.js # THE enumerating guard for the command-injection class: scans every non-test .js file in the repo for execSync/exec/shell:true and for shell APIs imported from child_process
@@ -1177,7 +1193,8 @@ slack-agent-bridge/
 │   ├── task-work.test.js        # Tests for lib/task-work.js against a REAL bare origin and clone (unchanged, committed-unpushed, pushed feature branch with no local tracking ref, unreachable remote), TaskQueue.recordWork leaving status and delivery byte-identical, and the bridge-agent.js wiring (base sha after the clone, work recorded before cleanup, rendered in the status reply)
 │   ├── merge-state.test.js      # Tests for lib/merge-state.js against a REAL bare origin: a merged commit reads merged, a pushed unmerged branch reads not on main yet and flips after a later merge, an unreachable remote is unknown (never not-merged), a refused repo name or non-hex head never reaches git, and the bridge-agent.js status-reply wiring
 │   ├── task-queue-delivery-invariant.test.js # THE guard for WORK-TODO #74: no TaskQueue writer leaves a TERMINAL row without a delivery verdict. Since 2026-11-12 (B28) a source walk over EVERY file TaskQueue is assembled from (tests/helpers/task-queue-sources.js), and over every prototype method by its own source, asserts every method writing a terminal status calls normalizeDelivery() and that the only null-verdict writers are enqueue and _startRunning, plus a replay driving every terminal transition with no verdict. So auto-update's undelivered-row branch stays unreachable by invariant, not by accident. Carries its own negative controls
-│   ├── task-decomposer.test.js  # Tests for lib/task-decomposer.js (complexity analysis, decomposition, agent routing)
+│   ├── task-decomposer.test.js  # Tests for lib/task-decomposer.js (complexity analysis, decomposition, agent routing). Carries B37's regression test: a subtask's dependency names the id of the subtask it depends on
+│   ├── task-decomposer-parts.test.js # WORK-TODO #10, B37: each decomposer part on its own (complexity, routing over a mocked registry, the dependency graph, a subtask message round-tripping through parseTask, the answer parser)
 │   ├── security-followup.test.js # Tests for lib/security-followup.js (finding parsing, task generation)
 │   ├── approval-queue.test.js   # Tests for lib/approval-queue.js (queueing, approval/rejection, commands)
 │   ├── update-verifier.test.js      # Tests for lib/update-verifier.js (entry-point syntax gate, planRestart)
@@ -2003,7 +2020,7 @@ remainder of its **own line only**; `INSTRUCTIONS:` is the one label whose captu
 multiline (`[\s\S]+`, greedy to the end of the message). So a dispatch written as a
 `TASK:` one-liner followed by paragraphs of body — with no `INSTRUCTIONS:` label
 anywhere — parsed to `instructions: ''` and `errors: []`, and the prompt builders fell
-back to `task.instructions || task.description` (`lib/code-review-pipeline.js:302`,
+back to `task.instructions || task.description` (`lib/review-prompt.js:110`, B37 moved it out of `lib/code-review-pipeline.js`;
 `bridge-agent.js:684` and `:693-694`). **The executor received the one-line description
 and nothing else.** Observed 2026-09-20: a 634-byte body delivered 70 bytes, no error
 raised, and the executor correctly refused to fabricate a payload it had not been given.
@@ -2018,7 +2035,7 @@ deliberate:
   failure this parser refuses everywhere else. Every in-repo generator emits
   `INSTRUCTIONS:` unconditionally (`lib/agent-scheduler.js:91`,
   `lib/dispatch-message.js:220`, `lib/security-followup.js:210`,
-  `lib/task-decomposer.js:550`), so unclaimed content means a human wrote the message by
+  `lib/subtask-format.js:98`), so unclaimed content means a human wrote the message by
   hand and the label is missing.
 - **A bare `TASK: do the thing` is unaffected.** It has no body to lose, so no error, and
   the description-fallback keeps working.

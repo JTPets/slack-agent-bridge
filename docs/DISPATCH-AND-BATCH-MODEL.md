@@ -407,7 +407,7 @@ The two gates are not comparable, and a batch spanning both must say which one i
 
 | | This repository | SqTools |
 |---|---|---|
-| The gate | `npm test` in the scratch clone, classified by `lib/test-verdict.js` (`lib/code-review-pipeline.js:362-368`), plus `npm run test:smoke` (**1 suite, 29 tests, 1.7 s** — measured 2026-09-20) and `npm run validate` | A pinned-clone runner, ~30–35 min, 49 real-Postgres suites, all-or-nothing, no subset runs — **operator-supplied, not readable from here (#57)** |
+| The gate | `npm test` in the scratch clone, classified by `lib/test-verdict.js` (`lib/review-validate.js` `runTestGate`; `lib/code-review-pipeline.js:362-368` before the 2026-11-25 B37 split), plus `npm run test:smoke` (**1 suite, 29 tests, 1.7 s** — measured 2026-09-20) and `npm run validate` | A pinned-clone runner, ~30–35 min, 49 real-Postgres suites, all-or-nothing, no subset runs — **operator-supplied, not readable from here (#57)** |
 | A skip | **Not a live hazard here — measured, not assumed.** `npm test` at this commit: **78 suites, 2443 tests, 0 skipped, 14.9 s** (2026-09-20, after `npm ci`). There is no Postgres and no suite gated on one | **A skip-green is not a green** — an executor container without Postgres skips ~47 suites and still reports "0 failed" |
 
 **A cited-vs-actual correction, because the shorthand is wrong in a way that matters.**

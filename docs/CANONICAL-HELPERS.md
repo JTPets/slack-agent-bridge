@@ -400,7 +400,7 @@ grep -rnE "isValid[A-Za-z]*\(|assertValid[A-Za-z]*\(" --include='*.js' . \
 ```
 
 **Canonical implementation: `lib/git-identifiers.js`.** Every consumer calls it and none
-re-derives a pattern: `lib/task-parser.js:139,161` (boundary),
+re-derives a pattern: `lib/task-fields.js:84,108` (boundary; `lib/task-parser.js` until the 2026-11-25 B37 split),
 `lib/clone-lifecycle.js:86-88` and `lib/clone-delivery.js:55` (sinks; one file until the 2026-11-12 B28 split), `lib/security-review-git.js:73` (`cloneRepo`) and `lib/nightly-security-review.js:89` (`reviewRepo`). Rejection
 messages are generated from the same character lists the patterns use, guarded by
 `tests/git-identifiers.test.js`.
