@@ -68,17 +68,8 @@ const {
   isTaskMessage,
   isConversationMessage,
   isNaturalConversationMessage,
-  isStatusQuery,
-  isCreateChannelCommand,
-  parseCreateChannelCommand,
-  // LOGIC CHANGE 2026-04-01: Added approval queue command imports.
-  isApprovalQuery,
-  isApproveCommand,
-  parseApproveCommand,
-  isRejectCommand,
-  parseRejectCommand,
-  isShowTaskCommand,
-  parseShowTaskCommand,
+  // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B35): the built-in command matchers moved
+  // with their commands to lib/conversation-builtins.js.
   alreadyProcessed,
   DEFAULT_TURNS,
   MIN_TURNS,
@@ -91,15 +82,6 @@ const {
 // LOGIC CHANGE 2026-03-26: Import isUserAuthorized from config for user
 // authorization checks in the poll loop.
 const { config, validate, isUserAuthorized, resolveLlmProvider } = require('./lib/config');
-
-// LOGIC CHANGE 2026-03-26: Added owner-tasks module for tracking activation
-// checklists and owner action items across all agents.
-// LOGIC CHANGE 2026-03-26: Removed extractActionRequired and addTask imports -
-// now used via notify-owner module for centralized action tracking.
-const {
-  isOwnerTasksQuery,
-  formatPendingTasks,
-} = require('./lib/owner-tasks');
 
 // LOGIC CHANGE 2026-03-26: Added agent registry for multi-agent architecture.
 // Loads agent config from agents/agents.json with fallback to env vars if registry
@@ -148,10 +130,6 @@ const notifyOwner = require('./lib/notify-owner');
 // Cycles through reactions while task runs: :eyes: -> :hourglass_flowing_sand: -> :gear:
 const { createHeartbeat } = require('./lib/heartbeat');
 
-// LOGIC CHANGE 2026-03-27: Added staff-tasks module for store operations task management.
-// Handles "assign [task] to [name] by [time]", "what tasks are overdue", and "store tasks today".
-const staffTasks = require('./lib/staff-tasks');
-
 // LOGIC CHANGE 2026-03-28: Added bulletin-board module for inter-agent communication.
 // Agents can post bulletins (milestones, alerts, task completions) that other agents can read.
 const bulletinBoard = require('./lib/bulletin-board');
@@ -163,10 +141,6 @@ const { startScheduler, stopScheduler } = require('./lib/agent-scheduler');
 // LOGIC CHANGE 2026-03-28: Added bulletin-watcher module for event-driven agent triggers.
 // When a bulletin is posted, watching agents get notified via ASK messages.
 const bulletinWatcher = require('./lib/bulletin-watcher');
-
-// LOGIC CHANGE 2026-03-28: Added watercooler module for weekly team standup conversations.
-// Orchestrates multi-agent conversation where each agent shares updates in their voice.
-const watercooler = require('./lib/watercooler');
 
 // LOGIC CHANGE 2026-03-28: Added code-review-pipeline module for Phase 1/2/3 task execution.
 // Phase 1: reviewTask reads codebase before executing. Phase 2: buildPrompt assembles enriched
@@ -195,10 +169,8 @@ const { naturalConversationVerdict } = require('./lib/natural-conversation');
 // owner tasks, and bulletins instead of letting them invent fake data.
 const agentContext = require('./lib/agent-context');
 
-// LOGIC CHANGE 2026-04-01: Added approval-queue module for manual approval of auto-generated tasks.
-// Auto-generated tasks (security findings, email actions) are queued for owner approval
-// instead of executing immediately. This prevents prompt injection attacks.
-const approvalQueue = require('./lib/approval-queue');
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B35): the owner-tasks, staff-tasks, watercooler
+// and approval-queue requires moved to lib/conversation-builtins.js, their only user here.
 
 // LOGIC CHANGE 2026-09-13: Redact secrets from any text before it reaches Slack
 // or the logs. Guards the stderr-surfacing path (a child process's stderr could
@@ -215,6 +187,8 @@ const {
   OUTCOME: RESULT_OUTCOME, buildTaskResult, withDelivery, renderText, formatResultLogLine,
 } = require('./lib/task-result');
 const { resolveMergeStates, formatMergeState } = require('./lib/merge-state');
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B35): the ASK: built-ins, out of processConversation.
+const { answerBuiltin } = require('./lib/conversation-builtins');
 const { formatPreservedCloneAlert } = require('./lib/preserved-clone-alert');
 const { describeTaskStateDivergence } = require('./lib/task-state-divergence');
 const { checkTaskStart, describeStartRefusal } = require('./lib/task-start-check');
@@ -1689,8 +1663,8 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
     // channel is how an AGENT is addressed, and a verb answering there would be the
     // verb/name mixing #45 exists to prevent.
     //
-    // The existing isStatusQuery / isOwnerTasksQuery / isCreateChannelCommand chain
-    // below is deliberately NOT migrated here in this change — those are on the live
+    // The phrase-matched built-ins (lib/conversation-builtins.js, after this block) are
+    // deliberately NOT migrated here in this change — those are on the live
     // ASK path with their own phrase-matching behaviour, and moving them is its own
     // change. The router adds verbs; it takes none away. `runCommand` returns
     // { handled: false } for anything it does not own, so nothing that worked before
@@ -1754,390 +1728,29 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
       return;
     }
 
-    // LOGIC CHANGE 2026-03-26: Check for built-in status query before calling LLM.
-    // This saves LLM tokens for simple status checks.
-    // Only bridge agent handles status queries (they're global to the system).
-    if (sourceChannel === BRIDGE_CHANNEL && isStatusQuery(questionText)) {
-      console.log(`[${agentId}] Status query detected: ${msg.ts}`);
-      // LOGIC CHANGE 2026-11-08 (WORK-TODO #39): say whether each recent task's commit
-      // reached main. A failure here costs the merge column, never the reply.
-      let mergeStates = new Map();
-      try {
-        mergeStates = await resolveMergeStates(taskQueue.getQueue().getRecentCompleted(5), { workDir: WORK_DIR });
-      } catch (e) {
-        console.error(`[${agentId}] Merge state unavailable: ${e.message}`);
-      }
-      const statusResponse = formatStatusResponse(mergeStates);
-      await slack.chat.postMessage({
+    // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B35): the phrase-matched built-ins (status,
+    // owner tasks, create channel, staff tasks, bulletins, standup, the approval queue) are
+    // spokes in lib/conversation-builtins.js, tried in the same order with the same channel
+    // rule; this hub only hands them what they need and stops when one answered.
+    const answered = await answerBuiltin(questionText, {
+      reply: (text) => slack.chat.postMessage({
         channel: sourceChannel,
         thread_ts: msg.ts,
-        text: statusResponse,
+        text,
         unfurl_links: false,
-      });
-      console.log(`[${agentId}] Status query ${msg.ts} answered`);
-      return;
-    }
-
-    // LOGIC CHANGE 2026-03-26: Check for owner tasks query ("what do I need to do",
-    // "my tasks", etc.) to return pending activation checklist items.
-    // Only bridge agent handles owner task queries (they're global to the system).
-    if (sourceChannel === BRIDGE_CHANNEL && isOwnerTasksQuery(questionText)) {
-      console.log(`[${agentId}] Owner tasks query detected: ${msg.ts}`);
-      const tasksResponse = formatPendingTasks();
-      await slack.chat.postMessage({
-        channel: sourceChannel,
-        thread_ts: msg.ts,
-        text: tasksResponse,
-        unfurl_links: false,
-      });
-      console.log(`[${agentId}] Owner tasks query ${msg.ts} answered`);
-      return;
-    }
-
-    // LOGIC CHANGE 2026-03-26: Check for "create channel #name" command.
-    // Creates the channel, invites the bot, and returns the channel ID.
-    // Only bridge agent handles channel creation (system-level operation).
-    if (sourceChannel === BRIDGE_CHANNEL && isCreateChannelCommand(questionText)) {
-      console.log(`[${agentId}] Create channel command detected: ${msg.ts}`);
-      const channelName = parseCreateChannelCommand(questionText);
-
-      if (!channelName) {
-        await slack.chat.postMessage({
-          channel: sourceChannel,
-          thread_ts: msg.ts,
-          text: ':x: Invalid channel name. Use: `create channel #channel-name`',
-          unfurl_links: false,
-        });
-        return;
-      }
-
-      try {
-        const result = await slackClient.ensureChannel(channelName);
-        const action = result.created ? 'Created' : 'Found existing';
-        await slack.chat.postMessage({
-          channel: sourceChannel,
-          thread_ts: msg.ts,
-          text: `:white_check_mark: ${action} channel <#${result.channelId}|${result.name}>\nChannel ID: \`${result.channelId}\``,
-          unfurl_links: false,
-        });
-        console.log(`[${agentId}] Channel ${action.toLowerCase()}: ${result.name} (${result.channelId})`);
-      } catch (channelErr) {
-        // Post error to thread
-        await slack.chat.postMessage({
-          channel: sourceChannel,
-          thread_ts: msg.ts,
-          text: `:x: Failed to create channel: ${channelErr.message}`,
-          unfurl_links: false,
-        });
-        console.error(`[${agentId}] Create channel failed:`, channelErr.message);
-      }
-      return;
-    }
-
-    // LOGIC CHANGE 2026-03-27: Check for staff task commands.
-    // Handles "assign [task] to [name] by [time]", "what tasks are overdue", "store tasks today".
-    if (staffTasks.isStaffTaskCommand(questionText)) {
-      const commandType = staffTasks.parseStaffTaskCommandType(questionText);
-      console.log(`[${agentId}] Staff task command detected: ${commandType} (${msg.ts})`);
-
-      try {
-        let response;
-
-        if (commandType === 'assign') {
-          const parsed = staffTasks.parseAssignCommand(questionText);
-          if (!parsed) {
-            response = ':x: Invalid format. Use: `assign [task] to [name] by [time]`';
-          } else {
-            // Look up staff member
-            const staffMember = staffTasks.getStaffByName(parsed.assignee);
-            const assigneeId = staffMember ? staffMember.slackId : parsed.assignee;
-
-            // Check if STORE_TASKS_CHANNEL is configured
-            if (!config.STORE_TASKS_CHANNEL) {
-              response = ':x: STORE_TASKS_CHANNEL_ID not configured. Add it to .env first.';
-            } else {
-              const result = await staffTasks.createTask(slack, config.STORE_TASKS_CHANNEL, {
-                description: parsed.task,
-                assignee: assigneeId,
-                dueTime: parsed.dueTime,
-                priority: 'medium',
-              });
-              response = `:white_check_mark: Task created and posted to <#${config.STORE_TASKS_CHANNEL}>`;
-            }
-          }
-        } else if (commandType === 'overdue') {
-          response = staffTasks.formatOverdueList();
-        } else if (commandType === 'today') {
-          response = staffTasks.formatTodayList();
-        } else {
-          response = ':x: Unknown staff task command.';
-        }
-
-        await slack.chat.postMessage({
-          channel: sourceChannel,
-          thread_ts: msg.ts,
-          text: response,
-          unfurl_links: false,
-        });
-        console.log(`[${agentId}] Staff task command ${msg.ts} answered`);
-      } catch (staffErr) {
-        await slack.chat.postMessage({
-          channel: sourceChannel,
-          thread_ts: msg.ts,
-          text: `:x: Staff task error: ${staffErr.message}`,
-          unfurl_links: false,
-        });
-        console.error(`[${agentId}] Staff task command failed:`, staffErr.message);
-      }
-      return;
-    }
-
-    // LOGIC CHANGE 2026-03-28: Check for bulletin query ("bulletins", "what's new").
-    // Returns recent bulletins without using LLM tokens.
-    if (bulletinBoard.isBulletinQuery(questionText)) {
-      console.log(`[${agentId}] Bulletin query detected: ${msg.ts}`);
-      const recentBulletins = bulletinBoard.getBulletins({ limit: 10 });
-      const response = bulletinBoard.formatBulletinsForSlack(recentBulletins);
-      await slack.chat.postMessage({
-        channel: sourceChannel,
-        thread_ts: msg.ts,
-        text: response,
-        unfurl_links: false,
-      });
-      console.log(`[${agentId}] Bulletin query ${msg.ts} answered`);
-      return;
-    }
-
-    // LOGIC CHANGE 2026-03-28: Check for standup command ("team standup", "watercooler").
-    // Triggers the weekly team standup conversation where all agents share updates.
-    if (watercooler.isStandupCommand(questionText)) {
-      console.log(`[${agentId}] Standup command detected: ${msg.ts}`);
-      await slack.chat.postMessage({
-        channel: sourceChannel,
-        thread_ts: msg.ts,
-        text: ':coffee: Starting team standup... This will post to #sqtools-ops.',
-        unfurl_links: false,
-      });
-
-      try {
-        const result = await watercooler.runStandup(slack);
-        const statusMsg = result.success
-          ? `:white_check_mark: Standup complete! ${result.messagesPosted} messages posted.`
-          : `:warning: Standup finished with issues: ${result.errors.join(', ')}`;
-        await slack.chat.postMessage({
-          channel: sourceChannel,
-          thread_ts: msg.ts,
-          text: statusMsg,
-          unfurl_links: false,
-        });
-      } catch (standupErr) {
-        await slack.chat.postMessage({
-          channel: sourceChannel,
-          thread_ts: msg.ts,
-          text: `:x: Standup failed: ${standupErr.message}`,
-          unfurl_links: false,
-        });
-        console.error(`[${agentId}] Standup failed:`, standupErr.message);
-      }
-      console.log(`[${agentId}] Standup command ${msg.ts} completed`);
-      return;
-    }
-
-    // LOGIC CHANGE 2026-04-01: Check for approval queue queries ("pending approvals", etc.).
-    // Returns pending auto-generated tasks awaiting owner approval.
-    if (isApprovalQuery(questionText)) {
-      console.log(`[${agentId}] Approval query detected: ${msg.ts}`);
-      const response = approvalQueue.formatPendingTasks();
-      await slack.chat.postMessage({
-        channel: sourceChannel,
-        thread_ts: msg.ts,
-        text: response,
-        unfurl_links: false,
-      });
-      console.log(`[${agentId}] Approval query ${msg.ts} answered`);
-      return;
-    }
-
-    // LOGIC CHANGE 2026-04-01: Check for approve command ("approve <id>" or "approve all").
-    // Approves pending tasks and posts them to the target agent channel.
-    if (isApproveCommand(questionText)) {
-      console.log(`[${agentId}] Approve command detected: ${msg.ts}`);
-      const parsed = parseApproveCommand(questionText);
-
-      if (!parsed) {
-        await slack.chat.postMessage({
-          channel: sourceChannel,
-          thread_ts: msg.ts,
-          text: ':x: Invalid format. Use: `approve <task-id>` or `approve all`',
-          unfurl_links: false,
-        });
-        return;
-      }
-
-      try {
-        if (parsed.all) {
-          // Approve all pending tasks
-          const result = approvalQueue.approveAllTasks(msg.user);
-          if (result.count === 0) {
-            await slack.chat.postMessage({
-              channel: sourceChannel,
-              thread_ts: msg.ts,
-              text: ':information_source: No pending tasks to approve.',
-              unfurl_links: false,
-            });
-            return;
-          }
-
-          // Post each approved task to its target channel
-          let posted = 0;
-          for (const task of result.tasks) {
-            if (task.targetChannel && task.taskMessage) {
-              // LOGIC CHANGE 2026-11-25 (WORK-TODO #81): recorded, so the poll loop runs it.
-              await botTaskLedger.postBridgeTask(slack, {
-                channel: task.targetChannel,
-                text: task.taskMessage,
-                unfurl_links: false,
-              }, { onUnrecorded: postToOps });
-              posted++;
-            }
-          }
-
-          await slack.chat.postMessage({
-            channel: sourceChannel,
-            thread_ts: msg.ts,
-            text: `:white_check_mark: Approved and posted ${posted} task(s) to agent channels.`,
-            unfurl_links: false,
-          });
-        } else {
-          // Approve specific task
-          const result = approvalQueue.approveTask(parsed.id, msg.user);
-          if (!result.success) {
-            await slack.chat.postMessage({
-              channel: sourceChannel,
-              thread_ts: msg.ts,
-              text: `:x: ${result.error}`,
-              unfurl_links: false,
-            });
-            return;
-          }
-
-          // Post approved task to target channel
-          const task = result.task;
-          if (task.targetChannel && task.taskMessage) {
-            // LOGIC CHANGE 2026-11-25 (WORK-TODO #81): recorded, so the poll loop runs it.
-            await botTaskLedger.postBridgeTask(slack, {
-              channel: task.targetChannel,
-              text: task.taskMessage,
-              unfurl_links: false,
-            }, { onUnrecorded: postToOps });
-          }
-
-          await slack.chat.postMessage({
-            channel: sourceChannel,
-            thread_ts: msg.ts,
-            text: `:white_check_mark: Approved task \`${parsed.id}\` and posted to <#${task.targetChannel}>.`,
-            unfurl_links: false,
-          });
-        }
-        console.log(`[${agentId}] Approve command ${msg.ts} completed`);
-      } catch (approveErr) {
-        await slack.chat.postMessage({
-          channel: sourceChannel,
-          thread_ts: msg.ts,
-          text: `:x: Approval failed: ${approveErr.message}`,
-          unfurl_links: false,
-        });
-        console.error(`[${agentId}] Approve command failed:`, approveErr.message);
-      }
-      return;
-    }
-
-    // LOGIC CHANGE 2026-04-01: Check for reject command ("reject <id>" or "reject all").
-    // Rejects pending tasks, removing them from the queue without execution.
-    if (isRejectCommand(questionText)) {
-      console.log(`[${agentId}] Reject command detected: ${msg.ts}`);
-      const parsed = parseRejectCommand(questionText);
-
-      if (!parsed) {
-        await slack.chat.postMessage({
-          channel: sourceChannel,
-          thread_ts: msg.ts,
-          text: ':x: Invalid format. Use: `reject <task-id> [reason]` or `reject all`',
-          unfurl_links: false,
-        });
-        return;
-      }
-
-      try {
-        if (parsed.all) {
-          const result = approvalQueue.rejectAllTasks(msg.user, parsed.reason);
-          await slack.chat.postMessage({
-            channel: sourceChannel,
-            thread_ts: msg.ts,
-            text: result.count > 0
-              ? `:wastebasket: Rejected ${result.count} task(s).`
-              : ':information_source: No pending tasks to reject.',
-            unfurl_links: false,
-          });
-        } else {
-          const result = approvalQueue.rejectTask(parsed.id, msg.user, parsed.reason);
-          if (!result.success) {
-            await slack.chat.postMessage({
-              channel: sourceChannel,
-              thread_ts: msg.ts,
-              text: `:x: ${result.error}`,
-              unfurl_links: false,
-            });
-            return;
-          }
-
-          await slack.chat.postMessage({
-            channel: sourceChannel,
-            thread_ts: msg.ts,
-            text: `:wastebasket: Rejected task \`${parsed.id}\`.`,
-            unfurl_links: false,
-          });
-        }
-        console.log(`[${agentId}] Reject command ${msg.ts} completed`);
-      } catch (rejectErr) {
-        await slack.chat.postMessage({
-          channel: sourceChannel,
-          thread_ts: msg.ts,
-          text: `:x: Rejection failed: ${rejectErr.message}`,
-          unfurl_links: false,
-        });
-        console.error(`[${agentId}] Reject command failed:`, rejectErr.message);
-      }
-      return;
-    }
-
-    // LOGIC CHANGE 2026-04-01: Check for show task command ("show task <id>").
-    // Shows detailed information about a specific queued task.
-    if (isShowTaskCommand(questionText)) {
-      console.log(`[${agentId}] Show task command detected: ${msg.ts}`);
-      const taskId = parseShowTaskCommand(questionText);
-
-      if (!taskId) {
-        await slack.chat.postMessage({
-          channel: sourceChannel,
-          thread_ts: msg.ts,
-          text: ':x: Invalid format. Use: `show task <task-id>`',
-          unfurl_links: false,
-        });
-        return;
-      }
-
-      const task = approvalQueue.getTaskById(taskId);
-      const response = approvalQueue.formatTaskDetails(task);
-      await slack.chat.postMessage({
-        channel: sourceChannel,
-        thread_ts: msg.ts,
-        text: response,
-        unfurl_links: false,
-      });
-      console.log(`[${agentId}] Show task command ${msg.ts} answered`);
-      return;
-    }
+      }),
+      inBridgeChannel: sourceChannel === BRIDGE_CHANNEL,
+      agentId,
+      msgTs: msg.ts,
+      userId: msg.user,
+      slack,
+      slackClient,
+      storeTasksChannel: config.STORE_TASKS_CHANNEL,
+      postToOps,
+      resolveMergeStates: () => resolveMergeStates(taskQueue.getQueue().getRecentCompleted(5), { workDir: WORK_DIR }),
+      formatStatusResponse,
+    });
+    if (answered) return;
 
     console.log(`[${agentId}] Processing conversation: ${msg.ts}`);
 

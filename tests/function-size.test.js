@@ -32,11 +32,6 @@ const DECLARED = {
             'the prompt, the model run with its max-turns retry, Phase 3 and the result post, and cleanup. ' +
             'B36 makes it a hub over one spoke per step, with lock/queue as middleware (WORK-TODO #10).',
     },
-    'bridge-agent.js:processConversation': {
-        verdict: 'split-owed',
-        reason: 'Mixes about a dozen built-in commands matched inline (a second command table beside ' +
-            'lib/command-router.js) with the model answer. B35 moves the built-ins into the table (WORK-TODO #10).',
-    },
 };
 
 
@@ -133,9 +128,9 @@ describe('negative controls: the measurement sees what it forbids', () => {
         expect(names).toEqual(['arrow', 'inner', 'method', 'outer']);
     });
 
-    test('the live measurement is not empty-handed: it finds the declared bridge-agent.js functions', () => {
+    test('the live measurement is not empty-handed: it finds the declared bridge-agent.js function', () => {
         const src = fs.readFileSync(path.join(ROOT, 'bridge-agent.js'), 'utf8');
         const names = longFunctions(src).map((f) => f.name);
-        expect(names).toEqual(expect.arrayContaining(['processTask', 'processConversation']));
+        expect(names).toEqual(expect.arrayContaining(['processTask']));
     });
 });

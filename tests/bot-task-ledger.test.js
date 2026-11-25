@@ -242,7 +242,10 @@ describe('no production post of a task message bypasses the ledger', () => {
   test('the generators that exist today use postBridgeTask', () => {
     const scheduler = fs.readFileSync(path.join(__dirname, '..', 'lib', 'agent-scheduler.js'), 'utf8');
     expect(scheduler).toMatch(/postBridgeTask\(slack, \{\s*channel: agent\.channel,\s*text: taskMessage/);
-    expect((SRC.match(/botTaskLedger\.postBridgeTask\(slack, \{\s*channel: task\.targetChannel/g) || []).length).toBe(2);
+    // LOGIC CHANGE 2026-11-25 (B35): approve and approve-all share one post, in the built-ins spoke.
+    const builtins = fs.readFileSync(path.join(__dirname, '..', 'lib', 'conversation-builtins.js'), 'utf8');
+    expect(builtins).toMatch(/botTaskLedger\.postBridgeTask\(ctx\.slack, \{\s*channel: task\.targetChannel/);
+    expect((builtins.match(/await postApproved\(/g) || []).length).toBe(2);
     expect(SRC).toMatch(/postMessage: \(args\) => botTaskLedger\.postBridgeTask\(slack/);
   });
 
