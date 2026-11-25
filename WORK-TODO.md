@@ -92,6 +92,11 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-25** filing **#83** (B33: the nightly security audit reviewed no commits; built,
+closes on the first nightly report that reviews commits) and filing and closing **#84** (B33:
+`ENOENT` in a passing run's output scored it runner_absent) those print **24** open items —
+**7** P1, **13** P2, **4** P3 — and no duplicate ID.
+
 On **2026-11-09** closing **#70** (B26: the image is built and running on the box; the Claude
 CLI installs `latest`) those print **23** open items — **6** P1, **13** P2, **4** P3 — and no
 duplicate ID.
@@ -441,6 +446,8 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #26 | P2 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | Production booted on `546c3d6` (boot post 2026-10-05 16:17 EDT), whose `.gitignore:108` ignores `docker-compose.yml`, so `git check-ignore` matches in the deploy tree |
 | #27 | P2 | in flight (records), then decision | OD | — | Shapes recorded in `docs/CONFIG-SURFACE-AND-REBUILD.md` §7.7 |
 | #75 | P2 | **CLOSED 2026-10-10** (purged) | OD | — | The live compose (owner-supplied 2026-10-10) has no `/repo` mount, so the exposure does not exist on the box; `docker-compose.example.yml` now matches |
+| #83 | P1 | BUILT 2026-11-25 (B33) | B33 | M | `nightly-audit` is a deterministic in-process review of the 24-hour diff (`lib/nightly-security-review.js`). Closes on the first nightly report that reviews commits |
+| #84 | P1 | **CLOSED 2026-11-25** (B33, filed and fixed, purged) | B33 | S | `lib/test-verdict.js` scored any output containing `ENOENT` as runner_absent even after every test passed; an absence word now counts only when no test count was parsed. Guard `tests/test-verdict-counted-run.test.js` |
 | #79 | P2 | **CLOSED 2026-11-07** (B18, filed and fixed, purged) | B18 | S | A Gemini 402 "prepayment credits are depleted" was reported as a rate limit; `lib/llm-http-failure.js` classifies billing first and every Gemini failure is tagged. Guard `tests/llm-http-failure.test.js` |
 | #76 | P3 | **CLOSED 2026-11-07** (B18, purged) | B18 | S | Calendar, holiday, standup and staff-clock days in Toronto time (`lib/time-format.js` zoned helpers); `tests/timezone-explicit.test.js` now fails on a local-field Date read |
 | #62 | P2 | **CLOSED 2026-10-04** (B8, purged) | B8 | S | `data/*` with `!data/.gitkeep`; guard `tests/gitignore-publishable.test.js` |
@@ -600,8 +607,9 @@ work behind an owner's name, which is the opposite of the point.
 
 *Regenerated from the headings. Do not append to it by hand; re-run the command above.*
 
-**P1 — protects or unblocks the live deployment** (6)
+**P1 — protects or unblocks the live deployment** (7)
 
+- **#83** — [The nightly security audit reviews no commits](#83-the-nightly-security-audit-reviews-no-commits)
 - **#56** — [`npm test` fails intermittently inside jest's globalSetup — twice, unreproduced](#56-npm-test-fails-intermittently-inside-jests-globalsetup--twice-unreproduced)
 - **#42** — [Every backup this system has lives on the box it backs up, and their liveness is checked by nothing](#42-every-backup-this-system-has-lives-on-the-box-it-backs-up-and-their-liveness-is-checked-by-nothing)
 - **#41** — [The NAS is the single point of failure for every stack and every credential, and its exposure has never been established](#41-the-nas-is-the-single-point-of-failure-for-every-stack-and-every-credential-and-its-exposure-has-never-been-established)
@@ -633,6 +641,38 @@ work behind an owner's name, which is the opposite of the point.
 - **#16** — [Channel-per-task archive mode](#16-channel-per-task-archive-mode)
 
 ## P1 — Protects or unblocks the live deployment
+
+### 83. The nightly security audit reviews no commits
+**Filed 2026-11-25 (B33). Priority: P1. Status: BUILT on this branch; closes on the first
+nightly report in the security agent's channel that reviews a repository's commits.**
+
+**The defect.** The security agent's 01:00 job, `nightly-audit`, was a `TASK_TEMPLATES`
+entry: a prose instruction ("Review all commits to monitored repos from the last 24 hours")
+posted as a `TASK:` with no `REPO:`. The model got no clone and no git (since 2026-11-07 its
+only tools were Read/Glob/Grep in its cwd), so every night's report said it could not review
+the last 24 hours, or audited whatever happened to be in its cwd (the update-gate checkout, the cwd defect
+#82). The code that CAN do it, `security-review.js` (a `--depth 100` clone and the 24-hour
+diff via `lib/security-review-git.js`), was a host cron script whose runner died with the
+Raspberry Pi; nothing has started it since. Evidence: the security agent's nightly posts,
+read 2026-11-12 to 2026-11-25 (planning file `reports/backlog-batches-2026-11-25.md`;
+point-in-time, Slack is not regenerable from a checkout).
+
+**The fix (B33).** `nightly-audit` is now a `DETERMINISTIC_TASKS` entry
+(`lib/agent-task-catalogue.js`) running `lib/nightly-security-review.js` in-process: code
+clones each `REPOS` entry and reads the window's commits and diff; the model is given them
+in the prompt and runs ONE turn with NO tools (an agent record with no permissions) in an
+EMPTY temp cwd, both temp dirs removed in `finally`; `runLLM`, never `runWithFallback`. The
+report posts in the security agent's channel; the `security_finding` bulletin and the
+security-followup pipeline (CRITICAL/HIGH -> approval queue) are kept; every failure goes
+to `#sqtools-ops`. `ASK: audit` runs it on demand. `security-review.js` shares the module
+and stays as the manual entry point (owner DM + ops). Guard:
+`tests/nightly-security-review.test.js` (real temp repository).
+
+**Left, and why this is not `Closes`:** the box. Whether the security agent's clone of
+each `REPOS` entry succeeds from the container (anonymous HTTPS for a public repo) and the
+first 01:00 report's content are observable only after deploy. Check: the next morning's
+post in the security agent's channel names a repository and its commit count, or says
+"No commits in the last 24 hours".
 
 ### 56. `npm test` fails intermittently inside jest's globalSetup — twice, unreproduced
 **Filed 2026-09-16, second occurrence the same day.**

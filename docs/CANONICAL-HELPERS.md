@@ -362,7 +362,7 @@ grep -rnE "function truncate|\.slice\(0, *[0-9]{3,4}\)" --include='*.js' . \
 | `lib/llm-errors.js:111`, `lib/llm-adapter-claude.js:156` | 2000 | head |
 | `lib/llm-adapter-claude.js:175`, `lib/llm-adapter-gemini.js:76,79,107`, `lib/llm-adapter-ollama.js:130,135,155` | 500 | head |
 | `bots/storefront.js:222` | 2000 | head |
-| `security-review.js:245` | 500 | head |
+| `lib/nightly-security-review.js:163` | 500 | head |
 
 Head-only and head+tail are genuinely different — an error whose signal is in the last
 line survives one and not the other — but every caller is a display path and no
@@ -401,7 +401,7 @@ grep -rnE "isValid[A-Za-z]*\(|assertValid[A-Za-z]*\(" --include='*.js' . \
 
 **Canonical implementation: `lib/git-identifiers.js`.** Every consumer calls it and none
 re-derives a pattern: `lib/task-parser.js:139,161` (boundary),
-`lib/clone-lifecycle.js:86-88` and `lib/clone-delivery.js:55` (sinks; one file until the 2026-11-12 B28 split), `lib/security-review-git.js:73` (`cloneRepo`) and `security-review.js:102` (`reviewRepo`). Rejection
+`lib/clone-lifecycle.js:86-88` and `lib/clone-delivery.js:55` (sinks; one file until the 2026-11-12 B28 split), `lib/security-review-git.js:73` (`cloneRepo`) and `lib/nightly-security-review.js:89` (`reviewRepo`). Rejection
 messages are generated from the same character lists the patterns use, guarded by
 `tests/git-identifiers.test.js`.
 

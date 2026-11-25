@@ -56,7 +56,7 @@ that is checkable, not just that it could be started.
 | `bridge-agent.js` | `node bridge-agent.js` (container `command:`) | The bridge: polls Slack, runs tasks, handles ASK commands. Since 2026-09-14 it also starts an **additive** Socket Mode connection for slash commands (§7) — started after the poll interval is armed, never awaited, and off by default |
 | `auto-update.js` | **Its cycle runs inside `bridge-agent.js`** via `lib/self-deploy.js` since 2026-11-08 (WORK-TODO #17); the standalone daemon is still started by nothing | Git-poll → **full-suite gate** (`lib/update-gate.js`) → ff-only to the gated sha → verify → `process.exit(0)`. Live once the commit carrying it is deployed |
 | `morning-digest.js` | cron `0 8 * * *` | Daily digest DM |
-| `security-review.js` | cron `0 1 * * *` | Nightly commit audit |
+| `security-review.js` | **started by nothing** (its cron host, the Pi, is dead); manual only | Nightly commit audit, delivered to the owner DM and `#sqtools-ops`. Since 2026-11-25 (WORK-TODO #83) the same review runs **in-process** as the security agent's scheduled task `nightly-audit` (`lib/nightly-security-review.js`, 01:00), posting in its channel; this script shares that module |
 | `scripts/watercooler.js` | cron (Mon 8:30 / Fri 17:00) + manual | Multi-agent standup |
 | `bots/storefront.js` | `node bots/storefront.js` | Express chat-widget server |
 
@@ -250,7 +250,7 @@ grep -rn "runWithFallback(\|runLLM(" --include='*.js' . \
 |--------|------|----------------|
 | `bridge-agent.js:765` (`processTask`, TASK:) | `runWithFallback` | ✅ |
 | `bridge-agent.js:1719` (`processConversation`, ASK:) | `runWithFallback` | ✅ |
-| `security-review.js:277` | `runLLM` | ❌ one shot |
+| `lib/nightly-security-review.js` `reviewRepo` (the `nightly-audit` task and `security-review.js`) | `runLLM` | ❌ one shot, deliberately, no tools (WORK-TODO #83) |
 | `bots/storefront.js:444` | `runLLM` | ❌ one shot |
 | `lib/watercooler.js:536` | `runLLM` | ❌ one shot |
 | `lib/task-decomposer.js:341` | `runLLM` | ❌ — and the caller is itself dead (§3) |

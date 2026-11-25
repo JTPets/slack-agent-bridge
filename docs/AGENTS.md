@@ -301,7 +301,7 @@ grep -rn "postBulletin(" --include=*.js . | grep -v node_modules | grep -v '^./t
 | Posted by | Type | When |
 |---|---|---|
 | `bridge-agent.js` | `task_completed` | every task that finishes |
-| `security-review.js` | `security_finding` | the nightly audit finds something |
+| `lib/nightly-security-review.js` (task `nightly-audit`, also `security-review.js`) | `security_finding` | the nightly audit reviews a repository's commits |
 | `morning-digest.js` (as `secretary`) | `milestone` | the digest runs |
 | `lib/watercooler.js` (as `watercooler`) | `milestone` | a standup completes |
 | `lib/integrations/email-categorizer-push.js` (in `email-categorizer.js` until 2026-11-12) | **the category name** | a category whose action is `push_to_secretary` matches |
