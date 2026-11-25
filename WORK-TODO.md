@@ -640,7 +640,6 @@ work behind an owner's name, which is the opposite of the point.
 
 **P2 — real gaps, no risk to the running process** (14)
 
-- **#88** — [The secretary cannot tell the owner's important mail from the junk, and finds him no way out of it](#88-the-secretary-cannot-tell-the-owners-important-mail-from-the-junk-and-finds-him-no-way-out-of-it)
 - **#85** — [The secretary's morning briefing deliberates silently for 15 minutes and is refused by the model's safeguards](#85-the-secretarys-morning-briefing-deliberates-silently-for-15-minutes-and-is-refused-by-the-models-safeguards)
 - **#78** — [SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one](#78-sqtools-alerts-reach-the-secretary-but-the-owner-cannot-acknowledge-silence-or-be-nagged-about-one)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -654,6 +653,7 @@ work behind an owner's name, which is the opposite of the point.
 - **#57** — [Before the bridge is given a private-repo credential — the constraints, not the plan](#57-before-the-bridge-is-given-a-private-repo-credential--the-constraints-not-the-plan)
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
 - **#80** — [Activating an agent ignores its checklist, and a checklist tick proves nothing](#80-activating-an-agent-ignores-its-checklist-and-a-checklist-tick-proves-nothing)
+- **#88** — [The secretary cannot tell the owner's important mail from the junk, and finds him no way out of it](#88-the-secretary-cannot-tell-the-owners-important-mail-from-the-junk-and-finds-him-no-way-out-of-it)
 
 **P3 — nice to have / uncertain ROI** (5)
 
