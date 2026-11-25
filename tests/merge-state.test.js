@@ -107,9 +107,13 @@ test('formatMergeState wording', () => {
 describe('the bridge-agent.js wiring', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'bridge-agent.js'), 'utf8');
     test('the status reply resolves merge state, then renders it per row', () => {
-        const at = src.indexOf('const statusResponse = formatStatusResponse(mergeStates);');
-        expect(at).toBeGreaterThan(-1);
-        expect(src.slice(at - 600, at)).toMatch(/await resolveMergeStates\(taskQueue\.getQueue\(\)\.getRecentCompleted\(5\), \{ workDir: WORK_DIR \}\)/);
+        // LOGIC CHANGE 2026-11-25 (B35): the status built-in is a spoke in
+        // lib/conversation-builtins.js; bridge-agent.js hands it the resolver and renderer.
+        const spoke = fs.readFileSync(path.join(__dirname, '..', 'lib', 'conversation-builtins.js'), 'utf8');
+        const answer = spoke.slice(spoke.indexOf('async function answerStatus('));
+        expect(answer.slice(0, 600)).toMatch(/mergeStates = await ctx\.resolveMergeStates\(\);[\s\S]*ctx\.formatStatusResponse\(mergeStates\)/);
+        expect(src).toMatch(/resolveMergeStates: \(\) => resolveMergeStates\(taskQueue\.getQueue\(\)\.getRecentCompleted\(5\), \{ workDir: WORK_DIR \}\)/);
+        expect(src).toMatch(/\n      formatStatusResponse,\n/);
         const fn = src.slice(src.indexOf('function formatStatusResponse('));
         expect(fn.slice(0, 4500)).toMatch(/formatMergeState\(mergeStates\.get\(task\.id\)\)/);
     });
