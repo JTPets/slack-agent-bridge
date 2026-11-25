@@ -193,12 +193,25 @@ const POLL_INTERVAL = 5000;
 | git positional args | Validate the value AND pass `--` before positionals (not for `git log` — see Critical Rules) |
 | Error message vs pattern | A rejection message must be GENERATED from the same character list the pattern is built around, never retyped beside it |
 | Temp cleanup | Always in finally block |
+| Organization | Functions and files stay organized, readable, testable and fixable: no monoliths, no mixed concerns, and each piece of a split can be tested and fixed on its own. 300 lines is a guide, not a hard cap: a single-purpose function may run longer, and a long one that mixes concerns is split by concern, never by line count. Logic written twice moves into one helper. Why (owner, 2026-11-25): no duplication and no code rot, so that anyone, a person without AI help or a smaller model when compute gets expensive, can fix it with minimal trouble. The file-level gate (`lib/file-size-gate.js`) makes each over-300 file carry a written reason |
 | Logic changes | LOGIC CHANGE comment required |
 | Bug fixes | Regression test required |
 | Dependencies | `npm install --save` only — never manually edit package.json |
 | Env vars | Document in README if adding new ones |
 | Refactor validation | Before committing any refactor that moves variables or changes imports, run: `node -e "require('./bridge-agent.js')"` to verify the process loads. This catches missing references that unit tests miss. |
 | dotenv required | Every executable JS file (bridge-agent.js, auto-update.js, cron scripts) MUST have `require('dotenv').config()` as its first line. A restarted process does not inherit shell environment variables — originally a PM2 problem, now a container-restart one. |
+
+### Organization: helpers, middleware, hubs and spokes (owner, 2026-11-25)
+The shape every split aims for, so the code stays readable, testable and fixable by anyone:
+- **Helpers**: logic needed in two places is one named function in one module, called from
+  both (`docs/CANONICAL-HELPERS.md` maps them). Never a second copy.
+- **Middleware**: a concern that wraps many operations (the allowlist, the task lock and queue
+  state, run stats, notifying Slack) is one step that the operations pass through, not code
+  repeated inside each of them.
+- **Hubs and spokes**: a long flow is a thin hub that reads top to bottom as the list of its
+  steps (for example `processTask`: check, prepare the workspace, build the prompt, run, verify,
+  deliver, clean up) and calls one spoke module per step. A spoke does one job, is named for it,
+  and is tested on its own.
 
 ### Anti-Duplication
 • BEFORE creating any file or function, check if it already exists (find/grep first)
@@ -1097,7 +1110,7 @@ slack-agent-bridge/
 │   ├── llm-scratch-cwd.test.js  # WORK-TODO #82: THE disk walk that fails on any production runLLM/runWithFallback call with cwd WORK_DIR (negative control), and the two bridge-agent.js sites (a no-repo task, an ASK: answer) making and removing their own empty directory
 │   ├── bridge-state.test.js     # Tests for lib/bridge-state.js (poll cursors, legacy migration, processed-task dedup; temp-dir CRUD)
 │   ├── slack-client.test.js     # Tests for lib/slack-client.js (channel management, joinAgentChannels)
-│   ├── function-size.test.js    # THE guard for the owner's per-function 300-line rule (WORK-TODO #10, B34): every function in every production file, parsed with @babel/parser, is at most 300 lines unless DECLARED in the suite with a reason (today processTask and processConversation in bridge-agent.js); a declaration that no longer describes the code fails too. Negative controls: a 301-line function, arrows, methods and nested functions are each caught
+│   ├── slack-channel-parts.test.js # WORK-TODO #10, B34: each part createSlackClient was split into tested on its own: the name rules with no client, and the operations and the startup join with a plain object as the client
 │   ├── slack-socket.test.js     # Tests for lib/slack-socket.js: THE guard for the additivity contract (every failure mode resolves inert instead of throwing), that a rejection message never echoes the token it rejected, that an outage reaches a human and a recovery does too, and that bridge-agent.js starts the connection AFTER the poll interval is armed and does not await it
 │   ├── poll-wake.test.js        # WORK-TODO #4: a burst of message events in polled channels is ONE poll after the delay, an unpolled channel or no channel wakes nothing, the poll set is read per event, nothing throws, the handler passes on the channel id and never the text, and the bridge-agent.js wiring
 │   ├── multi-channel-routing.test.js # Tests for multi-channel polling and agent routing (buildChannelsToPoll, per-channel cursors, TASK vs ASK routing)
