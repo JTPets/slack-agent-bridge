@@ -170,11 +170,6 @@
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for lib/email-rate-limiter.js — sliding window, cooldown and flood protection. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
     },
     {
-      "path": "lib/slack-client.js",
-      "lines_when_declared": 427,
-      "reason": "JUSTIFIED (one job; WORK-TODO #10 B28 verdict, 2026-11-12): channel management through one client - find, create, ensure, join, invite and the channel-map cache - all methods of the one object createSlackClient returns. Cutting the closure would split one object's methods across files with shared private state. Read in full for B28; finding recorded in #10: inviteBotToChannel calls auth.test and never uses the result."
-    },
-    {
       "path": "tests/bug-fixes.test.js",
       "lines_when_declared": 436,
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for regression tests for named past defects; it grows by one describe per fixed bug, which is the no-fix-without-a-regression-test rule made visible. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."

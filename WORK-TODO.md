@@ -1952,6 +1952,36 @@ entry in `lib/validate-exceptions.json` in the same commit; the gate fails if it
 behaviour-preserving: `node --check` plus the smoke suite catch load failures and export
 surface, nothing more. State the smoke coverage of every moved function, and report its
 absence as a finding rather than folding it into a green.
+**B34, 2026-11-25 — the rule, restated by the owner, and the first split under it.** "300 lines per
+function, but that rule is to avoid mixed projects, a single function can be over 300 lines ...
+it's about keeping code organized and readable ... a monolith is useless ... testable code, fixable code ... i am trying to avoid duplication and code rot ... i want something
+anyone can fix when compute costs skyrocket someday with minimal issue." So length is a guide,
+not a trigger: a split is owed where a function or file mixes concerns or is a monolith nobody can
+read in one pass, and it is cut by concern. Recorded in `CLAUDE.md` -> Code Rules ("Organization") with the shape the owner named,
+"helpers, middleware, hubs and spokes" (Code Rules -> "Organization: helpers, middleware, hubs and spokes").
+A length-only test was written and dropped for that reason: it cannot judge organization.
+Functions over 300 lines at `1d70fe8` (measured with @babel/parser): `processTask` 957 and
+`processConversation` 572 in `bridge-agent.js`, `createSlackClient` 360 in `lib/slack-client.js`.
+- `createSlackClient`, split here: eight methods as closures in one 360-line function. Now the pure
+  name rules are `lib/slack-channel-names.js` (no client), the single Slack calls are
+  `lib/slack-channel-ops.js`, and the composed ones (ensure with the channel-map cache, the startup
+  join) are `lib/slack-channel-ensure.js`; each takes the client first and the facade binds them, so
+  callers are unchanged. The `missing_scope` report, written out four times in the closures, is one
+  helper (`throwIfMissingScope`). Each part is tested on its own with a fake client
+  (`tests/slack-channel-parts.test.js`). This reverses the B28 "keep as one" verdict on the owner's no-monolith rule.
+- `processConversation` (B35): two concerns. About a dozen built-in commands (status, owner tasks,
+  create channel, staff tasks, bulletins, standup, approvals approve/reject/show) are matched inline,
+  a second command table beside `lib/command-router.js`; then the model answer. Split: the built-ins
+  join the one command table (a spoke per verb), leaving a hub that routes, then answers.
+- `processTask` (B36): one task, several concerns in one body: the start checks and lock/queue
+  state; the workspace (clone, install, scratch cwd); the prompt; the model run with its max-turns
+  retry; Phase 3 and the result post; cleanup. Split: `processTask` becomes the hub naming those
+  steps in order, each step a spoke module; the lock/queue writes and the ops notices become one
+  middleware step around the run instead of five inline best-effort blocks. The order the
+  source-reading suites pin is kept, and those suites move to the spokes.
+Both wait for the secretary-briefing branch, which also edits `bridge-agent.js`, and run one after
+the other.
+
 **Priority:** P2 | **Effort:** High, incremental | **Status:** open
 
 ---
