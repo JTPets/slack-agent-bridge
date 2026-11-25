@@ -185,19 +185,9 @@
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for lib/clone-lifecycle.js — cloneRepo argv and -- separators, assertValidTargetDir rejections, cleanupDir. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
     },
     {
-      "path": "lib/notify-owner.js",
-      "lines_when_declared": 421,
-      "reason": "JUSTIFIED. More comment (176) than code (192). It is the canonical destination named by docs/CANONICAL-HELPERS.md sections 1 and 2 — WORK-TODO #30 will move more into it, not less — so splitting it now works against the declared consolidation."
-    },
-    {
       "path": "tests/code-review-pipeline.test.js",
       "lines_when_declared": 400,
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for lib/code-review-pipeline.js — reviewTask, buildPrompt and validateOutput. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
-    },
-    {
-      "path": "lib/email-rate-limiter.js",
-      "lines_when_declared": 397,
-      "reason": "JUSTIFIED (one job; WORK-TODO #10 B28 verdict, 2026-11-12): one sliding-window limiter with cooldown, applied to three buckets (emails, bulletins, Slack posts) over one shared state object. Splitting per bucket would triple the surface of a single algorithm. Read in full for B28; the three can/record pairs are near-duplicates, which is a duplication finding recorded in #10, not a second job."
     },
     {
       "path": "tests/task-agent-identity.test.js",
@@ -218,11 +208,6 @@
       "path": "tests/staff-tasks.test.js",
       "lines_when_declared": 367,
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for lib/staff-tasks.js — assignments, escalations and daily tasks. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
-    },
-    {
-      "path": "lib/update-drain.js",
-      "lines_when_declared": 373,
-      "reason": "JUSTIFIED (one job; WORK-TODO #10 B28 verdict, 2026-11-12): owning the DRAIN-ONE marker $WORK_DIR/.update-pending and describing its state - markPending/inspect/clear/clearIfStale/describeRefusal, mirroring lib/task-lock.js deliberately. 62% comment: the reasoning that decides drain-one (no ceiling, a heartbeat on lastSeenAt not a deadline on since, why it errs toward refusing). Splitting it would separate that reasoning from the lines it governs."
     },
     {
       "path": "tests/update-drain.test.js",

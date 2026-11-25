@@ -210,6 +210,24 @@ const SPLITS = [
         exports: ['createSlackClient', 'loadChannelMap', 'saveChannelMap', 'CHANNEL_NAME_MAX_LENGTH',
             'CHANNEL_NAME_PATTERN'],
     },
+    {   facade: 'lib/notify-owner.js', // B38, 2026-11-25: routing core and three notice spokes
+        parts: ['lib/notify-owner-core.js', 'lib/notify-owner-tasks.js', 'lib/notify-owner-actions.js',
+            'lib/notify-owner-rate-limit.js'],
+        exports: ['init', 'PRIORITY', 'notifyOwner', 'notifyChannel', 'notifyOps', 'taskFailed', 'taskCompleted',
+            'actionRequired', 'processActionRequired', 'rateLimitHit', 'rateLimitCleared', 'getSecretaryStatus'],
+    },
+    {   facade: 'lib/email-rate-limiter.js', // B38: one window for three buckets, and the suppressed tally
+        parts: ['lib/email-rate-window.js', 'lib/email-rate-suppressed.js'],
+        exports: ['configure', 'getConfig', 'canProcessEmail', 'recordEmailProcessed', 'recordEmailSuppressed',
+            'canPostBulletin', 'recordBulletinPosted', 'recordBulletinSuppressed', 'canPostSlackMessage',
+            'recordSlackMessagePosted', 'recordSlackMessageSuppressed', 'getStatus', 'getSuppressedAndReset',
+            'formatSuppressedSummary', 'reset', 'isInCooldown', 'DEFAULT_CONFIG'],
+    },
+    {   facade: 'lib/update-drain.js', // B38: the marker file and the messages
+        parts: ['lib/update-drain-marker.js', 'lib/update-drain-messages.js'],
+        exports: ['markPending', 'clear', 'inspect', 'clearIfStale', 'describeRefusal', 'defaultStaleAfterMs',
+            'DEFAULT_MARKER_FILE', 'STALE_INTERVAL_MULTIPLE'],
+    },
 ];
 
 module.exports = { SPLITS };
