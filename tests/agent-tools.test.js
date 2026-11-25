@@ -150,8 +150,11 @@ describe('the callers that used to name no agent now do', () => {
     });
 
     test('both bridge entry points hand the adapter the executing agent', () => {
-        const matches = src('bridge-agent.js').match(/agentRecord: currentAgent/g) || [];
-        expect(matches).toHaveLength(2);
+        // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): the TASK: entry point's call is in
+        // lib/task-llm-run.js; the ASK: one is still processConversation's.
+        const count = (f) => (src(f).match(/agentRecord: currentAgent/g) || []).length;
+        expect(count('bridge-agent.js')).toBe(1);
+        expect(count('lib/task-llm-run.js')).toBe(1);
     });
 
     test('the standup resolves its provider like every other site', () => {

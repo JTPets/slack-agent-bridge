@@ -9,8 +9,10 @@
  * The lock and the queue writes are best effort by design, so they can fail while
  * the poll loop's in-memory `isRunning` carries on. Whether a failed lock should
  * refuse the dispatch instead is an owner decision recorded on #72. What this suite
- * pins is that every one of those failure sites in processTask posts to
- * #sqtools-ops, read from bridge-agent.js's own source.
+ * pins is that every one of those failure sites posts to #sqtools-ops, read from the
+ * source of lib/task-state-gate.js, the task middleware processTask's lock and queue writes
+ * moved to on 2026-11-25 (WORK-TODO #10, B36). The three terminal writes (complete, fail,
+ * interrupt) are now ONE site, endTask, and a test below proves every ending goes through it.
  */
 
 const fs = require('fs');
@@ -18,15 +20,14 @@ const path = require('path');
 
 const { describeTaskStateDivergence, KINDS } = require('../lib/task-state-divergence');
 
-const SOURCE = fs.readFileSync(path.join(__dirname, '..', 'bridge-agent.js'), 'utf8');
+const SOURCE = fs.readFileSync(path.join(__dirname, '..', 'lib', 'task-state-gate.js'), 'utf8');
 
 /** Each failure site: the log line that marks it, and the kind it must post. */
 const SITES = [
     { marker: 'Running without a task lock', kind: 'lock_not_acquired' },
     { marker: "'[bridge-agent] Queue markRunning failed:'", kind: 'queue_not_marked_running' },
-    { marker: "'[bridge-agent] Queue interrupt failed:'", kind: 'queue_terminal_write_failed' },
-    { marker: "'[bridge-agent] Queue complete failed:'", kind: 'queue_terminal_write_failed' },
-    { marker: "'[bridge-agent] Queue fail failed:'", kind: 'queue_terminal_write_failed' },
+    // endTask: the one terminal write, for complete, fail and interrupt alike.
+    { marker: '`[bridge-agent] Queue ${write} failed:`', kind: 'queue_terminal_write_failed' },
 ];
 
 /** Sites in `src` whose failure is logged but not posted with the right kind. */
@@ -77,11 +78,11 @@ describe('describeTaskStateDivergence', () => {
 describe('the guard detects what it claims to (negative controls)', () => {
     test('a site that only logs is reported', () => {
         const mutated = SOURCE.replace(
-            /(\[bridge-agent\] Queue complete failed:', queueErr\.message\);)[\s\S]*?\}\)\);/,
+            /(\[bridge-agent\] Queue \$\{write\} failed:`, queueErr\.message\);)[\s\S]*?\}\)\);/,
             '$1'
         );
         expect(mutated).not.toBe(SOURCE);
-        expect(unpostedSites(mutated)).toEqual(["'[bridge-agent] Queue complete failed:'"]);
+        expect(unpostedSites(mutated)).toEqual(['`[bridge-agent] Queue ${write} failed:`']);
     });
 
     test('a site posting the wrong kind is reported', () => {
@@ -92,8 +93,17 @@ describe('the guard detects what it claims to (negative controls)', () => {
     });
 });
 
-describe('bridge-agent.js posts every task-state divergence', () => {
-    test('all five failure sites post with the right kind', () => {
+describe('the task middleware posts every task-state divergence', () => {
+    test('all three failure sites post with the right kind', () => {
         expect(unpostedSites(SOURCE)).toEqual([]);
+    });
+
+    test('every task ending writes its terminal row through endTask, never the queue directly', () => {
+        const { spokeSource, functionBody } = require('./helpers/task-path-sources');
+        const outcome = spokeSource('task-outcome');
+        for (const [fn, write] of [['deliverCompleted', 'complete'], ['deliverFailure', 'fail'], ['deliverInterrupted', 'interrupt']]) {
+            expect(functionBody(outcome, fn)).toContain(`endTask('${write}'`);
+        }
+        expect(outcome).not.toMatch(/getQueue\(\)\.(complete|fail|interrupt)\(/);
     });
 });

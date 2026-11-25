@@ -132,15 +132,18 @@ describe('notify-owner posts the card when given a result', () => {
     });
 });
 
-describe('the bridge-agent.js wiring', () => {
-    const src = fs.readFileSync(path.join(__dirname, '..', 'bridge-agent.js'), 'utf8');
-    const fn = src.slice(src.indexOf('async function processTask('), src.indexOf('\n}\n', src.indexOf('async function processTask(')));
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): each task ending is a function in
+// lib/task-outcome.js, which processTask (the hub) calls. Read there.
+describe('the task-ending wiring (lib/task-outcome.js)', () => {
+    const { functionBody, spokeSource, taskPathSource } = require('./helpers/task-path-sources');
+    const outcome = spokeSource('task-outcome');
+    const fn = functionBody(outcome, 'deliverCompleted');
 
     test('Phase 3 runs before the result post, and the result is handed to it', () => {
         const gate = fn.indexOf('validation = validateOutput(taskDir');
         const build = fn.indexOf('const taskResult = buildTaskResult(');
         const post = fn.indexOf('await notifyOwner.taskCompleted(');
-        const terminal = fn.indexOf('.complete(queueId');
+        const terminal = fn.indexOf("endTask('complete'");
         expect(gate).toBeGreaterThan(-1);
         expect(gate).toBeLessThan(build);
         expect(build).toBeLessThan(post);
@@ -149,17 +152,21 @@ describe('the bridge-agent.js wiring', () => {
         expect(args).toMatch(/result: taskResult/);
     });
 
-    test('there is one validateOutput call in processTask, not a second run after the post', () => {
-        expect(fn.match(/validateOutput\(/g)).toHaveLength(1);
+    test('there is one validateOutput call on the whole task path, not a second run after the post', () => {
+        expect(taskPathSource().match(/validateOutput\(/g)).toHaveLength(1);
     });
 
     test('the failure path passes its result card to taskFailed', () => {
-        const at = fn.indexOf('await notifyOwner.taskFailed(');
-        expect(fn.slice(at, fn.indexOf('});', at))).toMatch(/result: failureResult/);
+        const failure = functionBody(outcome, 'deliverFailure');
+        const at = failure.indexOf('await notifyOwner.taskFailed(');
+        expect(at).toBeGreaterThan(-1);
+        expect(failure.slice(at, failure.indexOf('});', at))).toMatch(/result: failureResult/);
     });
 
     test('the interrupted notice is rendered from the same result shape', () => {
-        const at = fn.indexOf('if (interrupted) {');
-        expect(fn.slice(at, fn.indexOf('.interrupt(', at))).toMatch(/renderText\(buildTaskResult\(/);
+        const interrupted = functionBody(outcome, 'deliverInterrupted');
+        const end = interrupted.indexOf("endTask('interrupt'");
+        expect(end).toBeGreaterThan(-1);
+        expect(interrupted.slice(0, end)).toMatch(/renderText\(buildTaskResult\(/);
     });
 });

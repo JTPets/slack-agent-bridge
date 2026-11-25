@@ -53,13 +53,17 @@ describe('no model run starts in WORK_DIR', () => {
   });
 
   test('a task with no repo gets its own empty directory, removed in the finally', () => {
-    const body = SRC.slice(SRC.indexOf('async function processTask('));
-    const make = body.indexOf("scratchCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-task-'));");
-    const finallyAt = body.indexOf('  } finally {');
-    const remove = body.indexOf('fs.rmSync(scratchCwd, { recursive: true, force: true });');
+    // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): made by lib/task-workspace.js
+    // prepareWorkspace, removed by its cleanupWorkspace from processTask's finally.
+    const { functionBody, hubBody, spokeSource } = require('./helpers/task-path-sources');
+    const ws = spokeSource('task-workspace');
+    const prepare = functionBody(ws, 'prepareWorkspace');
+    const make = prepare.indexOf("run.scratchCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-task-'));");
     expect(make).toBeGreaterThan(0);
-    expect(body.slice(make - 200, make)).toContain('if (!task.repo) {');
-    expect(remove).toBeGreaterThan(finallyAt);
+    expect(prepare.slice(make - 200, make)).toContain('if (!task.repo) {');
+    expect(functionBody(ws, 'cleanupWorkspace')).toContain('fs.rmSync(run.scratchCwd, { recursive: true, force: true });');
+    const hub = hubBody(SRC);
+    expect(hub.indexOf('await cleanupWorkspace(run, deps);')).toBeGreaterThan(hub.indexOf('\n  } finally {'));
   });
 
   test('an ASK: answer runs in its own directory, removed whatever the run does', () => {

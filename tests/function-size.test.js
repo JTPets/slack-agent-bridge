@@ -25,14 +25,9 @@ const ROOT = path.join(__dirname, '..');
 /**
  * `<file>:<name>` -> { verdict: 'single-concern' | 'split-owed', reason }.
  */
-const DECLARED = {
-    'bridge-agent.js:processTask': {
-        verdict: 'split-owed',
-        reason: 'Mixes the start checks and lock/queue state, the workspace (clone, install, scratch cwd), ' +
-            'the prompt, the model run with its max-turns retry, Phase 3 and the result post, and cleanup. ' +
-            'B36 makes it a hub over one spoke per step, with lock/queue as middleware (WORK-TODO #10).',
-    },
-};
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): empty. bridge-agent.js processTask, the
+// last entry (split-owed), is now a ~90-line hub over lib/task-*.js spokes.
+const DECLARED = {};
 
 
 function loadParser() {
@@ -128,9 +123,12 @@ describe('negative controls: the measurement sees what it forbids', () => {
         expect(names).toEqual(['arrow', 'inner', 'method', 'outer']);
     });
 
-    test('the live measurement is not empty-handed: it finds the declared bridge-agent.js function', () => {
+    test('the live measurement reads the real file: at a lower bar it finds the processTask hub', () => {
+        // With nothing declared, the live check above is "this list is empty", which a
+        // measurement that parsed nothing would also satisfy.
         const src = fs.readFileSync(path.join(ROOT, 'bridge-agent.js'), 'utf8');
-        const names = longFunctions(src).map((f) => f.name);
+        const names = longFunctions(src, 60).map((f) => f.name);
         expect(names).toEqual(expect.arrayContaining(['processTask']));
+        expect(longFunctions(src).map((f) => f.name)).not.toContain('processTask');
     });
 });

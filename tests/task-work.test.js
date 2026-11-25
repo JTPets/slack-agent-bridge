@@ -185,17 +185,21 @@ describe('TaskQueue.recordWork', () => {
 describe('the bridge-agent.js wiring', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'bridge-agent.js'), 'utf8');
 
+  // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): the clone, its base sha and the work
+  // record moved with processTask's workspace step to lib/task-workspace.js.
+  const ws = fs.readFileSync(path.join(__dirname, '..', 'lib', 'task-workspace.js'), 'utf8');
+
   test('the base sha is captured right after the clone', () => {
-    const at = src.indexOf('cloneRepo(task.repo, task.branch, taskDir);');
+    const at = ws.indexOf('cloneRepo(task.repo, task.branch, taskDir);');
     expect(at).toBeGreaterThan(-1);
-    expect(src.slice(at, at + 400)).toMatch(/taskBaseSha = headSha\(taskDir\)/);
+    expect(ws.slice(at, at + 400)).toMatch(/run\.taskBaseSha = headSha\(taskDir\)/);
   });
 
   test('the work is recorded BEFORE the clone can be cleaned up', () => {
-    expect(src).toMatch(/recordWork\(queueId, describeWork\(taskDir, baseSha\)\)/);
-    const record = src.indexOf('await recordTaskWork(queueId, taskDir, taskBaseSha, task.description)');
-    const detect = src.indexOf('const delivery = detectUndeliveredWork(taskDir);');
-    const cleanup = src.indexOf('cleanupDir(taskDir);');
+    expect(ws).toMatch(/recordWork\(queueId, describeWork\(taskDir, baseSha\)\)/);
+    const record = ws.indexOf('await recordTaskWork(run.queueId, taskDir, run.taskBaseSha, task.description, deps.postToOps)');
+    const detect = ws.indexOf('const delivery = detectUndeliveredWork(taskDir);');
+    const cleanup = ws.indexOf('cleanupDir(taskDir);');
     expect(record).toBeGreaterThan(-1);
     expect(record).toBeLessThan(detect);
     expect(record).toBeLessThan(cleanup);

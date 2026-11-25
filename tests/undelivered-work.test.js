@@ -281,11 +281,22 @@ describe('detectUndeliveredWork', () => {
 });
 
 describe('cleanup gating wiring', () => {
-  test('the finally block consults detectUndeliveredWork before cleanupDir', () => {
-    // A delivery check nobody calls is the same silent data-loss defect.
-    const finallyIdx = source.indexOf('await heartbeat.stop(taskSuccess);');
+  // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): the cleanup is lib/task-workspace.js
+  // cleanupWorkspace, called from processTask's finally.
+  const { functionBody, hubBody, spokeSource } = require('./helpers/task-path-sources');
+  const cleanupRegion = () => functionBody(spokeSource('task-workspace'), 'cleanupWorkspace');
+
+  test('processTask\'s finally runs the workspace cleanup', () => {
+    const hub = hubBody(source);
+    const finallyIdx = hub.indexOf('\n  } finally {');
     expect(finallyIdx).toBeGreaterThan(-1);
-    const region = source.slice(finallyIdx, finallyIdx + 2000);
+    expect(hub.indexOf('await cleanupWorkspace(run, deps);')).toBeGreaterThan(finallyIdx);
+  });
+
+  test('the cleanup consults detectUndeliveredWork before cleanupDir', () => {
+    // A delivery check nobody calls is the same silent data-loss defect.
+    const region = cleanupRegion();
+    expect(region).not.toBeNull();
     const checkIdx = region.indexOf('detectUndeliveredWork(taskDir)');
     const cleanupIdx = region.indexOf('cleanupDir(taskDir)');
     expect(checkIdx).toBeGreaterThan(-1);
@@ -295,8 +306,7 @@ describe('cleanup gating wiring', () => {
   });
 
   test('undelivered clones are preserved, not cleaned up', () => {
-    const finallyIdx = source.indexOf('await heartbeat.stop(taskSuccess);');
-    const region = source.slice(finallyIdx, finallyIdx + 2000);
+    const region = cleanupRegion();
     // The preservation branch alerts ops and does NOT call cleanupDir. Since
     // 2026-10-02 (#25) the alert text is built by lib/preserved-clone-alert.js,
     // whose wording is asserted in tests/preserved-clone-alert.test.js.

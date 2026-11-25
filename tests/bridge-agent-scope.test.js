@@ -106,6 +106,17 @@ describe('bridge-agent.js scope integrity', () => {
         expect(unbound.length === 0 ? '' : `Unbound identifiers:\n${detail}`).toBe('');
     });
 
+    // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): processTask's steps now live in
+    // lib/task-*.js spokes; an unbound name there throws on the same live path.
+    test('every identifier referenced in processTask\'s spokes is bound', () => {
+        const { SPOKE_FILES } = require('./helpers/task-path-sources');
+        const detail = [];
+        for (const [name, file] of Object.entries(SPOKE_FILES)) {
+            for (const ref of findUnboundReferences(file)) detail.push(`  ${ref.name} (lib/${name}.js:${ref.line})`);
+        }
+        expect(detail.length === 0 ? '' : `Unbound identifiers:\n${detail.join('\n')}`).toBe('');
+    });
+
     test('the scope analyser actually detects an unbound identifier (guard is live)', () => {
         // Prove the check above can fail. Without this, a broken analyser would
         // report a clean file forever and the guard would be decorative.
@@ -140,13 +151,12 @@ describe('bridge-agent.js scope integrity', () => {
         //
         // What it guards is BINDING, not which record the value comes from. It now
         // asserts exactly that, and is indifferent to the source expression.
-        const source = fs.readFileSync(bridgeAgentPath, 'utf8');
-        const processTaskBody = source.slice(
-            source.indexOf('async function processTask('),
-            source.indexOf('// ---- Status query handling ----')
-        );
+        // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): the model run moved out of
+        // processTask into lib/task-llm-run.js runTaskLlm; this reads it there.
+        const { spokeSource, functionBody } = require('./helpers/task-path-sources');
+        const processTaskBody = functionBody(spokeSource('task-llm-run'), 'runTaskLlm');
 
-        expect(processTaskBody).toContain('async function processTask(');
+        expect(processTaskBody).toContain('async function runTaskLlm(');
         // Bound, from something - never a bare use, never a hardcoded literal.
         expect(processTaskBody).toMatch(/const agentId = [^;]+;/);
         expect(processTaskBody).not.toMatch(/const agentId = 'bridge';/);

@@ -72,9 +72,13 @@ describe('ASK: lock and ASK: lock clear, on real files', () => {
     });
 });
 
-describe('processTask wiring (read from bridge-agent.js)', () => {
-    const src = fs.readFileSync(path.join(__dirname, '..', 'bridge-agent.js'), 'utf8');
-    const fn = src.slice(src.indexOf('async function processTask('), src.indexOf('// ---- Status query handling ----'));
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): the start check, the lock and the release
+// are lib/task-state-gate.js's (the task middleware); the throw stays in processTask's try.
+describe('processTask wiring (read from bridge-agent.js and lib/task-state-gate.js)', () => {
+    const { functionBody, hubBody, spokeSource } = require('./helpers/task-path-sources');
+    const gate = spokeSource('task-state-gate');
+    const hub = hubBody();
+    const fn = [hub, functionBody(gate, 'beginTask'), functionBody(gate, 'releaseTaskLock')].join('\n');
     test('the start check runs before the lock is acquired, and a refusal skips both acquire and markRunning', () => {
         expect(fn.indexOf('checkTaskStart(')).toBeGreaterThan(-1);
         expect(fn.indexOf('checkTaskStart(')).toBeLessThan(fn.indexOf('taskLock.acquire('));
@@ -90,10 +94,13 @@ describe('processTask wiring (read from bridge-agent.js)', () => {
         expect(fn.indexOf('if (startRefusal) throw new Error(describeStartRefusal(startRefusal));')).toBeGreaterThan(tryAt);
     });
     test('only a lock this task wrote is released', () => {
-        expect(fn).toMatch(/const releaseResult = lockOwned \? taskLock\.release\(TASK_LOCK_FILE\) : \{ existed: false \};/);
+        // The hub hands the release exactly what beginTask said it owns.
+        expect(hub).toMatch(/const \{ startRefusal, lockOwned \} = await beginTask\(/);
+        expect(hub).toMatch(/releaseTaskLock\(\{ lockOwned, lockFile: TASK_LOCK_FILE \}\)/);
+        expect(fn).toMatch(/const releaseResult = lockOwned \? taskLock\.release\(lockFile\) : \{ existed: false \};/);
     });
     test('negative control: the old best-effort shape (acquire unconditionally, release unconditionally) fails these', () => {
-        const old = fn.replace(/const releaseResult = lockOwned \? taskLock\.release\(TASK_LOCK_FILE\) : \{ existed: false \};/, 'const releaseResult = taskLock.release(TASK_LOCK_FILE);');
+        const old = fn.replace(/const releaseResult = lockOwned \? taskLock\.release\(lockFile\) : \{ existed: false \};/, 'const releaseResult = taskLock.release(lockFile);');
         expect(old).not.toMatch(/lockOwned \? taskLock\.release/);
     });
 });
