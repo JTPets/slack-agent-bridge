@@ -688,7 +688,10 @@ disk walk fails on any production `chat.postMessage` whose text is a task messag
 control; it found the security follow-up site this item did not list.
 **Left:** the guard sees task text only by those names; a new generator under another name is
 caught only by its first scheduled run being refused and reported. Closes on the first
-scheduled task observed running on the box after the deploy (the 01:00 nightly audit).
+scheduled task observed running on the box after the deploy. **Corrected 2026-11-25:** that is the
+07:00 `morning-briefing`, not the 01:00 audit, which since #83 runs in-process and posts no task
+message, so it never meets the ledger. **Close sweep 2026-11-25** (box: self-deployed `7419c29` at 07:34 Toronto, `#sqtools-ops` "Update gate GREEN for 7419c29: 3659 passed, 0 skipped"; owner boot log: Joined 7/7, 5 scheduler jobs, Socket Mode started, Claude CLI check PASSED). Today's 07:00 briefing ran on `d9b61ee`, before the
+ledger was deployed (the bridge started on `bb7d35e` at 07:10), so it does not count. Next: 2026-11-26 07:00.
 
 **Priority:** P1 | **Effort:** Low | **Status:** built 2026-11-25 (B32); closes on the first scheduled task run after deploy
 
@@ -712,6 +715,8 @@ Guard: `tests/llm-scratch-cwd.test.js`, whose disk walk fails on any production 
 **Left:** the nightly audit's own fix is **#83** (B33, merged in `bb7d35e`); this item covers the
 cwd of no-repo tasks and answers. Closes on the first nightly audit after deploy that no longer reports on
 the `update-gate` checkout.
+**Close sweep 2026-11-25** (box: self-deployed `7419c29` at 07:34 Toronto, `#sqtools-ops` "Update gate GREEN for 7419c29: 3659 passed, 0 skipped"; owner boot log: Joined 7/7, 5 scheduler jobs, Socket Mode started, Claude CLI check PASSED). The 2026-11-25 01:01 audit still reported on `/tmp/bridge-agent/update-gate` (`d9b61ee`),
+but it ran on `d9b61ee`, before this code. Next: 2026-11-26 01:00.
 
 **Priority:** P1 | **Effort:** Low | **Status:** built 2026-11-25 (B32); closes on the first audit after deploy
 
@@ -748,6 +753,8 @@ each `REPOS` entry succeeds from the container (anonymous HTTPS for a public rep
 first 01:00 report's content are observable only after deploy. Check: the next morning's
 post in the security agent's channel names a repository and its commit count, or says
 "No commits in the last 24 hours".
+**Close sweep 2026-11-25** (box: self-deployed `7419c29` at 07:34 Toronto, `#sqtools-ops` "Update gate GREEN for 7419c29: 3659 passed, 0 skipped"; owner boot log: Joined 7/7, 5 scheduler jobs, Socket Mode started, Claude CLI check PASSED). The 2026-11-25 01:01 audit was the old LLM template on `d9b61ee` ("I couldn't read the
+commit history"); it predates this code. Next: 2026-11-26 01:00.
 
 ---
 
@@ -1249,7 +1256,9 @@ box's task deadline let it reach 917 s.
 Guard: `tests/morning-briefing.test.js` (the pre-#85 template is its negative control; the
 cap is proven on the real adapter with a stub).
 
-**Left:** observing the briefings on the box after deploy.
+**Left:** observing the briefings on the box after deploy. **Close sweep 2026-11-25** (box: self-deployed `7419c29` at 07:34 Toronto, `#sqtools-ops` "Update gate GREEN for 7419c29: 3659 passed, 0 skipped"; owner boot log: Joined 7/7, 5 scheduler jobs, Socket Mode started, Claude CLI check PASSED). The 2026-11-25 07:00 briefing
+(20 s, weather still "couldn't get a live forecast") ran on `d9b61ee`, before #85 (`d83f029`,
+PR #109) was deployed at 07:19, so the week starts 2026-11-26.
 
 ### 78. SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one
 **Filed 2026-11-02,** by the change that built the intake (owner request 2026-11-02; the
@@ -1983,6 +1992,17 @@ Functions over 300 lines at `1d70fe8` (measured with @babel/parser): `processTas
   source-reading suites pin is kept, and those suites move to the spokes.
 Both wait for the secretary-briefing branch, which also edits `bridge-agent.js`, and run one after
 the other.
+
+**B35, 2026-11-25 — `processConversation`'s built-ins are spokes.** The ten phrase-matched
+built-ins moved to `lib/conversation-builtins.js`: one spoke per command and `answerBuiltin`, the
+hub `processConversation` calls before any model; every reply goes through one `ctx.reply`
+instead of ten copies of the thread-reply post. Same matchers, same order, same channel rule.
+They were **not** merged into `lib/command-router.js`'s table as planned above: that table runs
+only in `#claude-bridge` and has its own agent-channel rule (`lib/agent-channel-verbs.js`), so
+moving them would change where staff, bulletin, standup and approval commands answer. That is a
+behaviour decision, left to the owner. `processConversation` is now under 300 lines; the
+function-size declaration for it is removed, leaving `processTask` (B36). Tests:
+`tests/conversation-builtins.test.js`.
 
 **Priority:** P2 | **Effort:** High, incremental | **Status:** open
 
