@@ -2334,6 +2334,11 @@ set thresholds from sampled runs. Sampled since: the run watch posts `Task may b
 (2026-11-13, 15, 18, 20, 21, 24 in `#sqtools-ops`), and that briefing failed on 11-20 (917 s)
 and 11-21. The `[run-stats]` lines on the box are the next input.
 
+**2026-11-25 (B40):** each run's stats are now kept (`lib/run-stats-store.js`), and
+`ASK: runs [days]` gives per agent the p50/p95 duration, the longest and p95 quiet gap and
+the longest repeat. That replaces the log paste below as the regeneration command for
+setting N and the wall-clock bound; nothing is set from it yet.
+
 **Related, not duplicated:** **#20** records that `MAX_TURNS` names four different quantities
 and that the env var is dead config. That is a naming/wiring defect; this item is about what
 the ceiling should *be*. Both touch `lib/task-parser.js`; neither subsumes the other.
@@ -2396,7 +2401,17 @@ platforms; every test injects its client or fetch.
 
 ### 86. What each agent's runs would cost is logged once per run and summed nowhere
 **Filed 2026-11-25. Priority: P3 (owner: "worth tracking ... but not a priority").
-Status: OPEN, not started.**
+Status: BUILT (B40, 2026-11-25); closes when `ASK: runs` on the box shows runs recorded after the deploy.**
+
+**B40, 2026-11-25 — built.** `lib/run-stats-store.js` keeps one record per Claude run
+(`$WORK_DIR/run-stats.json`, 30 days, 5000 runs) from the one write site in
+`lib/llm-adapter-claude.js`; the `[run-stats]` log line is unchanged. `ASK: runs [days]`
+(`lib/run-stats-report.js`, default 7, max 30) reports per agent: runs, failed runs,
+estimated cost, turns, p50/p95 duration, longest and p95 quiet gap, longest repeat, stall
+and loop alerts, then cost per Toronto day, and says the cost is an API-price estimate.
+Per-run records, not `lib/llm-metrics.js` day sums, because a p95 needs each run. Guard:
+`tests/run-stats.test.js` (the real adapter with a stub binary writes the record).
+**Left:** the optional weekly line; runs before the deploy exist only in the container log.
 
 Every Claude run logs `[run-stats]` with `costUsd` (the CLI's `total_cost_usd`, an
 API-price estimate; billing is subscription usage through `CLAUDE_CODE_OAUTH_TOKEN`, so it
