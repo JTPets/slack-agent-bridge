@@ -700,8 +700,11 @@ docker compose logs -f bridge
 # Morning digest:
 # 0 8 * * * cd <repo> && set -a && source .env && set +a && node morning-digest.js
 
-# Security review (1am daily):
-# 0 1 * * * cd <repo> && set -a && source .env && set +a && node security-review.js
+# Security review: since 2026-11-25 (WORK-TODO #83) it runs IN THE BRIDGE as the security
+# agent's scheduled task `nightly-audit` (01:00, lib/nightly-security-review.js), and
+# `ASK: audit` runs it now. No cron is needed. The script remains for a manual run
+# (owner DM + #sqtools-ops):
+# node security-review.js
 
 # Storefront chat widget
 node bots/storefront.js              # Direct execution
@@ -752,7 +755,7 @@ slack-agent-bridge/
 ├── bridge-agent.js       # Main entry point: Slack polling, task execution via Claude CLI
 ├── auto-update.js        # The self-update cycle: checkForUpdates (fetch, gate, mark pending, defer or apply), its dependency bag (DEFAULT_DEPS, gatedDeps) and the run-directly entry. Run in-process by lib/self-deploy.js. Facade since 2026-11-11 (WORK-TODO #10 Wave 4) over the six lib/update-*.js modules below (config, git, state, deferral, apply, daemon), every old export the same object
 ├── morning-digest.js     # Cron job script: sends daily task stats DM to owner. Since 2026-10-05 (WORK-TODO #10) keeps the token check, the Slack client and main(); the text is built by lib/digest-sections.js
-├── security-review.js    # Cron job script: security audit of commits from last 24h. Since 2026-10-05 (WORK-TODO #10) keeps the review, the report, delivery and follow-up; the clone and git reads are lib/security-review-git.js
+├── security-review.js    # Manual entry point for the security audit of commits from the last 24h, delivered to the owner DM and #sqtools-ops. Since 2026-11-25 (WORK-TODO #83) the review, report, bulletin and follow-up are lib/nightly-security-review.js, which the bridge runs in-process as `nightly-audit`; nothing schedules this script (its cron host was the Pi)
 ├── scripts/
 │   ├── watercooler.js    # Cron/manual script: weekly team standup conversation (Friday 5PM)
 │   ├── backup-status.sh  # HOST-side (NAS cron, never a container): writes the newest file name and age per backup directory to a JSON status file that lib/backup-watch.js reads (WORK-TODO #42). POSIX sh, temp file + rename
@@ -883,7 +886,7 @@ slack-agent-bridge/
 │   ├── staff-tasks-slack.js # Posting, completing and escalating tasks in #store-tasks, and posting the daily template
 │   ├── staff-tasks-commands.js # The ASK: side: assign/list recognisers and parsing, plus the today, overdue and digest renderings
 │   ├── review-findings.js # Structured findings for the Phase-3 verdict: a closed RULES catalogue of stable rule identifiers with severities, makeFinding (ruleId + file + line, prose GENERATED from those fields), buildVerdict, sameFinding/findRecurrence (comparison is by ruleId only — a fix that moves the same defect to another file has not converged), nextAction (the D5 generation cap and the D6 recurrence stop) and describeSpawnedTask (the lineage a spawned fix task must carry). Nothing spawns tasks; this is the contract, made executable
-│   ├── test-verdict.js   # THE honest classifier for a test-command run: classifyTestRun distinguishes passed / failed / runner_absent / no_assertions / timed_out / not_run, and a pass requires exit 0 AND a positive parsed assertion count. A fully skipped suite, a command that exits 0 printing nothing, and `jest: not found` are each a failed gate, never a pass. Reads jest, mocha, node --test and (since 2026-11-12, #68) pytest summaries; `No module named pytest` is runner_absent. Every test invocation in the repo routes through it (tests/test-gate-honesty.test.js)
+│   ├── test-verdict.js   # THE honest classifier for a test-command run: classifyTestRun distinguishes passed / failed / runner_absent / no_assertions / timed_out / not_run, and a pass requires exit 0 AND a positive parsed assertion count. A fully skipped suite, a command that exits 0 printing nothing, and `jest: not found` are each a failed gate, never a pass. Reads jest, mocha, node --test and (since 2026-11-12, #68) pytest summaries; `No module named pytest` is runner_absent. Since 2026-11-25 (#84) an absence word in the output (`ENOENT`, `not found`) counts only when no test count was parsed: a run that printed its count started, and the count decides. Every test invocation in the repo routes through it (tests/test-gate-honesty.test.js)
 │   ├── redact-secrets.js # Secret scrubber for any string bound for Slack or the logs: redact() applies value-driven scrubbing (the live value of every env var whose NAME matches SENSITIVE_NAME, so a token is caught whatever its shape) then pattern-driven scrubbing (Slack/Anthropic/Google/GitHub tokens, PEM private keys, OAuth refresh tokens, bearer headers). Exists because spawned-LLM stderr was surfaced verbatim to #sqtools-ops
 │   ├── security-followup.js # Security finding → auto-task pipeline: parses findings, creates TASK messages. Since 2026-10-05 (WORK-TODO #10) keeps processSecurityBulletin and its handler and re-exports the two modules below
 │   ├── security-review-git.js # The nightly review's git half: cloneRepo (--depth 100, so the 24-hour window has history; clone-lifecycle's depth-1 push clone cannot serve it), getRecentCommits (last 24 h, no merges), getDiff (with the initial-commit `git show` fallback), getCommitLog, execCommand. spawn with argv arrays; the repo is validated before git runs. Moved out of security-review.js 2026-10-05
@@ -923,6 +926,7 @@ slack-agent-bridge/
 │   ├── definition-branch.js # WORK-TODO #51 (owner's shape c): pushDefinitionBranch clones main of BRIDGE_REPO (cloneRepo, deploy key), writes files under agents/ only, commits, pushes a NEW branch (no force) and confirms it with ls-remote; the clone is removed in finally. Used by `create` and `provider`; nothing is written into the running checkout. execFileSync argv; never throws
 │   ├── provider-switch.js # WORK-TODO #47: `ASK: provider <p> [id ...]` — edits each definition's `llm_provider:` line and pushes the result as a branch, listing every agent before and after with its source; an agent pinned by LLM_PROVIDER_<AGENTID> is left alone and named, and a code agent moving off claude is flagged (its tools exist only there)
 │   ├── validate.js       # Pre-commit validation (`npm run validate`): checks bridge-agent.js loads in a subprocess, then runs the declaration-driven file-size gate (lib/file-size-gate.js) and the close reconciliation (lib/close-reconcile.js, which fails on a shallow clone). It needs a populated .env for the first check — without one it reports the missing vars and fails, which is a local-environment condition, not a code defect
+│   ├── nightly-security-review.js # WORK-TODO #83 (2026-11-25): deterministic task `nightly-audit`, the security agent's 01:00 job and `ASK: audit`. For each REPOS entry: a --depth 100 clone (lib/security-review-git.js), the last 24 hours of commits and their diff, and ONE model turn with NO tools (an agent record with no permissions) in an EMPTY temp cwd, both temp dirs removed in finally; runLLM, never runWithFallback. Posts the report in the security agent's channel (resolved from the declaration, so `audit` typed anywhere posts there), then the security_finding bulletin and the security-followup pipeline (CRITICAL/HIGH -> approval queue). Every failure to #sqtools-ops; never throws. Also used by security-review.js
 │   ├── weekly-critique.js # The jester's weekly post: deterministic task `weekly-critique`. Builds the digest (lib/critique-digest.js), resolves the critic from the SAME declaration the cron registrar reads (so the verb and the schedule cannot name different agents), and posts one critique in his channel on his provider. A THIN week calls no model at all — a model handed an empty digest and a contrarian persona produces a complaint, so the only reliable honest "nothing to report" is not to ask. Calls runLLM and NOT runWithFallback, deliberately: the chain can land on claude, whose adapter spawns a CLI with --dangerously-skip-permissions, and jester's definition denies file-system. It writes NO state of any kind and its verdict gates nothing — enforced by tests/weekly-critique.test.js, not asserted
 │   ├── watercooler.js    # Multi-agent standup orchestrator: runStandup, agent conversation flow. Its milestone bulletin carries each agent's message as `highlights` (since 2026-11-07, #14), which story-bot's data context reads. Facade since 2026-10-05 (WORK-TODO #10): re-exports the three modules below under the names it always had
 │   ├── watercooler-catalogue.js # WHAT a standup is: the kickoff/retro types and schedules, per-agent prompts, speaking order (jester last), participants, and the standup command recognisers. Pure
@@ -1071,6 +1075,7 @@ slack-agent-bridge/
 │   ├── agent-channel-verbs.test.js # WORK-TODO #64 (safe half) and #49: isBareCommand's narrow shape, processConversation refusing a bare verb in an agent channel before any LLM call (the gate not lifted), and a bot's own post never reaching the natural-conversation path
 │   ├── command-router.test.js   # THE guard for the command table: it enumerates `async function handle*` from lib/command-router.js's and lib/command-renderers.js's own source and fails when one is not reachable from the table — a command that exists in code but not in the table. Also fails when a deterministic task is neither a registered verb nor an explicit NOT_COMMANDS entry, when a TASK_TEMPLATES name or an agent id is registered as a verb, and when help stops rendering from the table. Carries its own negative controls
 │   ├── command-renderers.test.js # That the handler enumeration really reads lib/command-renderers.js (every renderer reachable from the table, the table holding the same function objects) with two negative controls — an unregistered renderer is caught, and a router-only read would miss them — plus renderHelp
+│   ├── nightly-security-review.test.js # WORK-TODO #83: nightly-audit is deterministic (not a template) with the `audit` verb; against a REAL temp repo the model is given the real 24-hour diff, runs with no tools, one turn and an empty cwd that is not the clone, both dirs removed; a quiet day calls no model; the post lands in the security channel whoever asked; bulletin and follow-up kept; every failure (clone, model, empty review, post, no channel, refused bulletin) reaches ops; never throws
 │   ├── security-review-git.test.js # Tests for lib/security-review-git.js against REAL temp repositories: the 24-hour window (older commits and merges left out), the diff across the window, the initial-commit fallback, a non-repository is [], and a malformed repo is refused before git runs
 │   ├── google-calendar.test.js # Tests for lib/integrations/google-calendar.js over a mocked googleapis client, run against the three-copy code before the 2026-10-05 collapse: each window, the request shape, the event shape, the all-calendars merge order, every failure is [], and the regression test that GOOGLE_REFRESH_TOKEN alone configures it
 │   ├── code-review-pipeline.test.js # Tests for lib/code-review-pipeline.js (reviewTask, buildPrompt, validateOutput)
@@ -1151,6 +1156,7 @@ slack-agent-bridge/
 │   ├── redact-secrets.test.js   # Tests for lib/redact-secrets.js (value-driven and pattern-driven scrubbing)
 │   ├── slack-redaction.test.js  # THE enumerating guard for WORK-TODO #30: a client from lib/slack-web.js redacts every chat.* post (spied on the REAL @slack/web-api apiCall, with a plain WebClient as the negative control), and no production file constructs a client any other way, requires @slack/web-api, or posts through a raw apiCall. Also the #21 logger and the postText/sendDM contract
 │   ├── review-findings.test.js  # Tests for lib/review-findings.js and validateOutput's verdict. THE guard that recurrence is answered by rule identifier and not by prose: it asserts two renderings of one rule are different strings AND the same finding
+│   ├── test-verdict-counted-run.test.js # WORK-TODO #84: a run that printed a test count is judged by the count, so `ENOENT` in a passing run's log is PASSED and in a failing one FAILED; ENOENT with no count, a spawn ENOENT and `jest: not found` stay runner_absent (negative controls)
 │   ├── test-gate-honesty.test.js # THE enumerating guard for "a test invocation that can report a pass without running assertions": classification case-by-case against real runner output, plus a disk walk asserting every test-command site routes through lib/test-verdict.js, with negative controls
 │   ├── toolchain-support.test.js # THE enumerating guard that the SUPPORTED TOOLCHAINS table in CLAUDE.md describes what lib/dependency-install.js actually detects: it reads detectEcosystem's OWN source for every `ecosystem:` name and every manifest filename it tests for, and fails when one has no row in the table — so an ecosystem added to the code without a declared image status is a red test, not a silently stale list. Also fails when the table claims an ecosystem the code cannot detect. Carries its own negative controls
 │   ├── task-lock.test.js            # Tests for lib/task-lock.js (acquire/release, staleness, legacy + unparseable lock formats)
@@ -2138,6 +2144,17 @@ Square item, and the weekly digest. **It publishes nothing**: a post goes live o
 allowlisted person presses Publish (`lib/social-buttons.js`), and each platform's outcome is
 written on the post. Platforms: Facebook, Instagram, Google Business Profile, Bluesky; one with no
 credentials is skipped and named. Buttons need Socket Mode and Interactivity, the same as `/dispatch`.
+
+### The nightly security review — on demand
+```
+ASK: audit
+```
+Runs the security agent's 01:00 task `nightly-audit` now (`lib/nightly-security-review.js`,
+WORK-TODO #83): each `REPOS` repository's commits from the last 24 hours, their diff
+reviewed by one model turn with no tools, posted in the security agent's channel whoever
+asked. CRITICAL/HIGH findings become remediation tasks in the approval queue (nothing runs
+until `ASK: approve <id>`). Any failure goes to `#sqtools-ops`. Before 2026-11-25 the
+scheduled audit was a prompt with no repository and no git, so it reviewed nothing.
 
 ### The Jester's weekly critique — on demand
 

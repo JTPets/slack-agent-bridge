@@ -250,7 +250,7 @@ describe('the guard itself detects what it claims to', () => {
     // produces a refusal, which is the fix. The control now asserts the refusal.
     test('a planned agent with a real channel is reported as not activated, not silently skipped', () => {
         const rows = buildSurface({
-            agents: [{ id: 'quiet', status: 'planned', channel: 'CZZZ', schedule: { cron: '0 9 * * *', task: 'nightly-audit' } }],
+            agents: [{ id: 'quiet', status: 'planned', channel: 'CZZZ', schedule: { cron: '0 9 * * *', task: 'morning-briefing' } }],
             bridgeChannel: BRIDGE_CHANNEL,
             env: {},
         });
@@ -263,7 +263,7 @@ describe('the guard itself detects what it claims to', () => {
     // fire — by handing buildSurface a row whose channel the rule excludes.
     test('the unpolled-channel orphan still fires if join and poll ever diverge', () => {
         const rows = buildSurface({
-            agents: [{ id: 'drift', channel: 'CZZZ', schedule: { cron: '0 9 * * *', task: 'nightly-audit' } }],
+            agents: [{ id: 'drift', channel: 'CZZZ', schedule: { cron: '0 9 * * *', task: 'morning-briefing' } }],
             bridgeChannel: BRIDGE_CHANNEL,
             env: {},
         });
@@ -284,7 +284,7 @@ describe('the guard itself detects what it claims to', () => {
 
     test('a healthy polled agent produces no orphan', () => {
         const rows = buildSurface({
-            agents: [{ id: 'fine', channel: 'CAAA', schedule: { cron: '0 9 * * *', task: 'nightly-audit' } }],
+            agents: [{ id: 'fine', channel: 'CAAA', schedule: { cron: '0 9 * * *', task: 'morning-briefing' } }],
             bridgeChannel: BRIDGE_CHANNEL,
             env: {},
         });

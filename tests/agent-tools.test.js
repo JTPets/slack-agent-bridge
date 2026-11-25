@@ -143,7 +143,10 @@ describe('the callers that used to name no agent now do', () => {
 
     test('the customer chat runs as storefront and the nightly review as security', () => {
         expect(src('bots/storefront.js')).toMatch(/runLLM\(prompt, \{[\s\S]{0,400}agentId: 'storefront'/);
-        expect(src('security-review.js')).toMatch(/runLLM\(prompt, \{[\s\S]{0,400}agentId: 'security'/);
+        // LOGIC CHANGE 2026-11-25 (#83): the review's model call moved to
+        // lib/nightly-security-review.js, which both the scheduled task and the script use.
+        expect(src('lib/nightly-security-review.js')).toMatch(/\.runLLM\(buildReviewPrompt[\s\S]{0,400}agentId: 'security'/);
+        expect(src('security-review.js')).toMatch(/agentId: 'security', agentRecord: review\.toolless\(agent\)/);
     });
 
     test('both bridge entry points hand the adapter the executing agent', () => {
