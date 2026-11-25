@@ -92,6 +92,16 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-25**, after rebasing B32 onto B33 (`bb7d35e`): closing **#17** and **#6** and filing
+**#81** and **#82** on top of B33's **#83**, those print **24** open items — **8** P1, **12** P2,
+**4** P3 — and no duplicate ID.
+
+On **2026-11-25** closing **#17** (the self-deploy was observed: `#sqtools-ops` 2026-11-12 17:28-17:36
+EST, `Update gate GREEN for 6a0d37d: 3519 passed, 0 skipped`, then `Bridge started on 6a0d37d`) and
+**#6** (result cards in `#sqtools-ops` from 2026-11-13, block fields `*Task*` / `*Engine*` /
+`*Elapsed*`, not the text fallback), and filing **#81** and **#82** (B32), those print **23** open
+items — **7** P1, **12** P2, **4** P3 — and no duplicate ID.
+
 On **2026-11-25** filing **#83** (B33: the nightly security audit reviewed no commits; built,
 closes on the first nightly report that reviews commits) and filing and closing **#84** (B33:
 `ENOENT` in a passing run's output scored it runner_absent) those print **24** open items —
@@ -433,7 +443,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #56 | P1 | OPEN, instrumented 2026-11-12 (B31); waits for a captured record | B2 | S | A hook failure now writes `.jest-global-hook-failures.jsonl`. Two concurrent runs sharing one snapshot file reproduced the same stack and is fixed (per-pid snapshot). The 2026-09-16 pair is still unexplained |
 | #42 | P1 | PARKED 2026-11-08: the bridge monitors no other system (owner); (c) stays inert in the repo | OA | S/M | `scripts/backup-status.sh` + `lib/backup-watch.js` kept for the future all-systems monitor. SqTools (a)/(b) are SqTools BACKLOG-508 |
 | #41 | P1 | REPO DONE | OA | — | All remaining work is on the appliance |
-| #17 | P1 | Deploy on green BUILT in B23 (owner chose 2026-11-08) | — | M | In-process self-deploy gated by the full suite. Closes on the first observed self-deploy; needs #70's image first (the python venv test) |
+| #17 | P1 | **CLOSED 2026-11-25** (B32, purged) | B23 | — | First self-deploy observed in `#sqtools-ops` 2026-11-12 17:28-17:36 EST: `Update gate GREEN for 6a0d37d: 3519 passed, 0 skipped`, then `Bridge started on 6a0d37d`; the same for 148c758 and d9b61ee |
 | #73 | P1 | **CLOSED 2026-10-10** (purged) | OA | — | Owner applied block (1) on the box and recreated: process 1 is `/sbin/docker-init`, node runs as its own process (pid 7) with no `sh` in between, boot healthy at 546c3d6. The next deploy's log should show "Received SIGTERM" |
 | #25 | P1 | **CLOSED 2026-10-10** (purged) | OA | — | The live compose (owner-supplied 2026-10-10) mounts `/share/CACHEDEV1_DATA/jt-agent/work:/tmp/bridge-agent`, so a recreate keeps preserved clones; `docker-compose.example.yml` now matches |
 | #3 | P1 | **CLOSED 2026-10-10** (B16, purged) | B16 | — | Observed live in `#sqtools-ops`: every boot since 2026-10-01 posts "Scheduler refused 2 job(s)" for the planned `social-media` and `marketing`, and story-bot's scheduled job runs in its joined channel (Friday 18:00 posts) |
@@ -461,7 +471,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #10 | P2 | OPEN, B10-B15 splitting; wave plan in the item | — | L | 55 over (41 suites / 14 modules) after B15, all declared; the record is regenerated from the measurement and `lib/task-queue.js`'s false justification corrected in the table and in `lib/validate-exceptions.json` |
 | #44 | P2 | **CLOSED 2026-10-10** (owner decided, purged) | OD | — | The rule is one function per file, not a raw line count. A suite for one subject stays one file at any length; a suite spanning several modules splits so each set runs on its own. Applied in #10 Wave T and `lib/validate-exceptions.json` |
 | #5 | P2 | OPEN, speculative | SEED | L | Nothing built. Changes the execution model — park |
-| #6 | P2 | built (B29, 2026-11-12) | SEED | M | `lib/task-result.js` card posted by `notifyOwner.taskCompleted`/`taskFailed`. Left: the first real card seen in `#sqtools-ops` |
+| #6 | P2 | **CLOSED 2026-11-25** (B32, purged) | SEED | — | Result cards (block fields `*Task*` / `*Engine*` / `*Elapsed*`) post in `#sqtools-ops` from 2026-11-13 |
 | #7 | P2 | **CLOSED 2026-10-04** (B3, purged) | B3 | S | `onDeadlineWarning` at 80% posts `lib/deadline-warning.js` to ops; `tests/llm-runner-deadline.test.js`, `tests/deadline-warning.test.js` |
 | #8 | P2 | **CLOSED 2026-10-10** (purged) | SEED | — | Re-checked for duplicate runs: two dedup layers (done/failed reaction, `processed-tasks.json` by `ts`), a `TASK:` marked processed before it runs (`tests/task-rerun-guard.test.js`), one poll sweep at a time (`tests/poll-reentrancy.test.js`), and every re-read skip logged (`describeSkipReason`). A resubmission is a new message and runs, as intended |
 | #39 | P2 | **CLOSED 2026-11-08** (B20, purged) | B20 | M | Recording half B7 (`lib/task-work.js`); merge half `lib/merge-state.js`: each status query fetches the target repo's `main` into a bare cache under `$WORK_DIR/merge-check/` and asks `merge-base --is-ancestor` of each recent row's head. `what's queued` says merged / not on main yet / unknown. Guard `tests/merge-state.test.js` (real bare origin). A squash merge reads as not on main; nothing polls it yet (the loop, `docs/AUTONOMOUS-LOOP-DESIGN.md` part five) |
@@ -607,17 +617,18 @@ work behind an owner's name, which is the opposite of the point.
 
 *Regenerated from the headings. Do not append to it by hand; re-run the command above.*
 
-**P1 — protects or unblocks the live deployment** (7)
+**P1 — protects or unblocks the live deployment** (8)
 
+- **#81** — [A bot post that quotes a task block runs as a task, with the allowlist skipped](#81-a-bot-post-that-quotes-a-task-block-runs-as-a-task-with-the-allowlist-skipped)
+- **#82** — [A task with no repository, and every ASK: answer, runs inside the bridge's work folder](#82-a-task-with-no-repository-and-every-ask-answer-runs-inside-the-bridges-work-folder)
 - **#83** — [The nightly security audit reviews no commits](#83-the-nightly-security-audit-reviews-no-commits)
 - **#56** — [`npm test` fails intermittently inside jest's globalSetup — twice, unreproduced](#56-npm-test-fails-intermittently-inside-jests-globalsetup--twice-unreproduced)
 - **#42** — [Every backup this system has lives on the box it backs up, and their liveness is checked by nothing](#42-every-backup-this-system-has-lives-on-the-box-it-backs-up-and-their-liveness-is-checked-by-nothing)
 - **#41** — [The NAS is the single point of failure for every stack and every credential, and its exposure has never been established](#41-the-nas-is-the-single-point-of-failure-for-every-stack-and-every-credential-and-its-exposure-has-never-been-established)
-- **#17** — [Nothing starts `auto-update.js` — merged code does not reach the running process](#17-nothing-starts-auto-updatejs--merged-code-does-not-reach-the-running-process)
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (13)
+**P2 — real gaps, no risk to the running process** (12)
 
 - **#78** — [SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one](#78-sqtools-alerts-reach-the-secretary-but-the-owner-cannot-acknowledge-silence-or-be-nagged-about-one)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -625,7 +636,6 @@ work behind an owner's name, which is the opposite of the point.
 - **#27** — [A task has write access to the entire live deployment, including every credential — recorded, undecided](#27-a-task-has-write-access-to-the-entire-live-deployment-including-every-credential--recorded-undecided)
 - **#10** — [Split the god-files that break the repo's own 300-line rule](#10-split-the-god-files-that-break-the-repos-own-300-line-rule)
 - **#5** — [Mid-task `ask_on_slack` capability](#5-mid-task-ask_on_slack-capability)
-- **#6** — [Structured task result format](#6-structured-task-result-format)
 - **#37** — [`notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success](#37-notifyownermsg-priorityhigh-goes-nowhere-and-returns-success)
 - **#47** — [A global provider switch must say what it changed, and must not flatten per-agent settings](#47-a-global-provider-switch-must-say-what-it-changed-and-must-not-flatten-per-agent-settings)
 - **#51** — [A command that writes a tracked file is destroyed by the next pull, and every configuration-writing command shares it](#51-a-command-that-writes-a-tracked-file-is-destroyed-by-the-next-pull-and-every-configuration-writing-command-shares-it)
@@ -641,6 +651,65 @@ work behind an owner's name, which is the opposite of the point.
 - **#16** — [Channel-per-task archive mode](#16-channel-per-task-archive-mode)
 
 ## P1 — Protects or unblocks the live deployment
+
+### 81. A bot post that quotes a task block runs as a task, with the allowlist skipped
+**Filed 2026-11-25,** from the security agent's own nightly reports (2026-11-12 to 11-25,
+`#sqtools-ops`: "HIGH-1: Messages the bot posts itself can be run as tasks"), verified in
+code at `d9b61ee`.
+**Problem:** the poll loop lets a message posted by the bot skip `ALLOWED_USER_IDS`
+(`bridge-agent.js:2360`, LOGIC CHANGE 2026-04-01, so scheduled tasks are not dropped), and
+`isTaskMessage` matches `TASK:` anywhere in a message, in any case (`lib/task-parser.js:351`).
+But the bot also posts text it did not write: email subjects and SqTools alerts in agent
+channels, a task's output, a model's answer. A bot post carrying a line-anchored task block
+would have run as that channel's agent. **Boring reading first:** no such run has been seen,
+and most relayed text fails `parseTask`'s line-anchored labels, so the realistic outcome was a
+refused task and a confusing error post; the class is still a full-tool task from outside
+text in `#claude-bridge`, which is why it is P1.
+
+**B32, 2026-11-25 — built.** `lib/bot-task-ledger.js`: every place that posts a task message
+on purpose (the scheduler, `approve <id>` / `approve all`, `/dispatch`, the security
+follow-up's skip-approval path) posts through `postBridgeTask`, which records the channel and
+the ts Slack returned in `$WORK_DIR/bot-task-posts.json` (14-day retention; channel and ts
+only, no text). The poll loop runs a bot-authored `TASK:` only when it is recorded
+(`isBridgePostedTask`); it waits for posts still being recorded first, so the poll cannot read
+one before its poster has written it. A refused bot post that parses as a real task is posted
+to `#sqtools-ops` once; one that only mentions `task:` is logged. A bot `ASK:` still reaches
+the conversation path. An unreadable ledger refuses every bot task and is reported once per
+process (fail closed, loudly). A post that landed but could not be recorded is reported at
+once. Guard: `tests/bot-task-ledger.test.js` (10 of its 18 tests fail against `d9b61ee`), whose
+disk walk fails on any production `chat.postMessage` whose text is a task message
+(`taskMessage`, `buildTaskMessage`, `composed.message`) outside the ledger, with a negative
+control; it found the security follow-up site this item did not list.
+**Left:** the guard sees task text only by those names; a new generator under another name is
+caught only by its first scheduled run being refused and reported. Closes on the first
+scheduled task observed running on the box after the deploy (the 01:00 nightly audit).
+
+**Priority:** P1 | **Effort:** Low | **Status:** built 2026-11-25 (B32); closes on the first scheduled task run after deploy
+
+---
+
+### 82. A task with no repository, and every ASK: answer, runs inside the bridge's work folder
+**Filed 2026-11-25,** from the nightly audits of 2026-11-13 to 11-25, which report on
+"`update-gate` (slack-agent-bridge), HEAD `d9b61ee` (detached)" and say the working copy may be
+13 days old. Verified at `d9b61ee`: `processTask` starts with `let cwd = WORK_DIR`
+(`bridge-agent.js:744`) and keeps it when there is no `REPO:`; `processConversation` passes
+`cwd: WORK_DIR` (`:2162`). `WORK_DIR` holds every scratch and preserved clone, the update-gate
+checkout, `task-queue.json`, `high-notices.json` and the merge-check cache, and a read-only
+agent's file tools are confined to its cwd (`lib/agent-tools.js`), so that tree is what the
+security, secretary and story agents could read. Not credentials: `.env` and the deploy key
+are in `/bridge`, not `WORK_DIR`.
+
+**B32, 2026-11-25 — built.** A no-repo task runs in its own `mkdtemp` directory, removed in
+`processTask`'s finally; an answer runs in its own, removed in a finally around the call.
+Guard: `tests/llm-scratch-cwd.test.js`, whose disk walk fails on any production `runLLM` /
+`runWithFallback` call passing `cwd: WORK_DIR`, with a negative control.
+**Left:** the nightly audit's own fix is **#83** (B33, merged in `bb7d35e`); this item covers the
+cwd of no-repo tasks and answers. Closes on the first nightly audit after deploy that no longer reports on
+the `update-gate` checkout.
+
+**Priority:** P1 | **Effort:** Low | **Status:** built 2026-11-25 (B32); closes on the first audit after deploy
+
+---
 
 ### 83. The nightly security audit reviews no commits
 **Filed 2026-11-25 (B33). Priority: P1. Status: BUILT on this branch; closes on the first
@@ -673,6 +742,8 @@ each `REPOS` entry succeeds from the container (anonymous HTTPS for a public rep
 first 01:00 report's content are observable only after deploy. Check: the next morning's
 post in the security agent's channel names a repository and its commit count, or says
 "No commits in the last 24 hours".
+
+---
 
 ### 56. `npm test` fails intermittently inside jest's globalSetup — twice, unreproduced
 **Filed 2026-09-16, second occurrence the same day.**
@@ -979,171 +1050,6 @@ service stops whatever used it, and locking yourself out of a NAS reached only o
 Tailscale is a physical-access problem. Establish what uses a thing before removing it,
 and verify the replacement administrator logs in before disabling `admin`.
 **Status:** open — needs the NAS
-
----
-
-### 17. Nothing starts `auto-update.js` — merged code does not reach the running process
-**Filed 2026-09-14.** *(This item was once duplicated as two `### 17.` headings; reconciled to one on 2026-09-14. The index at the top of this file is regenerated from the headings, so a repeat would show up there.)*
-
-**Status 2026-09-14: documentation corrected, deploy path unchanged.** The false claims
-are fixed (see below); the gap itself is open and is the owner's decision.
-
-**Problem (repo-side, verified from this checkout):** no file in this repo starts
-`auto-update.js`. Regenerate:
-- `node -e "console.log(Object.keys(require('./package.json').scripts))"` → `[ 'test', 'test:smoke', 'validate' ]` — none of them runs it.
-- `grep -rn "auto-update" --include=*.js --include=*.json . | grep -v node_modules | grep -v package-lock | grep -v '^./tests/'` → comments, doc prose, and `auto-update.js`'s own body only. Nothing spawns or forks it.
-- The repo carries no Procfile, systemd unit or supervisor config. Since 2026-09-15 it
-  does carry `docker-compose.example.yml` — the off-box copy of the live file, not a
-  second deployment — and its `command:` starts `node bridge-agent.js` only, so it does
-  not start the daemon either.
-
-**Problem (off-repo, owner-supplied — NOT verifiable from a checkout):** the live compose
-runs `sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"`
-(`docker-compose.yml:17` on the NAS). That file stays untracked on the NAS (and, since
-2026-09-15, gitignored — #26); `docker-compose.example.yml` reproduces it here. A check
-run from inside the container independently recorded "the compose service starts only
-`node bridge-agent.js`" (`docs/CONFIG-SURFACE-AND-REBUILD.md`, Step 5). Regenerate **on
-the NAS**: `grep -n "command\|entrypoint\|auto-update" /share/CACHEDEV1_DATA/jt-agent/docker-compose.yml`
-and `crontab -l` (a host cron is the last unchecked way it could be started).
-
-**Impact, observed not theorised (owner, 2026-09-14):** three branches merged to `main`
-and pushed while the container had been up 11 hours; it kept running the code it loaded at
-start. A manual `docker compose restart` was what actually deployed them.
-
-**Why this outranks everything else in P1** (carried from the duplicate copy of this
-item, reconciled 2026-09-14): every other item in this file is fixed by merging a commit,
-and merging a commit is exactly the step that is not connected to the running process.
-This is the deploy path itself.
-
-**It would not start cleanly today either (verified here).** `validateConfig()`
-(`auto-update.js:908-930` — cited here as `:803-823` until 2026-09-20; the drain-one merge
-`fdf489d` added ~105 lines above it) hard-fails when `LOCAL_REPO_DIR` does not exist, and
-the default is the dead Pi path `/home/jtpets/jt-agent` (`auto-update.js:46`, cited as
-`:40`). Observed:
-`node auto-update.js` with no `LOCAL_REPO_DIR` exits **1**. Under `restart:
-unless-stopped` that is a restart loop — so `LOCAL_REPO_DIR` must be set *before*
-anything starts this daemon. Whether the live `.env` sets it is unverified from here.
-
-**THIS ITEM HAS THREE LAYERS, AND ONLY THE FIRST WAS WRITTEN DOWN.** Recorded here
-2026-09-20 so the next person does not fix layer 1 and rediscover layers 2 and 3 afterwards.
-Everything above this paragraph is layer 1.
-
-**Layer 2 — the restart mechanism is `process.exit(0)`, which restarts something only if
-the exiting process is the container's main process.** `checkForUpdates()` ends at
-`await deps.exit(RESTART_EXIT_CODE)` (`auto-update.js:847`; `RESTART_EXIT_CODE = 0` at
-`:53`), and the whole design rests on one sentence in that file's header: *"the supervisor
-re-runs `npm install && node bridge-agent.js` on exit — exiting IS the restart"*
-(`auto-update.js:10-11`). That is true for PID 1 and false for anything else. Docker
-applies `restart: unless-stopped` when the container's main process exits, not when any
-process inside it does. So a daemon started **alongside** the bridge — backgrounded in the
-`command:`, or forked from `bridge-agent.js` — would verify the commit, write its state,
-post to `#sqtools-ops`, exit 0, and **restart nothing**: guards (a)–(d) would all pass and
-the deploy would silently not happen. Shape (a) in the table below is the one this bites,
-and the table does not say so.
-
-**Layer 3 — PID 1 in this container is `sh`, not `node`.** The live `command:` is
-`sh -c "npm ci && npm install -g @anthropic-ai/claude-code && node bridge-agent.js"`
-(`docker-compose.example.yml:83`), and compose passes it as `["sh","-c","..."]`. `sh` does
-not `exec` the last command of an `&&` chain — it forks it and waits. Measured on `dash`,
-which is Debian's `/bin/sh` and therefore `node:20`'s:
-
-```bash
-/bin/sh -c 'true && sleep 3' &  SHPID=$!; sleep 0.5; ps -eo pid,ppid,args | grep '[s]leep 3'
-#   734   729 /bin/sh -c true && sleep 3
-#   736   734 sleep 3          <- node's position: a CHILD of sh, not sh itself
-```
-
-So the exit in layer 2 is an exit by a grandchild of the container's main process. It ends
-that process and nothing else. Regenerate on the box — nothing in this repository can:
-`docker exec -i jt-agent ps -eo pid,ppid,args` (expect PID 1 = `sh -c "npm ci && …"`).
-
-**The three compound.** Starting the daemon (layer 1) without also making the exiting
-process PID 1 (layers 2 and 3) produces the worst available outcome: a self-update that
-reports success to `#sqtools-ops`, records `restartedIntoCommit` so guard (c) refuses to
-try that commit again, and leaves the old code running. That is strictly worse than today's
-honest "nothing deploys". Whatever shape is chosen must state which process ends up as PID
-1; `exec` in the `command:`, an `init:`/`entrypoint:` change, or a supervisor are the
-candidates, and the compose file is off-repo so none of them is reachable from a branch.
-
-**A fourth consequence of layer 3, which belongs to #73 rather than here:** because PID 1 is
-`sh` and nothing forwards signals, `docker compose restart` never delivers SIGTERM to
-`bridge-agent.js` at all.
-
-**A green suite for an unstarted daemon.** `tests/auto-update-restart.test.js`,
-`tests/auto-update-defer.test.js` and `tests/update-verifier.test.js` pass (62 tests) by
-injecting a dependency bag into `checkForUpdates()`. `main()` and `validateConfig()` are
-neither exported nor exercised, so the startup path that fails above is untested. This is
-the verification-integrity class, not a passing gate.
-
-**Done 2026-09-14 — the documentation no longer claims this works.** Corrected in
-`CLAUDE.md` (self-update section retitled "DESIGNED AND TESTED, NOT WIRED" with the
-evidence; deploy-command block; task-queue coordination steps marked not-live; task-lock
-deferral section), `README.md` (feature bullet, architecture diagram, Auto-Update
-section), `docs/WIRING-AND-SEAMS.md` (entry-point table and the task-lock seam),
-`docs/AGENTS.md` (**agent-facing** — the "Auto-Deploy … restarts PM2 process" step was
-false in both halves), `agents/bridge/memory/context.json` (**agent-facing**),
-`COMMANDMENTS.md` (commandment 11 named a non-existent auto-update process), and
-`docs/CONFIG-SURFACE-AND-REBUILD.md` (Step 5 "undetermined" → resolved repo-side).
-Regenerate the claim list:
-```bash
-grep -rniE "self-updat|self-deploy|deploys itself|restarts itself|updates itself|auto-update(r| daemon| detects)|deploy_policy|CHECK_INTERVAL_MS|polls its own git" \
-     --include=*.md --include=*.json . | grep -v node_modules | grep -v package-lock
-```
-
-**Still open — the owner's decision, stated not decided.** The two shapes (start the
-daemon / declare manual restart the deploy), a third (push-triggered restart), and their
-costs are written up in `CLAUDE.md` → "Two open questions". **This repo cannot implement
-any of them**: the compose file is untracked and off-repo, and belongs to no repository
-today (`docs/CONFIG-SURFACE-AND-REBUILD.md`, Step 6).
-
-**The independent requirement — LANDED 2026-10-02.** `bridge-agent.js` now reads its
-checkout's commit once at boot (`lib/repo-history.js` `loadedCommit()`) and posts it to
-`#sqtools-ops`, with a warning when tracked files differ from it; tests in
-`tests/repo-history.test.js` (real git repositories). **Unverified on the live box:** whether
-the container's `git` can read `/bridge` — if it cannot, the post says UNKNOWN and gives the
-reason, which is itself the answer to check. What remains on this item is the deploy-shape
-decision above. Original text kept below.
-
-**The independent requirement: nothing can answer "is the running process on `main`?"**
-Not the repo, not the container, not Slack. "Merged" and "deployed" are unrelated facts
-and nobody is told when they diverge — the 11-hour gap was found by a person noticing.
-Whatever reports it must be the *running* process (a boot line to `#sqtools-ops`, an
-`ASK: version`, a heartbeat field, a state file); anything computed from the working tree
-at query time answers a different question and would have read "current" throughout that
-gap. Land this **before** arming any self-restart, so the first real self-update is
-observable.
-**Effort:** Low for the commit-report; Low–Medium to wire the daemon (off-repo either way).
-**Risk:** Wiring it is Medium — it arms a self-restarting daemon whose guards have never
-run outside tests, and whose startup config is currently wrong.
-
-**Owner decision 2026-11-08, and B23 builds it:** "once merged, it should run a gate check
-of our testing and if it passes it can auto deploy." Shape (a), run INSIDE the bridge
-process (`lib/self-deploy.js`), so layers 2 and 3 above (the exiting process must be the
-container's main one) need no compose change: the live compose runs `exec node` behind
-`init: true` since #73. Each new commit on `main` is gated by `lib/update-gate.js` (the full
-suite in `$WORK_DIR/update-gate`, scrubbed env, green only with 0 skipped), then applied by
-`git merge --ff-only <gated sha>` once nothing is in flight. `LOCAL_REPO_DIR` now defaults to
-the checkout itself, and self-deploy refuses to start, and says so, when `.env` names another.
-Guards `tests/update-gate.test.js`, `tests/auto-update-gate.test.js`,
-`tests/self-deploy.test.js`. **Not yet true on the box, stated:** the gate runs
-`tests/python-venv.test.js`, which needs `python3 -m venv`, and today's image has no
-`ensurepip`, so every gate is red until #70's Dockerfile is adopted. Nothing deploys itself
-before that, which is the safe direction. **2026-11-09: the image is adopted** (owner paste:
-`jt-agent:local`, `python3 -m venv` exit 0, boot at f477a0a), so the next commit on `main`
-is the first that can gate green.
-**2026-11-11 (B27): a defect in the built half, fixed.** `loadState` listed its keys by hand
-and never read back `gatedCommit`, which the cycle has saved since 2026-11-08. So a green
-commit held back by a running task (or an answer in progress) was gated again on every cycle:
-another 35-minute suite each time, a `:test_tube:` post each time, and, because the gate
-clears the pending marker while it runs, new dispatches accepted throughout, so under steady
-work the deploy could keep missing its idle moment. An idle bridge was unaffected (green, then
-straight to apply). Every suite injected its own `loadState`, so all were green. Now
-`lib/update-state.js` reads one `STATE_KEYS` list, and `tests/update-state.test.js` reads every
-`state.<key> =` the cycle writes from source and fails when one is missing (2 of its 6 tests
-fail with `gatedCommit` removed). The running bridge (f477a0a) still has the defect, so the
-commit that carries the fix is gated by the old code.
-**Status:** open — closes on the first self-deploy observed in `#sqtools-ops` (a GREEN gate
-line, then the boot line naming that same sha).
 
 ---
 
@@ -2094,37 +2000,6 @@ no tool loop) this capability does not apply to them.
 
 ---
 
-### 6. Structured task result format
-**Filed 2026-09-13** (derived: `20dc049`). **Substance is older:** ancestor heading in the
-2026-04-05 seed `4b6ee4a`.
-**Problem:** Task results are raw text dumps; no consistent success/failure/files/tests
-shape.
-**Fix:** define a result schema and render it as a Block Kit card. Note that Phase 3
-already extracts test pass/fail counts — build on that rather than re-parsing.
-
-**BUILT 2026-11-12 (B29).** `lib/task-result.js` `buildTaskResult` is the schema: outcome
-(completed / failed / interrupted / max-turns), repo and requested branch, the clone's
-branch, head, commits added and files changed (`lib/task-work.js` `describeWork`, which
-gained `filesChanged`), the Phase-3 verdict taken from `validateOutput`'s `testRun`
-(`lib/test-verdict.js`, not re-parsed), engine, elapsed, source and the output or error.
-`resultFacts()` feeds both `renderBlocks` (the card) and `renderText` (the fallback), so
-they cannot carry different facts. `notifyOwner.taskCompleted`/`taskFailed` post it through
-`lib/slack-web.js` `postBlocks` when given `options.result`; a card Slack refuses is posted
-again as its text alone. Phase 3 now runs **before** the result post (it used to run after,
-in separate posts), so the verdict is on the card; the green "Code review passed" post is
-gone, the failed/did-not-run detail posts stay. The delivery verdict goes on the queue row
-as before and into a `[task-result]` log line. Tests: `tests/task-result.test.js` (same
-facts, redaction of blocks through a real `createWebClient` client with a plain `WebClient`
-as the negative control, wiring), `tests/task-work.test.js` (filesChanged).
-**Left (why this is not closed):** a card has never been posted to real Slack, so whether
-Slack accepts the block shape is unverified here. Closes when the first card is seen in
-`#sqtools-ops` (a refused card still delivers its text, so a refusal shows as a text-only
-result plus `Task result card refused` in the log).
-
-**Priority:** P2 | **Effort:** Medium | **Status:** built 2026-11-12 (B29); closes when a card is seen in `#sqtools-ops`
-
----
-
 ### 37. `notifyOwner(msg, PRIORITY.HIGH)` goes nowhere and returns success
 **Decided 2026-11-08 (owner):** "build the digest and it should be pushed to slack and we can
 have one of our agents read and diagnose next steps for approval." **Built 2026-11-09 (B24)**,
@@ -2341,6 +2216,14 @@ moment the daemon is wired, while the restart that actually lands mid-task today
 a longer run is exposed for longer to a kill that skips `gracefulShutdown()`'s 60-second
 wait entirely. The rationale above is strengthened by that finding, not weakened; only the
 named precondition was incomplete.
+
+**2026-11-25 — both gates have landed.** #73 closed 2026-10-10 (the live compose delivers
+SIGTERM and waits 90 s) and #17 closed 2026-11-25 (deploy on green observed 2026-11-12). So
+the sequencing above no longer blocks this item. The owner's rule still holds: monitor first,
+set thresholds from sampled runs. Sampled since: the run watch posts `Task may be stalled:
+"Morning briefing (scheduled by secretary)" ... no output for 10 min` on most mornings
+(2026-11-13, 15, 18, 20, 21, 24 in `#sqtools-ops`), and that briefing failed on 11-20 (917 s)
+and 11-21. The `[run-stats]` lines on the box are the next input.
 
 **Related, not duplicated:** **#20** records that `MAX_TURNS` names four different quantities
 and that the env var is dead config. That is a naming/wiring defect; this item is about what
