@@ -112,7 +112,7 @@ caller on a Slack hiccup and one of which does not. `morning-digest.js` DMs the 
 digest containing email senders and subjects; none of the three scrubs.
 
 **Canonical implementation:** none. `lib/notify-owner.js` `notifyOwner(msg, CRITICAL)`
-DMs `ownerId` directly (`lib/notify-owner.js:157`) and never opens a conversation, so
+DMs `ownerId` directly (`lib/notify-owner-core.js:197` since the 2026-11-25 split; `lib/slack-web.js` `sendDM` has existed since #30) and never opens a conversation, so
 it covers the owner case only. A `sendDM(userId, text)` helper does not exist.
 
 ## 3. Emoji reactions — **IDENTICAL**
@@ -356,9 +356,8 @@ grep -rnE "function truncate|\.slice\(0, *[0-9]{3,4}\)" --include='*.js' . \
 | Site | Limit | Strategy |
 |------|-------|----------|
 | `bridge-agent.js:399` `truncate` | 3500 default | head only |
-| `lib/notify-owner.js:208` | 3500 | **head 1750 + tail 1750** with a marker |
-| `lib/notify-owner.js:257` | 3500 | head + tail |
-| `lib/notify-owner.js:203` | 200 | head + `...` |
+| `lib/notify-owner-tasks.js:30` `truncateMiddle` (taskFailed's ops text and taskCompleted's summary; two copies until 2026-11-25, B38) | 3500 | **head 1750 + tail 1750** with a marker |
+| `lib/notify-owner-tasks.js:63` | 200 | head + `...` |
 | `lib/llm-errors.js:111`, `lib/llm-adapter-claude.js:156` | 2000 | head |
 | `lib/llm-adapter-claude.js:175`, `lib/llm-adapter-gemini.js:76,79,107`, `lib/llm-adapter-ollama.js:130,135,155` | 500 | head |
 | `bots/storefront.js:222` | 2000 | head |

@@ -1917,6 +1917,29 @@ owned by B29, which edits them for other reasons), `lib/task-parser.js` and
 `lib/task-decomposer.js` (Wave 4, waiting as stated in its table), and `bridge-agent.js` (its
 own exclusion).
 
+**B38 (2026-11-25), under the owner's code rule of 2026-11-25** (no mixed concerns, no
+duplication; 300 lines is a tripwire, not a cap). Split, each part tested on its own in
+`tests/notify-rate-drain-parts.test.js`, each hub re-exporting every old name as the same
+object (`tests/helpers/module-splits-table.js`), and their three `lib/validate-exceptions.json`
+entries removed because all three are now under the limit:
+- `lib/notify-owner.js` (450 -> 56): routing and state in `lib/notify-owner-core.js`; task
+  notices, ACTION REQUIRED and rate-limit notices each in a `lib/notify-owner-*.js` spoke. The
+  two copies of the 3500-character middle cut are one helper, `truncateMiddle`.
+- `lib/email-rate-limiter.js` (396 -> 114): B28's duplication finding fixed rather than
+  recorded. The three check-the-bucket copies are one `checkBucket` over a `BUCKETS` table in
+  `lib/email-rate-window.js` (only the email bucket starts the cooldown, as before); the
+  suppressed tally and its summary are `lib/email-rate-suppressed.js`.
+- `lib/update-drain.js` (372 -> 117): the hub keeps the drain-one reasoning and
+  `clearIfStale`; the marker file is `lib/update-drain-marker.js` and every message
+  (including the two orphaned-marker verdicts that were inline) is `lib/update-drain-messages.js`.
+
+**Not split: `lib/task-queue.js` (585).** Read in full for B38. What is left after B28 is one
+concern, the writers of one state machine. The one duplication left, `complete`/`fail`/
+`interrupt` each writing `task.status = STATUS.X` beside `normalizeDelivery()`, is what
+`tests/task-queue-delivery-invariant.test.js` reads: a shared helper taking the status as a
+variable would hide every terminal write from that guard, which is a guard loosened in
+silence. Kept, reason unchanged in `lib/validate-exceptions.json`.
+
 `lib/integrations/email-categorizer.js`, `lib/code-review-pipeline.js`,
 `lib/bulletin-board.js`, `lib/integrations/email-sanitizer.js`, `lib/slack-client.js`,
 `lib/notify-owner.js`, `lib/email-rate-limiter.js`, `lib/update-drain.js` and

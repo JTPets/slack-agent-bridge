@@ -181,7 +181,7 @@ any edit:
 Everything else reads the registry **per event**, so an edit lands immediately:
 `getAgentByChannel()` on every polled message, `lib/bulletin-watcher.js:64` on every
 bulletin, `lib/command-router.js:48`, `lib/subtask-routing.js:15` (the decomposer's routing since B37),
-`lib/notify-owner.js:14`, `lib/security-followup.js:22`, `lib/watercooler.js:20`,
+`lib/notify-owner-core.js:16` (moved out of `lib/notify-owner.js` 2026-11-25), `lib/security-followup.js:22`, `lib/watercooler.js:20`,
 `lib/agent-surface.js:22`.
 
 **So: "what does a change to a definition require before it takes effect?" has two
