@@ -210,6 +210,27 @@ const SPLITS = [
         exports: ['createSlackClient', 'loadChannelMap', 'saveChannelMap', 'CHANNEL_NAME_MAX_LENGTH',
             'CHANNEL_NAME_PATTERN'],
     },
+    {   facade: 'lib/task-parser.js', // B37, 2026-11-25
+        parts: ['task-message', 'task-fields', 'task-turns', 'message-kind', 'ask-commands'].map((p) => `lib/${p}.js`),
+        exports: ['parseTask', 'findUnclaimedLines', 'normalizeRepo', 'isTaskMessage', 'isConversationMessage',
+            'isNaturalConversationMessage', 'isStatusQuery', 'isCreateChannelCommand', 'parseCreateChannelCommand',
+            'isApprovalQuery', 'isApproveCommand', 'parseApproveCommand', 'isRejectCommand', 'parseRejectCommand',
+            'isShowTaskCommand', 'parseShowTaskCommand', 'alreadyProcessed', 'EMOJI_DONE', 'EMOJI_FAILED',
+            'DEFAULT_TURNS', 'MIN_TURNS', 'TURNS_CEILING', 'CONVERSATION_TURNS_DEFAULT', 'CONVERSATION_TURNS_CEILING',
+            'conversationTurns', 'FIELD_LABELS', 'SKILL_PATTERN', 'SKILL_PUNCTUATION'],
+    },
+    {   facade: 'lib/task-decomposer.js', // B37, 2026-11-25; decomposeTask stays in the facade
+        parts: ['task-complexity', 'subtask-routing', 'subtask-graph', 'subtask-format', 'decomposition-prompt']
+            .map((p) => `lib/${p}.js`),
+        exports: ['analyzeComplexity', 'detectTaskType', 'decomposeTask', 'findAgentForTask', 'createSubtask',
+            'getReadySubtasks', 'allSubtasksComplete', 'generateSummary', 'formatSubtaskAsMessage',
+            'buildDecompositionPrompt', 'parseDecompositionResponse', 'SUBTASK_STATUS', 'DEFAULT_COMPLEXITY_THRESHOLD',
+            'MULTI_TASK_INDICATORS', 'TASK_TYPE_PATTERNS'],
+    },
+    {   facade: 'lib/code-review-pipeline.js', // B37, 2026-11-25: one part per phase
+        parts: ['review-context', 'review-prompt', 'review-validate', 'pipeline-command'].map((p) => `lib/${p}.js`),
+        exports: ['reviewTask', 'createExecutionPlan', 'buildPrompt', 'validateOutput', 'runCommand'],
+    },
 ];
 
 module.exports = { SPLITS };

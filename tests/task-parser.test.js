@@ -20,7 +20,9 @@ const {
   TURNS_CEILING
 } = require('../lib/task-parser');
 
-const TASK_PARSER_PATH = path.join(__dirname, '..', 'lib', 'task-parser.js');
+// LOGIC CHANGE 2026-11-25 (B37): parseTask and matchField moved to lib/task-message.js
+// (lib/task-parser.js is a facade); the docstring guard reads the file that holds them.
+const TASK_PARSER_PATH = path.join(__dirname, '..', 'lib', 'task-message.js');
 
 describe('parseTask', () => {
   test('parses full TASK/REPO/BRANCH/INSTRUCTIONS message', () => {

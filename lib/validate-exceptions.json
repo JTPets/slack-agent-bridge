@@ -95,11 +95,6 @@
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for lib/memory-tiers.js — TTL, auto-promote and cleanup. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
     },
     {
-      "path": "lib/task-decomposer.js",
-      "lines_when_declared": 579,
-      "reason": "JUSTIFIED. Zero production callers (docs/WIRING-AND-SEAMS.md section 3) — reachable only from its own test. Splitting dead code multiplies unexecuted surface; the open decision is delete-or-wire, which is the owner's, not a split."
-    },
-    {
       "path": "tests/slack-socket.test.js",
       "lines_when_declared": 565,
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for lib/slack-socket.js — the additivity contract, every failure mode resolving inert, outage and recovery reporting. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
@@ -140,11 +135,6 @@
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for lib/integrations/gmail.js — OAuth, email parsing and the read API. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
     },
     {
-      "path": "lib/task-parser.js",
-      "lines_when_declared": 497,
-      "reason": "DEFERRED. Boundary named: task-message parsing vs. the ASK-command recognisers (isStatusQuery ... parseShowTaskCommand), which belong in seam C's lib/ask-commands.js beside the handlers they gate — so recogniser and handler move in one change, not two. Also under the limit on code (224). WORK-TODO #10."
-    },
-    {
       "path": "tests/smoke.test.js",
       "lines_when_declared": 492,
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for THE load gate: every entry point's dotenv ordering and every lib module's export surface. It is guard (a) part 3 of the self-update, so it grows with the module count by design. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
@@ -153,11 +143,6 @@
       "path": "tests/storefront.test.js",
       "lines_when_declared": 479,
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for bots/storefront.js — the chat API and session management. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was ever meant to reach tests/ is argued on both sides and left undecided in WORK-TODO #44; until that is decided the suite is declared here rather than cut."
-    },
-    {
-      "path": "lib/code-review-pipeline.js",
-      "lines_when_declared": 476,
-      "reason": "JUSTIFIED. Three phases of one pipeline, under the limit on code (293). The phases share the context object; splitting them would put one data structure's producer and consumers in three files."
     },
     {
       "path": "tests/owner-tasks-store.test.js",
@@ -268,6 +253,11 @@
       "path": "tests/agent-activation.test.js",
       "lines_when_declared": 361,
       "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44) — same footing as tests/llm-runner.test.js. It covers one coherent surface (definition + workspace state -> a running agent) across its three layers: the two durable stores, applyWorkspaceState's merge, and the activate/deactivate/available command handlers. Splitting it by layer would separate assertions that only mean anything together — that activation refuses when the channel does not exist, AND that nothing is recorded when it refuses. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions. Whether the 300-line rule was meant to reach tests/ at all is argued on both sides and left undecided in WORK-TODO #44; until that is decided this is declared rather than cut."
+    },
+    {
+      "path": "tests/test-gate-honesty.test.js",
+      "lines_when_declared": 314,
+      "reason": "JUSTIFIED (one subject; owner decision 2026-10-10, #44). Test suite for THE guard that every test invocation routes through lib/test-verdict.js: the classifier's outcomes against real runner output, the disk walk over every invocation site, and its negative controls. It crossed 300 on 2026-11-25 (WORK-TODO #10, B37) when lib/code-review-pipeline.js became a facade and the guard learned that a declared split facade counts as its part, with a negative control for that rule. A suite's length is its assertion count, not its responsibility count, and the cheapest way to shorten one is to delete assertions."
     }
   ]
 }

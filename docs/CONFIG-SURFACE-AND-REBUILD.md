@@ -321,7 +321,7 @@ Every behavioural key set in `.env.example` **agrees** with its code default:
 | `MAX_TURNS` | `50` (`config.js:34`, `llm-runner.js:172`) | `50` | ✅ |
 | `TASK_TIMEOUT_MS` | `600000` (`config.js:35`, `llm-runner.js:173`) | `600000` | ✅ |
 | `CHECK_INTERVAL_MS` | `300000` = `5*60*1000` (`auto-update.js:41`) | `300000` | ✅ |
-| `GITHUB_ORG` | `jtpets` (`config.js:28`, `task-parser.js:19`) | `jtpets` | ✅ |
+| `GITHUB_ORG` | `jtpets` (`config.js:28`, `task-fields.js:29`, was `task-parser.js:19` before the 2026-11-25 B37 split) | `jtpets` | ✅ |
 | `CLAUDE_BIN` | `/usr/local/bin/claude` (`config.js:40`, `llm-runner.js:171`) | `/usr/local/bin/claude` | ✅ |
 | `WORK_DIR` | `/tmp/bridge-agent` (`config.js:41`, `auto-update.js:53`, `task-lock.js:57`, `task-queue.js:22`) | `/tmp/bridge-agent` | ✅ |
 | `OLLAMA_*`, `LLM_*` | see appendix | matches | ✅ |
@@ -337,7 +337,7 @@ The known case, confirmed and located:
 - **`lib/config.js:34`** — `MAX_TURNS: parseInt(process.env.MAX_TURNS || '50', 10)` and
   **`lib/llm-runner.js:172`** — `DEFAULT_MAX_TURNS = parseInt(process.env.MAX_TURNS || '50')`.
   This is the **default per-task turn budget** = **50**.
-- **`lib/task-parser.js:56`** — `const MAX_TURNS = 100;`. This is the **hard ceiling** on
+- **`lib/task-parser.js:56`** — `const MAX_TURNS = 100;` (renamed `TURNS_CEILING` by #20; `lib/task-turns.js:25` since the 2026-11-25 B37 split). This is the **hard ceiling** on
   the per-task `TURNS:` field (floor `MIN_TURNS = 5`, default `DEFAULT_TURNS = 50`).
 
 Two constants named `MAX_TURNS` mean **different quantities** — one a *default* (50), one

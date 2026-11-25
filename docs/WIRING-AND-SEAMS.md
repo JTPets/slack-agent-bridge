@@ -154,7 +154,7 @@ code. So `analyzeComplexity`/`decomposeTask` run only under Jest. The CLAUDE.md
 "Task Decomposition" section describes a capability that has no call site.
 
 Not a defect on its own — but it means CLAUDE.md oversells what the running system does,
-and the decomposer's `runLLM` call (`lib/task-decomposer.js:341`) is dead weight in the
+and the decomposer's `runLLM` call (`lib/task-decomposer.js:98` since the 2026-11-25 B37 split) is dead weight in the
 "who bypasses fallback" analysis below.
 
 ---
@@ -253,7 +253,7 @@ grep -rn "runWithFallback(\|runLLM(" --include='*.js' . \
 | `lib/nightly-security-review.js` `reviewRepo` (the `nightly-audit` task and `security-review.js`) | `runLLM` | ❌ one shot, deliberately, no tools (WORK-TODO #83) |
 | `bots/storefront.js:444` | `runLLM` | ❌ one shot |
 | `lib/watercooler.js:536` | `runLLM` | ❌ one shot |
-| `lib/task-decomposer.js:341` | `runLLM` | ❌ — and the caller is itself dead (§3) |
+| `lib/task-decomposer.js:98` | `runLLM` | ❌ — and the caller is itself dead (§3) |
 | `lib/weekly-critique.js` (the jester's weekly post) | `runLLM` | ❌ **by design, not by omission** — see below |
 
 This matches CLAUDE.md's "No silent fallback" section exactly: only the two
