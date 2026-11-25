@@ -16,6 +16,10 @@ const fs = require('fs').promises;
 // LOGIC CHANGE 2026-10-04 (WORK-TODO #30, #21): every Slack client is built by lib/slack-web.js,
 // which redacts secrets out of every chat.* post and drops the already_in_channel warning.
 const { createWebClient } = require('../lib/slack-web');
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #87): every customer-supplied value posted here goes
+// through quoteForSlack, so `<!channel>`, `<@U…>` and `<url|text>` arrive as literal text
+// and a multi-line value stays inside its quote.
+const { escapeSlackText, quoteForSlack, logSafe } = require('../lib/untrusted-text');
 
 const STORE_INBOX_CHANNEL_ID = process.env.STORE_INBOX_CHANNEL_ID || 'C0APPBSAP4H';
 
@@ -44,9 +48,9 @@ async function logToSlack(sessionId, userMessage, agentResponse) {
         // LOGIC CHANGE 2026-03-27: Format conversation log for Slack.
         // Uses thread to group conversation sessions.
         const shortSessionId = sessionId.substring(0, 8);
-        const message = `*Chat Session ${shortSessionId}*\n` +
-            `> *Customer:* ${userMessage}\n` +
-            `> *Agent:* ${agentResponse}`;
+        const message = `*Chat Session ${escapeSlackText(shortSessionId)}*\n` +
+            `*Customer:*\n${quoteForSlack(userMessage)}\n` +
+            `*Agent:*\n${quoteForSlack(agentResponse)}`;
 
         await slackClient.chat.postMessage({
             channel: STORE_INBOX_CHANNEL_ID,
@@ -102,15 +106,18 @@ async function logDeliveryQuoteToSlack(quoteData) {
             ? 'Contact required (20km+)'
             : `$${quoteData.quote.price}`;
 
-        const message = `*New Delivery Quote Request*\n` +
-            `> *Business:* ${quoteData.businessName}\n` +
-            `> *Contact:* ${quoteData.contactName}\n` +
-            `> *Phone:* ${quoteData.phone}\n` +
-            `> *Email:* ${quoteData.email}\n` +
-            `> *Pickup:* ${quoteData.pickupAddress}\n` +
-            `> *Delivery:* ${quoteData.deliveryAddress}\n` +
-            `> *Distance:* ${quoteData.quote.distance.toFixed(1)} km\n` +
-            `> *Quote:* ${priceText}`;
+        const field = (label, value) => `*${label}:*\n${quoteForSlack(value)}`;
+        const message = [
+            '*New Delivery Quote Request*',
+            field('Business', quoteData.businessName),
+            field('Contact', quoteData.contactName),
+            field('Phone', quoteData.phone),
+            field('Email', quoteData.email),
+            field('Pickup', quoteData.pickupAddress),
+            field('Delivery', quoteData.deliveryAddress),
+            field('Distance', `${quoteData.quote.distance.toFixed(1)} km`),
+            field('Quote', priceText),
+        ].join('\n');
 
         await slackClient.chat.postMessage({
             channel: STORE_INBOX_CHANNEL_ID,
@@ -123,8 +130,33 @@ async function logDeliveryQuoteToSlack(quoteData) {
     }
 }
 
+/**
+ * LOGIC CHANGE 2026-11-25 (WORK-TODO #87): the storefront's global rate limit refused a
+ * request. Called at most once per limit window (bots/storefront-guards.js), so a flood is
+ * one line in #store-inbox, not one per refused request. `route` is our own path string.
+ * @param {string} route
+ */
+async function logRateLimitToSlack(route) {
+    if (!slackClient) {
+        console.warn(`[storefront] Global rate limit reached on ${logSafe(route)}; no Slack client to report it`);
+        return;
+    }
+    try {
+        await slackClient.chat.postMessage({
+            channel: STORE_INBOX_CHANNEL_ID,
+            text: `:warning: Storefront: the global rate limit refused requests on ${escapeSlackText(route)}. `
+                + 'Customers are being turned away until the window passes (STOREFRONT_RATE_GLOBAL).',
+            unfurl_links: false,
+            unfurl_media: false,
+        });
+    } catch (err) {
+        console.error('[storefront] Failed to report the rate limit to Slack:', err.message);
+    }
+}
+
 module.exports = {
     STORE_INBOX_CHANNEL_ID,
+    logRateLimitToSlack,
     DELIVERY_QUOTES_FILE,
     logToSlack,
     loadDeliveryQuotes,

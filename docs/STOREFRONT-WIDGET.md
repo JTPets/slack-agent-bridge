@@ -62,6 +62,10 @@ A self-contained, mobile-responsive chat widget that:
 | `STORE_INBOX_CHANNEL_ID` | Slack channel for conversation logs | `C0APPBSAP4H` |
 | `STOREFRONT_ALLOWED_ORIGINS` | Comma-separated allowed CORS origins | `http://localhost:3000,https://jtpets.ca` |
 | `STOREFRONT_SESSION_TTL_MS` | Session expiry time in ms | `3600000` (1 hour) |
+| `STOREFRONT_RATE_WINDOW_MS` | Rate-limit window, each API route counted on its own | `60000` |
+| `STOREFRONT_RATE_PER_CLIENT` | Calls per client address per window, per route | `10` |
+| `STOREFRONT_RATE_GLOBAL` | Calls in all per window, per route (bounds model spend) | `60` |
+| `STOREFRONT_TRUST_PROXY` | Express `trust proxy` value, so the per-client limit sees the visitor behind the tunnel | unset |
 | `SLACK_BOT_TOKEN` | Slack bot token for logging | Required for logging |
 
 ## Running the Server
@@ -174,7 +178,7 @@ Send a message to the storefront agent.
 | Code | HTTP Status | Description |
 |------|-------------|-------------|
 | `INVALID_MESSAGE` | 400 | Message is empty or invalid |
-| `RATE_LIMITED` | 429 | API rate limit reached |
+| `RATE_LIMITED` | 429 | Our rate limit (with a `Retry-After` header), or the model provider's |
 | `INTERNAL_ERROR` | 500 | Server error |
 | `UNEXPECTED_ERROR` | 500 | Unhandled exception |
 
@@ -204,8 +208,21 @@ This allows staff to:
 
 - All user input is sanitized before processing
 - Messages are limited to 2000 characters
-- CORS is configured to only allow specified origins
-- Session IDs are UUIDs, not predictable sequences
+- **Rate limits (2026-11-25, WORK-TODO #87):** `POST /api/chat` and `POST /api/delivery-quote`
+  each allow `STOREFRONT_RATE_PER_CLIENT` calls per client and `STOREFRONT_RATE_GLOBAL` in all
+  per `STOREFRONT_RATE_WINDOW_MS`; over either is a 429 and no model runs. The first global
+  refusal in a window is posted to `#store-inbox`. Behind the Cloudflare tunnel every visitor
+  shares one address unless `STOREFRONT_TRUST_PROXY` is set, so then only the global limit
+  tells them apart (`bots/storefront-guards.js`)
+- **CORS:** origins in `STOREFRONT_ALLOWED_ORIGINS` match exactly, credentials are off (the
+  widget sends no cookies), and a `*` entry is ignored with a warning at start-up
+- **What reaches Slack is text:** every customer value posted to `#store-inbox` is escaped
+  (`<!channel>`, `<@U…>` and `<url|text>` arrive literal) and quoted line by line
+  (`lib/untrusted-text.js`); a quote's price must be a number or null
+- **Logs:** client-supplied values in a log line go through `logSafe`, so a newline cannot
+  forge a line; `tests/storefront-guards.test.js` fails on a new unescaped one
+- Session IDs are UUIDs issued by the server; a client-supplied id is kept only if it is
+  1-64 letters, digits or hyphens, otherwise a new one is issued
 - No customer PII is stored permanently
 
 ## Customization

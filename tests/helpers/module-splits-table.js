@@ -107,7 +107,7 @@ const SPLITS = [
     },
     {
         facade: 'bots/storefront.js',
-        parts: ['bots/storefront-session.js', 'bots/storefront-records.js', 'bots/storefront-prompt.js'],
+        parts: ['bots/storefront-session.js', 'bots/storefront-records.js', 'bots/storefront-prompt.js', 'bots/storefront-guards.js', 'bots/storefront-delivery.js'],
         exports: [
             'app', 'getOrCreateSession', 'buildPrompt', 'sanitizeInput', 'cleanExpiredSessions', 'sessions',
             'STOREFRONT_AGENT_CONFIG', 'loadDeliveryQuotes', 'saveDeliveryQuotes', 'logDeliveryQuoteToSlack',

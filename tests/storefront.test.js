@@ -44,6 +44,7 @@ const {
     STOREFRONT_AGENT_CONFIG,
     loadDeliveryQuotes,
     saveDeliveryQuotes,
+    rateLimiters,
 } = require('../bots/storefront');
 const { runLLM } = require('../lib/llm-runner');
 
@@ -51,6 +52,9 @@ describe('storefront', () => {
     beforeEach(() => {
         jest.clearAllMocks();
         sessions.clear();
+        // WORK-TODO #87: the routes are rate limited; each test starts with a clear window.
+        // The limits themselves are proved in tests/storefront-hardening.test.js.
+        Object.values(rateLimiters).forEach((l) => l.reset());
     });
 
     describe('sanitizeInput', () => {
