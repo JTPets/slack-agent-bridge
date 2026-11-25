@@ -50,48 +50,47 @@ const {
     DELIVERY_NOT_RECORDED,
 } = require('../lib/task-queue');
 
-const BRIDGE_AGENT_PATH = path.join(__dirname, '..', 'bridge-agent.js');
-const source = fs.readFileSync(BRIDGE_AGENT_PATH, 'utf8');
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): processTask is a hub; each ending lives
+// in lib/task-outcome.js and the terminal queue write in lib/task-state-gate.js endTask.
+// The regions are read there, and the cleanup region from the hub's finally.
+const { functionBody, hubBody, spokeSource } = require('./helpers/task-path-sources');
+const source = spokeSource('task-outcome');
+const hubSource = hubBody();
+const gateSource = spokeSource('task-state-gate');
 
 // ---------------------------------------------------------------------------
 // Source extraction — the regions of processTask that end a task
 // ---------------------------------------------------------------------------
 
 /**
- * Slice processTask into the four regions that matter to this question.
- * Throws (via expect) rather than returning empty regions, so a rename cannot
- * quietly turn every assertion below into a vacuous pass.
+ * The four regions that matter to this question: the three endings in
+ * lib/task-outcome.js and the hub's finally. Throws (via expect) rather than returning
+ * empty regions, so a rename cannot quietly turn every assertion below into a vacuous pass.
  *
- * @param {string} src - bridge-agent.js source, or a mutated copy for the meta-tests
+ * @param {string} src - lib/task-outcome.js source, or a mutated copy for the meta-tests
+ * @param {string} hub - processTask's body
  */
-function extractRegions(src) {
-    const fnStart = src.indexOf('async function processTask(');
-    expect(fnStart).toBeGreaterThan(-1);
-    // processTask is top-level, so its close is the next `}` at column 0.
-    const fnEnd = src.indexOf('\n}\n', fnStart);
-    expect(fnEnd).toBeGreaterThan(fnStart);
-    const body = src.slice(fnStart, fnEnd);
+function extractRegions(src, hub = hubSource) {
+    const interrupted = functionBody(src, 'deliverInterrupted');
+    const success = functionBody(src, 'deliverCompleted');
+    const failure = functionBody(src, 'deliverFailure');
+    expect(interrupted).not.toBeNull();
+    expect(success).not.toBeNull();
+    expect(failure).not.toBeNull();
+    const finallyStart = hub.indexOf('\n  } finally {');
+    expect(finallyStart).toBeGreaterThan(-1);
+    return { body: src, interrupted, success, failure, cleanup: hub.slice(finallyStart) };
+}
 
-    const intStart = body.indexOf('if (interrupted) {');
-    expect(intStart).toBeGreaterThan(-1);
-    const intEnd = body.indexOf('\n      return;', intStart);
-    expect(intEnd).toBeGreaterThan(intStart);
+/** Where `region` makes its `write` terminal queue write, or -1. */
+function terminalAt(region, write) {
+    return region.indexOf(`endTask('${write}'`);
+}
 
-    const catchStart = body.indexOf('\n  } catch (err) {');
-    expect(catchStart).toBeGreaterThan(-1);
-
-    const finallyStart = body.indexOf('\n  } finally {');
-    expect(finallyStart).toBeGreaterThan(catchStart);
-
-    return {
-        body,
-        interrupted: body.slice(intStart, intEnd),
-        // Everything between the interrupted branch's return and the catch: the
-        // ordinary success path.
-        success: body.slice(intEnd, catchStart),
-        failure: body.slice(catchStart, finallyStart),
-        cleanup: body.slice(finallyStart),
-    };
+/** The argument text of the `write` terminal queue write in `region`, or null. */
+function terminalArgs(region, write) {
+    const at = terminalAt(region, write);
+    return at === -1 ? null : argsOf(region.slice(at), 'endTask(');
 }
 
 /**
@@ -135,7 +134,7 @@ describe('the delivery of a task result precedes the record that it finished', (
 
     test('the success path delivers BEFORE it writes the terminal queue entry', () => {
         const delivered = regions.success.indexOf('notifyOwner.taskCompleted(');
-        const terminal = regions.success.indexOf('.complete(');
+        const terminal = terminalAt(regions.success, 'complete');
 
         expect(delivered).toBeGreaterThan(-1);
         expect(terminal).toBeGreaterThan(-1);
@@ -143,7 +142,7 @@ describe('the delivery of a task result precedes the record that it finished', (
     });
 
     test('the terminal write on the success path carries a delivery verdict', () => {
-        const args = argsOf(regions.success, '.complete(');
+        const args = terminalArgs(regions.success, 'complete');
         expect(args).not.toBeNull();
         // Word-boundary matched: `x_delivered:` must NOT satisfy this, or the
         // negative control below would pass against a renamed field.
@@ -163,12 +162,12 @@ describe('the delivery of a task result precedes the record that it finished', (
         );
 
         const reported = regions.failure.indexOf('notifyOwner.taskFailed(');
-        const terminal = regions.failure.indexOf('.fail(');
+        const terminal = terminalAt(regions.failure, 'fail');
         expect(reported).toBeGreaterThan(-1);
         expect(terminal).toBeGreaterThan(-1);
         expect(reported).toBeLessThan(terminal);
 
-        const args = argsOf(regions.failure, '.fail(');
+        const args = terminalArgs(regions.failure, 'fail');
         expect(args).not.toBeNull();
         // Word-boundary matched: `x_delivered:` must NOT satisfy this, or the
         // negative control below would pass against a renamed field.
@@ -182,12 +181,12 @@ describe('the delivery of a task result precedes the record that it finished', (
         );
 
         const posted = regions.interrupted.indexOf('postToOps(');
-        const terminal = regions.interrupted.indexOf('.interrupt(');
+        const terminal = terminalAt(regions.interrupted, 'interrupt');
         expect(posted).toBeGreaterThan(-1);
         expect(terminal).toBeGreaterThan(-1);
         expect(posted).toBeLessThan(terminal);
 
-        const args = argsOf(regions.interrupted, '.interrupt(');
+        const args = terminalArgs(regions.interrupted, 'interrupt');
         expect(args).not.toBeNull();
         // Word-boundary matched: `x_delivered:` must NOT satisfy this, or the
         // negative control below would pass against a renamed field.
@@ -199,10 +198,22 @@ describe('the delivery of a task result precedes the record that it finished', (
         // it. Releasing it before the delivery is recorded would hand the updater a
         // green light while the result is still in flight — the precise race the
         // drain exists to close.
-        expect(regions.cleanup).toContain('taskLock.release(');
-        expect(regions.success).not.toContain('taskLock.release(');
-        expect(regions.failure).not.toContain('taskLock.release(');
-        expect(regions.interrupted).not.toContain('taskLock.release(');
+        // The release is lib/task-state-gate.js releaseTaskLock, called from the hub's
+        // finally and nowhere else, after every ending has returned.
+        expect(functionBody(gateSource, 'releaseTaskLock')).toContain('taskLock.release(');
+        expect(gateSource.match(/taskLock\.release\(/g)).toHaveLength(1);
+        expect(regions.cleanup).toContain('releaseTaskLock(');
+        expect(hubSource.match(/releaseTaskLock\(/g)).toHaveLength(1);
+        for (const r of [regions.success, regions.failure, regions.interrupted]) {
+            expect(r).not.toMatch(/taskLock\.release\(|releaseTaskLock\(/);
+        }
+        // Every ending is awaited inside the try/catch, i.e. before the finally.
+        const fin = hubSource.indexOf('\n  } finally {');
+        for (const ending of ['deliverCompleted(', 'deliverFailure(', 'deliverInterrupted(']) {
+            const at = hubSource.indexOf(`await ${ending}`);
+            expect(at).toBeGreaterThan(-1);
+            expect(at).toBeLessThan(fin);
+        }
     });
 });
 
@@ -223,12 +234,12 @@ describe('the guard itself detects what it claims to', () => {
     });
 
     test('it fails when a terminal write loses its delivery verdict', () => {
-        const args = argsOf(regions_of(source).success, '.complete(');
+        const args = terminalArgs(regions_of(source).success, 'complete');
         const stripped = source.replace(args, args.replace(/\bdelivered\s*:/g, 'wasSent:'));
         expect(stripped).not.toBe(source);
 
         const r = extractRegions(stripped);
-        expect(argsOf(r.success, '.complete(')).not.toMatch(/\bdelivered\s*:/);
+        expect(terminalArgs(r.success, 'complete')).not.toMatch(/\bdelivered\s*:/);
     });
 
     test('argsOf returns null for a call that is not there', () => {

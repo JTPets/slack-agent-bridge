@@ -34,15 +34,20 @@ describe('formatDeadlineWarning', () => {
 });
 
 describe('processTask passes the warning to the LLM call', () => {
-    const src = fs.readFileSync(path.join(__dirname, '..', 'bridge-agent.js'), 'utf8');
-    const start = src.indexOf('async function processTask(');
-    const body = src.slice(start, src.indexOf('\nasync function ', start + 10));
+    // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): the task's model run is
+    // lib/task-llm-run.js runTaskLlm, and TASK_TIMEOUT reaches it as deps.taskTimeout.
+    const { functionBody, hubBody, spokeSource } = require('./helpers/task-path-sources');
+    const body = functionBody(spokeSource('task-llm-run'), 'runTaskLlm') || '';
+    const start = body ? 0 : -1;
     const call = body.slice(body.indexOf('runWithFallback(prompt, {'));
     const options = call.slice(0, call.indexOf('});'));
 
     test('the task path calls runWithFallback with onDeadlineWarning posting formatDeadlineWarning to ops', () => {
         expect(start).toBeGreaterThan(-1);
-        expect(options).toMatch(/timeout:\s*TASK_TIMEOUT/);
+        expect(options).toMatch(/timeout:\s*deps\.taskTimeout/);
+        expect(hubBody()).toContain('const deps = taskDeps();');
+        const src = fs.readFileSync(path.join(__dirname, '..', 'bridge-agent.js'), 'utf8');
+        expect(functionBody(src, 'taskDeps')).toMatch(/taskTimeout: TASK_TIMEOUT/);
         expect(options).toMatch(/onDeadlineWarning:\s*\(info\)\s*=>\s*postToOps\(formatDeadlineWarning\(/);
     });
 

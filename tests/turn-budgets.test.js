@@ -52,7 +52,11 @@ describe('bridge-agent.js uses the names, not literals', () => {
     });
 
     test('the max-turns retry is capped by TURNS_CEILING', () => {
-        expect(BRIDGE_SRC).toMatch(/Math\.min\(currentTurns \* 2, TURNS_CEILING\)/);
+        // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): the retry moved with the task's
+        // model run to lib/task-llm-run.js.
+        const RUN_SRC = fs.readFileSync(path.join(__dirname, '..', 'lib', 'task-llm-run.js'), 'utf8');
+        expect(RUN_SRC).toMatch(/Math\.min\(currentTurns \* 2, TURNS_CEILING\)/);
+        expect(LITERAL_RETRY_CAP.test(RUN_SRC)).toBe(false);
         expect(LITERAL_RETRY_CAP.test(BRIDGE_SRC)).toBe(false);
     });
 });

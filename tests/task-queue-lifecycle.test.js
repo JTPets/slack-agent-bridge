@@ -27,12 +27,18 @@ const os = require('os');
 const { assemblyFiles, pm2Literals } = require('./helpers/task-queue-sources');
 
 const BRIDGE_AGENT_PATH = path.join(__dirname, '..', 'bridge-agent.js');
-const source = fs.readFileSync(BRIDGE_AGENT_PATH, 'utf8');
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): processTask is a hub. Its `running`
+// transition is lib/task-state-gate.js beginTask's, and each ending's terminal write is
+// an `endTask('<write>', ...)` in lib/task-outcome.js. The lifecycle is read from there.
+const { functionBody, hubBody, spokeSource } = require('./helpers/task-path-sources');
+const bridgeSource = fs.readFileSync(BRIDGE_AGENT_PATH, 'utf8');
+const source = { hub: hubBody(bridgeSource), gate: spokeSource('task-state-gate'), outcome: spokeSource('task-outcome') };
 
-// The WRITE surface — read-only accessors excluded; this is the state machine.
+// The WRITE surface — read-only accessors excluded; this is the state machine. A direct
+// queue call, or the middleware's terminal write naming its method.
 const MUTATORS = ['enqueue', 'markRunning', 'dequeue', 'complete', 'fail', 'interrupt'];
 const MUTATION_RE = new RegExp(
-    `(?:taskQueue\\.getQueue\\(\\)|\\bqueue)\\.(${MUTATORS.join('|')})\\(`,
+    `(?:taskQueue\\.getQueue\\(\\)|\\bqueue)\\.(${MUTATORS.join('|')})\\(|\\bendTask\\('(${MUTATORS.join('|')})'`,
     'g'
 );
 
@@ -41,7 +47,7 @@ function mutationsIn(region) {
     const out = [];
     const re = new RegExp(MUTATION_RE.source, 'g');
     let m;
-    while ((m = re.exec(region)) !== null) out.push({ method: m[1], index: m.index });
+    while ((m = re.exec(region)) !== null) out.push({ method: m[1] || m[2], index: m.index });
     return out;
 }
 
@@ -52,38 +58,27 @@ function mutationsIn(region) {
  */
 function extractLifecycle(src) {
     // The poll loop's enqueue — where a TASK: message first becomes a queue entry.
-    expect(src.indexOf('const queuedTask = queue.enqueue({')).toBeGreaterThan(-1);
+    expect(bridgeSource.indexOf('const queuedTask = queue.enqueue({')).toBeGreaterThan(-1);
 
-    // LOGIC CHANGE 2026-09-15: match the function, not its parameter list (WORK-TODO #38).
-    const fnStart = src.indexOf('async function processTask(');
-    expect(fnStart).toBeGreaterThan(-1);
-    // processTask is top-level, so its close is the next `}` at column 0.
-    const fnEnd = src.indexOf('\n}\n', fnStart);
-    expect(fnEnd).toBeGreaterThan(fnStart);
-    const body = src.slice(fnStart, fnEnd);
+    // The hub runs beginTask before its try, so its transitions precede every ending.
+    const hub = src.hub;
+    expect(hub).toBeTruthy();
+    const begin = hub.indexOf('await beginTask(');
+    expect(begin).toBeGreaterThan(-1);
+    expect(begin).toBeLessThan(hub.indexOf('\n  try {'));
 
-    // The failure path begins at processTask's own `catch (err)`.
-    const catchIdx = body.indexOf('\n  } catch (err) {');
-    expect(catchIdx).toBeGreaterThan(-1);
-
-    // The "child was killed but this process is still alive" branch.
-    const intStart = body.indexOf('if (interrupted) {');
-    expect(intStart).toBeGreaterThan(-1);
-    const intEnd = body.indexOf('\n      return;', intStart);
-    expect(intEnd).toBeGreaterThan(intStart);
-
-    const all = mutationsIn(body);
+    const beginBody = functionBody(src.gate, 'beginTask');
+    const interrupted = functionBody(src.outcome, 'deliverInterrupted');
+    const success = functionBody(src.outcome, 'deliverCompleted');
+    const failure = functionBody(src.outcome, 'deliverFailure');
+    for (const region of [beginBody, interrupted, success, failure]) expect(region).toBeTruthy();
+    const methods = (region) => mutationsIn(region).map((x) => x.method);
     return {
-        // Before the interrupted branch: shared by every outcome, and the only
-        // place the `running` transition can legitimately live.
-        prefix: all.filter((x) => x.index < intStart).map((x) => x.method),
-        interrupted: all
-            .filter((x) => x.index > intStart && x.index < intEnd)
-            .map((x) => x.method),
-        success: all
-            .filter((x) => x.index > intEnd && x.index < catchIdx)
-            .map((x) => x.method),
-        failure: all.filter((x) => x.index > catchIdx).map((x) => x.method),
+        // Shared by every outcome, and the only place the `running` transition can live.
+        prefix: methods(beginBody),
+        interrupted: methods(interrupted),
+        success: methods(success),
+        failure: methods(failure),
     };
 }
 
@@ -233,8 +228,8 @@ describe('task queue lifecycle as bridge-agent.js actually drives it', () => {
     test('startup recovery runs before cleanup, so no RUNNING entry is stranded', () => {
         // cleanup() keeps every PENDING and RUNNING entry unconditionally, so
         // recoverInterrupted() must make the entry terminal first.
-        const recoverIdx = source.indexOf('queue.recoverInterrupted()');
-        const cleanupIdx = source.indexOf('queue.cleanup()');
+        const recoverIdx = bridgeSource.indexOf('queue.recoverInterrupted()');
+        const cleanupIdx = bridgeSource.indexOf('queue.cleanup()');
         expect(recoverIdx).toBeGreaterThan(-1);
         expect(recoverIdx).toBeLessThan(cleanupIdx);
     });
@@ -260,9 +255,9 @@ describe('task queue lifecycle as bridge-agent.js actually drives it', () => {
 describe('the guard itself detects what it claims to', () => {
     // Without these, the suite above could pass by extracting nothing at all.
     test('removing the production markRunning call empties the running transition', () => {
-        const broken = source.replace('taskQueue.getQueue().markRunning(queueId);', '');
-        expect(broken).not.toBe(source);
-        expect(extractLifecycle(broken).prefix).not.toContain('markRunning');
+        const gate = source.gate.replace('taskQueue.getQueue().markRunning(queueId);', '');
+        expect(gate).not.toBe(source.gate);
+        expect(extractLifecycle({ ...source, gate }).prefix).not.toContain('markRunning');
     });
 
     test('a replay with no running transition leaves startedAt null and recovers nothing', () => {

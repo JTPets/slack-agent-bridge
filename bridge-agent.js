@@ -40,7 +40,6 @@ require('dotenv').config();
 // LOGIC CHANGE 2026-10-04 (WORK-TODO #30, #21): every Slack client is built by lib/slack-web.js,
 // which redacts secrets out of every chat.* post and drops the already_in_channel warning.
 const { createWebClient, postText } = require('./lib/slack-web');
-const { formatDeadlineWarning, formatRunAlert } = require('./lib/deadline-warning');
 // LOGIC CHANGE 2026-09-14: `const { execSync } = require('child_process')` removed.
 // It was left behind when the git/clone lifecycle moved to lib/clone-lifecycle.js
 // (seam A) and had no remaining use in this file — a dead import of the one API in
@@ -88,7 +87,7 @@ const { config, validate, isUserAuthorized, resolveLlmProvider } = require('./li
 // doesn't exist or agent not found.
 // LOGIC CHANGE 2026-03-26: Added isProductionRepo for production workflow detection.
 // LOGIC CHANGE 2026-03-27: Added getActiveAgents and getAgentByChannel for multi-channel polling.
-const { getAgent, loadAgents, getActiveAgents, getAgentByChannel, registryExists, isProductionRepo } = require('./lib/agent-registry');
+const { getAgent, loadAgents, getActiveAgents, getAgentByChannel, registryExists } = require('./lib/agent-registry');
 
 // LOGIC CHANGE 2026-09-15: the pure rule for "which channels does the bridge join".
 // It lives in lib/agent-surface.js beside the rest of the agent-surface enumeration,
@@ -138,14 +137,13 @@ const bulletinBoard = require('./lib/bulletin-board');
 // Enables agents to run on schedules (e.g., morning briefings, nightly audits).
 const { startScheduler, stopScheduler } = require('./lib/agent-scheduler');
 
-// LOGIC CHANGE 2026-03-28: Added bulletin-watcher module for event-driven agent triggers.
-// When a bulletin is posted, watching agents get notified via ASK messages.
-const bulletinWatcher = require('./lib/bulletin-watcher');
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): bulletin-watcher is lib/task-followups.js's.
 
 // LOGIC CHANGE 2026-03-28: Added code-review-pipeline module for Phase 1/2/3 task execution.
 // Phase 1: reviewTask reads codebase before executing. Phase 2: buildPrompt assembles enriched
 // prompt with COMMANDMENTS + CLAUDE.md + structure + context. Phase 3: validateOutput runs tests.
-const { reviewTask, createExecutionPlan, buildPrompt, validateOutput } = require('./lib/code-review-pipeline');
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): the pipeline is called from lib/task-prompt.js
+// (Phases 1-2) and lib/task-outcome.js (Phase 3), the task spokes.
 
 // LOGIC CHANGE 2026-04-01: Added task-queue module for persistent task queueing.
 // Tasks are queued on disk before execution, so auto-update can see in-flight work
@@ -177,29 +175,28 @@ const agentContext = require('./lib/agent-context');
 // echo live tokens) and every #sqtools-ops post via postToOps().
 const { redact } = require('./lib/redact-secrets');
 
-// LOGIC CHANGE 2026-09-14: Extracted the git/clone lifecycle (cloneRepo,
-// cleanupDir, detectUndeliveredWork) into lib/clone-lifecycle.js — seam A in
-// docs/WIRING-AND-SEAMS.md. Pure fs/execFileSync helpers with no bridge state.
-const { cloneRepo, cleanupDir, detectUndeliveredWork } = require('./lib/clone-lifecycle');
-const { headSha, describeWork, formatWork } = require('./lib/task-work');
-// LOGIC CHANGE 2026-11-12 (WORK-TODO #6): one structured task result, posted as a card.
-const {
-  OUTCOME: RESULT_OUTCOME, buildTaskResult, withDelivery, renderText, formatResultLogLine,
-} = require('./lib/task-result');
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): the clone lifecycle, task work record,
+// result card, preserved-clone alert, divergence notice and start check are required by
+// the task spokes below, which processTask calls; only what this file still uses is here.
+const { formatWork } = require('./lib/task-work');
 const { resolveMergeStates, formatMergeState } = require('./lib/merge-state');
 // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B35): the ASK: built-ins, out of processConversation.
 const { answerBuiltin } = require('./lib/conversation-builtins');
-const { formatPreservedCloneAlert } = require('./lib/preserved-clone-alert');
-const { describeTaskStateDivergence } = require('./lib/task-state-divergence');
-const { checkTaskStart, describeStartRefusal } = require('./lib/task-start-check');
+const { describeStartRefusal } = require('./lib/task-start-check');
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): processTask's spokes.
+const { beginTask, releaseTaskLock } = require('./lib/task-state-gate');
+const { prepareWorkspace, cleanupWorkspace } = require('./lib/task-workspace');
+const { buildTaskPrompt } = require('./lib/task-prompt');
+const { runTaskLlm } = require('./lib/task-llm-run');
+const {
+  deliverInterrupted, deliverCompleted, deliverFailure, reportAlreadyDone,
+} = require('./lib/task-outcome');
+const { afterCompletion } = require('./lib/task-followups');
+const taskMemory = require('./lib/task-memory-record');
 const repoHistory = require('./lib/repo-history');
 
-// LOGIC CHANGE 2026-09-20: install the target repo's own dependencies in the scratch
-// clone before the LLM runs. Without this, Phase-3's test command found no node_modules
-// and could only ever classify runner_absent — every repo dispatch's verification was
-// vacuous (WORK-TODO #61). An install failure is a HARNESS failure that stops the
-// dispatch; see lib/dependency-install.js.
-const { installDependencies } = require('./lib/dependency-install');
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): the dependency install (WORK-TODO #61) is
+// lib/task-workspace.js prepareWorkspace's.
 
 // LOGIC CHANGE 2026-09-14: Additive Slack Socket Mode connection for slash commands.
 // It does NOT carry messages: the poll loop below is untouched and remains the only
@@ -430,34 +427,8 @@ async function postToOps(text) {
   return postText(slack, OPS_CHANNEL, text, 'bridge-agent');
 }
 
-// LOGIC CHANGE 2026-10-04 (WORK-TODO #39): record the branch, head commit and remote
-// refs a repo task left behind on its queue row (lib/task-work.js). Writes only the
-// row's `work` field, never a status or a delivery verdict, so the #74 invariant is
-// untouched. A failure is reported to ops, never fatal to the task.
-/**
- * The work a clone holds, for the result card (lib/task-work.js). Never throws: a work
- * record that cannot be read is a card without it, never a task that cannot report.
- */
-function readTaskWork(taskDir, baseSha) {
-  if (!taskDir || !fs.existsSync(taskDir)) return null;
-  try {
-    return describeWork(taskDir, baseSha);
-  } catch (workErr) {
-    console.error('[bridge-agent] Could not read the task work for its result:', workErr.message);
-    return null;
-  }
-}
-
-async function recordTaskWork(queueId, taskDir, baseSha, description) {
-  try {
-    taskQueue.getQueue().recordWork(queueId, describeWork(taskDir, baseSha));
-  } catch (workErr) {
-    console.error('[bridge-agent] Failed to record task work:', workErr.message);
-    await postToOps(
-      `:warning: Could not record which branch and commit "${description}" left behind: ${workErr.message}. ASK: what's queued will not show it.`
-    );
-  }
-}
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): readTaskWork and recordTaskWork moved to
+// lib/task-workspace.js with the rest of the task's workspace.
 
 // ---- Drain-one: is a self-update waiting? ----
 
@@ -573,961 +544,99 @@ const TASK_LOCK_FILE = taskLock.DEFAULT_LOCK_FILE;
 // LOGIC CHANGE 2026-04-01: Added queueId parameter for task queue integration.
 // Queue status is updated on task completion/failure for auto-update coordination.
 async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, handlingAgent = null) {
-  // LOGIC CHANGE 2026-09-15: a task executes as the agent it was addressed to.
-  // WORK-TODO #38: `agentConfig` is bound ONCE at module scope to getAgent('bridge')
-  // and never rebound, and until now processTask read it directly while
-  // processConversation already took the channel's agent as a parameter. So every
-  // TASK: message - including one a scheduled agent's own cron job posted into its
-  // own channel - ran with the BRIDGE's persona, provider, model and metrics
-  // identity. Defining agents separately bought nothing on the path that does the
-  // work.
+  // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): processTask is a HUB. It reads top to
+  // bottom as the steps of a task and calls one spoke per step:
+  //   lib/task-state-gate.js    the lock and the queue row, in and out (middleware)
+  //   lib/task-workspace.js     the temp dir or scratch clone, made and removed
+  //   lib/task-prompt.js        the prompt
+  //   lib/task-llm-run.js       the model run, with the one max-turns retry
+  //   lib/task-outcome.js       the result delivered, THEN the terminal queue row
+  //   lib/task-followups.js     Phase-3 detail, bulletin, ACTION REQUIRED, history
+  //   lib/task-memory-record.js the history entry and the agent's working memory
+  // Everything a step needs about this task is on `run`; everything it needs from this
+  // process is on `taskDeps()`. The history of each rule moved with it.
   //
-  // This is deliberately NOT a third mechanism: it is the SAME `handlingAgent ||
-  // agentConfig` fallback processConversation has used since 2026-03-27, with the
-  // same `|| 'bridge'` arm for a registry that failed to load, and the poll loop now
-  // passes the same `channelAgentConfig` to both.
-  //
-  // What follows the resolved agent, and what deliberately does not, is enumerated
-  // at each site below and in the commit body. The short version: the agent decides
-  // its own IDENTITY (persona, provider, model, metrics id, bulletin voice, working
-  // memory). It does not decide the ORCHESTRATOR's bookkeeping (the queue, the lock,
-  // the ops channel, the owner's action inbox, the global task history).
+  // LOGIC CHANGE 2026-09-15 (WORK-TODO #38): a task executes as the agent it was
+  // addressed to: the SAME `handlingAgent || agentConfig` fallback processConversation
+  // uses, and the poll loop passes the same `channelAgentConfig` to both. The agent
+  // decides its own IDENTITY (persona, provider, model, metrics id, bulletin voice,
+  // working memory), never the orchestrator's bookkeeping (queue, lock, ops channel, the
+  // owner's action inbox, the global task history).
   const currentAgent = handlingAgent || agentConfig;
   const currentAgentId = currentAgent?.id || 'bridge';
-
   const task = parseTask(msg.text);
-  const startTime = Date.now();
-  let taskDir = null;
-  let scratchCwd = null;
-  let taskBaseSha = null;
-  let taskSuccess = false;
-  // LOGIC CHANGE 2026-09-14: Phase 3 used to run a hardcoded `npm test` while Phase 1
-  // had already read the repo's own `scripts.test` into the plan and thrown it away.
-  // A repo whose test script is anything else had its declared suite ignored and a
-  // different command scored as its gate. Captured here because the plan is
-  // block-scoped inside the Phase-1 try and Phase 3 runs long after it.
-  let taskTestScript = 'npm test';
+  const deps = taskDeps();
+  const run = {
+    msg, sourceChannel, queueId, task, currentAgent, currentAgentId,
+    startTime: Date.now(),
+    sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
+    taskDir: null, scratchCwd: null, taskBaseSha: null, taskSuccess: false,
+    // The repo's own test script, set by lib/task-prompt.js from Phase 1; null lets
+    // validateOutput use its own default (lib/code-review-pipeline.js).
+    taskTestScript: null,
+    // LOGIC CHANGE 2026-03-27: progress reactions on the source message.
+    heartbeat: createHeartbeat(slack, sourceChannel, msg.ts),
+    // LOGIC CHANGE 2026-09-13: per-agent LLM_PROVIDER_<AGENTID> wins (survives a pull).
+    llmProvider: resolveLlmProvider(currentAgent, currentAgentId),
+    memoryTaskId: null,
+  };
 
-  // LOGIC CHANGE 2026-03-27: Create heartbeat for visual progress feedback.
-  // Cycles through emojis while task runs. Wrapped in try/catch so heartbeat
-  // failures never affect task execution.
-  // Uses sourceChannel to add reactions to the correct channel's message.
-  const heartbeat = createHeartbeat(slack, sourceChannel, msg.ts);
-
-  // LOGIC CHANGE 2026-03-27: Create task lock file to signal to auto-update.js
-  // that a task is running. Auto-update will wait for this file to be removed
-  // before restarting, to avoid interrupting running tasks.
-  // LOGIC CHANGE 2026-09-14: "restarting PM2" -> "restarting". There is no pm2 here.
-  // LOGIC CHANGE 2026-11-08 (WORK-TODO #72, owner: "if locked - refuse - then a human
-  // can over rule"): no longer best effort. A task starts only when the lock and the
-  // queue agree nothing else is running AND its own lock is written; otherwise it is
-  // refused before any work (thrown inside the try below, so the failure path posts it
-  // and fails the queue row) and the owner overrules with `ASK: lock clear`. A lock this
-  // task did not write is never released by this task.
-  let startRefusal = null;
-  try {
-    startRefusal = checkTaskStart({
-      lock: taskLock.inspect({ lockFile: TASK_LOCK_FILE }),
-      running: taskQueue.getQueue().getRunning(),
-      queueId,
-    });
-  } catch (checkErr) {
-    startRefusal = `the lock and the queue could not be read (${checkErr.message})`;
-  }
-  const lockResult = startRefusal
-    ? { acquired: false, refused: true }
-    : taskLock.acquire({
-      msgTs: msg.ts,
-      description: task.description,
-      lockFile: TASK_LOCK_FILE,
-    });
-  const lockOwned = lockResult.acquired === true;
-  if (!lockResult.acquired && !lockResult.refused) {
-    startRefusal = `the task lock could not be written (${lockResult.error})`;
-    console.error(
-      `[bridge-agent] Running without a task lock (${lockResult.error}) - ` +
-      `a self-update during this task will not defer for it`
-    );
-    // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged. The poll
-    // loop and the update gate now disagree about whether a task is running.
-    // postToOps never throws.
-    await postToOps(describeTaskStateDivergence({
-      kind: 'lock_not_acquired', description: task.description, error: lockResult.error,
-    }));
-  }
-
-  // LOGIC CHANGE 2026-09-14: Mark the queue entry RUNNING here, beside the lock.
-  // The lock and the queue both answer "is a task running?" and were out of step:
-  // the lock was written around the task, but the queue went straight from
-  // `pending` to `completed`/`failed` with no transition in between, because
-  // dequeue() - the only writer of STATUS.RUNNING - had no production caller. Every
-  // completed entry therefore carried `startedAt: null`, and recoverInterrupted()
-  // returned 0 at every startup, so a task killed mid-run was never recorded as
-  // interrupted. See WORK-TODO P1 #18.
-  //
-  // markRunning(queueId), not dequeue(): the id is already known here, and
-  // dequeue()'s "first pending entry" search would pick the wrong entry whenever a
-  // second one is pending. Best effort, like the lock - a queue write that fails
-  // must not stop the work; but it is logged, never swallowed.
-  if (queueId && !startRefusal) {
-    try {
-      taskQueue.getQueue().markRunning(queueId);
-    } catch (queueErr) {
-      console.error('[bridge-agent] Queue markRunning failed:', queueErr.message);
-      startRefusal = `the queue could not record this task as running (${queueErr.message})`;
-      // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged.
-      await postToOps(describeTaskStateDivergence({
-        kind: 'queue_not_marked_running', description: task.description, error: queueErr.message,
-      }));
-    }
-  }
-
-  // LOGIC CHANGE 2026-03-26: Track task in memory for history/analytics.
-  // Memory errors are logged but never crash task execution.
-  let memoryTaskId = null;
-  try {
-    const memTask = memory.addTask({
-      description: task.description,
-      repo: task.repo,
-      branch: task.branch,
-      status: 'running',
-    });
-    memoryTaskId = memTask.id;
-  } catch (memErr) {
-    console.error('[bridge-agent] Memory addTask failed:', memErr.message);
-  }
-
-  // LOGIC CHANGE 2026-04-01: Determine LLM provider early so it's available in catch block
-  // for error notifications. Falls back to env LLM_PROVIDER or 'claude'.
-  // LOGIC CHANGE 2026-09-13: resolveLlmProvider adds a per-agent LLM_PROVIDER_<AGENTID>
-  // env override (highest precedence) so on-box provider config in .env survives a pull.
-  const llmProvider = resolveLlmProvider(currentAgent, currentAgentId);
+  // 1. May it start? Lock and queue row (WORK-TODO #72: refuse, a human overrules).
+  const { startRefusal, lockOwned } = await beginTask({
+    msg, task, queueId, lockFile: TASK_LOCK_FILE, postToOps,
+  });
+  run.memoryTaskId = taskMemory.startRecord(task);
 
   try {
-    // LOGIC CHANGE 2026-09-14: Refuse a task whose fields parseTask rejected before
-    // any work starts. parseTask validates REPO:/BRANCH:/SKILL: at the boundary and
-    // records rejections in task.errors instead of quietly dropping them; running
-    // the task anyway would clone the wrong repo, or run with no repo at all, and
-    // nobody would be told. Throwing here routes to this function's catch, which
-    // posts the reason to Slack and reacts with the failure emoji.
+    // LOGIC CHANGE 2026-09-14: a field parseTask rejected stops the task before any work.
     if (task.errors && task.errors.length > 0) {
       throw new Error(`Task message rejected: ${task.errors.join('; ')}`);
     }
     if (startRefusal) throw new Error(describeStartRefusal(startRefusal));
+    await run.heartbeat.start();
 
-    // LOGIC CHANGE 2026-03-27: Start heartbeat reactions (eyes -> cycling emojis).
-    await heartbeat.start();
-
-    let prompt = '';
-    let cwd = WORK_DIR;
-
-    // LOGIC CHANGE 2026-11-25 (WORK-TODO #82): a task with no REPO: runs in an empty
-    // directory of its own, removed in the finally below. It used to run in WORK_DIR,
-    // which holds every scratch and preserved clone, the update-gate checkout, the task
-    // queue and the HIGH notices: a read-only agent (the nightly audit, the secretary)
-    // was confined to that tree and read it, and the audit reported on the gate checkout
-    // as if it were the repository.
-    if (!task.repo) {
-      scratchCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-task-'));
-      cwd = scratchCwd;
-    }
-
-    if (task.repo) {
-      // Clone into a unique temp dir
-      const dirName = `task-${msg.ts.replace('.', '-')}`;
-      taskDir = path.join(WORK_DIR, dirName);
-      cloneRepo(task.repo, task.branch, taskDir);
-      cwd = taskDir;
-      // LOGIC CHANGE 2026-10-04 (WORK-TODO #39): HEAD as cloned, so the work record
-      // can count the commits this task added.
-      taskBaseSha = headSha(taskDir);
-
-      // LOGIC CHANGE 2026-09-20: install the clone's dependencies BEFORE the LLM runs
-      // (WORK-TODO #61). This is what makes Phase 3's test gate real: `npm test` in a
-      // clone with no node_modules exits 127 (`jest: not found`), which validateOutput
-      // can only ever score runner_absent — so verification has never once run against
-      // work a dispatch produced. Pre-LLM and fail-hard by decision: an agent that
-      // cannot install can still write a branch it cannot verify, which puts the owner
-      // back to merging on a claim. An install failure is a HARNESS failure (the bridge
-      // is broken), classified and reported distinctly from a test failure (the branch
-      // is broken) and a timeout — never collapsed into one. A repo with no recognised
-      // manifest installs nothing and proceeds (research/audit and no-dependency tasks).
-      const install = installDependencies(taskDir);
-      if (install.harnessFailure) {
-        await postToOps(
-          `:rotating_light: *Dispatch stopped — HARNESS failure (install), not a code failure.*\n` +
-          `Task: ${task.description}\n` +
-          `Repo: ${task.repo} (branch: ${task.branch}) — ecosystem: \`${install.ecosystem}\`\n` +
-          `Outcome: \`${install.outcome}\`\n${install.reason}\n` +
-          `No branch was produced: the bridge could not prepare the clone, so nothing was verified.\n` +
-          `\`\`\`\n${(install.output || '').trim().slice(-1200)}\n\`\`\`\n` +
-          `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
-        ).catch(postErr => {
-          console.error('[bridge-agent] Could not post install-harness failure:', postErr.message);
-        });
-        throw new Error(`HARNESS FAILURE — dependency install: ${install.reason}`);
-      }
-      if (install.ran) {
-        console.log(`[bridge-agent] Installed ${install.ecosystem} dependencies (${install.command})`);
-      } else {
-        console.log(`[bridge-agent] No dependency install: ${install.reason}`);
-      }
-
-      // LOGIC CHANGE 2026-03-26: Load skill template from skills/<skill>/SKILL.md
-      // if SKILL field is specified. Prepends skill content to the prompt.
-      let skillContent = '';
-      if (task.skill) {
-        try {
-          const skillPath = path.join(taskDir, 'skills', task.skill, 'SKILL.md');
-          if (fs.existsSync(skillPath)) {
-            skillContent = fs.readFileSync(skillPath, 'utf8');
-            console.log(`[bridge-agent] Loaded skill template: ${task.skill}`);
-          } else {
-            console.warn(`[bridge-agent] Skill not found: ${skillPath}`);
-          }
-        } catch (skillErr) {
-          console.error(`[bridge-agent] Failed to load skill ${task.skill}:`, skillErr.message);
-        }
-      }
-
-      // LOGIC CHANGE 2026-03-26: Check if repo is production and prepend warning.
-      // Production repos MUST use feature branches and PRs, never push to main.
-      let productionWarning = '';
-      if (isProductionRepo(task.repo)) {
-        productionWarning = 'This is a PRODUCTION repo. You MUST create a feature branch, commit there, push the branch, and create a pull request using `gh pr create`. Do NOT push to main. Do NOT merge.\n\n';
-        console.log(`[bridge-agent] Production repo detected: ${task.repo}`);
-      }
-
-      // LOGIC CHANGE 2026-03-27: Prepend agent system_prompt to task prompt for
-      // consistent agent personality and behavior. Falls back to empty string if
-      // no system_prompt is defined.
-      // LOGIC CHANGE 2026-09-15: the EXECUTING agent's prompt, not the bridge's.
-      const agentSystemPrompt = currentAgent?.system_prompt || '';
-
-      // LOGIC CHANGE 2026-03-28: Phase 1 of code review pipeline.
-      // reviewTask reads CLAUDE.md, repo structure, git history, and relevant files
-      // to give Claude rich context before it executes. buildPrompt assembles everything
-      // in the correct order so Claude follows project rules and avoids duplicate work.
-      let usingPipelinePrompt = false;
-      try {
-        const pipelineContext = reviewTask(task, taskDir);
-        const pipelinePlan = createExecutionPlan(task, pipelineContext);
-        taskTestScript = pipelinePlan.testScript || taskTestScript;
-
-        if (pipelinePlan.skip) {
-          // Task already done - report and exit without running LLM
-          await postToOps(
-            `:white_check_mark: *Already implemented:* ${pipelinePlan.reason}\n` +
-            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
-          );
-          await react(sourceChannel, msg.ts, EMOJI_DONE);
-          taskSuccess = true;
-          return;
-        }
-
-        // Build memory and bulletin context for the prompt
-        let memoryContext = '';
-        try {
-          memoryContext = memory.buildTaskContext() || '';
-        } catch (ctxErr) {
-          console.error('[bridge-agent] buildTaskContext failed:', ctxErr.message);
-        }
-
-        let bulletinContextStr = '';
-        try {
-          // LOGIC CHANGE 2026-09-15: the executing agent's view of the stream.
-          // processConversation has always passed its own agentId here; this site
-          // was hardcoded to 'bridge', so a task ran against the bridge's unread set.
-          bulletinContextStr = bulletinBoard.formatBulletinsForContext(currentAgentId, 10);
-        } catch (bErr) {
-          console.error('[bridge-agent] formatBulletinsForContext failed:', bErr.message);
-        }
-
-        // Load COMMANDMENTS.md from project root (host, not cloned repo)
-        let commandmentsContent = '';
-        try {
-          const commandmentsPath = path.join(__dirname, 'COMMANDMENTS.md');
-          if (fs.existsSync(commandmentsPath)) {
-            commandmentsContent = fs.readFileSync(commandmentsPath, 'utf8');
-          }
-        } catch (cmdErr) {
-          console.warn('[bridge-agent] Could not read COMMANDMENTS.md:', cmdErr.message);
-        }
-
-        prompt = buildPrompt(task, pipelineContext, pipelinePlan, {
-          commandmentsContent,
-          agentSystemPrompt,
-          productionWarning,
-          skillContent,
-          memoryContext,
-          bulletinContext: bulletinContextStr,
-          repoRef: `${task.repo} (branch: ${task.branch})`,
-        });
-        usingPipelinePrompt = true;
-        console.log('[bridge-agent] Using pipeline-enriched prompt for task:', task.description);
-      } catch (pipelineErr) {
-        console.error('[bridge-agent] Code review pipeline failed, falling back to basic prompt:', pipelineErr.message);
-      }
-
-      if (!usingPipelinePrompt) {
-        // Fallback: basic prompt assembly (original behavior)
-        prompt = [
-          agentSystemPrompt,
-          productionWarning,
-          skillContent,
-          `You are working in a cloned repo: ${task.repo} (branch: ${task.branch}).`,
-          `Your working directory is the repo root.`,
-          productionWarning ? '' : `When done, commit and push your changes if you made any code changes.`,
-          '',
-          task.instructions || task.description,
-        ].filter(Boolean).join('\n');
-      }
-    } else {
-      // No repo specified, run in work dir
-      // LOGIC CHANGE 2026-03-27: Also prepend system_prompt for non-repo tasks.
-      // LOGIC CHANGE 2026-09-15: the executing agent's, not the bridge's.
-      const agentSystemPrompt = currentAgent?.system_prompt || '';
-      prompt = agentSystemPrompt
-        ? `${agentSystemPrompt}\n\n${task.instructions || task.description}`
-        : (task.instructions || task.description);
-    }
-
-    // LOGIC CHANGE 2026-03-26: Prepend task context from memory to help CC avoid
-    // duplicate work and build on previous results. Context failure never blocks
-    // task execution. Skip when using pipeline prompt (already included).
-    // LOGIC CHANGE 2026-03-28: usingPipelinePrompt flag prevents double-adding context.
-    if (!task.repo) {
-      // LOGIC CHANGE 2026-09-15: inject the EXECUTING AGENT'S OWN DATA on the no-repo
-      // task path, the same data lib/agent-context.js already injects on the ASK:
-      // path. `buildEnrichedPrompt` has exactly one production caller —
-      // processConversation — so until now everything that module does was reachable
-      // from ASK: and from nothing else. A scheduled agent's own TASK: therefore got
-      // the agent's personality and none of its facts: story-bot's Friday job is
-      // literally "draft posts about this week's milestones", and it was never told
-      // what they were. Drafting from nothing is the hallucination agent-context.js
-      // was written to prevent, on the one path that runs unattended.
-      //
-      // Scoped to no-repo tasks deliberately. A repo task's prompt is assembled by
-      // the code-review pipeline in a specific order (COMMANDMENTS -> system_prompt
-      // -> CLAUDE.md -> memory -> bulletins -> repo structure -> ...); inserting into
-      // that is a prompt-composition change with its own review. The no-repo branch
-      // is `system_prompt + instructions` plus the memory context below, and is
-      // exactly where a scheduled agent task lands.
-      //
-      // `generic: false`, so an agent with no builder contributes nothing rather than
-      // a line saying it has nothing. Never blocks the task: failures are logged.
-      try {
-        const agentData = await agentContext.buildAgentDataContext(currentAgentId);
-        if (agentData) {
-          prompt = agentData + '\n\n' + prompt;
-        }
-      } catch (agentCtxErr) {
-        console.error('[bridge-agent] buildAgentDataContext failed:', agentCtxErr.message);
-      }
-
-      try {
-        const taskContext = memory.buildTaskContext();
-        if (taskContext) {
-          prompt = taskContext + '\n\n' + prompt;
-        }
-      } catch (contextErr) {
-        console.error('[bridge-agent] buildTaskContext failed:', contextErr.message);
-        // Continue without context - never block task execution
-      }
-    }
-
-    // LOGIC CHANGE 2026-03-26: Use runLLM from lib/llm-runner.js instead of
-    // inline runClaudeCode. Supports multiple providers via LLM_PROVIDER env var.
-    // LOGIC CHANGE 2026-03-26: Use task.turns for per-task control of LLM max
-    // turns instead of a global turn count. Defaults to 50, capped at 5-100 range.
-    // LOGIC CHANGE 2026-03-26: Auto-retry on max turns hit. If task hits max turns
-    // and original turns < 100, automatically retry once with doubled turns (capped
-    // at 100). Prevents infinite loops via retryCount tracking.
-    const originalTurns = task.turns;
-    let currentTurns = originalTurns;
-    let retryCount = 0;
-    let result;
-    let didRetry = false;
-
-    // LOGIC CHANGE 2026-03-27: Pass agent's llm_provider to runLLM. Code agents
-    // use claude, others use gemini. Falls back to env LLM_PROVIDER or 'claude'.
-    // LOGIC CHANGE 2026-09-13: resolveLlmProvider layers a per-agent
-    // LLM_PROVIDER_<AGENTID> env override on top so on-box .env config survives a pull.
-    const llmProvider = resolveLlmProvider(currentAgent, currentAgentId);
-
-    // LOGIC CHANGE 2026-09-13: Declare agentId in this scope. It was referenced in
-    // the runLLM options below but never bound here, so evaluating that object
-    // literal threw `ReferenceError: agentId is not defined` before the LLM was
-    // ever spawned. That broke EVERY TASK: message - most visibly the scheduled
-    // check-inbox job, which failed in zero seconds every 30 minutes.
-    //
-    // LOGIC CHANGE 2026-09-15: the source of the value has changed and the comment
-    // that stood here is now WRONG rather than merely stale, so it is replaced. It
-    // read "processTask always executes as the bridge agent ... which is why every
-    // sibling option here - system_prompt, llm_provider, llm_model - reads the
-    // module-level agentConfig". That was an accurate description of WORK-TODO #38,
-    // which is what this change closes: all four now read the resolved
-    // `currentAgent`, and `currentAgentId` is the same `|| 'bridge'` fallback for a
-    // registry that failed to load.
-    //
-    // This id is the METRICS identity - it is what `recordVerdict` buckets a
-    // provider/fallback verdict under (lib/llm-metrics.js). Leaving it on 'bridge'
-    // while the provider followed the agent would have been the worst of both: every
-    // agent's fallback rate billed to one counter, so the question the counter exists
-    // to answer ("what fraction of the secretary's calls fell back?") would stay
-    // unanswerable exactly when it started to differ per agent.
-    const agentId = currentAgentId;
-
-    while (retryCount <= 1) {
-      try {
-        // LOGIC CHANGE 2026-09-11: Pass the agent's optional llm_model and its id.
-        // llm_model lets two agents share a provider with different models (a
-        // router model and a workhorse model on the same local Ollama server).
-        // agentId is what makes the per-agent fallback counter answerable.
-        // LOGIC CHANGE 2026-09-13: runLLM -> runWithFallback. Same options, same
-        // return shape, plus usedFallback/fallbackProvider. runWithFallback records
-        // exactly one verdict per logical call, so the per-agent counter now
-        // distinguishes "no fallback" from "never measured".
-        result = await runWithFallback(prompt, {
-          cwd,
-          maxTurns: currentTurns,
-          timeout: TASK_TIMEOUT,
-          claudeBin: CLAUDE_BIN,
-          provider: llmProvider,
-          // LOGIC CHANGE 2026-09-15: the executing agent's model, not the bridge's.
-          model: currentAgent?.llm_model,
-          agentId,
-          // LOGIC CHANGE 2026-11-07: the agent whose declared permissions decide the
-          // Claude tools this run gets (lib/agent-tools.js).
-          agentRecord: currentAgent,
-          // LOGIC CHANGE 2026-10-04 (WORK-TODO #7): say so in #sqtools-ops at 80% of
-          // TASK_TIMEOUT_MS instead of the kill being the first sign of a long task.
-          onDeadlineWarning: (info) => postToOps(formatDeadlineWarning({
-            ...info, description: task.description, repo: task.repo, agentId, isRetry: retryCount > 0,
-          })),
-          // LOGIC CHANGE 2026-10-10 (WORK-TODO #59): a stalled or looping run is reported
-          // to #sqtools-ops while it happens. Report-only by default; see lib/claude-stream-watch.js.
-          onRunAlert: (info) => postToOps(formatRunAlert({
-            ...info, description: task.description, repo: task.repo, agentId,
-          })),
-        });
-      } catch (llmErr) {
-        // Re-throw LLM errors - they will be caught by outer catch
-        throw llmErr;
-      }
-
-      const { hitMaxTurns } = result;
-
-      if (!hitMaxTurns) {
-        // Success - task completed without hitting max turns
-        break;
-      }
-
-      // Hit max turns - check if we can retry
-      // LOGIC CHANGE 2026-10-04 (WORK-TODO #20): the cap is the parser's TURNS_CEILING,
-      // not a second literal 100 that could drift from it.
-      if (retryCount === 0 && currentTurns < TURNS_CEILING) {
-        // Calculate retry turns: double but cap at the ceiling
-        const retryTurns = Math.min(currentTurns * 2, TURNS_CEILING);
-        await postToOps(
-          `:hourglass_flowing_sand: *Task hit max turns (${currentTurns}). Retrying with ${retryTurns} turns...*\n` +
-          `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
-        );
-        currentTurns = retryTurns;
-        retryCount++;
-        didRetry = true;
-        continue;
-      }
-
-      // Either already retried once, or original turns was already 100
-      // Post warning and break out of loop
-      await postToOps(
-        `:warning: *Task hit max turns limit${didRetry ? ' on retry' : ''}. May be partially complete.*\n` +
-        `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
-      );
-      break;
-    }
-
-    // LOGIC CHANGE 2026-04-01: Extract provider from result for LLM engine visibility.
-    // LOGIC CHANGE 2026-09-13: Also pull signal/stderr the adapter now carries so
-    // an interruption reports which signal killed it and any last stderr, not a
-    // bare "exit code null".
-    const { output, hitMaxTurns, interrupted, provider: usedProvider, signal, stderr: llmStderr } = result;
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-
-    // LOGIC CHANGE 2026-03-27: Handle interrupted tasks (exit code null, e.g., container restart).
-    // Do not count as failure, do not trigger rate limit. Just log and return.
-    if (interrupted) {
-      const signalNote = signal ? ` (${signal})` : '';
-      // LOGIC CHANGE 2026-09-13: Redact stderr before it reaches the logs. The
-      // Slack post is additionally scrubbed in postToOps, but console.log is a
-      // separate sink that log aggregation ships off-box, so scrub here too.
-      const safeStderr = llmStderr ? redact(llmStderr) : '';
-      const stderrNote = safeStderr ? `\n\`\`\`\n${safeStderr.slice(-1000)}\n\`\`\`` : '';
-      console.log(`[bridge-agent] Task interrupted${signalNote} - likely container restart${safeStderr ? `; stderr: ${safeStderr.slice(-500)}` : ''}`);
-      // LOGIC CHANGE 2026-09-20: this post IS the interrupted task's result — there
-      // is no other output to deliver — so its outcome is captured and recorded on
-      // the queue entry below rather than discarded.
-      // LOGIC CHANGE 2026-11-12 (WORK-TODO #6): the same result shape as every other
-      // ending, as text (postToOps posts text).
-      const interruptDelivered = await postToOps(renderText(buildTaskResult({
-        task,
-        outcome: RESULT_OUTCOME.INTERRUPTED,
-        elapsed,
-        provider: usedProvider,
-        error: `Interrupted${signalNote} (likely container restart).${stderrNote ? `\n${safeStderr.slice(-1000)}` : ''}`,
-        sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
-      })));
-      // stderrNote is built from safeStderr (already redacted); postToOps redacts again defensively.
-      taskSuccess = true; // Don't mark as failure
-      if (memoryTaskId) {
-        try {
-          memory.completeTask(memoryTaskId, { output: 'interrupted', elapsed: parseInt(elapsed, 10), interrupted: true });
-        } catch (memErr) {
-          console.error('[bridge-agent] Memory completeTask failed:', memErr.message);
-        }
-      }
-      // LOGIC CHANGE 2026-09-14: Record the interruption in the queue HERE. The
-      // comment this replaces said startup recovery would handle it - but this
-      // branch runs in a process that is still alive and may never restart:
-      // `interrupted` is set by lib/llm-runner.js for any `code === null` child
-      // exit, which includes the TASK_TIMEOUT_MS hard kill. Now that the entry is
-      // actually RUNNING by this point, leaving it would strand a phantom in-flight
-      // task - reported by getRunning() forever, never expired by cleanup() (which
-      // keeps every RUNNING entry), and counted as live work by auto-update's
-      // deferral gate. recoverInterrupted() remains the backstop for the case this
-      // cannot reach: the bridge process itself being killed.
-      if (queueId) {
-        try {
-          taskQueue.getQueue().interrupt(
-            queueId,
-            `Task interrupted${signalNote} after ${elapsed}s (likely container restart)`,
-            {
-              delivered: interruptDelivered === true,
-              detail: interruptDelivered === true
-                ? 'interruption notice posted to the ops channel'
-                : 'the interruption notice post to the ops channel failed',
-            }
-          );
-        } catch (queueErr) {
-          console.error('[bridge-agent] Queue interrupt failed:', queueErr.message);
-          // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged.
-          await postToOps(describeTaskStateDivergence({
-            kind: 'queue_terminal_write_failed', description: task.description, error: queueErr.message, step: 'interrupt',
-          }));
-        }
-      }
+    // 2. Where it runs, 3. what it is told.
+    const cwd = await prepareWorkspace(run, deps);
+    const built = await buildTaskPrompt(run);
+    if (built.alreadyDone) {
+      await reportAlreadyDone(run, built.alreadyDone, deps);
       return;
     }
 
-    // LOGIC CHANGE 2026-03-26: Use notify-owner module for task completion notification.
-    // LOGIC CHANGE 2026-04-01: Pass llmProvider to surface which engine handled the task.
-    //
-    // LOGIC CHANGE 2026-09-20: the return value is no longer discarded. THIS IS THE
-    // DELIVERY OF THE TASK'S RESULT and it is the only copy — `output` is a local
-    // that is gone when this function returns, and `memory.completeTask` stores a
-    // 500-character truncation, not the result. `notifyOwner.taskCompleted` returns
-    // a BOOLEAN and `notifyChannel` returns false on a Slack failure instead of
-    // throwing (lib/notify-owner.js), so a dropped return value meant a task whose
-    // output reached nobody was written to the queue as `completed`, byte-identical
-    // to one the owner read. That is the signal an update gate has to trust to know
-    // a task is finished, so it is now recorded rather than assumed.
-    //
-    // LOGIC CHANGE 2026-11-12 (WORK-TODO #6): Phase 3 now runs BEFORE this post, so the
-    // post can be one card carrying the test verdict beside the branch, commits, files
-    // and output (lib/task-result.js). Before, the result went out first and the verdict
-    // followed in a separate post. The queue row stays `running` while the gate runs,
-    // which is truthful: the task is not finished until it has been judged. The
-    // ordering post -> terminal write -> lock release is unchanged.
-    let validation = null;
-    let validationError = null;
-    if (task.repo && taskDir && fs.existsSync(taskDir)) {
-      try {
-        validation = validateOutput(taskDir, { testScript: taskTestScript });
-      } catch (validErr) {
-        validationError = validErr;
-      }
-    }
-    const taskResult = buildTaskResult({
-      task,
-      outcome: hitMaxTurns ? RESULT_OUTCOME.MAX_TURNS : RESULT_OUTCOME.COMPLETED,
-      elapsed,
-      provider: usedProvider,
-      work: readTaskWork(taskDir, taskBaseSha),
-      validation,
-      validationError,
-      summary: truncate(output),
-      sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
-    });
-    const resultDelivered = await notifyOwner.taskCompleted(task, truncate(output), {
-      elapsed,
-      sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
-      llmProvider: usedProvider,
-      result: taskResult,
-    });
-    console.log(formatResultLogLine(withDelivery(taskResult, resultDelivered === true,
-      resultDelivered === true ? 'result card posted to the ops channel' : 'the result card post failed')));
-
-    // Never a silent null: a failed delivery is announced (best effort — the ops
-    // channel is where the result itself just failed to land, so this may fail too)
-    // AND recorded durably on the queue entry below, which does not depend on Slack.
-    if (!resultDelivered) {
-      console.error(
-        `[bridge-agent] Task ${msg.ts} finished but its RESULT WAS NOT DELIVERED to Slack. ` +
-        `The output is not recoverable from this process.`
-      );
-      await postToOps(
-        `:rotating_light: *Task finished but its result was not delivered.*\n` +
-        `Task: ${task.description}\n` +
-        `The completion post to this channel failed, so the task output reached nobody and is gone. ` +
-        `Recorded as \`delivered: false\` on the queue entry.\n` +
-        `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
-      );
+    // 4. The run.
+    const llm = await runTaskLlm(run, built.prompt, cwd, deps);
+    if (llm.result.interrupted) {
+      await deliverInterrupted(run, llm, deps);
+      return;
     }
 
-    // LOGIC CHANGE 2026-03-27: Mark task as successful for heartbeat cleanup.
-    taskSuccess = true;
-    console.log(`[bridge-agent] Task ${msg.ts} done (${elapsed}s)`);
-
-    // LOGIC CHANGE 2026-04-01: Mark task as completed in queue for auto-update coordination.
-    // LOGIC CHANGE 2026-09-20: carries the delivery verdict. The terminal write stays
-    // strictly AFTER the delivery above — that ordering is what makes "this entry is
-    // terminal" mean "the result was delivered, or its loss was recorded", which is
-    // the signal lib/update-drain.js gates a restart on. The ordering is asserted by
-    // tests/task-delivery-signal.test.js, not left to this comment.
-    if (queueId) {
-      try {
-        taskQueue.getQueue().complete(queueId, `Success in ${elapsed}s`, {
-          delivered: resultDelivered === true,
-          detail: resultDelivered === true
-            ? 'task result posted to the ops channel'
-            : 'the task result post to the ops channel failed',
-        });
-      } catch (queueErr) {
-        console.error('[bridge-agent] Queue complete failed:', queueErr.message);
-        // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged.
-        await postToOps(describeTaskStateDivergence({
-          kind: 'queue_terminal_write_failed', description: task.description, error: queueErr.message, step: 'complete',
-        }));
-      }
-    }
-
-    // LOGIC CHANGE 2026-03-26: Clear rate limit state on successful task completion.
-    // This resets the exponential backoff counter.
-    await clearRateLimitState();
-
-    // LOGIC CHANGE 2026-03-28: Phase 3 of code review pipeline.
-    // Run tests and quality checks after execution. Post results to ops channel.
-    // Tests failing here means Claude didn't run them properly — report as "needs-fix".
-    // LOGIC CHANGE 2026-11-12 (WORK-TODO #6): the gate ran above, before the result card,
-    // which carries its verdict. What stays here is the DETAIL a card does not hold: the
-    // output tail of a gate that failed or did not run, and the advisory warnings. The
-    // green "Code review passed" post is gone; the card's Tests line says it.
-    if (validationError) {
-      console.error('[bridge-agent] Phase 3 validation error:', validationError.message);
-      // LOGIC CHANGE 2026-09-14: a review that could not run is not a review that
-      // passed. Previously this swallowed the throw and the task reported success
-      // with no gate having been applied at all.
-      await postToOps(
-        `:rotating_light: *Code review did not complete* — the gate threw before reaching a verdict.\n` +
-        `Task: ${task.description}\n${validationError.message}\n` +
-        `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
-      ).catch(postErr => {
-        console.error('[bridge-agent] Could not post Phase 3 failure:', postErr.message);
-      });
-    } else if (validation) {
-      try {
-        const testRun = validation.testRun;
-
-        // LOGIC CHANGE 2026-09-14: three outcomes, not two, and none of them is
-        // silence. Previously a run that exited 0 without executing an assertion
-        // scored `passed: true` with `testsPassed: 0`, which fell through BOTH arms
-        // below and posted nothing at all - the gate reported a pass to its caller
-        // and reported nothing to a human. A gate that cannot say which assertions
-        // ran has not run (docs/EXECUTOR-CONTRACT.md section 4).
-        if (!validation.passed && testRun && !testRun.ran) {
-          // The runner never started, or nothing countable executed. This is not a
-          // test failure and must not be read as one.
-          await postToOps(
-            `:rotating_light: *Code review: the test gate DID NOT RUN.*\n` +
-            `Task: ${task.description}\n` +
-            `Command: \`${validation.testCommand || taskTestScript}\` — outcome: \`${testRun.outcome}\`\n` +
-            `${testRun.reason}\n` +
-            `\`\`\`\n${validation.testOutput.slice(-1200)}\n\`\`\`\n` +
-            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
-          );
-        } else if (!validation.passed) {
-          await postToOps(
-            `:warning: *Code review: tests failed after task completion.*\n` +
-            `Task: ${task.description}\n` +
-            `Failed: ${validation.testsFailed}, Passed: ${validation.testsPassed}\n` +
-            `\`\`\`\n${validation.testOutput.slice(-1500)}\n\`\`\`\n` +
-            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
-          );
-        }
-        if (validation.warnings.length > 0) {
-          await postToOps(
-            `:mag: *Code review warnings:*\n${validation.warnings.map(w => `• ${w}`).join('\n')}\n` +
-            `Source: <${msgLink(msg.ts, sourceChannel)}|source>`
-          );
-        }
-      } catch (detailErr) {
-        console.error('[bridge-agent] Could not post the Phase 3 detail:', detailErr.message);
-      }
-    }
-
-    // LOGIC CHANGE 2026-03-28: Post task completion bulletin for inter-agent awareness.
-    // Other agents can see what tasks have been completed without watching ops channel.
-    try {
-      // Extract commit hash from output if present (look for common git commit patterns)
-      let commitHash = null;
-      const commitMatch = output.match(/\[([a-f0-9]{7,40})\]|commit\s+([a-f0-9]{7,40})/i);
-      if (commitMatch) {
-        commitHash = commitMatch[1] || commitMatch[2];
-      }
-
-      // LOGIC CHANGE 2026-09-15: posted AS the agent that did the work, not as the
-      // bridge. This is not cosmetic: lib/bulletin-watcher.js:154 skips the poster
-      // when fanning out, so a story-bot task posting as 'bridge' notified story-bot
-      // about its OWN completion and left any bridge watcher silent - the fan-out
-      // inverted. It is also what makes `[type] from <agentId>` in the notification,
-      // and the bulletin stream every agent reads, say who actually ran.
-      const bulletinResult = bulletinBoard.postBulletin(currentAgentId, 'task_completed', {
-        description: task.description,
-        repo: task.repo || null,
-        branch: task.branch || 'main',
-        commitHash,
-        elapsed: parseInt(elapsed, 10),
-        partial: hitMaxTurns || false,
-      });
-
-      // LOGIC CHANGE 2026-03-28: Notify watching agents about the bulletin.
-      // Agents with watches.bulletin_types containing 'task_completed' get notified.
-      if (bulletinResult.success && bulletinResult.bulletin) {
-        bulletinWatcher.processBulletin(slack, bulletinResult.bulletin).catch(watchErr => {
-          console.error('[bridge-agent] Bulletin watcher error:', watchErr.message);
-        });
-      }
-    } catch (bulletinErr) {
-      console.error('[bridge-agent] Failed to post task completion bulletin:', bulletinErr.message);
-    }
-
-    // LOGIC CHANGE 2026-03-26: Auto-detect ACTION REQUIRED in task output and add
-    // to bridge agent's activation checklist. Uses notify-owner module for
-    // centralized action tracking.
-    //
-    // LOGIC CHANGE 2026-09-15: DELIBERATELY still 'bridge', and it is the one
-    // identity in this function that did NOT move to the executing agent. Two
-    // reasons, in order of weight:
-    //   1. This is the OWNER's action inbox, not the agent's identity. An ACTION
-    //      REQUIRED item is something a human must do (add an env var, create a
-    //      channel); which agent's task surfaced it is metadata, not ownership.
-    //   2. Routing it by agent would add a SILENT DROP path to the one message class
-    //      whose whole purpose is not to be lost: addTask() returns false, writing
-    //      nothing and telling nobody, for an agent with no entry in
-    //      agents/activation-checklists.json (lib/owner-tasks-store.js:243). Every
-    //      agent declared today has one, so it would work today and fail silently
-    //      for the next agent added - the worst shape of defect this repo files.
-    // `getPendingTasks()` does aggregate across all agents
-    // (lib/owner-tasks-store.js:77), so attribution is available if wanted later;
-    // it needs addTask to refuse loudly first. Recorded in WORK-TODO #38's close.
-    try {
-      await notifyOwner.processActionRequired(output, { agentId: 'bridge' });
-    } catch (actionErr) {
-      console.error('[bridge-agent] Failed to process ACTION REQUIRED:', actionErr.message);
-    }
-
-    // LOGIC CHANGE 2026-03-26: Record task completion in memory.
-    // Use different outcome format if max turns was hit.
-    // LOGIC CHANGE 2026-03-26: Added retry tracking fields to memory outcome.
-    // Tracks retried (bool), originalTurns (number), retryTurns (number if retried).
-    if (memoryTaskId) {
-      try {
-        const outcome = {
-          output: truncate(output, 500),
-          elapsed: parseInt(elapsed, 10),
-        };
-
-        if (didRetry) {
-          outcome.retried = true;
-          outcome.originalTurns = originalTurns;
-          outcome.retryTurns = currentTurns;
-        }
-
-        if (hitMaxTurns) {
-          outcome.partial = true;
-          outcome.output = 'max turns reached';
-        }
-
-        memory.completeTask(memoryTaskId, outcome);
-      } catch (memErr) {
-        console.error('[bridge-agent] Memory completeTask failed:', memErr.message);
-      }
-    }
-
+    // 5. Verify and deliver, then the follow-ups.
+    const done = await deliverCompleted(run, llm, deps);
+    await afterCompletion(run, llm, done, deps);
   } catch (err) {
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-    // LOGIC CHANGE 2026-09-13: Redact secrets from the error message before it
-    // is logged or persisted. err.message embeds subprocess stderr (via
-    // describeClaudeExit), which can carry an env dump with live tokens. The
-    // Slack/DM path is scrubbed inside notifyOwner.taskFailed; console.error,
-    // taskQueue.fail (writes task-queue.json), and memory.failTask are separate
-    // sinks that must be scrubbed here.
-    const safeErrMsg = redact(err.message);
-
-    // LOGIC CHANGE 2026-03-27: Rate limit auto-pause disabled due to false positives killing tasks.
-    // Manual restart is safer than auto-pausing on misdetection. If a task fails, it just fails.
-    // No pausing the queue. handleRateLimit() is NOT called here anymore.
-    // Will re-add rate limit handling when detection is properly calibrated.
-
-    // LOGIC CHANGE 2026-03-26: Use notify-owner module for task failure notification.
-    // Posts to ops channel and sends critical DM to owner.
-    // LOGIC CHANGE 2026-04-01: Pass llmProvider to surface which engine was being used when task failed.
-    // Uses the configured provider since the error occurred during LLM execution.
-    // LOGIC CHANGE 2026-09-20: the return value is no longer discarded, for the same
-    // reason as the completion path above. `taskFailed` returns
-    // `{ opsPosted, ownerNotified }` (lib/notify-owner.js) and neither throws on a
-    // Slack failure — a failure report that reached nobody was recorded as a clean
-    // `failed` entry, which is the one message class that must not go quiet.
-    // `opsPosted` is the delivery: the DM is a CRITICAL-priority escalation on top
-    // of it, not a substitute, and it is false whenever no ownerId is configured.
-    // LOGIC CHANGE 2026-11-12 (WORK-TODO #6): the ops post is the result card, with the
-    // work the clone holds (a failed task may still have pushed a branch).
-    const failureResult = buildTaskResult({
-      task,
-      outcome: RESULT_OUTCOME.FAILED,
-      elapsed,
-      provider: llmProvider || 'claude',
-      work: readTaskWork(taskDir, taskBaseSha),
-      error: safeErrMsg,
-      sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
-    });
-    const failureReport = await notifyOwner.taskFailed(task, err, {
-      elapsed,
-      sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
-      llmProvider: llmProvider || 'claude',
-      result: failureResult,
-    });
-    const failureDelivered = failureReport?.opsPosted === true
-      || failureReport?.ownerNotified === true;
-    console.log(formatResultLogLine(withDelivery(failureResult, failureDelivered,
-      failureDelivered ? 'failure card posted or owner notified' : 'the failure report reached nobody')));
-    if (!failureDelivered) {
-      console.error(
-        `[bridge-agent] Task ${msg.ts} FAILED and the failure report reached nobody ` +
-        `(ops post and owner notification both failed).`
-      );
-    }
-
-    // LOGIC CHANGE 2026-03-27: taskSuccess remains false, heartbeat.stop(false)
-    // will add :x: emoji in finally block.
-    console.error(`[bridge-agent] Task ${msg.ts} failed (${elapsed}s):`, safeErrMsg);
-
-    // LOGIC CHANGE 2026-04-01: Mark task as failed in queue for auto-update coordination.
-    // LOGIC CHANGE 2026-09-20: carries the delivery verdict for the failure report,
-    // after the report above, for the reason given at the completion path.
-    if (queueId) {
-      try {
-        taskQueue.getQueue().fail(queueId, safeErrMsg, {
-          delivered: failureDelivered,
-          detail: failureDelivered
-            ? 'failure report posted to the ops channel or DMed to the owner'
-            : 'the failure report reached neither the ops channel nor the owner',
-        });
-      } catch (queueErr) {
-        console.error('[bridge-agent] Queue fail failed:', queueErr.message);
-        // LOGIC CHANGE 2026-10-02 (WORK-TODO #72): posted, not only logged.
-        await postToOps(describeTaskStateDivergence({
-          kind: 'queue_terminal_write_failed', description: task.description, error: queueErr.message, step: 'fail',
-        }));
-      }
-    }
-
-    // LOGIC CHANGE 2026-03-26: Record task failure in memory.
-    if (memoryTaskId) {
-      try {
-        memory.failTask(memoryTaskId, safeErrMsg);
-      } catch (memErr) {
-        console.error('[bridge-agent] Memory failTask failed:', memErr.message);
-      }
-    }
-
+    await deliverFailure(run, err, deps);
   } finally {
-    // LOGIC CHANGE 2026-03-27: Stop heartbeat and add final status emoji.
-    // Wrapped in try/catch - heartbeat failure must never affect task execution.
+    // 6. Clean up. The lock is released LAST, after every terminal write above.
     try {
-      await heartbeat.stop(taskSuccess);
+      await run.heartbeat.stop(run.taskSuccess);
     } catch (heartbeatErr) {
       console.error('[bridge-agent] Heartbeat cleanup failed:', heartbeatErr.message);
     }
-
-    // LOGIC CHANGE 2026-09-13: Only clean up the scratch clone once its work has
-    // been delivered (pushed to the remote). Deleting a clone that still holds
-    // uncommitted changes or unpushed commits silently destroys finished work —
-    // the failure that lost three tasks before the deploy key was wired. When
-    // work is undelivered, preserve the clone and alert #sqtools-ops so it can be
-    // recovered and pushed manually, rather than deleting it.
-    if (taskDir && fs.existsSync(taskDir)) {
-      // LOGIC CHANGE 2026-10-04 (WORK-TODO #39): before the clone can be deleted.
-      if (queueId) await recordTaskWork(queueId, taskDir, taskBaseSha, task.description);
-      const delivery = detectUndeliveredWork(taskDir);
-      if (delivery.undelivered) {
-        console.warn(`[bridge-agent] Preserving scratch clone ${taskDir} — ${delivery.reason}`);
-        try {
-          // LOGIC CHANGE 2026-10-02 (WORK-TODO #25): the text now says the path is
-          // inside the container, how to reach it, and what deletes it. Built by
-          // lib/preserved-clone-alert.js so the wording is unit-tested.
-          await postToOps(formatPreservedCloneAlert({
-            description: task.description,
-            reason: delivery.reason,
-            taskDir,
-            workDir: WORK_DIR,
-            sourceLink: `<${msgLink(msg.ts, sourceChannel)}|source>`,
-          }));
-        } catch (postErr) {
-          console.error('[bridge-agent] Failed to post undelivered-work alert:', postErr.message);
-        }
-      } else {
-        cleanupDir(taskDir);
-      }
-    }
-
-    // LOGIC CHANGE 2026-03-27: Clear working memory at end of each task to prevent
-    // accumulation of stale "running" entries that never get cleared.
-    try {
-      // LOGIC CHANGE 2026-09-15: clear the EXECUTING agent's working memory. Each
-      // agent has its own memory dir (agents/<id>/memory), so clearing 'bridge'
-      // after a story-bot task both left story-bot's stale entries in place and
-      // wiped a directory the task never wrote to.
-      memory.clearAgentWorkingMemory(currentAgentId);
-    } catch (memErr) {
-      console.error('[bridge-agent] Failed to clear working memory:', memErr.message);
-    }
-
-    // LOGIC CHANGE 2026-11-25 (WORK-TODO #82): the no-repo task's own empty directory.
-    // Nothing in it is delivered work: a task without a repository has nowhere to push.
-    if (scratchCwd) {
-      try {
-        fs.rmSync(scratchCwd, { recursive: true, force: true });
-      } catch (rmErr) {
-        console.error(`[bridge-agent] Could not remove ${scratchCwd}:`, rmErr.message);
-      }
-    }
-
-    // LOGIC CHANGE 2026-03-27: Remove task lock file to signal task completion.
-    // Auto-update.js waits for this file to be removed before restarting.
-    // LOGIC CHANGE 2026-09-14: Delegated to lib/task-lock.js, which logs the
-    // release and reports a failed unlink rather than swallowing it. A lock that
-    // survives this block is now aged out by the staleness rule instead of
-    // blocking every future deploy.
-    const releaseResult = lockOwned ? taskLock.release(TASK_LOCK_FILE) : { existed: false };
-    if (releaseResult.existed && !releaseResult.released) {
-      console.error(
-        `[bridge-agent] Task lock ${TASK_LOCK_FILE} could not be removed ` +
-        `(${releaseResult.error}); it will be aged out by the staleness rule`
-      );
-    }
+    await cleanupWorkspace(run, deps);
+    taskMemory.clearWorkingMemory(currentAgentId);
+    releaseTaskLock({ lockOwned, lockFile: TASK_LOCK_FILE });
   }
+}
+
+/**
+ * What the task spokes need from this process. Built per task, so a spoke never holds a
+ * stale reference.
+ */
+function taskDeps() {
+  return {
+    slack, postToOps, react, truncate, clearRateLimitState,
+    workDir: WORK_DIR, taskTimeout: TASK_TIMEOUT, claudeBin: CLAUDE_BIN, emojiDone: EMOJI_DONE,
+  };
 }
 
 // ---- Status query handling ----

@@ -491,9 +491,13 @@ describe('LLM fallback is actually wired in', () => {
     });
 
     test('both LLM entry points go through runWithFallback', () => {
-        const calls = bridgeAgentSource.match(/await runWithFallback\(prompt, \{/g) || [];
-        // One in processTask (TASK:) and one in processConversation (ASK:).
-        expect(calls).toHaveLength(2);
+        // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): the TASK: call moved with processTask's
+        // model run to lib/task-llm-run.js; the ASK: call is still processConversation's.
+        const taskRun = fs.readFileSync(path.join(__dirname, '..', 'lib', 'task-llm-run.js'), 'utf8');
+        const count = (src) => (src.match(/await runWithFallback\(prompt, \{/g) || []).length;
+        expect(count(bridgeAgentSource)).toBe(1);
+        expect(count(taskRun)).toBe(1);
+        expect(bridgeAgentSource).toMatch(/await runTaskLlm\(run, built\.prompt, cwd, deps\)/);
     });
 
     test('runWithFallback accepts the same option shape bridge-agent passes', () => {

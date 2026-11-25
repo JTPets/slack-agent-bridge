@@ -1990,8 +1990,8 @@ Functions over 300 lines at `1d70fe8` (measured with @babel/parser): `processTas
   steps in order, each step a spoke module; the lock/queue writes and the ops notices become one
   middleware step around the run instead of five inline best-effort blocks. The order the
   source-reading suites pin is kept, and those suites move to the spokes.
-Both wait for the secretary-briefing branch, which also edits `bridge-agent.js`, and run one after
-the other.
+Both waited for the secretary-briefing branch, which also edited `bridge-agent.js`, and ran one
+after the other (both done, below).
 
 **B35, 2026-11-25 — `processConversation`'s built-ins are spokes.** The ten phrase-matched
 built-ins moved to `lib/conversation-builtins.js`: one spoke per command and `answerBuiltin`, the
@@ -2003,6 +2003,25 @@ moving them would change where staff, bulletin, standup and approval commands an
 behaviour decision, left to the owner. `processConversation` is now under 300 lines; the
 function-size declaration for it is removed, leaving `processTask` (B36). Tests:
 `tests/conversation-builtins.test.js`.
+
+**B36, 2026-11-25 — `processTask` is a hub over seven spokes.** The 957-line function is now a
+~95-line hub in `bridge-agent.js` that reads as its steps: may it start, where it runs, what it
+is told, the run, verify and deliver, the follow-ups, clean up. The steps are
+`lib/task-state-gate.js` (the middleware: start check, lock, `running` row, the ONE terminal
+queue write and the lock release), `lib/task-workspace.js` (temp dir or clone and install, made
+and removed in one module), `lib/task-prompt.js`, `lib/task-llm-run.js`, `lib/task-outcome.js`
+(each ending posts first, then writes its row), `lib/task-followups.js` and
+`lib/task-memory-record.js`. Duplication removed: the three terminal queue writes (one `endTask`),
+five memory try/catch blocks (one guard), the `'npm test'` default (validateOutput already owns
+it), the second `resolveLlmProvider` call, and the readers of COMMANDMENTS.md and the skill file.
+Behaviour is unchanged; every source-reading suite (delivery signal, lifecycle, lock refusal,
+identity, divergence, undelivered work, scratch cwd, deadline warning, result delivery, scope)
+now reads the spoke that holds its step through `tests/helpers/task-path-sources.js`, and
+`tests/task-hub.test.js` tests each spoke on its own. No function in the repository is over 300
+lines now; `tests/function-size.test.js` declares none. Found and left as it was: the pipeline's
+"already implemented" path (`reportAlreadyDone`) returns without a terminal queue row, so the row
+would stay `running`; it cannot fire today because `alreadyDoneEvidence` is never set
+(`lib/code-review-pipeline.js`).
 
 **Priority:** P2 | **Effort:** High, incremental | **Status:** open
 

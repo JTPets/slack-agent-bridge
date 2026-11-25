@@ -212,7 +212,12 @@ describe('bridge-agent startup and Phase 3 report their failures', () => {
     });
 
     test('a Phase 3 gate that throws is posted, not swallowed', () => {
-        const region = regionAfter("console.error('[bridge-agent] Phase 3 validation error:'");
+        // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): the Phase-3 detail moved to
+        // lib/task-followups.js with the rest of processTask's follow-ups.
+        const followups = fs.readFileSync(path.join(REPO_ROOT, 'lib', 'task-followups.js'), 'utf8');
+        const i = followups.indexOf("console.error('[bridge-agent] Phase 3 validation error:'");
+        expect(i).toBeGreaterThan(-1);
+        const region = followups.slice(i, i + 1400);
         expect(region).toMatch(/postToOps\(/);
         expect(region).toMatch(/did not complete/i);
     });

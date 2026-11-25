@@ -252,9 +252,9 @@ describe('every test invocation in the repo routes through the classifier', () =
             if (rel === CLASSIFIER) return false;
             return testInvocations(stripComments(fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8'))).length > 0;
         }).sort();
+        // LOGIC CHANGE 2026-11-25 (B36): processTask's test script moved to its task-* spokes.
         expect(sites).toEqual([
-            'bridge-agent.js',
-            path.join('lib', 'code-review-pipeline.js'),
+            path.join('lib', 'code-review-pipeline.js'), path.join('lib', 'task-outcome.js'), path.join('lib', 'task-prompt.js'),
             path.join('lib', 'update-gate.js'), path.join('lib', 'update-verifier.js'), path.join('scripts', 'jest-stress.js'),
         ]);
     });

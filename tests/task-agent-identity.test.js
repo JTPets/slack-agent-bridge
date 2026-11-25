@@ -157,7 +157,10 @@ describe('a TASK: executes as the agent it was addressed to (WORK-TODO #38)', ()
     });
 
     describe('every identity the executing agent decides reads the resolved agent', () => {
-        const stripped = stripComments(taskBody || '');
+        // LOGIC CHANGE 2026-11-25 (WORK-TODO #10, B36): processTask is a hub over
+        // lib/task-*.js spokes, so the identity sites are read across the whole task path:
+        // the hub's body and every spoke it calls.
+        const stripped = stripComments(taskBody ? require('./helpers/task-path-sources').taskPathSource() : '');
 
         // Each entry: what the agent decides, and the expression that must produce it.
         const IDENTITY_SITES = [
@@ -167,7 +170,7 @@ describe('a TASK: executes as the agent it was addressed to (WORK-TODO #38)', ()
             ['metrics id',      /const agentId = currentAgentId;/],
             ['bulletin stream', /formatBulletinsForContext\(currentAgentId, 10\)/],
             ['bulletin voice',  /postBulletin\(currentAgentId, 'task_completed'/],
-            ['working memory',  /clearAgentWorkingMemory\(currentAgentId\)/],
+            ['working memory',  /clearWorkingMemory\(currentAgentId\)/],
             // The agent's own DATA, not just its voice. buildEnrichedPrompt's only
             // production caller is processConversation, so before 2026-09-15 a
             // scheduled TASK: got the persona and none of the facts it was told to
