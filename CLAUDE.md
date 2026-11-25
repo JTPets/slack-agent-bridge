@@ -649,6 +649,10 @@ should be observable while it happens.
 | `STOREFRONT_PORT` | Port for storefront Express server | `3001` |
 | `STOREFRONT_ALLOWED_ORIGINS` | Comma-separated CORS origins | `http://localhost:3000,https://jtpets.ca` |
 | `STOREFRONT_SESSION_TTL_MS` | Session expiry time in ms | `3600000` |
+| `STOREFRONT_RATE_WINDOW_MS` | Window of the rate limit on `POST /api/chat` and `POST /api/delivery-quote`, each counted on its own (`bots/storefront-guards.js`, WORK-TODO #87) | `60000` |
+| `STOREFRONT_RATE_PER_CLIENT` | Calls per client (`req.ip`) per window, per route; over it is a 429 with `Retry-After` | `10` |
+| `STOREFRONT_RATE_GLOBAL` | Calls in all per window, per route; the limit that bounds model spend. The first refusal in a window is posted to `#store-inbox` | `60` |
+| `STOREFRONT_TRUST_PROXY` | Express `trust proxy` value (for example `loopback`) so `req.ip` is the visitor behind the Cloudflare tunnel. Unset: the socket address, and forwarded headers are ignored | - |
 | `DELIVERY_QUOTES_FILE` | Path to delivery quotes JSON file | `data/delivery-quotes.json` |
 | `SQUARE_ACCESS_TOKEN` | Square API token for the storefront's catalog (`lib/integrations/square-catalog.js`). **Never log this.** Unset = the catalog is served from the cache file only | - |
 | `CATALOG_CACHE_FILE` | Local cache of the Square catalog | `data/catalog-cache.json` |
@@ -784,7 +788,9 @@ slack-agent-bridge/
 │   ├── storefront.js     # Express server for storefront chat widget (POST /api/chat, GET /widget, POST /api/delivery-quote). Since 2026-10-05 (WORK-TODO #10) keeps the app and routes and re-exports the three modules below
 │   ├── storefront-session.js # Chat sessions: the session Map, its unref'd expiry timer, getOrCreateSession, sanitizeInput
 │   ├── storefront-records.js # Conversation and delivery-quote logging to #store-inbox, and the delivery-quotes JSON file
-│   └── storefront-prompt.js # The product catalog (loaded once, read through isCatalogInitialized), the storefront persona, buildPrompt
+│   ├── storefront-prompt.js # The product catalog (loaded once, read through isCatalogInitialized), the storefront persona, buildPrompt
+│   ├── storefront-guards.js # WORK-TODO #87: the request guards in front of the public routes: createRateLimiter (sliding window, per client AND global, a refusal not counted) and rateLimitMiddleware (429 + Retry-After, the global refusal reported once per window), buildCorsOptions (exact origins, credentials off, a `*` dropped and reported), acceptSessionId (a short id shape, else a new id)
+│   └── storefront-delivery.js # WORK-TODO #87: handleDeliveryQuote, the POST /api/delivery-quote intake (validate, save, post to #store-inbox), moved out of storefront.js; the price must be a number or null and the log line goes through logSafe
 ├── data/
 │   └── delivery-quotes.json  # Delivery quote requests (created at runtime)
 ├── public/
@@ -922,6 +928,7 @@ slack-agent-bridge/
 │   ├── staff-tasks-commands.js # The ASK: side: assign/list recognisers and parsing, plus the today, overdue and digest renderings
 │   ├── review-findings.js # Structured findings for the Phase-3 verdict: a closed RULES catalogue of stable rule identifiers with severities, makeFinding (ruleId + file + line, prose GENERATED from those fields), buildVerdict, sameFinding/findRecurrence (comparison is by ruleId only — a fix that moves the same defect to another file has not converged), nextAction (the D5 generation cap and the D6 recurrence stop) and describeSpawnedTask (the lineage a spawned fix task must carry). Nothing spawns tasks; this is the contract, made executable
 │   ├── test-verdict.js   # THE honest classifier for a test-command run: classifyTestRun distinguishes passed / failed / runner_absent / no_assertions / timed_out / not_run, and a pass requires exit 0 AND a positive parsed assertion count. A fully skipped suite, a command that exits 0 printing nothing, and `jest: not found` are each a failed gate, never a pass. Reads jest, mocha, node --test and (since 2026-11-12, #68) pytest summaries; `No module named pytest` is runner_absent. Since 2026-11-25 (#84) an absence word in the output (`ENOENT`, `not found`) counts only when no test count was parsed: a run that printed its count started, and the count decides. Every test invocation in the repo routes through it (tests/test-gate-honesty.test.js)
+│   ├── untrusted-text.js # WORK-TODO #87: text a stranger typed, made safe for one sink each: escapeSlackText (& < >, so `<!channel>` and `<url|text>` are literal), quoteForSlack (escape, then `> ` on every line so a value cannot leave its quote) and logSafe (JSON string form, capped, so a newline cannot forge a log line). Used by the storefront
 │   ├── redact-secrets.js # Secret scrubber for any string bound for Slack or the logs: redact() applies value-driven scrubbing (the live value of every env var whose NAME matches SENSITIVE_NAME, so a token is caught whatever its shape) then pattern-driven scrubbing (Slack/Anthropic/Google/GitHub tokens, PEM private keys, OAuth refresh tokens, bearer headers). Exists because spawned-LLM stderr was surfaced verbatim to #sqtools-ops
 │   ├── security-followup.js # Security finding → auto-task pipeline: parses findings, creates TASK messages. Since 2026-10-05 (WORK-TODO #10) keeps processSecurityBulletin and its handler and re-exports the two modules below
 │   ├── security-review-git.js # The nightly review's git half: cloneRepo (--depth 100, so the 24-hour window has history; clone-lifecycle's depth-1 push clone cannot serve it), getRecentCommits (last 24 h, no merges), getDiff (with the initial-commit `git show` fallback), getCommitLog, execCommand. spawn with argv arrays; the repo is validated before git runs. Moved out of security-review.js 2026-10-05
@@ -1172,6 +1179,9 @@ slack-agent-bridge/
 │   ├── digest-sections.test.js  # CHARACTERISATION of the morning digest text (an empty day and a full day, pinned line by line; run against the pre-split code before the 2026-10-05 split), that a throwing section is skipped, the helpers that moved with it, and lib/integrations/weather.js via a mocked https.get
 │   ├── digest-failures.test.js  # Regression tests for WORK-TODO #31: an error that merely mentions a rate limit is not filed as one, and no digest line promises an automatic retry or re-queue that does not happen
 │   ├── storefront.test.js       # Tests for bots/storefront.js (chat API, session management)
+│   ├── storefront-hardening.test.js # WORK-TODO #87 through the real app: both public routes rate limited (and a global refusal posted once), customer text and every quote field escaped for Slack, a non-number price refused, no forged log line from a business name or a sessionId, CORS exact with no credentials and `*` ignored. 12 of its 14 tests fail against the pre-#87 storefront
+│   ├── storefront-guards.test.js # bots/storefront-guards.js on its own, plus THE enumerating guard that no console line in bots/storefront*.js interpolates anything but logSafe(...) or a listed server value, with a negative control (the pre-#87 delivery line)
+│   ├── untrusted-text.test.js   # Tests for lib/untrusted-text.js
 │   ├── catalog-search.test.js   # Tests for lib/integrations/catalog-search.js (fuzzy matching: exact, partial, misspelling, no-match)
 │   ├── holidays.test.js         # Tests for the facade lib/integrations/holidays.js (getTodaySpecialDates, the export surface)
 │   ├── holidays-public.test.js  # Tests for lib/integrations/holidays-public.js (the Nager.Date client with https mocked, its cache, the Ontario filter). This and the two below were tests/holidays.test.js until 2026-11-08 (WORK-TODO #10 Wave T)

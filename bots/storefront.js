@@ -15,6 +15,10 @@
  * bots/storefront-session.js, Slack logging and delivery quotes in bots/storefront-records.js,
  * and the catalog, persona and prompt in bots/storefront-prompt.js. This file keeps the
  * Express app, its routes and the listen, and re-exports every name it exported before.
+ *
+ * LOGIC CHANGE 2026-11-25 (WORK-TODO #87): the request guards (CORS, the rate limits, the
+ * session-id check) are bots/storefront-guards.js, and the delivery-quote handler moved to
+ * bots/storefront-delivery.js. This file wires them; `rateLimiters` is exported for tests.
  */
 
 require('dotenv').config();
@@ -37,7 +41,16 @@ const {
     loadDeliveryQuotes,
     saveDeliveryQuotes,
     logDeliveryQuoteToSlack,
+    logRateLimitToSlack,
 } = require('./storefront-records');
+const {
+    rateLimitConfig,
+    createRateLimiter,
+    rateLimitMiddleware,
+    buildCorsOptions,
+    acceptSessionId,
+} = require('./storefront-guards');
+const { handleDeliveryQuote } = require('./storefront-delivery');
 const {
     initializeCatalog,
     isCatalogInitialized,
@@ -58,22 +71,30 @@ if (require.main === module) {
 // Create Express app
 const app = express();
 
-// CORS configuration
-app.use(cors({
-    origin: (origin, callback) => {
-        // Allow requests with no origin (mobile apps, curl, etc.)
-        if (!origin) {
-            return callback(null, true);
-        }
-        if (ALLOWED_ORIGINS.includes(origin) || ALLOWED_ORIGINS.includes('*')) {
-            return callback(null, true);
-        }
-        return callback(new Error('Not allowed by CORS'));
-    },
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'X-Session-ID'],
-    credentials: true,
-}));
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #87): the request guards live in
+// bots/storefront-guards.js. CORS matches origins exactly with credentials off (it allowed
+// `*` with credentials), and each public API route has a per-client and a global rate
+// limit (there was none, so anyone could run the model at our cost). `trust proxy` is off
+// unless STOREFRONT_TRUST_PROXY names a setting, so req.ip is not taken from a header a
+// client can forge.
+if (process.env.STOREFRONT_TRUST_PROXY) {
+    app.set('trust proxy', process.env.STOREFRONT_TRUST_PROXY);
+}
+const corsConfig = buildCorsOptions(ALLOWED_ORIGINS);
+if (corsConfig.ignored.length > 0) {
+    console.warn('[storefront] STOREFRONT_ALLOWED_ORIGINS contains "*", which is ignored: list each origin exactly');
+}
+app.use(cors(corsConfig.options));
+
+const RATE_LIMIT = rateLimitConfig();
+const rateLimiters = {
+    chat: createRateLimiter(RATE_LIMIT),
+    deliveryQuote: createRateLimiter(RATE_LIMIT),
+};
+const limit = (limiter) => rateLimitMiddleware(limiter, {
+    windowMs: RATE_LIMIT.windowMs,
+    onGlobalLimit: (route) => { logRateLimitToSlack(route).catch(() => {}); },
+});
 
 // Parse JSON bodies
 app.use(express.json({ limit: '10kb' }));
@@ -93,94 +114,11 @@ app.get('/delivery', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'delivery.html'));
 });
 
-// POST /api/delivery-quote - Handle delivery quote submissions
-// LOGIC CHANGE 2026-03-27: Added delivery quote intake endpoint for courier service.
-app.post('/api/delivery-quote', async (req, res) => {
-    try {
-        const {
-            businessName,
-            contactName,
-            phone,
-            email,
-            pickupAddress,
-            deliveryAddress,
-            pickupCoords,
-            deliveryCoords,
-            quote
-        } = req.body;
-
-        // Validate required fields
-        if (!businessName || !contactName || !phone || !email || !pickupAddress || !deliveryAddress) {
-            return res.status(400).json({
-                error: 'All fields are required',
-                code: 'MISSING_FIELDS'
-            });
-        }
-
-        // Validate email format
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
-            return res.status(400).json({
-                error: 'Invalid email format',
-                code: 'INVALID_EMAIL'
-            });
-        }
-
-        // Validate quote data
-        if (!quote || typeof quote.distance !== 'number') {
-            return res.status(400).json({
-                error: 'Invalid quote data',
-                code: 'INVALID_QUOTE'
-            });
-        }
-
-        // Build quote record
-        const quoteRecord = {
-            id: crypto.randomUUID(),
-            timestamp: new Date().toISOString(),
-            businessName: sanitizeInput(businessName),
-            contactName: sanitizeInput(contactName),
-            phone: sanitizeInput(phone),
-            email: sanitizeInput(email),
-            pickupAddress: sanitizeInput(pickupAddress),
-            deliveryAddress: sanitizeInput(deliveryAddress),
-            pickupCoords,
-            deliveryCoords,
-            quote: {
-                distance: quote.distance,
-                price: quote.price,
-                contactRequired: quote.contactRequired
-            },
-            status: 'pending'
-        };
-
-        // Save to JSON file
-        const quotes = await loadDeliveryQuotes();
-        quotes.push(quoteRecord);
-        await saveDeliveryQuotes(quotes);
-
-        console.log(`[storefront] Delivery quote saved: ${quoteRecord.id} - ${businessName}`);
-
-        // Post to Slack (async, don't block response)
-        logDeliveryQuoteToSlack(quoteRecord).catch(() => {});
-
-        res.json({
-            success: true,
-            quoteId: quoteRecord.id,
-            message: 'Quote request received. We will follow up shortly.'
-        });
-
-    } catch (err) {
-        console.error('[storefront] Delivery quote error:', err.message);
-        res.status(500).json({
-            error: 'Failed to process quote request',
-            code: 'INTERNAL_ERROR'
-        });
-    }
-});
+// POST /api/delivery-quote - the courier intake (bots/storefront-delivery.js)
+app.post('/api/delivery-quote', limit(rateLimiters.deliveryQuote), handleDeliveryQuote);
 
 // POST /api/chat - Handle chat messages
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', limit(rateLimiters.chat), async (req, res) => {
     try {
         const { message, sessionId: providedSessionId } = req.body;
 
@@ -194,7 +132,9 @@ app.post('/api/chat', async (req, res) => {
         }
 
         // Get or create session
-        const sessionId = providedSessionId || crypto.randomUUID();
+        // LOGIC CHANGE 2026-11-25 (WORK-TODO #87): a supplied id is kept only in the short id
+        // shape acceptSessionId allows; anything else (a number, a newline, 10 KB) gets a new one.
+        const sessionId = acceptSessionId(providedSessionId) || crypto.randomUUID();
         const session = getOrCreateSession(sessionId);
 
         // LOGIC CHANGE 2026-03-27: Search catalog for relevant products before building prompt
@@ -289,4 +229,5 @@ module.exports = {
     DELIVERY_QUOTES_FILE,
     initializeCatalog,
     catalogInitialized: isCatalogInitialized,
+    rateLimiters,
 };
