@@ -16,6 +16,7 @@ priority: 2
 max_turns: 20
 memory_dir: agents/secretary/memory
 llm_provider: claude
+llm_model: claude-sonnet-5-5
 schedule:
   cron: "0 7 * * *"
   task: morning-briefing
