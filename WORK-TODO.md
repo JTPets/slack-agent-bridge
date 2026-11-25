@@ -92,6 +92,8 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-25** filing **#85** (the secretary's briefing ran silent for 15 minutes and was refused; built, closes after a week of observed briefings) and **#86** (per-agent run cost is summed nowhere; P3) those print **26** open items — **7** P1, **14** P2, **5** P3 — and no duplicate ID.
+
 On **2026-11-25** filing **#83** (B33: the nightly security audit reviewed no commits; built,
 closes on the first nightly report that reviews commits) and filing and closing **#84** (B33:
 `ENOENT` in a passing run's output scored it runner_absent) those print **24** open items —
@@ -448,6 +450,8 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #75 | P2 | **CLOSED 2026-10-10** (purged) | OD | — | The live compose (owner-supplied 2026-10-10) has no `/repo` mount, so the exposure does not exist on the box; `docker-compose.example.yml` now matches |
 | #83 | P1 | BUILT 2026-11-25 (B33) | B33 | M | `nightly-audit` is a deterministic in-process review of the 24-hour diff (`lib/nightly-security-review.js`). Closes on the first nightly report that reviews commits |
 | #84 | P1 | **CLOSED 2026-11-25** (B33, filed and fixed, purged) | B33 | S | `lib/test-verdict.js` scored any output containing `ENOENT` as runner_absent even after every test passed; an absence word now counts only when no test count was parsed. Guard `tests/test-verdict-counted-run.test.js` |
+| #85 | P2 | BUILT 2026-11-25 | — | S | The 07:00 briefing is given the weather and holidays it was asked for, the template asks only for supplied facts, and a no-tools Claude run is capped at `NO_TOOLS_TIMEOUT_MS`. Closes after a week of briefings with no silent 15-minute run |
+| #86 | P3 | OPEN | — | S | Per-agent daily rollup of the CLI's estimated run cost and turns, which is logged once per run and kept nowhere |
 | #79 | P2 | **CLOSED 2026-11-07** (B18, filed and fixed, purged) | B18 | S | A Gemini 402 "prepayment credits are depleted" was reported as a rate limit; `lib/llm-http-failure.js` classifies billing first and every Gemini failure is tagged. Guard `tests/llm-http-failure.test.js` |
 | #76 | P3 | **CLOSED 2026-11-07** (B18, purged) | B18 | S | Calendar, holiday, standup and staff-clock days in Toronto time (`lib/time-format.js` zoned helpers); `tests/timezone-explicit.test.js` now fails on a local-field Date read |
 | #62 | P2 | **CLOSED 2026-10-04** (B8, purged) | B8 | S | `data/*` with `!data/.gitkeep`; guard `tests/gitignore-publishable.test.js` |
@@ -617,8 +621,9 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (13)
+**P2 — real gaps, no risk to the running process** (14)
 
+- **#85** — [The secretary's morning briefing deliberates silently for 15 minutes and is refused by the model's safeguards](#85-the-secretarys-morning-briefing-deliberates-silently-for-15-minutes-and-is-refused-by-the-models-safeguards)
 - **#78** — [SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one](#78-sqtools-alerts-reach-the-secretary-but-the-owner-cannot-acknowledge-silence-or-be-nagged-about-one)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
 - **#4b** — [Config surface is undocumented and cross-stack infra is unowned — INVENTORY FILED 2026-09-14](#4b-config-surface-is-undocumented-and-cross-stack-infra-is-unowned--inventory-filed-2026-09-14)
@@ -633,8 +638,9 @@ work behind an owner's name, which is the opposite of the point.
 - **#59** — [The turn cap does two unrelated jobs — replace the cost half with stall detection and a wall-clock bound](#59-the-turn-cap-does-two-unrelated-jobs--replace-the-cost-half-with-stall-detection-and-a-wall-clock-bound)
 - **#80** — [Activating an agent ignores its checklist, and a checklist tick proves nothing](#80-activating-an-agent-ignores-its-checklist-and-a-checklist-tick-proves-nothing)
 
-**P3 — nice to have / uncertain ROI** (4)
+**P3 — nice to have / uncertain ROI** (5)
 
+- **#86** — [What each agent's runs would cost is logged once per run and summed nowhere](#86-what-each-agents-runs-would-cost-is-logged-once-per-run-and-summed-nowhere)
 - **#29** — [`gmail-unsubscribe` is a declared agent permission that no code implements](#29-gmail-unsubscribe-is-a-declared-agent-permission-that-no-code-implements)
 - **#13** — [MCP server wrapper](#13-mcp-server-wrapper)
 - **#14** — [Watercooler retro → LinkedIn draft](#14-watercooler-retro--linkedin-draft)
@@ -1287,6 +1293,57 @@ found no message posted by the form, so there is no evidence the command has eve
 ---
 
 ## P2 — Real gaps, no risk to the running process
+
+### 85. The secretary's morning briefing deliberates silently for 15 minutes and is refused by the model's safeguards
+**Filed 2026-11-25. Priority: P2. Status: BUILT on this branch; closes after a week of 07:00
+briefings in which none runs silent past the cap (or one is cut at the cap and reported).**
+
+**The evidence (operator-supplied, 2026-11-25: `docker logs jt-agent` for both windows, and
+the failure cards in `#sqtools-ops`).** On 2026-11-20 and 11-21 the `morning-briefing` run
+(secretary, `tools: secretary: no tools`, prompt 2985 and 3186 bytes on stdin) was silent for
+907 s and 805 s (`maxQuietMs`), took 3 turns, cost $2.65 and $2.63, and exited 1 with
+"API Error: Opus 5.5's safeguards flagged this message ... Details: `[reasoning_extraction]`"
+(request ids `req_011ChEAQ5xhpMRPyx1a2mNRt`, `req_011ChG45VYpA2HAcmmcbiLAX`). 11-24 went
+silent the same way (835 s, stall alert at 07:10) and finished. A normal run is about 20 s,
+1 turn, $0.06 (11-22, 11-23, 11-25). The coordinator's read of the task history puts the slow
+runs at roughly every other day since 11-07 (11-08, 11-11 failed, 11-13, 11-15, 11-18, 11-20,
+11-21, 11-24).
+
+**What it does not track.** The SqTools alert subjects in the prompt for those mornings
+(`agents/secretary/memory/sqtools-alerts.json`, pasted the same day) are ordinary: the bad
+and good mornings carry the same kinds (automation digest, min-stock, logged errors; 11-22,
+a fast morning, carried four "Database Connection Lost"). No email body reaches the prompt,
+only SqTools subjects. The prompt itself is not recorded, so the trigger word, if there is
+one, is unverified. The boring reading: the same kind of prompt, deliberated at length
+nondeterministically.
+
+**Why the prompt invites it.** The template asked for the weather, "any urgent emails or
+messages from overnight" and holidays. The secretary's context (`buildSecretaryContext`)
+carried none of them, and since 2026-11-07 her run has no tools. Nothing bounded the run: the
+box's task deadline let it reach 917 s.
+
+**The fix.**
+1. `buildSecretaryContext` adds the weather and today's holidays and pet awareness dates
+   (`buildDayFactsLines`, the same sources the morning digest uses), each bounded at 8 s and
+   stated as unavailable when it fails.
+2. The `morning-briefing` template asks only for those facts, says she has no tools, and
+   says to name an empty section in one line.
+3. `lib/agent-tools.js` `runDeadline`: a Claude run whose agent resolves to no tools has its
+   deadline capped at `NO_TOOLS_TIMEOUT_MS` (default 5 min, `0` off), enforced in the
+   adapter, so every no-tools caller (briefing, no-tools ASK answers, the nightly audit at
+   about 93 s) is covered. A run with any tool keeps its caller's deadline. This is the
+   wall-clock half of #59 for the runs where a tool loop cannot be the cause.
+4. The model. The Claude adapter ignored `options.model`, so a definition's `llm_model`
+   never reached the CLI and every claude agent ran on the CLI default (the refusal names
+   it). The adapter now passes `--model` (`claudeModelArgs`, refusing a value not shaped
+   like a model id), and the secretary declares `llm_model: claude-sonnet-5-5` (owner's
+   question 2026-11-25: "do we need opus for our secretary?"). Every other agent declares
+   no model and is unchanged.
+
+Guard: `tests/morning-briefing.test.js` (the pre-#85 template is its negative control; the
+cap is proven on the real adapter with a stub).
+
+**Left:** observing the briefings on the box after deploy.
 
 ### 78. SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one
 **Filed 2026-11-02,** by the change that built the intake (owner request 2026-11-02; the
@@ -2401,6 +2458,21 @@ platforms; every test injects its client or fetch.
 ---
 
 ## P3 — Nice to have / uncertain ROI
+
+### 86. What each agent's runs would cost is logged once per run and summed nowhere
+**Filed 2026-11-25. Priority: P3 (owner: "worth tracking ... but not a priority").
+Status: OPEN, not started.**
+
+Every Claude run logs `[run-stats]` with `costUsd` (the CLI's `total_cost_usd`, an
+API-price estimate; billing is subscription usage through `CLAUDE_CODE_OAUTH_TOKEN`, so it
+is not an invoice) and `numTurns` (`lib/claude-stream-watch.js`). Nothing keeps it: it lives
+only in the container log. #85 is how it was noticed: two failed briefings logged about $2.63
+each against a normal $0.06.
+
+**Wanted:** a per-agent, per-day rollup of estimated cost, turns and wall time, kept the way
+`lib/llm-metrics.js` keeps verdicts (day buckets, retention), readable by a command and
+optionally a weekly line. Say plainly that it is an estimate. Grep first: `lib/llm-metrics.js`
+already buckets per agent per day and is the likely owner.
 
 ### 29. `gmail-unsubscribe` is a declared agent permission that no code implements
 **BLOCKED — OWNER DECISION.** Drop the permission and the three rules-file keys as
