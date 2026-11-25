@@ -23,7 +23,7 @@ const SOURCE = fs.readFileSync(path.join(__dirname, '..', 'bridge-agent.js'), 'u
 
 /** The TASK: branch, from the admitting dedup check to the run's await. */
 function taskBranch(src) {
-    const start = src.indexOf('if (isTaskMessage(msg) && !alreadyProcessed(msg)');
+    const start = src.indexOf('if (runsAsTask && !alreadyProcessed(msg)');
     if (start < 0) return null;
     const end = src.indexOf('await currentTaskPromise;', start);
     if (end < 0) return null;
