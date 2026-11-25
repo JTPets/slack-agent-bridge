@@ -1959,7 +1959,9 @@ anyone can fix when compute costs skyrocket someday with minimal issue." So leng
 not a trigger: a split is owed where a function or file mixes concerns or is a monolith nobody can
 read in one pass, and it is cut by concern. Recorded in `CLAUDE.md` -> Code Rules ("Organization") with the shape the owner named,
 "helpers, middleware, hubs and spokes" (Code Rules -> "Organization: helpers, middleware, hubs and spokes").
-A length-only test was written and dropped for that reason: it cannot judge organization.
+Then: "the 300 rule seems to be a good limit to making this happen organically." So 300 stays
+as the trigger: `tests/function-size.test.js` fails on a function past 300 lines unless it is
+declared `single-concern` (its one job stated) or `split-owed` (its concerns and the batch named).
 Functions over 300 lines at `1d70fe8` (measured with @babel/parser): `processTask` 957 and
 `processConversation` 572 in `bridge-agent.js`, `createSlackClient` 360 in `lib/slack-client.js`.
 - `createSlackClient`, split here: eight methods as closures in one 360-line function. Now the pure
