@@ -205,6 +205,11 @@ const SPLITS = [
         parts: ['lib/clone-target.js', 'lib/clone-delivery.js'],
         exports: ['cloneRepo', 'cleanupDir', 'detectUndeliveredWork', 'assertValidTargetDir', 'SHA_PATTERN'],
     },
+    {   facade: 'lib/slack-client.js', // B34, 2026-11-25: createSlackClient's closures moved out
+        parts: ['lib/slack-channel-names.js', 'lib/slack-channel-ops.js', 'lib/slack-channel-ensure.js'],
+        exports: ['createSlackClient', 'loadChannelMap', 'saveChannelMap', 'CHANNEL_NAME_MAX_LENGTH',
+            'CHANNEL_NAME_PATTERN'],
+    },
 ];
 
 module.exports = { SPLITS };

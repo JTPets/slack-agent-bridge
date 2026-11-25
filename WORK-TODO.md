@@ -1895,6 +1895,18 @@ entry in `lib/validate-exceptions.json` in the same commit; the gate fails if it
 behaviour-preserving: `node --check` plus the smoke suite catch load failures and export
 surface, nothing more. State the smoke coverage of every moved function, and report its
 absence as a finding rather than folding it into a green.
+**B34, 2026-11-25 — the per-function rule is now enforced, and the first function split.** The
+owner's rule is that the 300-line limit is per function. `tests/function-size.test.js` parses
+every production file and fails on any function over 300 lines that it does not declare, and on a
+declaration that has gone stale. Measured at `1d70fe8`, three were over: `processTask` (957
+lines) and `processConversation` (572) in `bridge-agent.js`, and `createSlackClient` (360) in
+`lib/slack-client.js`. `createSlackClient` is split here: its closures moved to
+`lib/slack-channel-names.js`, `lib/slack-channel-ops.js` and `lib/slack-channel-ensure.js`, each
+taking the client first, and the facade binds them (the guard fails against the old file). The two
+`bridge-agent.js` functions are declared, waiting for the secretary-briefing branch, which also
+edits that file. Next over 150 lines, not over the rule: `pollSweep` 258, `runClaudeAdapter` 234.
+Regenerate: `npx jest tests/function-size.test.js`.
+
 **Priority:** P2 | **Effort:** High, incremental | **Status:** open
 
 ---

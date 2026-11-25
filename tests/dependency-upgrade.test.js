@@ -53,7 +53,7 @@ function fakeFetch(body) {
 
 describe('@slack/web-api 8: the error shape this repository reads', () => {
     test('the sites that depend on it exist (so this test guards something)', () => {
-        const src = ['lib/slack-client.js', 'lib/heartbeat.js', 'bridge-agent.js']
+        const src = ['lib/slack-channel-ops.js', 'lib/slack-channel-ensure.js', 'lib/heartbeat.js', 'bridge-agent.js']
             .map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
         expect((src.match(/\.data\?\.error/g) || []).length).toBeGreaterThanOrEqual(10);
     });
