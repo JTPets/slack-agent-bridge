@@ -92,6 +92,10 @@ grep -E '^### [0-9]+[a-z]?\. ' WORK-TODO.md | sed 's/^### //'
 grep -oE '^### [0-9]+[a-z]?\.' WORK-TODO.md | sort | uniq -d
 ```
 
+On **2026-11-25** filing **#88** (the secretary cannot tell important mail from junk; phase 1,
+the unsubscribe list and sender ledger, built) those print **27** open items — **8** P1,
+**14** P2, **5** P3 — and no duplicate ID.
+
 On **2026-11-25** filing **#85** (the secretary's briefing ran silent for 15 minutes and was refused; built, closes after a week of observed briefings) and **#86** (per-agent run cost is summed nowhere; P3), on top of B32 (`1d70fe8`), those print **26** open items — **8** P1, **13** P2, **5** P3 — and no duplicate ID.
 
 On **2026-11-25**, after rebasing B32 onto B33 (`bb7d35e`): closing **#17** and **#6** and filing
@@ -462,6 +466,7 @@ Verdicts: **OPEN** (repo work remains), **REPO DONE** (only owner-side remains),
 | #84 | P1 | **CLOSED 2026-11-25** (B33, filed and fixed, purged) | B33 | S | `lib/test-verdict.js` scored any output containing `ENOENT` as runner_absent even after every test passed; an absence word now counts only when no test count was parsed. Guard `tests/test-verdict-counted-run.test.js` |
 | #85 | P2 | BUILT 2026-11-25 | — | S | The 07:00 briefing is given the weather and holidays it was asked for, the template asks only for supplied facts, and a no-tools Claude run is capped at `NO_TOOLS_TIMEOUT_MS`. Closes after a week of briefings with no silent 15-minute run |
 | #86 | P3 | OPEN | — | S | Per-agent daily rollup of the CLI's estimated run cost and turns, which is logged once per run and kept nowhere |
+| #88 | P2 | Phase 1 BUILT 2026-11-25 | — | M | Bulk senders recorded per inbox check with their unsubscribe links (`ASK: unsubscribe`, `ASK: sender <id> unsubscribed|keep`); the learning loop and the filtered briefing wait for the owner's design answer |
 | #79 | P2 | **CLOSED 2026-11-07** (B18, filed and fixed, purged) | B18 | S | A Gemini 402 "prepayment credits are depleted" was reported as a rate limit; `lib/llm-http-failure.js` classifies billing first and every Gemini failure is tagged. Guard `tests/llm-http-failure.test.js` |
 | #76 | P3 | **CLOSED 2026-11-07** (B18, purged) | B18 | S | Calendar, holiday, standup and staff-clock days in Toronto time (`lib/time-format.js` zoned helpers); `tests/timezone-explicit.test.js` now fails on a local-field Date read |
 | #62 | P2 | **CLOSED 2026-10-04** (B8, purged) | B8 | S | `data/*` with `!data/.gitkeep`; guard `tests/gitignore-publishable.test.js` |
@@ -632,8 +637,9 @@ work behind an owner's name, which is the opposite of the point.
 - **#4** — [Replace HTTP polling with Slack Socket Mode (event triggers)](#4-replace-http-polling-with-slack-socket-mode-event-triggers)
 - **#43** — [A flattened dispatch loses its fields — the connection for the fix exists, the command does not](#43-a-flattened-dispatch-loses-its-fields--the-connection-for-the-fix-exists-the-command-does-not)
 
-**P2 — real gaps, no risk to the running process** (13)
+**P2 — real gaps, no risk to the running process** (14)
 
+- **#88** — [The secretary cannot tell the owner's important mail from the junk, and finds him no way out of it](#88-the-secretary-cannot-tell-the-owners-important-mail-from-the-junk-and-finds-him-no-way-out-of-it)
 - **#85** — [The secretary's morning briefing deliberates silently for 15 minutes and is refused by the model's safeguards](#85-the-secretarys-morning-briefing-deliberates-silently-for-15-minutes-and-is-refused-by-the-models-safeguards)
 - **#78** — [SqTools alerts reach the secretary, but the owner cannot acknowledge, silence or be nagged about one](#78-sqtools-alerts-reach-the-secretary-but-the-owner-cannot-acknowledge-silence-or-be-nagged-about-one)
 - **#68** — [The bridge image serves node only, for an estate that is one-third python — and it is not a config edit](#68-the-bridge-image-serves-node-only-for-an-estate-that-is-one-third-python--and-it-is-not-a-config-edit)
@@ -2394,6 +2400,51 @@ Merchant Center, a Bluesky session check). Unverified: any probe against the rea
 platforms; every test injects its client or fetch.
 **Close condition:** one planned agent activated through the session on the box.
 **Priority:** P2 | **Effort:** S | **Status:** built (B25, probes B30); closes on the first activation through the session
+
+---
+
+### 88. The secretary cannot tell the owner's important mail from the junk, and finds him no way out of it
+**Filed 2026-11-25. Priority: P2. Status: phase 1 BUILT (2026-11-25); phases 2 and 3 not built,
+phase 2's design waits for the owner.**
+
+The owner, 2026-11-25: "i think a good job for secretary is finding me unsubscribe links" and
+"i get a lot of junk, i need her to start to learn how to filter out the noise and read the
+important stuff". Today the inbox check reads every new email every 30 minutes, sorts it by
+keyword rules (`agents/email-monitor/memory/rules.json`) and keeps nothing about senders; the
+secretary is told only when the inbox was last read and the SqTools alerts
+(`lib/agent-context-ops.js` `buildSqToolsAlertLines`). Nothing records who sends bulk mail,
+how often, or how to leave it, and nothing remembers what the owner thinks of a sender.
+
+**Phase 1 — BUILT 2026-11-25.** `lib/integrations/bulk-mail.js` reads each fetched message
+for its sender, its bulk signals (List-Unsubscribe, List-Id, `Precedence: bulk|list|junk`,
+Gmail's Promotions/Social/Forums labels) and its unsubscribe link (the header first, a body
+footer link only when the header has none; https/http/mailto only, re-serialised by the URL
+parser). `lib/integrations/gmail.js` attaches it as `bulk`. `lib/mail-senders.js` keeps one
+entry per bulk sender in `agents/secretary/memory/mail-senders.json` (gitignored), recorded
+by `lib/email-check.js` on every successful check. `ASK: unsubscribe [n]` (read-only, so it
+answers in the secretary's channel too) lists the noisiest undecided senders with their
+links; `ASK: sender <id> unsubscribed|keep` records a verdict, and an unsubscribed sender
+still writing two weeks later is listed again. **The bridge never opens a link**: it shows
+each with its host (flagged when not the sender's domain), and verb replies post with
+previews off. Guards: `tests/bulk-mail.test.js`, `tests/mail-senders.test.js`.
+**Left in phase 1:** unverified on the box; the ledger fills only from mail that arrives
+after the deploy (the check reads new mail, not the backlog in the inbox).
+
+**Phase 2 — the learning loop, design to be agreed with the owner before it is built.**
+The proposal: the owner's verdict per sender (`important` / `noise` / `unsubscribed` /
+`keep`, given by buttons on a weekly sender digest as well as the verb) is the only teacher.
+A sender with a verdict is classified by it; a sender without one is classified from its
+signals and the owner's verdicts on similar senders (same domain, same ESP host), always
+shown as a suggestion with the reason, never acted on. Nothing is archived, labelled or
+unsubscribed in the mailbox (the token is `gmail.readonly`; #29 stays a decision).
+**Phase 3 — the briefing shows only what matters.** The secretary is given the day's mail
+from `important` senders and personal mail (no bulk signal) as facts, with noise reduced to
+a count. Email content stays untrusted data: subjects and senders only, sanitised, and never
+a path to a task (#81).
+
+**Close condition:** all three phases built, and the owner's first briefing after phase 3
+names only mail he agrees mattered. Phase 1 alone does not close it.
+**Priority:** P2 | **Effort:** M | **Status:** phase 1 built; phase 2 design to the owner
 
 ---
 

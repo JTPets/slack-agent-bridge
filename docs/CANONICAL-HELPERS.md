@@ -327,6 +327,14 @@ the same extraction. Noted here so the extraction is scoped to include it.
 only module whose stated job *is* state persistence — but it owns two specific files,
 not the pattern.
 
+**Addendum 2026-11-25 (WORK-TODO #88).** `lib/mail-senders.js` adds one more copy, written
+temp-then-`rename`. It is not the first atomic one any more: the `renameSync` grep above
+now lists `lib/catalog-new-items.js`, `lib/high-notices.js`, `lib/social-drafts.js`,
+`lib/social-insights.js`, `lib/bot-task-ledger.js`, `lib/run-stats-store.js` and
+`lib/mail-senders.js`, each with its own few lines. Duplication acknowledged and deferred:
+the shared atomic JSON store is this section's extraction, which should take those seven
+as its model rather than gain an eighth.
+
 ## 8. Path resolution to the repo root — **IDENTICAL ×15, plus WORK-TODO #24's group**
 
 ```bash
