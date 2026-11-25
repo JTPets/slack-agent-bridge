@@ -49,6 +49,7 @@ const { formatDeadlineWarning, formatRunAlert } = require('./lib/deadline-warnin
 // look at home. tests/no-shell-execution.test.js now fails on the import itself.
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 // LOGIC CHANGE 2026-03-26: Added memory-manager integration to track task
 // execution history for analytics and debugging purposes.
@@ -243,6 +244,8 @@ const { createHighDigest, intervalFromEnv: highDigestInterval } = require('./lib
 const { createClaudeAuthWatch, probeClaudeAuth } = require('./lib/claude-auth-watch');
 const { DEFAULT_CLAUDE_BIN } = require('./lib/llm-defaults');
 const { handleSlashCommand, handleViewSubmission } = require('./lib/dispatch-command');
+// LOGIC CHANGE 2026-11-25 (WORK-TODO #81): which bot-authored TASK messages are the bridge's own.
+const botTaskLedger = require('./lib/bot-task-ledger');
 // LOGIC CHANGE 2026-11-07 (WORK-TODO #78): SqTools alert buttons share the interactive seam.
 const sqtoolsAlertButtons = require('./lib/sqtools-alert-buttons');
 // LOGIC CHANGE 2026-11-09: social post drafts' Publish/Edit/Reject buttons and Edit form.
@@ -621,6 +624,7 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
   const task = parseTask(msg.text);
   const startTime = Date.now();
   let taskDir = null;
+  let scratchCwd = null;
   let taskBaseSha = null;
   let taskSuccess = false;
   // LOGIC CHANGE 2026-09-14: Phase 3 used to run a hardcoded `npm test` while Phase 1
@@ -742,6 +746,17 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
 
     let prompt = '';
     let cwd = WORK_DIR;
+
+    // LOGIC CHANGE 2026-11-25 (WORK-TODO #82): a task with no REPO: runs in an empty
+    // directory of its own, removed in the finally below. It used to run in WORK_DIR,
+    // which holds every scratch and preserved clone, the update-gate checkout, the task
+    // queue and the HIGH notices: a read-only agent (the nightly audit, the secretary)
+    // was confined to that tree and read it, and the audit reported on the gate checkout
+    // as if it were the repository.
+    if (!task.repo) {
+      scratchCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-task-'));
+      cwd = scratchCwd;
+    }
 
     if (task.repo) {
       // Clone into a unique temp dir
@@ -1515,6 +1530,16 @@ async function processTask(msg, sourceChannel = BRIDGE_CHANNEL, queueId = null, 
       console.error('[bridge-agent] Failed to clear working memory:', memErr.message);
     }
 
+    // LOGIC CHANGE 2026-11-25 (WORK-TODO #82): the no-repo task's own empty directory.
+    // Nothing in it is delivered work: a task without a repository has nowhere to push.
+    if (scratchCwd) {
+      try {
+        fs.rmSync(scratchCwd, { recursive: true, force: true });
+      } catch (rmErr) {
+        console.error(`[bridge-agent] Could not remove ${scratchCwd}:`, rmErr.message);
+      }
+    }
+
     // LOGIC CHANGE 2026-03-27: Remove task lock file to signal task completion.
     // Auto-update.js waits for this file to be removed before restarting.
     // LOGIC CHANGE 2026-09-14: Delegated to lib/task-lock.js, which logs the
@@ -1967,11 +1992,12 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
           let posted = 0;
           for (const task of result.tasks) {
             if (task.targetChannel && task.taskMessage) {
-              await slack.chat.postMessage({
+              // LOGIC CHANGE 2026-11-25 (WORK-TODO #81): recorded, so the poll loop runs it.
+              await botTaskLedger.postBridgeTask(slack, {
                 channel: task.targetChannel,
                 text: task.taskMessage,
                 unfurl_links: false,
-              });
+              }, { onUnrecorded: postToOps });
               posted++;
             }
           }
@@ -1998,11 +2024,12 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
           // Post approved task to target channel
           const task = result.task;
           if (task.targetChannel && task.taskMessage) {
-            await slack.chat.postMessage({
+            // LOGIC CHANGE 2026-11-25 (WORK-TODO #81): recorded, so the poll loop runs it.
+            await botTaskLedger.postBridgeTask(slack, {
               channel: task.targetChannel,
               text: task.taskMessage,
               unfurl_links: false,
-            });
+            }, { onUnrecorded: postToOps });
           }
 
           await slack.chat.postMessage({
@@ -2158,19 +2185,32 @@ async function processConversation(msg, sourceChannel = BRIDGE_CHANNEL, handling
     // LOGIC CHANGE 2026-09-13: runLLM -> runWithFallback, so a gemini agent whose
     // provider is rate limited or unreachable falls through the chain instead of
     // failing the ASK outright. See the task call site for the full rationale.
-    const result = await runWithFallback(prompt, {
-      cwd: WORK_DIR,
-      maxTurns,
-      timeout: TASK_TIMEOUT,
-      claudeBin: CLAUDE_BIN,
-      // LOGIC CHANGE 2026-09-13: resolveLlmProvider honours the per-agent
-      // LLM_PROVIDER_<AGENTID> on-box override (see the task call site).
-      provider: resolveLlmProvider(currentAgent, agentId),
-      model: currentAgent?.llm_model,
-      agentId,
-      // LOGIC CHANGE 2026-11-07: per-agent Claude tool permissions (lib/agent-tools.js).
-      agentRecord: currentAgent,
-    });
+    // LOGIC CHANGE 2026-11-25 (WORK-TODO #82): an answer runs in an empty directory of
+    // its own, not in WORK_DIR (every clone, the gate checkout, the queue). Removed in the
+    // finally below whatever the answer does.
+    const askCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-ask-'));
+    let result;
+    try {
+      result = await runWithFallback(prompt, {
+        cwd: askCwd,
+        maxTurns,
+        timeout: TASK_TIMEOUT,
+        claudeBin: CLAUDE_BIN,
+        // LOGIC CHANGE 2026-09-13: resolveLlmProvider honours the per-agent
+        // LLM_PROVIDER_<AGENTID> on-box override (see the task call site).
+        provider: resolveLlmProvider(currentAgent, agentId),
+        model: currentAgent?.llm_model,
+        agentId,
+        // LOGIC CHANGE 2026-11-07: per-agent Claude tool permissions (lib/agent-tools.js).
+        agentRecord: currentAgent,
+      });
+    } finally {
+      try {
+        fs.rmSync(askCwd, { recursive: true, force: true });
+      } catch (rmErr) {
+        console.error(`[bridge-agent] Could not remove ${askCwd}:`, rmErr.message);
+      }
+    }
     const { output } = result;
 
     // Post response as a thread reply
@@ -2263,6 +2303,56 @@ async function poll() {
     return true;
   } finally {
     pollInFlight = false;
+  }
+}
+
+let botTaskLedgerReported = false;
+
+/**
+ * WORK-TODO #81: is this bot-authored TASK message one the bridge posted as a task?
+ *
+ * Waits for task posts still being recorded (the poll can read a post before its
+ * poster's await has run), then looks the message up. Not posted by the bridge: logged,
+ * and when it parses as a well-formed task (so something real was refused) also posted
+ * to #sqtools-ops, once per message. An unreadable ledger refuses every bot task and is
+ * reported once per process. Never throws.
+ *
+ * @returns {Promise<boolean>}
+ */
+async function isBridgePostedTask(msg, channelId) {
+  try {
+    await botTaskLedger.settle();
+    const found = botTaskLedger.lookup(channelId, msg.ts);
+    if (found.posted) return true;
+    if (found.error) {
+      console.error(`[bridge-agent] Bot task ledger unreadable, refusing bot task ${msg.ts}: ${found.error}`);
+      if (!botTaskLedgerReported) {
+        botTaskLedgerReported = true;
+        await postToOps(
+          `:rotating_light: *The bot task ledger cannot be read, so no task the bridge posts will run* ` +
+          `(scheduled, approved and /dispatch tasks included): ${found.error}\n` +
+          `Fix or remove ${botTaskLedger.DEFAULT_FILE}; a missing file is an empty ledger (WORK-TODO #81).`
+        );
+      }
+      return false;
+    }
+    console.log(`[bridge-agent] Bot message ${msg.ts} in ${channelId} contains TASK: but the bridge did not post it as a task; not run`);
+    const parsed = parseTask(msg.text);
+    if (parsed.description && (!parsed.errors || parsed.errors.length === 0)) {
+      if (!isTaskProcessed(msg.ts)) {
+        markTaskProcessed(msg.ts);
+        await postToOps(
+          `:shield: *A bot post that carried a task block was not run* (WORK-TODO #81). ` +
+          `The bridge did not post it as a task, so it is text the bot relayed (an email, an alert, ` +
+          `a task's output). Task line: ${parsed.description || 'none'}. ` +
+          `<${msgLink(String(msg.ts), channelId)}|message>`
+        );
+      }
+    }
+    return false;
+  } catch (err) {
+    console.error(`[bridge-agent] Bot task check failed for ${msg.ts}; not run: ${err.message}`);
+    return false;
   }
 }
 
@@ -2370,7 +2460,18 @@ async function pollSweep() {
         // isTaskProcessed() checks our local processed-tasks.json file.
         // LOGIC CHANGE 2026-04-01: Tasks are now enqueued before processing. The queue is
         // persisted to disk so auto-update can see pending tasks and wait for them.
-        if (isTaskMessage(msg) && !alreadyProcessed(msg) && !isTaskProcessed(msg.ts)) {
+        // LOGIC CHANGE 2026-11-25 (WORK-TODO #81): a bot-authored message runs as a task
+        // only when the bridge itself posted it as one (lib/bot-task-ledger.js). The bot
+        // also posts text it did not write - email subjects, SqTools alerts, task output -
+        // and `isTaskMessage` matches `TASK:` anywhere, so before this any such post that
+        // carried a task block ran with the allowlist skipped. A refused bot post that is
+        // not a task falls through, so a bot ASK: still reaches the conversation path.
+        let runsAsTask = isTaskMessage(msg);
+        if (runsAsTask && isBotMessage) {
+          runsAsTask = await isBridgePostedTask(msg, channelId);
+        }
+
+        if (runsAsTask && !alreadyProcessed(msg) && !isTaskProcessed(msg.ts)) {
           console.log(`[bridge-agent] Task found in ${agentId} channel: ${msg.ts}`);
 
           // Parse task to get description for queue
@@ -3012,7 +3113,9 @@ let socketMode = null;
         notify: postToOps,
       })
       : handleViewSubmission(envelope, {
-        postMessage: (args) => slack.chat.postMessage({ ...args, unfurl_links: false }),
+        // LOGIC CHANGE 2026-11-25 (WORK-TODO #81): the form's post is a task the bridge
+        // posted, so it goes through the ledger the poll loop checks bot posts against.
+        postMessage: (args) => botTaskLedger.postBridgeTask(slack, { ...args, unfurl_links: false }, { onUnrecorded: postToOps }),
         isAuthorized: isUserAuthorized,
         // LOGIC CHANGE 2026-10-04 (WORK-TODO #46): the poll set, read at submit time so
         // an activation since boot counts. A form opened anywhere else is refused.

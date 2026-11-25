@@ -275,7 +275,7 @@ const source = fs.readFileSync(BRIDGE_AGENT_PATH, 'utf8');
  * @param {string} src - bridge-agent.js source, or a mutated copy for the meta-tests
  */
 function dispatchBranch(src) {
-    const start = src.indexOf('if (isTaskMessage(msg) && !alreadyProcessed(msg)');
+    const start = src.indexOf('if (runsAsTask && !alreadyProcessed(msg)');
     expect(start).toBeGreaterThan(-1);
     const end = src.indexOf('const queuedTask = queue.enqueue({', start);
     expect(end).toBeGreaterThan(start);
@@ -336,7 +336,8 @@ describe('the guard itself detects what it claims to', () => {
         const branch = dispatchBranch(source);
         expect(branch.length).toBeGreaterThan(200);
         expect(branch.length).toBeLessThan(source.length / 4);
-        expect(branch).toContain('isTaskMessage(msg)');
+        // LOGIC CHANGE 2026-11-25 (WORK-TODO #81): the branch is gated on runsAsTask.
+        expect(branch).toContain('runsAsTask && !alreadyProcessed(msg)');
         // The ASK: branch lives after the enqueue site, so it must not be in here.
         expect(branch).not.toContain('processConversation(');
     });
@@ -356,7 +357,7 @@ describe('the guard itself detects what it claims to', () => {
     });
 
     test('the extractor throws rather than returning an empty region on a rename', () => {
-        const renamed = source.replace('if (isTaskMessage(msg) && !alreadyProcessed(msg)', 'if (isTaskMsg(msg) && !alreadyProcessed(msg)');
+        const renamed = source.replace('if (runsAsTask && !alreadyProcessed(msg)', 'if (runsAsTaskRenamed && !alreadyProcessed(msg)');
         expect(() => dispatchBranch(renamed)).toThrow();
     });
 });
