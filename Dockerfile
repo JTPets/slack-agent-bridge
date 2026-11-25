@@ -29,7 +29,8 @@
 # Between rebuilds the CLI is as old as the last build (the pre-image compose re-installed
 # it at every start). The base stays an exact tag because Dependabot raises it as a PR and
 # tests/dependency-upgrade.test.js checks the production tree runs on it.
-#   node:26.13.0-bookworm  LOGIC CHANGE 2026-11-01: the newest LTS release (Node 26
+#   node:26.13.1-bookworm  (26.13.0 -> 26.13.1 by Dependabot #105, 2026-11-25; patch release)
+#                          LOGIC CHANGE 2026-11-01: the newest LTS release (Node 26
 #                          "Lithium", 2026-10-28, nodejs.org/dist/index.json). Was
 #                          node:20.20.2, end of life since April 2026. The owner's rule
 #                          (2026-11-01): every piece of software is kept at its newest
